@@ -2897,7 +2897,7 @@ fn test_restoring_receipts_mainnet() {
 
     let run = |low_height_with_no_chunk: BlockHeight,
                high_height_with_no_chunk: BlockHeight,
-               result: bool| {
+               should_pass: bool| {
         init_test_logger();
         let height_timeout = 10;
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
@@ -2972,7 +2972,7 @@ fn test_restoring_receipts_mainnet() {
             height += 1;
         }
 
-        if result {
+        if should_pass {
             assert!(
                 receipt_hashes_to_restore.is_empty(),
                 "Some of receipts were not executed, hashes: {:?}",
