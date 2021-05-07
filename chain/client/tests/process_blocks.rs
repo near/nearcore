@@ -2898,7 +2898,7 @@ fn test_restoring_receipts_mainnet() {
     let run = |low_height_with_no_chunk: BlockHeight,
                high_height_with_no_chunk: BlockHeight,
                result: bool| {
-        // init_test_logger();
+        init_test_logger();
         let height_timeout = 10;
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);

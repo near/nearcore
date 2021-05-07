@@ -4775,6 +4775,7 @@ version = "0.1.0"
 dependencies = [
  "clap 3.0.0-beta.2",
  "near-chain",
+ "near-jsonrpc",
  "near-primitives",
  "near-store",
  "neard",

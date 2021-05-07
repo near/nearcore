@@ -203,6 +203,7 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
 
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn get_prev_epoch_id_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -215,6 +216,7 @@ impl NightshadeRuntime {
         }
     }
 
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn get_protocol_version_of_last_block_with_chunk(
         &self,
         hash: &CryptoHash,
@@ -432,9 +434,11 @@ impl NightshadeRuntime {
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         let prev_epoch_protocol_version = self.get_epoch_protocol_version(&prev_epoch_id)?;
 
         let apply_state = ApplyState {

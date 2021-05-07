@@ -304,11 +304,20 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use super::*;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use near_primitives::hash::hash;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use near_primitives::serialize::to_base;
 
     #[test]
@@ -329,11 +338,11 @@ mod tests {
     fn test_restored_receipts_data() {
         assert_eq!(
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
-            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
+            "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
         );
         let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
-        assert_eq!(mainnet_migration_data.restored_receipts.len(), 383);
+        assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
         let testnet_migration_data = load_migration_data(&"testnet".to_string());
-        assert_eq!(testnet_migration_data.restored_receipts.len(), 0);
+        assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }
