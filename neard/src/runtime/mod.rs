@@ -197,9 +197,9 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
 
-    fn get_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+    fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_id(parent_hash).map_err(Error::from)
+        epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
