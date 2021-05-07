@@ -288,7 +288,7 @@ fn test_float_to_int_contract() {
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        for index in 0..3 {
+        for index in 0..=3 {
             assert_eq!(
                 make_simple_contract_call_vm(&float_to_int_contract(index), "hello", vm_kind),
                 (
