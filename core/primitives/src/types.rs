@@ -159,20 +159,6 @@ pub enum StateChangeCause {
     Migration,
 }
 
-impl fmt::Display for MigrationId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::StorageUsageFix => write!(f, "Storage usage fix"),
-        }
-    }
-}
-
-impl fmt::Debug for MigrationId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
-
 /// This represents the committed changes in the Trie with a change cause.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct RawStateChange {
