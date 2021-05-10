@@ -24,7 +24,7 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
+use crate::vm_estimator::{compute_compile_cost_vm, cost_per_op, load_and_compile};
 use crate::TestContract;
 
 use near_primitives::runtime::config::RuntimeConfig;
@@ -239,14 +239,9 @@ pub enum Metric {
 pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     if only_compile {
-        let (contract_compile_cost, contract_compile_base_cost) =
-            cost_to_compile(config.metric, config.vm_kind, true);
-        let contract_byte_cost = ratio_to_gas(config.metric, contract_compile_cost);
-        println!(
-            "{}, {}",
-            contract_byte_cost,
-            ratio_to_gas(config.metric, contract_compile_base_cost)
-        );
+        let (contract_compile_base_cost, contract_per_byte_cost) =
+            compute_compile_cost_vm(config.metric, config.vm_kind, false);
+        println!("base = {}, per_byte = {}", contract_compile_base_cost, contract_per_byte_cost);
         process::exit(0);
     } else {
         #[cfg(feature = "protocol_feature_evm")]
@@ -742,7 +737,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
-    let (contract_compile_bytes_, contract_compile_base_) = get_compile_cost(config, false);
+    let (contract_compile_bytes_, contract_compile_base_) =
+        compute_compile_cost_vm(config.metric, config.vm_kind, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
         contract_compile_base: contract_compile_base_,
@@ -874,9 +870,4 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
 
     runtime_config
-}
-
-fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
-    let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
-    (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
 }

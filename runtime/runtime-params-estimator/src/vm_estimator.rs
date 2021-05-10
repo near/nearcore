@@ -1,6 +1,5 @@
 use crate::cases::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
-use glob::glob;
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
@@ -16,6 +15,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use walrus::{Module, Result};
+use std::convert::TryFrom;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -133,8 +133,6 @@ pub fn load_and_compile(
         _ => None,
     }
 }
-
-const USING_LIGHTBEAM: bool = cfg!(feature = "lightbeam");
 
 fn measure_contract(
     vm_kind: VMKind,
@@ -277,26 +275,34 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     (corrected_a, corrected_b)
 }
 
-fn test_compile_cost_vm(metric: GasMetric, vm_kind: VMKind) {
+pub(crate) fn compute_compile_cost_vm(
+    metric: GasMetric,
+    vm_kind: VMKind,
+    verbose: bool,
+) -> (u64, u64) {
     let (a, b) = precompilation_cost(metric, vm_kind);
     let base = ratio_to_gas_signed(metric, a);
     let per_byte = ratio_to_gas_signed(metric, b);
-    println!(
-        "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
-        vm_kind,
-        metric,
-        a,
-        a.to_f64().unwrap(),
-        b,
-        b.to_f64().unwrap(),
-        base,
-        per_byte
-    );
+    if verbose {
+        println!(
+            "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
+            vm_kind,
+            metric,
+            a,
+            a.to_f64().unwrap(),
+            b,
+            b.to_f64().unwrap(),
+            base,
+            per_byte
+        );
+    }
+    (u64::try_from(base).unwrap(), u64::try_from(per_byte).unwrap())
 }
 
+#[allow(dead_code)]
 fn test_compile_cost(metric: GasMetric) {
-    test_compile_cost_vm(metric, VMKind::Wasmer0);
-    test_compile_cost_vm(metric, VMKind::Wasmer1);
+    compute_compile_cost_vm(metric, VMKind::Wasmer0, true);
+    compute_compile_cost_vm(metric, VMKind::Wasmer1, true);
 }
 
 #[test]
@@ -313,67 +319,6 @@ fn test_compile_cost_icount() {
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
     // -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so,arg="count_per_thread" $@
     test_compile_cost(GasMetric::ICount)
-}
-
-/// Cost of the compile contract with vm_kind
-pub fn cost_to_compile(
-    gas_metric: GasMetric,
-    vm_kind: VMKind,
-    verbose: bool,
-) -> (Ratio<u64>, Ratio<u64>) {
-    let globbed_files = glob("./**/*.wasm").expect("Failed to read glob pattern for wasm files");
-    let paths = globbed_files
-        .filter_map(|x| match x {
-            Ok(p) => Some(p),
-            _ => None,
-        })
-        .collect::<Vec<PathBuf>>();
-    let ratio = Ratio::new(0 as u64, 1);
-    let base = Ratio::new(u64::MAX, 1);
-    if verbose {
-        println!(
-            "About to compile {}",
-            match vm_kind {
-                VMKind::Wasmer0 => "wasmer",
-                VMKind::Wasmtime => {
-                    if USING_LIGHTBEAM {
-                        "wasmtime-lightbeam"
-                    } else {
-                        "wasmtime"
-                    }
-                }
-                VMKind::Wasmer1 => "wasmer1",
-            }
-        );
-    };
-    let measurements = paths
-        .iter()
-        .filter(|path| fs::metadata(path).is_ok())
-        .map(|path| {
-            if verbose {
-                print!("Testing deploy {}: ", path.display());
-            };
-            if let Some((size, cost)) = load_and_compile(path, gas_metric, vm_kind) {
-                if verbose {
-                    println!("({}, {})", size, cost);
-                };
-                Some((size, cost))
-            } else {
-                if verbose {
-                    println!("FAILED")
-                };
-                None
-            }
-        })
-        .filter(|x| x.is_some())
-        .map(|x| x.unwrap())
-        .collect::<Vec<CompileCost>>();
-    let b = measurements.iter().fold(base, |base, (_, cost)| base.min(*cost));
-    let m = measurements.iter().fold(ratio, |r, (bytes, cost)| r.max((*cost - b) / bytes));
-    if verbose {
-        println!("raw data: ({},{})", m, b);
-    }
-    (m, b)
 }
 
 fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {
