@@ -283,6 +283,7 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         storage_usage_delta: if is_mainnet {
             serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
         } else {
