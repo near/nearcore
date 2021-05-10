@@ -36,7 +36,8 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
-    "neard/",
+    "neard/lib",
+    "neard/bin",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "genesis-tools/genesis-csv-to-json",
@@ -66,7 +67,7 @@ node-runtime = { path = "./runtime/runtime" }
 near-jsonrpc = { path = "./chain/jsonrpc" }
 near-network = { path = "./chain/network" }
 
-neard = { path = "./neard"}
+neard = { path = "./neard/lib" }
 
 testlib = { path = "./test-utils/testlib" }
 

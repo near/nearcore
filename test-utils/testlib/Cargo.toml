@@ -44,7 +44,7 @@ near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
-neard = { path = "../../neard" }
+neard = { path = "../../neard/lib" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]

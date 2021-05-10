@@ -45,7 +45,7 @@ delay-detector = { path = "../../tools/delay_detector", optional = true }
 near-logger-utils = { path = "../../test-utils/logger" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 testlib = { path = "../../test-utils/testlib" }
-neard = { path = "../../neard" }
+neard = { path = "../../neard/lib" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]

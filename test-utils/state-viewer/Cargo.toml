@@ -18,7 +18,7 @@ near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
-neard = { path = "../../neard" }
+neard = { path = "../../neard/lib" }
 
 [dev-dependencies]
 serde_json = "1"

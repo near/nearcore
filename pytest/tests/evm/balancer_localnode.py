@@ -7,7 +7,7 @@ import time
 
 ok(bash('''
 cd ..
-cargo build -p neard --features protocol_feature_evm,nightly_protocol_features
+cargo build -p neard-bin --features protocol_feature_evm,nightly_protocol_features
 rm -rf ~/.near/local
 rm -rf ~/.near-credentials/local
 mkdir -p ~/.near-credentials/local

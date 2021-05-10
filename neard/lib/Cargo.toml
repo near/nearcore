@@ -3,19 +3,16 @@ name = "neard"
 version = "1.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
-default-run = "neard"
 
 [dependencies]
-jemallocator = { version = "0.3"  }
+jemallocator = { version = "0.3" }
 awc = "3.0.0-beta.5"
 actix = "0.11.0-beta.2"
 actix-rt = "2"
 byteorder = "1.2"
 easy-ext = "0.2"
 chrono = { version = "0.4.4", features = ["serde"] }
-git-version = "0.3.1"
 futures = "0.3"
-clap = "2.32"
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
@@ -23,43 +20,41 @@ dirs = "3"
 borsh = "0.8.1"
 thiserror = "1.0"
 tracing = "0.1.13"
-tracing-subscriber = "0.2.4"
 num-rational = { version = "0.3", features = ["serde"] }
-openssl-probe = { version = "0.1.2" }
 near-rust-allocator-proxy = "0.2.8"
 lazy-static-include = "3"
 
-near-crypto = { path = "../core/crypto" }
-near-primitives = { path = "../core/primitives" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-store = { path = "../core/store" }
-node-runtime = { path = "../runtime/runtime"}
-near-chain = { path = "../chain/chain" }
-near-chunks = { path = "../chain/chunks"}
-near-client = { path = "../chain/client" }
-near-pool = { path = "../chain/pool" }
-near-network = { path = "../chain/network" }
-near-jsonrpc = { path = "../chain/jsonrpc" }
-near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
-near-telemetry = { path = "../chain/telemetry" }
-near-epoch-manager = { path = "../chain/epoch_manager" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-store = { path = "../../core/store" }
+node-runtime = { path = "../../runtime/runtime" }
+near-chain = { path = "../../chain/chain" }
+near-chunks = { path = "../../chain/chunks" }
+near-client = { path = "../../chain/client" }
+near-pool = { path = "../../chain/pool" }
+near-network = { path = "../../chain/network" }
+near-jsonrpc = { path = "../../chain/jsonrpc" }
+near-rosetta-rpc = { path = "../../chain/rosetta-rpc", optional = true }
+near-telemetry = { path = "../../chain/telemetry" }
+near-epoch-manager = { path = "../../chain/epoch_manager" }
+near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 
-delay-detector = { path = "../tools/delay_detector", optional = true }
+delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
-near-logger-utils = { path = "../test-utils/logger" }
-near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
+near-logger-utils = { path = "../../test-utils/logger" }
+near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 tempfile = "3"
-testlib = { path = "../test-utils/testlib" }
-near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+testlib = { path = "../../test-utils/testlib" }
+near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 primitive-types = "0.9"
 
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]
 memory_stats = ["near-performance-metrics/memory_stats"]
 c_memory_stats = ["near-performance-metrics/c_memory_stats"]
-adversarial =  ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
+adversarial = ["near-client/adversarial", "near-network/adversarial", "near-store/adversarial"]
 expensive_tests = ["near-client/expensive_tests", "near-epoch-manager/expensive_tests", "near-chain/expensive_tests"]
 metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"]
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
@@ -73,14 +68,6 @@ protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limi
 protocol_feature_allow_create_account_on_delete = ["node-runtime/protocol_feature_allow_create_account_on_delete"]
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-
-[[bin]]
-path = "src/main.rs"
-name = "neard"
-
-[[bin]]
-path = "src/../src/main.rs"
-name = "near"
 
 [package.metadata.workspaces]
 independent = true

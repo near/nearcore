@@ -9,7 +9,8 @@ sys.path.append('lib')
 
 additional_flags = ''
 
-toolchain = open(os.path.join(os.path.dirname(__file__), '../../../../rust-toolchain')).read().strip()
+toolchain = open(os.path.join(os.path.dirname(__file__),
+                              '../../../../rust-toolchain')).read().strip()
 
 try:
     image_name = sys.argv[1]
@@ -51,7 +52,7 @@ source ~/.cargo/env
 
 git clone --single-branch --branch {branch} https://github.com/nearprotocol/nearcore.git nearcore
 cd nearcore
-cargo build -p neard --release {additional_flags}
+cargo build -p neard-bin --release {additional_flags}
 ''')
 
 assert p.returncode == 0

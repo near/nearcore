@@ -11,6 +11,7 @@ use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
+use actix;
 use git_version::git_version;
 use near_performance_metrics;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};

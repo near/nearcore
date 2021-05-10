@@ -10,7 +10,7 @@ csv = "1.1.1"
 serde = { version = "1", features = ["derive"] }
 clap = "2.33.0"
 
-neard = { path = "../../neard" }
+neard = { path = "../../neard/lib" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }

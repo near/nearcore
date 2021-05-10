@@ -19,7 +19,7 @@ set -ex
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 cd "${script_dir}"/../../
-cargo run --release --package neard --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+cargo run --release --package neard-bin --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
 cd "${script_dir}"/../../genesis-tools/genesis-populate
 cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=10000000 --home /tmp/data
 cd "${script_dir}"

@@ -3698,12 +3698,10 @@ dependencies = [
  "borsh",
  "byteorder",
  "chrono",
- "clap 2.33.3",
  "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
- "git-version",
  "jemallocator",
  "lazy-static-include",
  "near-actix-test-utils",
@@ -3726,7 +3724,6 @@ dependencies = [
  "near-telemetry",
  "node-runtime",
  "num-rational",
- "openssl-probe",
  "primitive-types",
  "rand 0.7.3",
  "serde",
@@ -3734,6 +3731,30 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "neard-bin"
+version = "1.2.0"
+dependencies = [
+ "actix",
+ "clap 2.33.3",
+ "git-version",
+ "near-chain",
+ "near-chain-configs",
+ "near-client",
+ "near-epoch-manager",
+ "near-jsonrpc",
+ "near-network",
+ "near-performance-metrics",
+ "near-primitives",
+ "near-rosetta-rpc",
+ "near-rust-allocator-proxy",
+ "near-store",
+ "neard",
+ "node-runtime",
+ "openssl-probe",
  "tracing",
  "tracing-subscriber",
 ]

@@ -6,6 +6,9 @@ Run migrations from stable version's genesis to the latest version.
 Spin up current node with migrated genesis and verify that it can keep producing blocks.
 """
 
+from utils import wait_for_blocks_or_timeout
+import cluster
+import branches
 import os
 import sys
 import time
@@ -16,10 +19,6 @@ import re
 from deepdiff import DeepDiff
 
 sys.path.append('lib')
-
-import branches
-import cluster
-from utils import wait_for_blocks_or_timeout
 
 
 def main():
@@ -93,8 +92,9 @@ def main():
 
     # New genesis can be deserialized by new near is verified above (new near can produce blocks)
     # Also test new genesis protocol_version matches neard/res/genesis_config's
-    new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
-    res_genesis = json.load(open('../neard/res/genesis_config.json'))
+    new_genesis = json.load(
+        open(os.path.join(node_root, 'test0/genesis.json')))
+    res_genesis = json.load(open('../neard/lib/res/genesis_config.json'))
     assert new_genesis['protocol_version'] == res_genesis['protocol_version']
 
 
