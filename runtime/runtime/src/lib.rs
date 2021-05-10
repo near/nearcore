@@ -1144,7 +1144,7 @@ impl Runtime {
         let gas_used_for_migrations = match &apply_state.migration_data {
             Some(migration_data) => self
                 .apply_migrations(
-                    &mut state_updabkte,
+                    &mut state_update,
                     migration_data,
                     apply_state.current_protocol_version,
                 )
