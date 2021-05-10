@@ -240,8 +240,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     let mut m = Measurements::new(config.metric);
     if only_compile {
         let (contract_compile_base_cost, contract_per_byte_cost) =
-            compute_compile_cost_vm(config.metric, config.vm_kind, false);
-        println!("base = {}, per_byte = {}", contract_compile_base_cost, contract_per_byte_cost);
+            compute_compile_cost_vm(config.metric, config.vm_kind, true);
         process::exit(0);
     } else {
         #[cfg(feature = "protocol_feature_evm")]
@@ -853,12 +852,11 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     )
     .unwrap();
 
-    // let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
-
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
 
     // Shifting compilation costs from function call runtime to the deploy action cost at execution
-    // time.
+    // time. Contract used in deploy action testing is very small, so we have to use more complex
+    // technique to compute the actual coefficients.
     runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
         runtime_config.wasm_config.ext_costs.contract_compile_base;
     runtime_config

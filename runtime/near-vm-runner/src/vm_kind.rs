@@ -46,7 +46,7 @@ impl Default for VMKind {
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
-        VMKind::Wasmer0
+        VMKind::Wasmer1
     }
 
     // These features should be mutually exclusive, but implement this to work around CI cargo check --all-features
@@ -56,6 +56,6 @@ impl Default for VMKind {
         feature = "wasmtime_default"
     ))]
     fn default() -> Self {
-        VMKind::Wasmer0
+        VMKind::Wasmer1
     }
 }

@@ -11,11 +11,11 @@ use near_vm_runner::{compile_module, precompile_contract_vm, prepare, VMError, V
 use neard::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
+use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use walrus::{Module, Result};
-use std::convert::TryFrom;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
