@@ -1100,8 +1100,7 @@ impl Runtime {
                 }
             }
             gas_used += migration_data.storage_usage_fix_gas;
-            state_update
-                .commit(StateChangeCause::Migration { migration_id: MigrationId::StorageUsageFix });
+            state_update.commit(StateChangeCause::Migration);
         }
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, migration_data, protocol_version);
