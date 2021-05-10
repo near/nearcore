@@ -278,9 +278,11 @@ lazy_static_include::lazy_static_include_bytes! {
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 490_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
+    #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+    let _ = chain_id;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         storage_usage_delta: if is_mainnet {
             serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
         } else {
