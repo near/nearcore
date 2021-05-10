@@ -140,11 +140,6 @@ fn measure_contract(
     contract: &ContractCode,
     cache: Option<&dyn CompiledContractCache>,
 ) -> u64 {
-    match rayon::ThreadPoolBuilder::new().num_threads(1).build_global() {
-        Ok(()) => (),
-        Err(_err) if rayon::current_num_threads() == 1 => (),
-        Err(_err) => panic!("failed to set rayon to use 1 thread"),
-    };
     let vm_config = VMConfig::default();
     let start = start_count(gas_metric);
     let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
@@ -280,22 +275,26 @@ pub(crate) fn compute_compile_cost_vm(
     vm_kind: VMKind,
     verbose: bool,
 ) -> (u64, u64) {
-    let (a, b) = precompilation_cost(metric, vm_kind);
-    let base = ratio_to_gas_signed(metric, a);
-    let per_byte = ratio_to_gas_signed(metric, b);
-    if verbose {
-        println!(
-            "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
-            vm_kind,
-            metric,
-            a,
-            a.to_f64().unwrap(),
-            b,
-            b.to_f64().unwrap(),
-            base,
-            per_byte
-        );
-    }
+    let mut base = 0i64;
+    let mut per_byte = 0i64;
+    rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap().install(|| {
+        let (a, b) = precompilation_cost(metric, vm_kind);
+        base = ratio_to_gas_signed(metric, a);
+        per_byte = ratio_to_gas_signed(metric, b);
+        if verbose {
+            println!(
+                "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
+                vm_kind,
+                metric,
+                a,
+                a.to_f64().unwrap(),
+                b,
+                b.to_f64().unwrap(),
+                base,
+                per_byte
+            );
+        }
+    });
     (u64::try_from(base).unwrap(), u64::try_from(per_byte).unwrap())
 }
 
