@@ -16,9 +16,9 @@ use near_performance_metrics;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
-use neard::config::init_testnet_configs;
+use neard::config::{init_testnet_configs, load_config_without_genesis_records};
 use neard::genesis_validate::validate_genesis;
-use neard::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
+use neard::{get_default_home, get_store_path, init_configs, start_with_config};
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]
@@ -198,7 +198,7 @@ fn main() {
         }
         ("run", Some(args)) => {
             // Load configs from home.
-            let mut near_config = load_config(home_dir);
+            let mut near_config = load_config_without_genesis_records(home_dir);
             validate_genesis(&near_config.genesis);
             // Set current version in client config.
             near_config.client_config.version = version;

@@ -1,16 +1,15 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 
-use borsh::BorshSerialize;
 use log::debug;
 
+use near_chain_configs::Genesis;
 pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
-    account::{AccessKey, Account},
-    contract::ContractCode,
+    account::Account,
     errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     hash::CryptoHash,
     receipt::{
@@ -23,7 +22,7 @@ use near_primitives::{
     },
     trie_key::TrieKey,
     types::{
-        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas, MerkleHash,
+        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
         RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
     },
     utils::{
@@ -34,8 +33,8 @@ use near_primitives::{
 pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_access_key, set_account, set_code, set_postponed_receipt, set_received_data,
-    PartialStorage, ShardTries, StorageError, StoreUpdate, Trie, TrieChanges, TrieUpdate,
+    set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
+    StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -47,6 +46,7 @@ use crate::config::{
     exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit,
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
+use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
@@ -57,7 +57,6 @@ use near_primitives::types::MigrationId;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
-use std::borrow::Borrow;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -67,6 +66,7 @@ mod balance_checker;
 pub mod cache;
 pub mod config;
 pub mod ext;
+mod genesis;
 mod metrics;
 pub mod state_viewer;
 mod verifier;
@@ -1347,159 +1347,27 @@ impl Runtime {
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
     /// state records (e.g. at launch from genesis)
-    pub fn compute_storage_usage<Record: Borrow<StateRecord>>(
+    pub fn compute_storage_usage(
         &self,
-        records: &[Record],
+        records: &[StateRecord],
         config: &RuntimeConfig,
     ) -> HashMap<AccountId, u64> {
-        let mut result = HashMap::new();
-        let config = &config.transaction_costs.storage_usage_config;
-        for record in records {
-            let account_and_storage = match record.borrow() {
-                StateRecord::Account { account_id, .. } => {
-                    Some((account_id.clone(), config.num_bytes_account))
-                }
-                StateRecord::Data { account_id, data_key, value } => {
-                    let storage_usage =
-                        config.num_extra_bytes_record + data_key.len() as u64 + value.len() as u64;
-                    Some((account_id.clone(), storage_usage))
-                }
-                StateRecord::Contract { account_id, code } => {
-                    Some((account_id.clone(), code.len() as u64))
-                }
-                StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    let public_key: PublicKey = public_key.clone();
-                    let access_key: AccessKey = access_key.clone().into();
-                    let storage_usage = config.num_extra_bytes_record
-                        + public_key.try_to_vec().unwrap().len() as u64
-                        + access_key.try_to_vec().unwrap().len() as u64;
-                    Some((account_id.clone(), storage_usage))
-                }
-                StateRecord::PostponedReceipt(_) => None,
-                StateRecord::ReceivedData { .. } => None,
-                StateRecord::DelayedReceipt(_) => None,
-            };
-            if let Some((account, storage_usage)) = account_and_storage {
-                *result.entry(account).or_default() += storage_usage;
-            }
-        }
-        result
+        let mut storage_computer = StorageComputer::new(config);
+        storage_computer.process_records(records);
+        storage_computer.finalize()
     }
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
-    pub fn apply_genesis_state<Record: Borrow<StateRecord>>(
+    pub fn apply_genesis_state(
         &self,
         tries: ShardTries,
         shard_id: ShardId,
         validators: &[(AccountId, PublicKey, Balance)],
-        records: &[Record],
+        genesis: &Genesis,
         config: &RuntimeConfig,
-    ) -> (StoreUpdate, StateRoot) {
-        let mut state_update = tries.new_trie_update(shard_id, MerkleHash::default());
-        let mut postponed_receipts: Vec<Receipt> = vec![];
-        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        for record in records {
-            match record.borrow().clone() {
-                StateRecord::Account { account_id, account } => {
-                    set_account(&mut state_update, account_id, &account);
-                }
-                StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
-                }
-                StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
-                    // Recompute contract code hash.
-                    let code = ContractCode::new(code, None);
-                    set_code(&mut state_update, account_id, &code);
-                    assert_eq!(code.get_hash(), acc.code_hash());
-                }
-                StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(&mut state_update, account_id, public_key, &access_key);
-                }
-                StateRecord::PostponedReceipt(receipt) => {
-                    // Delaying processing postponed receipts, until we process all data first
-                    postponed_receipts.push(*receipt);
-                }
-                StateRecord::ReceivedData { account_id, data_id, data } => {
-                    set_received_data(
-                        &mut state_update,
-                        account_id,
-                        data_id,
-                        &ReceivedData { data },
-                    );
-                }
-                StateRecord::DelayedReceipt(receipt) => {
-                    Self::delay_receipt(
-                        &mut state_update,
-                        &mut delayed_receipts_indices,
-                        &*receipt,
-                    )
-                    .unwrap();
-                }
-            }
-        }
-        for (account_id, storage_usage) in self.compute_storage_usage(records, &config) {
-            let mut account = get_account(&state_update, &account_id)
-                .expect("Genesis storage error")
-                .expect("Account must exist");
-            account.set_storage_usage(storage_usage);
-            set_account(&mut state_update, account_id, &account);
-        }
-        // Processing postponed receipts after we stored all received data
-        for receipt in postponed_receipts {
-            let account_id = &receipt.receiver_id;
-            let action_receipt = match &receipt.receipt {
-                ReceiptEnum::Action(a) => a,
-                _ => panic!("Expected action receipt"),
-            };
-            // Logic similar to `apply_receipt`
-            let mut pending_data_count: u32 = 0;
-            for data_id in &action_receipt.input_data_ids {
-                if get_received_data(&state_update, account_id, *data_id)
-                    .expect("Genesis storage error")
-                    .is_none()
-                {
-                    pending_data_count += 1;
-                    set(
-                        &mut state_update,
-                        TrieKey::PostponedReceiptId {
-                            receiver_id: account_id.clone(),
-                            data_id: *data_id,
-                        },
-                        &receipt.receipt_id,
-                    )
-                }
-            }
-            if pending_data_count == 0 {
-                panic!("Postponed receipt should have pending data")
-            } else {
-                set(
-                    &mut state_update,
-                    TrieKey::PendingDataCount {
-                        receiver_id: account_id.clone(),
-                        receipt_id: receipt.receipt_id,
-                    },
-                    &pending_data_count,
-                );
-                set_postponed_receipt(&mut state_update, &receipt);
-            }
-        }
-        if delayed_receipts_indices != DelayedReceiptIndices::default() {
-            set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-        }
-
-        for (account_id, _, amount) in validators {
-            let mut account: Account = get_account(&state_update, account_id)
-                .expect("Genesis storage error")
-                .expect("account must exist");
-            account.set_locked(*amount);
-            set_account(&mut state_update, account_id.clone(), &account);
-        }
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
-
-        let (store_update, state_root) = tries.apply_genesis(trie_changes, shard_id);
-        (store_update, state_root)
+        shard_account_ids: HashSet<AccountId>,
+    ) -> StateRoot {
+        GenesisStateApplier::apply(tries, shard_id, validators, config, genesis, shard_account_ids)
     }
 }
 
@@ -1508,6 +1376,7 @@ mod tests {
     use super::*;
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::account::AccessKey;
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
@@ -1517,6 +1386,7 @@ mod tests {
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
