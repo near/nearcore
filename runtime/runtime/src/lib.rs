@@ -1074,11 +1074,6 @@ impl Runtime {
         Ok(())
     }
 
-    // In test runs reads and writes here used 442 TGas. Added 10% to account for possible bigger
-    // state
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
-    const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 490_000_000_000_000;
-
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
@@ -1104,7 +1099,7 @@ impl Runtime {
                     None => {}
                 }
             }
-            gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
+            gas_used += migration_data.storage_usage_fix_gas;
             state_update
                 .commit(StateChangeCause::Migration { migration_id: MigrationId::StorageUsageFix });
         }
@@ -1149,7 +1144,7 @@ impl Runtime {
         let gas_used_for_migrations = match &apply_state.migration_data {
             Some(migration_data) => self
                 .apply_migrations(
-                    &mut state_update,
+                    &mut state_updabkte,
                     migration_data,
                     apply_state.current_protocol_version,
                 )
