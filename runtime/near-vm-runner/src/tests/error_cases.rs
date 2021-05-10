@@ -225,58 +225,21 @@ fn test_div_by_zero_contract() {
 }
 
 fn float_to_int_contract(index: usize) -> Vec<u8> {
-    match index {
-        0 => wabt::wat2wasm(
-            r#"
+    let ops = ["i32.trunc_f64_s", "i32.trunc_f64_u", "i64.trunc_f64_s", "i64.trunc_f64_u"];
+    let code = format!(
+        r#"
             (module
               (type (;0;) (func))
               (func (;0;) (type 0)
                 f64.const 0x1p+1023
-                i32.trunc_f64_s
+                {}
                 return
               )
               (export "hello" (func 0))
             )"#,
-        ),
-        1 => wabt::wat2wasm(
-            r#"
-            (module
-              (type (;0;) (func))
-              (func (;0;) (type 0)
-                f64.const 0x1p+1023
-                i64.trunc_f64_s
-                return
-              )
-              (export "hello" (func 0))
-            )"#,
-        ),
-        2 => wabt::wat2wasm(
-            r#"
-            (module
-              (type (;0;) (func))
-              (func (;0;) (type 0)
-                f64.const 0x1p+1023
-                i32.trunc_f64_u
-                return
-              )
-              (export "hello" (func 0))
-            )"#,
-        ),
-        3 => wabt::wat2wasm(
-            r#"
-            (module
-              (type (;0;) (func))
-              (func (;0;) (type 0)
-                f64.const 0x1p+1023
-                i64.trunc_f64_u
-                return
-              )
-              (export "hello" (func 0))
-            )"#,
-        ),
-        _ => panic!("Unknown index"),
-    }
-    .unwrap()
+        ops[index]
+    );
+    wabt::wat2wasm(&code).unwrap()
 }
 
 #[test]
