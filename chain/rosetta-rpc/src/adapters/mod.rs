@@ -187,7 +187,7 @@ fn convert_block_changes_to_transactions(
                 ));
             }
             StateChangeCauseView::Migration { migration_id } => {
-                format!("migration due to {}", migration_id)
+                format!("migration:{}", block_hash)
             }
         };
 
