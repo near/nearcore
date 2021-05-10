@@ -44,9 +44,9 @@ use crate::transaction::{
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, FunctionArgs, Gas, MigrationId, Nonce, NumBlocks, ShardId, StateChangeCause,
-    StateChangeKind, StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot,
-    StorageUsage, StoreKey, StoreValue, ValidatorKickoutReason,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
+    StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
+    StoreValue, ValidatorKickoutReason,
 };
 use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;

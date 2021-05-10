@@ -13,8 +13,6 @@ use crate::trie_key::TrieKey;
 
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
-use std::fmt;
-use std::fmt::Formatter;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
