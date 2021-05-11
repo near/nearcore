@@ -52,8 +52,6 @@ pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::MigrationData;
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
-use near_primitives::types::MigrationId;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -1074,11 +1072,6 @@ impl Runtime {
         Ok(())
     }
 
-    // In test runs reads and writes here used 442 TGas. Added 10% to account for possible bigger
-    // state
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
-    const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 490_000_000_000_000;
-
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
@@ -1104,9 +1097,8 @@ impl Runtime {
                     None => {}
                 }
             }
-            gas_used += Runtime::GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION;
-            state_update
-                .commit(StateChangeCause::Migration { migration_id: MigrationId::StorageUsageFix });
+            gas_used += migration_data.storage_usage_fix_gas;
+            state_update.commit(StateChangeCause::Migration);
         }
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, migration_data, protocol_version);

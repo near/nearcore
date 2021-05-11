@@ -186,8 +186,8 @@ fn convert_block_changes_to_transactions(
                     "State Change 'NotWritableToDisk' should never be observed".to_string(),
                 ));
             }
-            StateChangeCauseView::Migration { migration_id } => {
-                format!("migration due to {}", migration_id)
+            StateChangeCauseView::Migration => {
+                format!("migration:{}", block_hash)
             }
         };
 

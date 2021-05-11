@@ -10,6 +10,8 @@ use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+use near_primitives::types::Gas;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
@@ -279,18 +281,31 @@ lazy_static_include::lazy_static_include_bytes! {
     MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
 
+// In test runs reads and writes here used 442 TGas. Added 10% to account for possible bigger
+// state
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 490_000_000_000_000;
+
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     #[cfg(not(any(
         feature = "protocol_feature_fix_storage_usage",
         feature = "protocol_feature_restore_receipts_after_fix"
     )))]
     let _ = chain_id;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    let is_mainnet = chain_id == "mainnet";
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
-        storage_usage_delta: if chain_id == "mainnet" {
+        storage_usage_delta: if is_mainnet {
             serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
         } else {
             Vec::new()
+        },
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_fix_gas: if is_mainnet {
+            GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION
+        } else {
+            0
         },
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if chain_id == "mainnet" {

@@ -13,8 +13,6 @@ use crate::trie_key::TrieKey;
 
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
-use std::fmt;
-use std::fmt::Formatter;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -156,27 +154,7 @@ pub enum StateChangeCause {
     ValidatorAccountsUpdate,
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
-    Migration { migration_id: MigrationId },
-}
-
-#[derive(Serialize, Deserialize, Clone, BorshSerialize, BorshDeserialize)]
-pub enum MigrationId {
-    /// See https://github.com/near/nearcore/issues/3824
-    StorageUsageFix,
-}
-
-impl fmt::Display for MigrationId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::StorageUsageFix => write!(f, "Storage usage fix"),
-        }
-    }
-}
-
-impl fmt::Debug for MigrationId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
+    Migration,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
