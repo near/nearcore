@@ -6,9 +6,6 @@ Run migrations from stable version's genesis to the latest version.
 Spin up current node with migrated genesis and verify that it can keep producing blocks.
 """
 
-from utils import wait_for_blocks_or_timeout
-import cluster
-import branches
 import os
 import sys
 import time
@@ -20,6 +17,9 @@ from deepdiff import DeepDiff
 
 sys.path.append('lib')
 
+import branches
+import cluster
+from utils import wait_for_blocks_or_timeout
 
 def main():
     node_root = '/tmp/near/state_migration'

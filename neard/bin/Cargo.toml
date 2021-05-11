@@ -1,5 +1,5 @@
 [package]
-name = "neard-bin"
+name = "neard"
 version = "1.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -22,7 +22,7 @@ tracing-subscriber = "0.2.4"
 openssl-probe = { version = "0.1.2" }
 near-rust-allocator-proxy = "0.2.8"
 
-neard = { path = "../lib" }
+libneard = { path = "../lib" }
 near-primitives = { path = "../../core/primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-store = { path = "../../core/store" }

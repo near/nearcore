@@ -6,6 +6,8 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
+use libneard::config::{GenesisExt, TESTING_INIT_STAKE};
+use libneard::{load_test_config, start_with_config, NearConfig};
 use near_actix_test_utils::run_actix_until_stop;
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
@@ -21,8 +23,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use neard::config::{GenesisExt, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config, NearConfig};
 use testlib::{genesis_block, test_helpers::heavy_test};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.

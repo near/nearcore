@@ -29,7 +29,7 @@ def near_init_genesis():
         'rm -rf /tmp/near/update_res && mkdir -p /tmp/near/update_res',
         shell=True)
     subprocess.check_output(
-        'cargo run -p neard-bin --bin neard -- --home /tmp/near/update_res init --chain-id sample',
+        'cargo run -p neard --bin neard -- --home /tmp/near/update_res init --chain-id sample',
         shell=True)
     genesis = json.load(open('/tmp/near/update_res/genesis.json'),
                         object_pairs_hook=OrderedDict)

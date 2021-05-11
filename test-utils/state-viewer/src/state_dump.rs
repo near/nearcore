@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use libneard::NightshadeRuntime;
 use near_chain::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
 use near_store::TrieIterator;
-use neard::NightshadeRuntime;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
@@ -70,6 +70,10 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
+    use libneard::config::GenesisExt;
+    use libneard::config::TESTING_INIT_STAKE;
+    use libneard::genesis_validate::validate_genesis;
+    use libneard::NightshadeRuntime;
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
@@ -78,10 +82,6 @@ mod test {
     use near_primitives::types::NumBlocks;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use neard::config::GenesisExt;
-    use neard::config::TESTING_INIT_STAKE;
-    use neard::genesis_validate::validate_genesis;
-    use neard::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
 

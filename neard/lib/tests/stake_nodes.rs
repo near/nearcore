@@ -8,6 +8,8 @@ use futures::{future, FutureExt};
 use num_rational::Rational;
 use rand::Rng;
 
+use libneard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use libneard::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 use near_actix_test_utils::run_actix_until_stop;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
@@ -19,8 +21,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 use testlib::{genesis_hash, test_helpers::heavy_test};
 
 use {near_primitives::types::BlockId, primitive_types::U256};

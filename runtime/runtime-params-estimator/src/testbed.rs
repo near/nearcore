@@ -4,6 +4,7 @@ use std::path::Path;
 
 use borsh::BorshDeserialize;
 
+use libneard::get_store_path;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
@@ -13,7 +14,6 @@ use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
-use neard::get_store_path;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
 

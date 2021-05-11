@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 clap = "2.33.0"
 
-neard = { path = "../../neard/lib" }
+libneard = { path = "../../neard/lib" }
 near-crypto = { path = "../../core/crypto" }
 

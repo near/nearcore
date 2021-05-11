@@ -4,12 +4,12 @@ use std::time::Duration;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
+use libneard::{config::GenesisExt, load_test_config, start_with_config};
 use near_actix_test_utils::run_actix_until_stop;
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use neard::{config::GenesisExt, load_test_config, start_with_config};
 use testlib::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.

@@ -1,6 +1,6 @@
 use clap::{App, Arg};
+use libneard::get_default_home;
 use near_primitives::types::ShardId;
-use neard::get_default_home;
 use std::collections::HashSet;
 use std::path::Path;
 

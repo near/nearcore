@@ -9,7 +9,7 @@
 //! [example]: https://github.com/nearprotocol/nearcore/tree/master/tools/indexer/example
 use tokio::sync::mpsc;
 
-pub use neard::{get_default_home, init_configs, NearConfig};
+pub use libneard::{get_default_home, init_configs, NearConfig};
 mod streamer;
 
 pub use self::streamer::{
@@ -19,7 +19,7 @@ pub use self::streamer::{
 };
 pub use near_primitives;
 
-/// Config wrapper to simplify signature and usage of `neard::init_configs`
+/// Config wrapper to simplify signature and usage of `libneard::init_configs`
 /// function by making args more explicit via struct
 #[derive(Debug, Clone)]
 pub struct InitConfigArgs {
@@ -75,7 +75,7 @@ pub struct IndexerConfig {
 /// This is the core component, which handles `nearcore` and internal `streamer`.
 pub struct Indexer {
     indexer_config: IndexerConfig,
-    near_config: neard::NearConfig,
+    near_config: libneard::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
 }
@@ -83,8 +83,8 @@ pub struct Indexer {
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
-        let near_config = neard::load_config(&indexer_config.home_dir);
-        neard::genesis_validate::validate_genesis(&near_config.genesis);
+        let near_config = libneard::load_config(&indexer_config.home_dir);
+        libneard::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
             "Indexer should track at least one shard. \n\
@@ -93,7 +93,7 @@ impl Indexer {
             indexer_config.home_dir.join("config.json").display()
         );
         let (client, view_client, _) =
-            neard::start_with_config(&indexer_config.home_dir, near_config.clone());
+            libneard::start_with_config(&indexer_config.home_dir, near_config.clone());
         Self { view_client, client, near_config, indexer_config }
     }
 
@@ -110,7 +110,7 @@ impl Indexer {
     }
 
     /// Expose neard config
-    pub fn near_config(&self) -> &neard::NearConfig {
+    pub fn near_config(&self) -> &libneard::NearConfig {
         &self.near_config
     }
 

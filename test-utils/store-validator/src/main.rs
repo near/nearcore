@@ -5,11 +5,11 @@ use std::sync::Arc;
 use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{App, Arg, SubCommand};
 
+use libneard::{get_default_home, get_store_path, load_config};
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
-use neard::{get_default_home, get_store_path, load_config};
 
 fn main() {
     init_integration_logger();
@@ -31,7 +31,7 @@ fn main() {
 
     let store = create_store(&get_store_path(&home_dir));
 
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(libneard::NightshadeRuntime::new(
         &home_dir,
         store.clone(),
         &near_config.genesis,

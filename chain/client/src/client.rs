@@ -1671,6 +1671,7 @@ mod test {
 
     use cached::Cached;
 
+    use libneard::config::GenesisExt;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_chunks::test_utils::ChunkForwardingTestFixture;
@@ -1681,7 +1682,6 @@ mod test {
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
-    use neard::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;
@@ -1697,7 +1697,7 @@ mod test {
         let genesis = Genesis::test(vec!["test0", "test1"], 1);
         (0..n)
             .map(|_| {
-                Arc::new(neard::NightshadeRuntime::new(
+                Arc::new(libneard::NightshadeRuntime::new(
                     Path::new("."),
                     create_test_store(),
                     &genesis,

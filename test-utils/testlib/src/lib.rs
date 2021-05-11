@@ -4,6 +4,7 @@ use actix::Addr;
 use actix_rt::ArbiterHandle;
 use tempfile::{tempdir, TempDir};
 
+use libneard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
@@ -13,7 +14,6 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
-use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 
 pub mod fees_utils;
 pub mod node;

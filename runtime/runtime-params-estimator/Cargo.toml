@@ -30,7 +30,7 @@ near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
 state-viewer = { path = "../../test-utils/state-viewer" }
-neard = { path = "../../neard/lib" }
+libneard = { path = "../../neard/lib" }
 rocksdb = { version = "0.15.0"}
 glob = "0.3.0"
 walrus = "0.18.0"
@@ -60,7 +60,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "node-runtime/protocol_feature_alt_bn128",
     "testlib/protocol_feature_alt_bn128",
-    "neard/protocol_feature_alt_bn128",
+    "libneard/protocol_feature_alt_bn128",
 ]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-vm-runner/protocol_feature_evm",
