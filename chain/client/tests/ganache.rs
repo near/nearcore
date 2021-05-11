@@ -152,6 +152,7 @@ fn test_patch_state() {
     let state =
         query_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
 
+    println!("{:?}", from_base64(&state[0].key).unwrap());
     env.clients[0]
         .chain
         .patch_state(&[StateRecord::Data {

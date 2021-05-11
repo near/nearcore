@@ -2476,10 +2476,7 @@ impl Chain {
 /// Ganache node specific operations
 #[cfg(feature = "ganache")]
 impl Chain {
-    pub fn patch_state<Record: Borrow<StateRecord>>(
-        &mut self,
-        records: &[Record],
-    ) -> Result<(), Error> {
+    pub fn patch_state<Record: Borrow<StateRecord>>(&mut self, records: &[Record]) {
         let mut store_update = self.store.owned_store().store_update();
         for record in records {
             match record.borrow().clone() {
@@ -2508,7 +2505,6 @@ impl Chain {
         }
         // store_update.set(ColStateParts, &key, &state_part);
         store_update.commit().expect("Failed to patch state");
-        Ok(())
     }
 }
 
