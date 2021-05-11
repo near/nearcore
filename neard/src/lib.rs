@@ -24,8 +24,8 @@ use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_19_to_20};
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_21_to_22, migrate_6_to_7,
+    migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
 };
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -187,21 +187,16 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 17);
     }
-    if db_version <= 17 {
-        info!(target: "near", "Migrate DB from version 17 to 18");
-        // version 17 => 18: add `hash` to `BlockInfo` and ColHeaderHashesByHeight
-        migrate_17_to_18(&path);
-    }
-    if db_version <= 18 {
-        info!(target: "near", "Migrate DB from version 18 to 19");
-        // version 18 => 19: populate ColEpochValidatorInfo for archival nodes
-        migrate_18_to_19(&path, near_config);
-    }
-    if db_version <= 19 {
-        info!(target: "near", "Migrate DB from version 19 to 20");
-        // version 19 => 20: fix execution outcome
-        migrate_19_to_20(&path, &near_config);
-    }
+    // if db_version <= 18 {
+    //     info!(target: "near", "Migrate DB from version 18 to 19");
+    //     // version 18 => 19: populate ColEpochValidatorInfo for archival nodes
+    //     migrate_18_to_19(&path, near_config);
+    // }
+    // if db_version <= 19 {
+    //     info!(target: "near", "Migrate DB from version 19 to 20");
+    //     // version 19 => 20: fix execution outcome
+    //     migrate_19_to_20(&path, &near_config);
+    // }
     if db_version <= 20 {
         info!(target: "near", "Migrate DB from version 20 to 21");
         // version 20 => 21: delete genesis json hash due to change in Genesis::json_hash function
@@ -210,7 +205,10 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     if db_version <= 21 {
         info!(target: "near", "Migrate DB from version 21 to 22");
         // version 21 => 22: rectify inflation: add `timestamp` to `BlockInfo`
-        migrate_21_to_22(&path);
+        migrate_21_to_22(&path, near_config.client_config.archive);
+        migrate_18_to_19(&path, near_config);
+        let store = create_store(&path);
+        set_store_version(&store, 22);
     }
     #[cfg(feature = "nightly_protocol")]
     {
