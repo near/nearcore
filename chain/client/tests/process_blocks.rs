@@ -2905,7 +2905,6 @@ fn test_restoring_receipts_mainnet() {
         genesis.config.chain_id = String::from("mainnet");
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = protocol_version;
-        genesis.config.gas_limit = 10000000000000;
         let chain_genesis = ChainGenesis::from(&genesis);
         let mut env = TestEnv::new_with_runtime(
             chain_genesis.clone(),
@@ -2937,8 +2936,6 @@ fn test_restoring_receipts_mainnet() {
         while !receipt_hashes_to_restore.is_empty() && height - last_update_height < height_timeout
         {
             let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
-            block.mut_header().get_mut().inner_rest.latest_protocol_version =
-                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
             if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
                 let prev_block =
                     env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
