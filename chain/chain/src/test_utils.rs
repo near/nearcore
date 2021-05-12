@@ -605,6 +605,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _random_seed: CryptoHash,
         generate_storage_proof: bool,
         _is_new_chunk: bool,
+        _is_valid_block_for_migration: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
@@ -784,6 +785,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _challenges: &ChallengesResult,
         _random_value: CryptoHash,
         _is_new_chunk: bool,
+        _is_valid_block_for_migration: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }

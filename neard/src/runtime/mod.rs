@@ -203,36 +203,6 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
 
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
-        } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
-        }
-    }
-
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-    fn get_protocol_version_of_last_block_with_chunk(
-        &self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<ProtocolVersion, Error> {
-        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let mut candidate_hash = hash.clone();
-        loop {
-            let block_info = epoch_manager.get_block_info(&candidate_hash).unwrap().clone();
-            if block_info.chunk_mask()[shard_id as usize] {
-                break Ok(epoch_manager.get_epoch_info(block_info.epoch_id())?.protocol_version());
-            }
-            candidate_hash = block_info.prev_hash().clone();
-        }
-    }
-
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
         error!(target: "near", "Loading genesis from a state dump file. Do not use this outside of genesis-tools");
         let mut state_file = home_dir.to_path_buf();
@@ -364,6 +334,7 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         is_new_chunk: bool,
+        is_valid_block_for_migration: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -434,12 +405,8 @@ impl NightshadeRuntime {
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        let prev_epoch_protocol_version = self.get_epoch_protocol_version(&prev_epoch_id)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -475,37 +442,15 @@ impl NightshadeRuntime {
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
         let incoming_receipts = receipts.to_vec();
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        let incoming_receipts = if is_new_chunk
-            && shard_id == 0
-            && checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                current_protocol_version
-            )
-            && !checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                prev_epoch_protocol_version
-            ) {
-            let prev_protocol_version = self
-                .get_protocol_version_of_last_block_with_chunk(prev_block_hash, shard_id)
-                .unwrap();
-
-            let mut receipts_to_restore = if !checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                prev_protocol_version
-            ) {
-                self.migration_data
-                    .restored_receipts
-                    .get(&shard_id)
-                    .expect("Receipts to restore must contain an entry for shard 0")
-                    .clone()
-            } else {
-                Vec::<Receipt>::new()
-            };
-            receipts_to_restore.extend_from_slice(receipts);
-            receipts_to_restore
+        let incoming_receipts = if is_valid_block_for_migration {
+            let mut x = self
+                .migration_data
+                .restored_receipts
+                .get(&shard_id)
+                .expect("Receipts to restore must contain an entry for shard 0")
+                .clone();
+            x.extend_from_slice(receipts);
+            x
         } else {
             receipts.to_vec()
         };
@@ -1215,6 +1160,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
+        is_valid_block_for_migration: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
@@ -1234,6 +1180,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_seed,
             is_new_chunk,
+            is_valid_block_for_migration,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -1262,6 +1209,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         random_value: CryptoHash,
         is_new_chunk: bool,
+        is_valid_block_for_migration: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1280,6 +1228,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_value,
             is_new_chunk,
+            is_valid_block_for_migration,
         )
     }
 

@@ -56,9 +56,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(
-    feature = "protocol_feature_fix_storage_usage"
-)]
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -3030,7 +3028,11 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     use near_primitives::version::ProtocolFeature;
     const EPOCH_LENGTH: u64 = 5;
 
-    fn run_test(low_height_with_no_chunk: BlockHeight, high_height_with_no_chunk: BlockHeight, should_pass: bool) {
+    fn run_test(
+        low_height_with_no_chunk: BlockHeight,
+        high_height_with_no_chunk: BlockHeight,
+        should_pass: bool,
+    ) {
         // init_test_logger();
         let height_timeout = 10;
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;

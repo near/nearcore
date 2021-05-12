@@ -68,6 +68,7 @@ fn apply_block_at_height(
             &block.header().challenges_result(),
             *block.header().random_value(),
             true,
+            false, // ???
         )
         .unwrap();
     let (_, outcome_paths) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -244,6 +245,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
+                            false, // ??
                         )
                         .unwrap();
                     if !apply_result.outcomes.is_empty() {
