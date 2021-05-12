@@ -6276,15 +6276,13 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-singlepass"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "426ae6ef0f606ca815510f3e2ef6f520e217514bfb7a664defe180b9a9e75d07"
+source = "git+https://github.com/near/wasmer?branch=1.0.2-single-threaded#a98937b4e9e149e4a7773689313b7e43800f6eb9"
 dependencies = [
  "byteorder",
  "dynasm",
  "dynasmrt",
  "lazy_static",
  "more-asserts",
- "rayon",
  "serde",
  "smallvec",
  "wasmer-compiler",
