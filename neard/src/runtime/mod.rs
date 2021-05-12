@@ -22,8 +22,6 @@ use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -316,6 +314,10 @@ impl NightshadeRuntime {
         }
     }
 
+    pub fn migration_data(&self) -> Arc<MigrationData> {
+        Arc::clone(&self.migration_data)
+    }
+
     /// Processes state update.
     fn process_state_update(
         &self,
@@ -454,6 +456,7 @@ impl NightshadeRuntime {
         } else {
             receipts.to_vec()
         };
+        println!("{}", is_valid_block_for_migration);
 
         let apply_result = self
             .runtime
@@ -1526,10 +1529,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         config.runtime_config = (*runtime_config).clone();
         Ok(config)
-    }
-
-    fn get_migration_data(&self) -> Arc<MigrationData> {
-        self.migration_data.clone()
     }
 }
 

@@ -43,8 +43,6 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::version::ProtocolFeature;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,

@@ -53,7 +53,6 @@ use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_chain_configs::ProtocolConfig;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::runtime::migration_data::MigrationData;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -1100,10 +1099,6 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
-    }
-
-    fn get_migration_data(&self) -> Arc<MigrationData> {
-        Arc::new(MigrationData::default())
     }
 }
 

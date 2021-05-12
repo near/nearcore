@@ -3025,34 +3025,45 @@ mod access_key_nonce_range_tests {
 #[cfg(test)]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
+    use near_primitives::runtime::migration_data::MigrationData;
     use near_primitives::version::ProtocolFeature;
+
     const EPOCH_LENGTH: u64 = 5;
+    const HEIGHT_TIMEOUT: u64 = 10;
 
     fn run_test(
         low_height_with_no_chunk: BlockHeight,
         high_height_with_no_chunk: BlockHeight,
         should_pass: bool,
     ) {
-        // init_test_logger();
-        let height_timeout = 10;
+        init_test_logger();
+
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         genesis.config.chain_id = String::from("mainnet");
         genesis.config.epoch_length = EPOCH_LENGTH;
         genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
+        let runtime = neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+        );
+        let migration_data = runtime.migration_data();
+
         let mut env = TestEnv::new_with_runtime(
             chain_genesis.clone(),
             1,
             1,
-            create_nightshade_runtimes(&genesis, 1),
+            vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
         );
 
-        let get_restored_receipt_hashes = |env: &mut TestEnv| -> HashSet<CryptoHash> {
+        let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
             HashSet::from_iter(
-                env.clients[0]
-                    .runtime_adapter
-                    .get_migration_data()
+                migration_data
                     .restored_receipts
                     .get(&0u64)
                     .expect("Receipts to restore must contain an entry for shard 0")
@@ -3062,13 +3073,13 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             )
         };
 
-        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&mut env);
+        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(migration_data.as_ref());
         let mut height: BlockHeight = 1;
         let mut last_update_height: BlockHeight = 0;
 
         // If some receipts are still not applied, upgrade already happened, and no new receipt was
         // applied in some last blocks, consider the process stuck to avoid any possibility of infinite loop.
-        while !receipt_hashes_to_restore.is_empty() && height - last_update_height < height_timeout
+        while !receipt_hashes_to_restore.is_empty() && height - last_update_height < HEIGHT_TIMEOUT
         {
             let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
             if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
@@ -3113,7 +3124,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         } else {
             assert_eq!(
                 receipt_hashes_to_restore,
-                get_restored_receipt_hashes(&mut env),
+                get_restored_receipt_hashes(migration_data.as_ref()),
                 "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
             );
         }

@@ -3,9 +3,7 @@ use crate::types::RuntimeAdapter;
 use near_chain_primitives::error::Error;
 use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::EpochId;
-use near_primitives::types::ShardId;
-use near_primitives::version::ProtocolVersion;
+use near_primitives::types::{EpochId, ShardId};
 
 fn get_epoch_id_of_last_block_with_chunk(
     chain_store: &mut dyn ChainStoreAccess,
@@ -64,16 +62,16 @@ pub fn check_if_block_is_valid_for_migration(
         RestoreReceiptsAfterFix,
         prev_epoch_protocol_version
     ) {
+        let prev_protocol_version = runtime_adapter.get_epoch_protocol_version(
+            &get_epoch_id_of_last_block_with_chunk(chain_store, prev_block_hash, shard_id)?,
+        )?;
+        Ok(shard_id == 0
+            && !checked_feature!(
+                "protocol_feature_restore_receipts_after_fix",
+                RestoreReceiptsAfterFix,
+                prev_protocol_version
+            ))
+    } else {
         Ok(false)
     }
-
-    let prev_protocol_version = runtime_adapter.get_epoch_protocol_version(
-        &get_epoch_id_of_last_block_with_chunk(chain_store, prev_block_hash, shard_id)?,
-    )?;
-    Ok(shard_id == 0
-        && !checked_feature!(
-            "protocol_feature_restore_receipts_after_fix",
-            RestoreReceiptsAfterFix,
-            prev_protocol_version
-        ))
 }
