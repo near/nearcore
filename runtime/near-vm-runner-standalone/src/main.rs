@@ -161,11 +161,6 @@ fn main() {
                 .possible_values(&["wasmer", "wasmer1", "wasmtime"]),
         )
         .arg(
-            Arg::with_name("profile-gas")
-                .long("profile-gas")
-                .help("Profiles gas consumption.")
-        )
-        .arg(
             Arg::with_name("timings")
                 .long("timings")
                 .help("Prints execution times of various components.")
@@ -199,8 +194,6 @@ fn main() {
     if let Some(version) = matches.value_of("protocol-version") {
         script.protocol_version(version.parse().unwrap())
     }
-    let profile_gas = matches.is_present("profile-gas");
-    script.profile(profile_gas);
 
     if let Some(state_str) = matches.value_of("state") {
         script.initial_state(serde_json::from_str(state_str).unwrap());
@@ -251,8 +244,6 @@ fn main() {
         .unwrap()
     );
 
-    if profile_gas {
-        assert_eq!(all_gas, results.profile.all_gas());
-        println!("{:#?}", results.profile);
-    }
+    assert_eq!(all_gas, results.profile.all_gas());
+    println!("{:#?}", results.profile);
 }

@@ -73,6 +73,10 @@ testlib = { path = "./test-utils/testlib" }
 
 [patch.crates-io]
 ethereum-types = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
+# Temporary wasmer fork which disables rayon (parallel compilation)
+# https://github.com/wasmerio/wasmer/pull/2262
+# Revome this when the new version of wasmer is published.
+wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "1.0.2-single-threaded"}
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
