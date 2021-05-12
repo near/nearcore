@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn test_deduct_gas() {
         let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new_disabled());
+            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new());
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -250,7 +250,7 @@ mod tests {
     #[should_panic]
     fn test_prepaid_gas_min() {
         let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new_disabled());
+            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new());
         counter.deduct_gas(10, 5).unwrap();
     }
 }
