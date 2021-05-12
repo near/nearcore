@@ -5,6 +5,7 @@ use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{EpochId, ShardId};
 
+/// Get epoch id of the last block in which chunk for the given shard was presented.
 fn get_epoch_id_of_last_block_with_chunk(
     chain_store: &mut dyn ChainStoreAccess,
     hash: &CryptoHash,
@@ -20,6 +21,7 @@ fn get_epoch_id_of_last_block_with_chunk(
     }
 }
 
+/// Get epoch id by hash of previous block.
 fn get_prev_epoch_id_from_prev_block(
     chain_store: &mut dyn ChainStoreAccess,
     runtime_adapter: &dyn RuntimeAdapter,
@@ -39,6 +41,9 @@ fn get_prev_epoch_id_from_prev_block(
     }
 }
 
+/// We take the first block with existing chunk in the first epoch in which protocol feature
+/// RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
+/// Needed to re-introduce receipts previously lost in apply_chunks (see https://github.com/near/nearcore/pull/4248/).
 pub fn check_if_block_is_valid_for_migration(
     chain_store: &mut dyn ChainStoreAccess,
     runtime_adapter: &dyn RuntimeAdapter,

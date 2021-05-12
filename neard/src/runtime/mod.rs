@@ -439,24 +439,21 @@ impl NightshadeRuntime {
 
         // This code block re-introduces receipts lost because of a bug in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
-        // We take the first block with existing chunk in the first epoch in which protocol feature
-        // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
         let incoming_receipts = receipts.to_vec();
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         let incoming_receipts = if is_valid_block_for_migration {
-            let mut x = self
+            let mut restored_receipts = self
                 .migration_data
                 .restored_receipts
                 .get(&shard_id)
                 .expect("Receipts to restore must contain an entry for shard 0")
                 .clone();
-            x.extend_from_slice(receipts);
-            x
+            restored_receipts.extend_from_slice(receipts);
+            restored_receipts
         } else {
             receipts.to_vec()
         };
-        println!("{}", is_valid_block_for_migration);
 
         let apply_result = self
             .runtime
