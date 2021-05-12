@@ -9,10 +9,10 @@ RUST_OPTIONS:=+stable
 export RUSTFLAGS = -D warnings
 
 release:
-	cargo $(RUST_OPTIONS) build -p neard --release
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release
-	cargo $(RUST_OPTIONS) build -p state-viewer --release
-	cargo $(RUST_OPTIONS) build -p store-validator --release
+	cargo $(RUST_OPTIONS) build -p neard --release --features wasmer1_default
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release --features wasmer1_default
+	cargo $(RUST_OPTIONS) build -p state-viewer --release --features wasmer1_default
+	cargo $(RUST_OPTIONS) build -p store-validator --release --features wasmer1_default
 
 debug:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard
