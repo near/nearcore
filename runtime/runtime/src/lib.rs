@@ -1080,6 +1080,7 @@ impl Runtime {
     ) -> Result<Gas, StorageError> {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
+
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         let gas_used: Gas = 0;
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
