@@ -38,7 +38,7 @@ protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_b
 protocol_feature_allow_create_account_on_delete = []
 
 # Use this feature to enable counting of fees and costs applied.
-costs_counting = ["near-primitives-core/costs_counting"]
+costs_counting = []
 
 [[test]]
 name = "test_storage_read_write"
