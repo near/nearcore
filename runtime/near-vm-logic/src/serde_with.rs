@@ -20,13 +20,13 @@ pub mod bytes_as_base64 {
 
 /// Serialize `Vec<u8>` as `String`.
 pub mod bytes_as_str {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{ser, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&String::from_utf8(arr.clone()).unwrap())
+        serializer.serialize_str(std::str::from_utf8(&arr).map_err(ser::Error::custom)?)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
