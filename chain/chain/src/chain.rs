@@ -53,6 +53,7 @@ use near_primitives::views::{
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
 use crate::lightclient::get_epoch_block_producers_view;
+use crate::migrations::check_if_block_is_valid_for_migration;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
@@ -2659,39 +2660,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-    fn get_prev_epoch_id_from_prev_block(&mut self, block_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let epoch_start_header = {
-            let height = self.runtime_adapter.get_epoch_start_height(block_hash)?;
-            let hash = self.chain_store_update.get_block_hash_by_height(height)?;
-            self.chain_store_update.get_block_header(&hash)?.clone()
-        };
-        if self.runtime_adapter.is_next_block_epoch_start(block_hash).unwrap() {
-            self.runtime_adapter.get_epoch_id_from_prev_block(epoch_start_header.prev_hash())
-        } else {
-            let prev_epoch_last_block = self.get_previous_header(&epoch_start_header)?.prev_hash().clone();
-            self.runtime_adapter.get_epoch_id_from_prev_block(&prev_epoch_last_block)
-        }
-    }
-
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-    fn get_protocol_version_of_last_block_with_chunk(
-        &mut self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<ProtocolVersion, Error> {
-        let mut candidate_hash = hash.clone();
-        loop {
-            let block_header = self.chain_store_update.get_block_header(&candidate_hash)?.clone();
-            if block_header.chunk_mask()[shard_id as usize] {
-                break Ok(self
-                    .runtime_adapter
-                    .get_epoch_protocol_version(block_header.epoch_id())?);
-            }
-            candidate_hash = block_header.prev_hash().clone();
-        }
-    }
-
     pub fn create_chunk_state_challenge(
         &mut self,
         prev_block: &Block,
@@ -2722,8 +2690,13 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
-        let is_valid_block_for_migration = self.check_if_block_is_valid_for_migration(&block.hash(), &prev_block.hash(), chunk_shard_id)?;
-
+        let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+            &mut self.chain_store_update,
+            self.runtime_adapter.as_ref(),
+            &block.hash(),
+            &prev_block.hash(),
+            chunk_shard_id,
+        )?;
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
@@ -2755,37 +2728,6 @@ impl<'a> ChainUpdate<'a> {
             chunk_header: chunk_header.clone(),
             partial_state,
         })
-    }
-
-    fn check_if_block_is_valid_for_migration(
-        &mut self,
-        block_hash: &CryptoHash,
-        prev_block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        let block_header = self.chain_store_update.get_block_header(block_hash)?.clone();
-        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(block_header.epoch_id())?;
-        let prev_protocol_version =
-            self.get_protocol_version_of_last_block_with_chunk(prev_block_hash, shard_id)?;
-        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(prev_block_hash)?.clone();
-        let prev_epoch_protocol_version =  self.runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
-        println!("{} {} {} {:?}", block_header.height(), protocol_version, prev_protocol_version, prev_epoch_id);
-        Ok(shard_id == 0
-            && checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                protocol_version
-            )
-            && !checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                prev_epoch_protocol_version
-            )
-            && !checked_feature!(
-                "protocol_feature_restore_receipts_after_fix",
-                RestoreReceiptsAfterFix,
-                prev_protocol_version
-            ))
     }
 
     fn apply_chunks(
@@ -2901,7 +2843,13 @@ impl<'a> ChainUpdate<'a> {
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
-                    let is_valid_block_for_migration = self.check_if_block_is_valid_for_migration(&block.hash(), &prev_block.hash(), shard_id)?;
+                    let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+                        &mut self.chain_store_update,
+                        self.runtime_adapter.as_ref(),
+                        &block.hash(),
+                        &prev_block.hash(),
+                        shard_id,
+                    )?;
 
                     // Apply transactions and receipts.
                     let apply_result = self
@@ -3658,7 +3606,14 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        let is_valid_block_for_migration = self.check_if_block_is_valid_for_migration(block_header.hash(), &chunk_header.prev_block_hash(), shard_id)?;
+        let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+            &mut self.chain_store_update,
+            self.runtime_adapter.as_ref(),
+            block_header.hash(),
+            &chunk_header.prev_block_hash(),
+            shard_id,
+        )?;
+
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk_header.prev_state_root(),

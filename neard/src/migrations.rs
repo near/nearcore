@@ -1,6 +1,7 @@
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
+use near_chain::migrations::check_if_block_is_valid_for_migration;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
@@ -47,11 +48,17 @@ fn apply_block_at_height(
         block_hash,
         prev_block.chunks()[shard_id as usize].height_included(),
     )?;
+    let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+        &mut chain_store_update,
+        runtime_adapter,
+        block.hash(),
+        prev_block.hash(),
+        shard_id,
+    )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
     let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
     let chunk = get_chunk(&chain_store, chunk_hash);
     let chunk_header = ShardChunkHeader::V1(chunk.header);
-
     let apply_result = runtime_adapter
         .apply_transactions(
             shard_id,
@@ -68,7 +75,7 @@ fn apply_block_at_height(
             &block.header().challenges_result(),
             *block.header().random_value(),
             true,
-            false, // ???
+            is_valid_block_for_migration,
         )
         .unwrap();
     let (_, outcome_paths) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -245,7 +252,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
-                            false, // ??
+                            false,
                         )
                         .unwrap();
                     if !apply_result.outcomes.is_empty() {

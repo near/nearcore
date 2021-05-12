@@ -14,6 +14,7 @@ pub mod chain;
 mod doomslug;
 mod lightclient;
 mod metrics;
+pub mod migrations;
 pub mod missing_chunks;
 mod store;
 pub mod store_validator;
