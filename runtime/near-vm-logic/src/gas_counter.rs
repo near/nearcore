@@ -230,6 +230,25 @@ impl GasCounter {
     pub fn used_gas(&self) -> Gas {
         self.used_gas
     }
+
+    #[inline]
+    pub fn start_block(&self) -> u64 { self.timestamp() }
+    #[inline]
+    pub fn end_ext_block(&mut self, cost: ExtCosts, start: u64) {
+        let elapsed =  self.timestamp() - start;
+        self.profile.add_ext_stamp(cost, elapsed);
+    }
+    #[inline]
+    pub fn end_action_block(&mut self, cost: ActionCosts, start: u64)  {
+        let elapsed =  self.timestamp() - start;
+        self.profile.add_action_stamp(cost, elapsed);
+    }
+    #[inline]
+    fn timestamp(&self) -> u64 {
+        unsafe {
+            core::arch::x86_64::_rdtsc()
+        }
+    }
 }
 
 #[cfg(test)]

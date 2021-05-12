@@ -187,19 +187,23 @@ impl<'a> VMLogic<'a> {
     }
 
     fn memory_get_into(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
+        let start = self.gas_counter.start_block();
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per_byte(read_memory_byte, buf.len() as _)?;
         self.try_fit_mem(offset, buf.len() as _)?;
         self.memory.read_memory(offset, buf);
+        self.gas_counter.end_ext_block( read_memory_base, start);
         Ok(())
     }
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
+        let start = self.gas_counter.start_block();
         self.gas_counter.pay_base(read_memory_base)?;
         self.gas_counter.pay_per_byte(read_memory_byte, len)?;
         self.try_fit_mem(offset, len)?;
         let mut buf = vec![0; len as usize];
         self.memory.read_memory(offset, &mut buf);
+        self.gas_counter.end_ext_block( read_memory_base, start);
         Ok(buf)
     }
 
@@ -228,10 +232,13 @@ impl<'a> VMLogic<'a> {
     }
 
     fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
+        let start = self.gas_counter.start_block();
+        self.gas_counter.end_ext_block( write_memory_base, start);
         self.gas_counter.pay_base(write_memory_base)?;
         self.gas_counter.pay_per_byte(write_memory_byte, buf.len() as _)?;
         self.try_fit_mem(offset, buf.len() as _)?;
         self.memory.write_memory(offset, buf);
+        self.gas_counter.end_ext_block( write_memory_base, start);
         Ok(())
     }
 

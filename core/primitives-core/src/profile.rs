@@ -18,6 +18,7 @@ enum Repr {
     #[cfg(feature = "costs_counting")]
     Enabled {
         data: std::rc::Rc<DataArray>,
+        data_stamps: std::rc::Rc<DataArray>,
     },
     Disabled,
 }
@@ -43,7 +44,8 @@ impl ProfileData {
         const ZERO: Cell<u64> = Cell::new(0);
 
         let data = std::rc::Rc::new([ZERO; ProfileData::LEN]);
-        let repr = Repr::Enabled { data };
+        let data_stamps = std::rc::Rc::new([ZERO; ProfileData::LEN]);
+        let repr = Repr::Enabled { data, data_stamps };
         ProfileData { repr }
     }
 
@@ -68,10 +70,25 @@ impl ProfileData {
         self.add_val(ProfileData::EXT_START + ext as usize, value);
     }
     #[inline]
+    pub fn add_action_stamp(&self, action: ActionCosts, value: u64) {
+        self.add_stamp(ProfileData::ACTION_START + action as usize, value);
+    }
+    #[inline]
+    pub fn add_ext_stamp(&self, ext: ExtCosts, value: u64) {
+        self.add_stamp(ProfileData::EXT_START + ext as usize, value);
+    }
+    #[inline]
     fn add_val(&self, index: usize, value: u64) {
         self.with_slot(index, |slot| {
             let old = slot.get();
             slot.set(old + value);
+        })
+    }
+    #[inline]
+    fn add_stamp(&self, index: usize, value: u64) {
+        self.with_stamp(index, |stamp| {
+            let old = stamp.get();
+            stamp.set(old + value);
         })
     }
 
@@ -79,13 +96,27 @@ impl ProfileData {
     fn with_slot(&self, index: usize, f: impl FnOnce(&Cell<u64>)) {
         match &self.repr {
             #[cfg(feature = "costs_counting")]
-            Repr::Enabled { data } => f(&data[index]),
+            Repr::Enabled { data, data_stamps } => f(&data[index]),
+            Repr::Disabled => drop((index, f)),
+        }
+    }
+    #[inline]
+    fn with_stamp(&self, index: usize, f: impl FnOnce(&Cell<u64>)) {
+        match &self.repr {
+            #[cfg(feature = "costs_counting")]
+            Repr::Enabled { data, data_stamps } => f(&data_stamps[index]),
             Repr::Disabled => drop((index, f)),
         }
     }
     fn read(&self, index: usize) -> u64 {
         let mut res = 0;
         self.with_slot(index, |slot| res = slot.get());
+        res
+    }
+
+    fn read_stamp(&self, index: usize) -> u64 {
+        let mut res = 0;
+        self.with_stamp(index, |stamp| res = stamp.get());
         res
     }
 
