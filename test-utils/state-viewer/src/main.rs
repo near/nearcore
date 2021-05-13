@@ -247,7 +247,7 @@ fn apply_block_at_height(
             &block_hash,
             block.header().prev_hash(),
             shard_id,
-        )?;
+        ).unwrap();
         runtime
             .apply_transactions(
                 shard_id,
