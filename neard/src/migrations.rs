@@ -1,3 +1,5 @@
+extern crate lazy_static_include;
+
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
@@ -183,4 +185,69 @@ pub fn migrate_17_to_18(path: &String, near_config: &NearConfig) {
     }
 
     set_store_version(&store, 18);
+}
+
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::receipt::ReceiptResult;
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+use crate::types::AccountId;
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+use crate::types::Gas;
+use std::fmt;
+use std::fmt::{Debug, Formatter};
+#[derive(Default)]
+pub struct MigrationData {
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    pub storage_usage_delta: Vec<(AccountId, u64)>,
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    pub storage_usage_fix_gas: Gas,
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    pub restored_receipts: ReceiptResult,
+}
+
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+lazy_static_include::lazy_static_include_bytes! {
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+}
+
+/// In test runs reads and writes here used 442 TGas, but in test on live net migration take
+/// between 4 and 4.5s. We do not want to process any receipts in this block
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
+
+pub fn load_migration_data(chain_id: &String) -> MigrationData {
+    #[cfg(not(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+    )))]
+        let _ = chain_id;
+    #[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
+        let is_mainnet = chain_id == "mainnet";
+    MigrationData {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_delta: if is_mainnet {
+            serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
+        } else {
+            Vec::new()
+        },
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_fix_gas: if is_mainnet {
+            GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION
+        } else {
+            0
+        },
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+        restored_receipts: if chain_id == "mainnet" {
+            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+                .expect("File with receipts restored after apply_chunks fix have to be correct")
+        } else {
+            ReceiptResult::default()
+        },
+    }
 }

@@ -31,7 +31,7 @@ use near_store::migrations::migrate_16_to_rectify_inflation;
 
 pub mod config;
 pub mod genesis_validate;
-mod migrations;
+pub mod migrations;
 mod runtime;
 mod shard_tracker;
 
