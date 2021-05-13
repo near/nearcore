@@ -274,16 +274,17 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 20);
 }
 
-#[cfg(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
-))]
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
 lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
     /// see https://github.com/near/nearcore/issues/3824
     /// This file was generated using tools/storage-usage-delta-calculator
     MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
+}
+
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+lazy_static_include::lazy_static_include_bytes! {
     /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
     /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
     /// See https://github.com/near/nearcore/pull/4248/ for more details.

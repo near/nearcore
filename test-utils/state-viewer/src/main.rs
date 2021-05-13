@@ -215,15 +215,14 @@ fn apply_block_at_height(
     shard_id: ShardId,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime = NightshadeRuntime::new(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
         &home_dir,
         store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
         None,
-    );
-    let runtime_adapter = Arc::new(runtime);
+    ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
@@ -248,7 +247,7 @@ fn apply_block_at_height(
             block.header().prev_hash(),
             shard_id,
         ).unwrap();
-        runtime
+        runtime_adapter
             .apply_transactions(
                 shard_id,
                 chunk_inner.prev_state_root(),
@@ -271,7 +270,7 @@ fn apply_block_at_height(
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
 
-        runtime
+        runtime_adapter
             .apply_transactions(
                 shard_id,
                 chunk_extra.state_root(),
