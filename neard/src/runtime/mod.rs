@@ -435,6 +435,7 @@ impl NightshadeRuntime {
             } else {
                 None
             },
+<<<<<<< HEAD
         };
 
         // This code block re-introduces receipts lost because of a bug in apply_chunks
@@ -453,6 +454,8 @@ impl NightshadeRuntime {
             restored_receipts
         } else {
             receipts.to_vec()
+=======
+>>>>>>> master
         };
 
         let apply_result = self

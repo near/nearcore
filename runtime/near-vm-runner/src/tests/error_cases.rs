@@ -224,6 +224,47 @@ fn test_div_by_zero_contract() {
     })
 }
 
+fn float_to_int_contract(index: usize) -> Vec<u8> {
+    let ops = ["i32.trunc_f64_s", "i32.trunc_f64_u", "i64.trunc_f64_s", "i64.trunc_f64_u"];
+    let code = format!(
+        r#"
+            (module
+              (type (;0;) (func))
+              (func (;0;) (type 0)
+                f64.const 0x1p+1023
+                {}
+                return
+              )
+              (export "hello" (func 0))
+            )"#,
+        ops[index]
+    );
+    wabt::wat2wasm(&code).unwrap()
+}
+
+#[test]
+fn test_float_to_int_contract() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
+            // Check if can restore, once get rid of Wasmer 0.x.
+            VMKind::Wasmtime => return,
+        }
+        for index in 0..=3 {
+            assert_eq!(
+                make_simple_contract_call_vm(&float_to_int_contract(index), "hello", vm_kind),
+                (
+                    Some(vm_outcome_with_gas(56985576)),
+                    Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                        WasmTrap::IllegalArithmetic
+                    )))
+                )
+            )
+        }
+    })
+}
+
 fn indirect_call_to_null_contract() -> Vec<u8> {
     wabt::wat2wasm(
         r#"

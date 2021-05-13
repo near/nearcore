@@ -37,15 +37,12 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
+use near_primitives::receipt::DelayedReceiptIndices;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
-
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
-use near_primitives::borsh::BorshDeserialize;
-use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
@@ -3147,5 +3144,110 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     fn test_all_chunks_in_epoch_missing() {
         // If all chunks are missing in the first epoch, no receipts should be applied
         run_test(11, 11 + EPOCH_LENGTH, false);
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+mod storage_usage_fix_tests {
+    use super::*;
+    use borsh::BorshDeserialize;
+    use near_primitives::types::AccountId;
+    use near_primitives::version::ProtocolFeature;
+    use near_store::TrieUpdate;
+    use std::rc::Rc;
+
+    fn process_blocks_with_storage_usage_fix(
+        chain_id: String,
+        check_storage_usage: fn(AccountId, u64, u64),
+    ) {
+        let epoch_length = 5;
+        let mut genesis = Genesis::test(vec!["test0", "near"], 1);
+        genesis.config.chain_id = chain_id;
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
+        let genesis_height = genesis.config.genesis_height;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env =
+            TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+        for i in 1..=16 {
+            // We cannot just use TestEnv::produce_block as we are updating protocol version
+            let (encoded_chunk, merkle_paths, receipts) =
+                create_chunk_on_height(&mut env.clients[0], i);
+
+            let mut chain_store =
+                ChainStore::new(env.clients[0].chain.store().owned_store(), genesis_height);
+            env.clients[0]
+                .shards_mgr
+                .distribute_encoded_chunk(
+                    encoded_chunk.clone(),
+                    merkle_paths.clone(),
+                    receipts.clone(),
+                    &mut chain_store,
+                )
+                .unwrap();
+
+            let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+
+            let validator_signer = InMemoryValidatorSigner::from_seed(
+                &"test0".to_string(),
+                KeyType::ED25519,
+                &"test0".to_string(),
+            );
+
+            block.mut_header().get_mut().inner_rest.latest_protocol_version =
+                ProtocolFeature::FixStorageUsage.protocol_version();
+            block.mut_header().resign(&validator_signer);
+            let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+            assert!(res.is_ok());
+            env.clients[0].run_catchup(&vec![]).unwrap();
+
+            let root =
+                env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().state_root().clone();
+            let trie = Rc::new(env.clients[0].runtime_adapter.get_trie_for_shard(0));
+            let state_update = TrieUpdate::new(trie.clone(), root);
+            use near_primitives::account::Account;
+            let mut account_near_raw = state_update
+                .get(&TrieKey::Account { account_id: "near".to_string() })
+                .unwrap()
+                .unwrap()
+                .clone();
+            let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
+            let mut account_test0_raw = state_update
+                .get(&TrieKey::Account { account_id: "test0".to_string() })
+                .unwrap()
+                .unwrap()
+                .clone();
+            let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
+            check_storage_usage("near".to_string(), i, account_near.storage_usage());
+            check_storage_usage("test0".to_string(), i, account_test0.storage_usage());
+        }
+    }
+
+    #[test]
+    fn test_fix_storage_usage_migration() {
+        init_test_logger();
+        process_blocks_with_storage_usage_fix(
+            "mainnet".to_string(),
+            |account_id: AccountId, block_height: u64, storage_usage: u64| {
+                if account_id == "test0" {
+                    assert_eq!(storage_usage, 182);
+                } else if block_height >= 11 {
+                    assert_eq!(storage_usage, 4560);
+                } else {
+                    assert_eq!(storage_usage, 364);
+                }
+            },
+        );
+        process_blocks_with_storage_usage_fix(
+            "testnet".to_string(),
+            |account_id: AccountId, _: u64, storage_usage: u64| {
+                if account_id == "test0" {
+                    assert_eq!(storage_usage, 182);
+                } else {
+                    assert_eq!(storage_usage, 364);
+                }
+            },
+        );
     }
 }

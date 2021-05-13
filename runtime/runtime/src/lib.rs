@@ -1080,6 +1080,7 @@ impl Runtime {
     ) -> Result<Gas, StorageError> {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
+
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         let gas_used: Gas = 0;
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -1473,7 +1474,7 @@ mod tests {
             is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
-            profile: ProfileData::new_enabled(),
+            profile: ProfileData::new(),
             migration_data: None,
         };
 

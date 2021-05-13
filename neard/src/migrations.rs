@@ -290,18 +290,21 @@ lazy_static_include::lazy_static_include_bytes! {
     MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
 
-// In test runs reads and writes here used 442 TGas. Added 10% to account for possible bigger
-// state
+/// In test runs reads and writes here used 442 TGas, but in test on live net migration take
+/// between 4 and 4.5s. We do not want to process any receipts in this block
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
-const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 490_000_000_000_000;
+const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     #[cfg(not(any(
-        feature = "protocol_feature_fix_storage_usage",
-        feature = "protocol_feature_restore_receipts_after_fix"
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
     )))]
     let _ = chain_id;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+    feature = "protocol_feature_fix_storage_usage",
+    feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
