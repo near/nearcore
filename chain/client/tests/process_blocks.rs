@@ -2903,6 +2903,7 @@ mod storage_usage_fix_tests {
         let mut env =
             TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
         for i in 1..=16 {
+            // We cannot just use TestEnv::produce_block as we are updating protocol version
             let (encoded_chunk, merkle_paths, receipts) =
                 create_chunk_on_height(&mut env.clients[0], i);
 
