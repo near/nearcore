@@ -286,7 +286,6 @@ pub trait ChainStoreAccess {
     ) -> Result<EpochId, Error> {
         let mut candidate_hash = hash.clone();
         loop {
-            // let block_header = chain_store.get_block_header(&candidate_hash)?.clone();
             let block_header = self.get_block_header(&candidate_hash)?;
             if block_header.chunk_mask()[shard_id as usize] {
                 break Ok(block_header.epoch_id().clone());
