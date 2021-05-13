@@ -2843,7 +2843,9 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk_inner.gas_limit();
 
                     // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
-                    // (see https://github.com/near/nearcore/pull/4248/).
+                    // (see https://github.com/near/nearcore/pull/4248/)
+                    // We take the first block with existing chunk in the first epoch in which protocol feature
+                    // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
                     let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
                         &mut self.chain_store_update,
                         self.runtime_adapter.as_ref(),

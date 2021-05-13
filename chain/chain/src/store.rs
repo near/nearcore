@@ -278,6 +278,22 @@ pub trait ChainStoreAccess {
             Ok(self.get_block_header(hash)?.height())
         }
     }
+
+    fn get_epoch_id_of_last_block_with_chunk(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<EpochId, Error> {
+        let mut candidate_hash = hash.clone();
+        loop {
+            // let block_header = chain_store.get_block_header(&candidate_hash)?.clone();
+            let block_header = self.get_block_header(&candidate_hash)?;
+            if block_header.chunk_mask()[shard_id as usize] {
+                break Ok(block_header.epoch_id().clone());
+            }
+            candidate_hash = block_header.prev_hash().clone();
+        }
+    }
 }
 
 /// All chain-related database operations.
