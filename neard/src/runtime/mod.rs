@@ -1717,6 +1717,7 @@ mod test {
                     challenges,
                     CryptoHash::default(),
                     true,
+                    false,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
