@@ -15,9 +15,9 @@ pub fn check_if_block_is_valid_for_migration(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    // At first, check the shard id
+    // At first, check that shard id = 0 and don't do unnecessary computation otherwise
     if shard_id != 0 {
-        Ok(false)
+        return Ok(false);
     }
 
     let block_header = chain_store.get_block_header(block_hash)?.clone();
