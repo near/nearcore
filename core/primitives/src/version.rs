@@ -107,7 +107,7 @@ pub enum ProtocolFeature {
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
-/// corresponding version
+/// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
