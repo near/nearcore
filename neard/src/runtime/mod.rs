@@ -440,6 +440,8 @@ impl NightshadeRuntime {
         // This code block re-introduces receipts lost because of a bug in apply_chunks
         // (see https://github.com/near/nearcore/pull/4248/)
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
+        let _ = is_valid_block_for_migration; // Workaround unused variable warning
+        #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
         let incoming_receipts = receipts.to_vec();
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         let incoming_receipts = if is_valid_block_for_migration {
@@ -447,7 +449,7 @@ impl NightshadeRuntime {
                 .migration_data
                 .restored_receipts
                 .get(&shard_id)
-                .expect("Receipts to restore must contain an entry for shard 0")
+                .expect("Receipts to restore must contain an entry for this shard")
                 .clone();
             restored_receipts.extend_from_slice(receipts);
             restored_receipts
