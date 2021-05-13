@@ -3614,6 +3614,7 @@ dependencies = [
  "futures",
  "git-version",
  "jemallocator",
+ "lazy-static-include",
  "lazy_static",
  "log",
  "near-chain",

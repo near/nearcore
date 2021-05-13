@@ -193,8 +193,6 @@ use near_primitives::receipt::ReceiptResult;
 use crate::types::AccountId;
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
 use crate::types::Gas;
-use std::fmt;
-use std::fmt::{Debug, Formatter};
 #[derive(Default)]
 pub struct MigrationData {
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -220,15 +218,15 @@ const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     #[cfg(not(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     )))]
-        let _ = chain_id;
+    let _ = chain_id;
     #[cfg(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     ))]
-        let is_mainnet = chain_id == "mainnet";
+    let is_mainnet = chain_id == "mainnet";
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         storage_usage_delta: if is_mainnet {
@@ -243,7 +241,7 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
             0
         },
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        restored_receipts: if chain_id == "mainnet" {
+        restored_receipts: if is_mainnet {
             serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
                 .expect("File with receipts restored after apply_chunks fix have to be correct")
         } else {
