@@ -1100,6 +1100,14 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
     }
+
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        _prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        unreachable!("get_prev_epoch_id_from_prev_block should not be called in KeyValueRuntime");
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {

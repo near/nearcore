@@ -653,6 +653,13 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
+    /// Get previous epoch id by hash of previous block.
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error>;
+
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.

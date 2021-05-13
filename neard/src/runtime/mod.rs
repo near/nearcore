@@ -1527,6 +1527,19 @@ impl RuntimeAdapter for NightshadeRuntime {
         config.runtime_config = (*runtime_config).clone();
         Ok(config)
     }
+
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
+        } else {
+            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
+        }
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
