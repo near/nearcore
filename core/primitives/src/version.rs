@@ -101,15 +101,19 @@ pub enum ProtocolFeature {
     TransactionSizeLimit,
     #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
     AllowCreateAccountOnDelete,
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    FixStorageUsage,
 }
 
 /// Current latest stable version of the protocol.
+/// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
+/// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
 pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 110;
+pub const PROTOCOL_VERSION: ProtocolVersion = 111;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -135,6 +139,8 @@ impl ProtocolFeature {
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
             ProtocolFeature::AllowCreateAccountOnDelete => 110,
+            #[cfg(feature = "protocol_feature_fix_storage_usage")]
+            ProtocolFeature::FixStorageUsage => 111,
         }
     }
 }

@@ -44,7 +44,8 @@ members = [
     "genesis-tools/keypair-generator",
     "tools/restaked",
     "tools/indexer/example",
-    "tools/delay_detector"
+    "tools/delay_detector",
+    "tools/storage-usage-delta-calculator"
 ]
 
 [dev-dependencies]
@@ -112,13 +113,14 @@ metric_recorder = ["neard/metric_recorder"]
 delay_detector = ["neard/delay_detector"]
 rosetta_rpc = ["neard/rosetta_rpc"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol", "testlib/nightly_protocol", "neard/nightly_protocol"]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "testlib/nightly_protocol_features"]
+nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "testlib/nightly_protocol_features", "protocol_feature_fix_storage_usage"]
 protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit", "neard/protocol_feature_tx_size_limit"]
 protocol_feature_allow_create_account_on_delete = ["testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete", "node-runtime/protocol_feature_allow_create_account_on_delete", "neard/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
+protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "neard/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
