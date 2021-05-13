@@ -1528,7 +1528,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(config)
     }
 
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn get_prev_epoch_id_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,

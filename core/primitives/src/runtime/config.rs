@@ -1,16 +1,11 @@
 //! Settings of the parameters of the runtime.
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use std::collections::HashMap;
-
 use crate::checked_feature;
 use crate::config::VMConfig;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use crate::receipt::ReceiptResult;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
 use crate::version::ProtocolVersion;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 /// The structure that holds the parameters of the runtime, mostly economics.

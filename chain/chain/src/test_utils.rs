@@ -1101,7 +1101,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
     }
 
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn get_prev_epoch_id_from_prev_block(
         &self,
         _prev_block_hash: &CryptoHash,

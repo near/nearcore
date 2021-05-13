@@ -10,6 +10,7 @@ use clap::{App, Arg, SubCommand};
 
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
+use near_chain::migrations::check_if_block_is_valid_for_migration;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_logger_utils::init_integration_logger;
@@ -222,6 +223,7 @@ fn apply_block_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
     );
+    let runtime_adapter = Arc::new(runtime);
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
@@ -239,6 +241,13 @@ fn apply_block_at_height(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
+        let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+            &mut chain_store,
+            runtime_adapter.as_ref(),
+            &block_hash,
+            block.header().prev_hash(),
+            shard_id,
+        )?;
         runtime
             .apply_transactions(
                 shard_id,
@@ -255,6 +264,7 @@ fn apply_block_at_height(
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
+                is_valid_block_for_migration,
             )
             .unwrap()
     } else {
@@ -276,6 +286,7 @@ fn apply_block_at_height(
                 chunk_extra.gas_limit(),
                 &block.header().challenges_result(),
                 *block.header().random_value(),
+                false,
                 false,
             )
             .unwrap()
