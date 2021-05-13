@@ -562,38 +562,104 @@ pub enum ActionCosts {
 
 impl fmt::Display for ActionCosts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", ActionCosts::name_of(*self as usize))
+        fmt::Debug::fmt(self, f)
     }
 }
 
 impl ActionCosts {
-    pub const fn count() -> usize {
-        ActionCosts::__count as usize
-    }
-
-    pub fn name_of(index: usize) -> &'static str {
-        vec![
-            "create_account",
-            "delete_account",
-            "deploy_contract",
-            "function_call",
-            "transfer",
-            "stake",
-            "add_key",
-            "delete_key",
-            "value_return",
-            "new_receipt",
-        ][index]
-    }
+    pub const ALL: [ActionCosts; ActionCosts::__count as usize] = {
+        use ActionCosts::*;
+        [
+            create_account,
+            delete_account,
+            deploy_contract,
+            function_call,
+            transfer,
+            stake,
+            add_key,
+            delete_key,
+            value_return,
+            new_receipt,
+        ]
+    };
 }
 
 impl fmt::Display for ExtCosts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", ExtCosts::name_of(*self as usize))
+        fmt::Debug::fmt(self, f)
     }
 }
 
 impl ExtCosts {
+    pub const ALL: [ExtCosts; ExtCosts::__count as usize] = {
+        use ExtCosts::*;
+        [
+            base,
+            contract_compile_base,
+            contract_compile_bytes,
+            read_memory_base,
+            read_memory_byte,
+            write_memory_base,
+            write_memory_byte,
+            read_register_base,
+            read_register_byte,
+            write_register_base,
+            write_register_byte,
+            utf8_decoding_base,
+            utf8_decoding_byte,
+            utf16_decoding_base,
+            utf16_decoding_byte,
+            sha256_base,
+            sha256_byte,
+            keccak256_base,
+            keccak256_byte,
+            keccak512_base,
+            keccak512_byte,
+            log_base,
+            log_byte,
+            storage_write_base,
+            storage_write_key_byte,
+            storage_write_value_byte,
+            storage_write_evicted_byte,
+            storage_read_base,
+            storage_read_key_byte,
+            storage_read_value_byte,
+            storage_remove_base,
+            storage_remove_key_byte,
+            storage_remove_ret_value_byte,
+            storage_has_key_base,
+            storage_has_key_byte,
+            storage_iter_create_prefix_base,
+            storage_iter_create_prefix_byte,
+            storage_iter_create_range_base,
+            storage_iter_create_from_byte,
+            storage_iter_create_to_byte,
+            storage_iter_next_base,
+            storage_iter_next_key_byte,
+            storage_iter_next_value_byte,
+            touching_trie_node,
+            promise_and_base,
+            promise_and_per_promise,
+            promise_return,
+            validator_stake_base,
+            validator_total_stake_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_byte,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_multiexp_sublinear,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_pairing_check_byte,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_base,
+            #[cfg(feature = "protocol_feature_alt_bn128")]
+            alt_bn128_g1_sum_byte,
+        ]
+    };
+
     pub fn value(self, config: &ExtCostsConfig) -> Gas {
         use ExtCosts::*;
         match self {
@@ -663,77 +729,5 @@ impl ExtCosts {
 
             __count => unreachable!(),
         }
-    }
-
-    pub const fn count() -> usize {
-        ExtCosts::__count as usize
-    }
-
-    pub fn name_of(index: usize) -> &'static str {
-        vec![
-            "base",
-            "contract_compile_base",
-            "contract_compile_bytes",
-            "read_memory_base",
-            "read_memory_byte",
-            "write_memory_base",
-            "write_memory_byte",
-            "read_register_base",
-            "read_register_byte",
-            "write_register_base",
-            "write_register_byte",
-            "utf8_decoding_base",
-            "utf8_decoding_byte",
-            "utf16_decoding_base",
-            "utf16_decoding_byte",
-            "sha256_base",
-            "sha256_byte",
-            "keccak256_base",
-            "keccak256_byte",
-            "keccak512_base",
-            "keccak512_byte",
-            "log_base",
-            "log_byte",
-            "storage_write_base",
-            "storage_write_key_byte",
-            "storage_write_value_byte",
-            "storage_write_evicted_byte",
-            "storage_read_base",
-            "storage_read_key_byte",
-            "storage_read_value_byte",
-            "storage_remove_base",
-            "storage_remove_key_byte",
-            "storage_remove_ret_value_byte",
-            "storage_has_key_base",
-            "storage_has_key_byte",
-            "storage_iter_create_prefix_base",
-            "storage_iter_create_prefix_byte",
-            "storage_iter_create_range_base",
-            "storage_iter_create_from_byte",
-            "storage_iter_create_to_byte",
-            "storage_iter_next_base",
-            "storage_iter_next_key_byte",
-            "storage_iter_next_value_byte",
-            "touching_trie_node",
-            "promise_and_base",
-            "promise_and_per_promise",
-            "promise_return",
-            "validator_stake_base",
-            "validator_total_stake_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_multiexp_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_multiexp_byte",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_multiexp_sublinear",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_pairing_check_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_pairing_check_byte",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_sum_base",
-            #[cfg(feature = "protocol_feature_alt_bn128")]
-            "alt_bn128_g1_sum_byte",
-        ][index]
     }
 }

@@ -21,8 +21,8 @@ impl Default for ProfileData {
 
 impl ProfileData {
     const EXT_START: usize = 1;
-    const ACTION_START: usize = ProfileData::EXT_START + ExtCosts::count();
-    const LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
+    const ACTION_START: usize = ProfileData::EXT_START + ExtCosts::ALL.len();
+    const LEN: usize = 1 + ActionCosts::ALL.len() + ExtCosts::ALL.len();
 
     #[inline]
     pub fn new() -> Self {
@@ -57,24 +57,24 @@ impl ProfileData {
         self.read(0)
     }
 
-    pub fn get_action_cost(&self, action: usize) -> u64 {
-        self.read(ProfileData::ACTION_START + action)
+    pub fn get_action_cost(&self, action: ActionCosts) -> u64 {
+        self.read(ProfileData::ACTION_START + action as usize)
     }
 
-    pub fn get_ext_cost(&self, ext: usize) -> u64 {
-        self.read(ProfileData::EXT_START + ext)
+    pub fn get_ext_cost(&self, ext: ExtCosts) -> u64 {
+        self.read(ProfileData::EXT_START + ext as usize)
     }
 
     pub fn host_gas(&self) -> u64 {
         let mut host_gas = 0u64;
-        for e in 0..ExtCosts::count() {
+        for &e in ExtCosts::ALL.iter() {
             host_gas += self.get_ext_cost(e);
         }
         host_gas
     }
     pub fn action_gas(&self) -> u64 {
         let mut action_gas = 0u64;
-        for e in 0..ActionCosts::count() {
+        for &e in ActionCosts::ALL.iter() {
             action_gas += self.get_action_cost(e)
         }
         action_gas
@@ -123,13 +123,13 @@ impl fmt::Debug for ProfileData {
             Ratio::new(wasm_gas * 100, all_gas).to_integer()
         )?;
         writeln!(f, "------ Host functions --------")?;
-        for e in 0..ExtCosts::count() {
+        for &e in ExtCosts::ALL.iter() {
             let d = self.get_ext_cost(e);
             if d != 0 {
                 writeln!(
                     f,
                     "{} -> {} [{}% total, {}% host]",
-                    ExtCosts::name_of(e),
+                    e,
                     d,
                     Ratio::new(d * 100, all_gas).to_integer(),
                     Ratio::new(d * 100, host_gas).to_integer(),
@@ -137,13 +137,13 @@ impl fmt::Debug for ProfileData {
             }
         }
         writeln!(f, "------ Actions --------")?;
-        for e in 0..ActionCosts::count() {
+        for &e in ActionCosts::ALL.iter() {
             let d = self.get_action_cost(e);
             if d != 0 {
                 writeln!(
                     f,
                     "{} -> {} [{}% total]",
-                    ActionCosts::name_of(e),
+                    e,
                     d,
                     Ratio::new(d * 100, all_gas).to_integer()
                 )?;
