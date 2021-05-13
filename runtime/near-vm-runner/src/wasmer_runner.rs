@@ -100,8 +100,28 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // invoke returns false and doesn't fill error info what Singlepass BE doesn't.
                 // Failed unwinder may happen in the case of deep recursion/stack overflow.
                 // Also can be thrown on unreachable instruction, which is quite unfortunate.
+                //
+                // See https://github.com/near/wasmer/blob/0.17.2/lib/runtime-core/src/fault.rs#L285
                 InvokeError::FailedWithNoError => VMError::FunctionCallError(
-                    FunctionCallError::Nondeterministic("FailedWithNoError".to_string()),
+                    // XXX: Initially, we treated this error case as
+                    // deterministic (so, we stored this error in our state,
+                    // etc.)
+                    //
+                    // Then, in
+                    // https://github.com/near/nearcore/pull/4181#discussion_r606267838
+                    // we reasoned that this error actually happens
+                    // non-deterministically, so it's better to panic in this
+                    // case.
+                    //
+                    // However, when rolling this out, we noticed that this
+                    // error happens deterministically for at least one
+                    // contract. So here we roll this back to a previous
+                    // behavior and emit some deterministic error, which won't
+                    // cause the node to panic.
+                    //
+                    // So far, we are unable to reproduce this deterministic
+                    // failure though.
+                    FunctionCallError::WasmTrap(WasmTrap::Unreachable),
                 ),
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
