@@ -279,6 +279,7 @@ pub trait ChainStoreAccess {
         }
     }
 
+    /// Get epoch id of the last block with existing chunk for the given shard id.
     fn get_epoch_id_of_last_block_with_chunk(
         &mut self,
         hash: &CryptoHash,

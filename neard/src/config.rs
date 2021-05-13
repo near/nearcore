@@ -780,6 +780,10 @@ pub fn init_configs(
             // TODO: add download genesis for mainnet
             let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
                 .expect("Failed to deserialize MainNet genesis");
+            if let Some(account_id) = account_id {
+                generate_validator_key(account_id, &dir.join(config.validator_key_file));
+            }
+
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
