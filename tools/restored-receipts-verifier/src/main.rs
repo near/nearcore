@@ -65,7 +65,6 @@ fn main() -> Result<()> {
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
-        None,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();
@@ -94,20 +93,19 @@ fn main() -> Result<()> {
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
-                chunk_extra.state_root(),
+                &chunk_extra.state_root,
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
                 &block.hash(),
                 &[],
                 &[],
-                chunk_extra.validator_proposals(),
+                &chunk_extra.validator_proposals,
                 block.header().gas_price(),
-                chunk_extra.gas_limit(),
+                chunk_extra.gas_limit,
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
-                false, // because fix was not applied in for the blocks analyzed here
             )
             .unwrap();
 
