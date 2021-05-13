@@ -1,8 +1,10 @@
 use std::borrow::Borrow;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::config::Cost;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{PublicKey, Signature};
@@ -337,6 +339,7 @@ pub struct ExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
+    pub gas_breakdown: GasBreakdown,
     /// The amount of tokens burnt corresponding to the burnt gas amount.
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
@@ -415,6 +418,24 @@ pub fn verify_transaction_signature(
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
     public_keys.iter().any(|key| transaction.signature.verify(&hash, &key))
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq)]
+pub struct GasBreakdown {
+    data: Vec<u64>,
+}
+
+impl serde::Serialize for GasBreakdown {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = BTreeMap::new();
+        for cost in Cost::all() {
+            map.insert(cost.to_string(), self.data.get(cost.index()).copied().unwrap_or_default());
+        }
+        serde::Serialize::serialize(&map, serializer)
+    }
 }
 
 #[cfg(test)]

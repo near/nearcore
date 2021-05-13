@@ -559,6 +559,11 @@ pub enum ActionCosts {
     // NOTE: this should be the last element of the enum.
     __count,
 }
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub enum Cost {
+    ActionCosts(ActionCosts),
+    ExtCosts(ExtCosts),
+}
 
 impl fmt::Display for ActionCosts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -729,5 +734,23 @@ impl ExtCosts {
 
             __count => unreachable!(),
         }
+    }
+}
+
+impl fmt::Display for Cost {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Cost::ActionCosts(it) => fmt::Display::fmt(it, f),
+            Cost::ExtCosts(it) => fmt::Display::fmt(it, f),
+        }
+    }
+}
+
+impl Cost {
+    pub fn all() -> impl Iterator<Item = Cost> + ExactSizeIterator {
+        std::iter::empty()
+    }
+    pub fn index(&self) -> usize {
+        0
     }
 }

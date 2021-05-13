@@ -720,6 +720,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         logs: vec![],
                         receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
+                        gas_breakdown: Default::default(),
                         tokens_burnt: 0,
                         executor_id: to.clone(),
                     },
