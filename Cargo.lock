@@ -5323,6 +5323,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 
 [[package]]
+name = "storage-usage-delta-calculator"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.8.3",
+ "log",
+ "near-chain-configs",
+ "near-primitives",
+ "node-runtime",
+ "serde_json",
+]
+
+[[package]]
 name = "store-validator"
 version = "0.1.0"
 dependencies = [

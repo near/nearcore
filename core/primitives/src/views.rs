@@ -1481,6 +1481,7 @@ pub enum StateChangeCauseView {
     PostponedReceipt { receipt_hash: CryptoHash },
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
+    Migration,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -1505,6 +1506,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             }
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
+            StateChangeCause::Migration => Self::Migration,
         }
     }
 }

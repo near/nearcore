@@ -58,7 +58,9 @@ use node_runtime::{
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_primitives::runtime::config::RuntimeConfig;
 
+use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
+use near_primitives::runtime::migration_data::MigrationData;
 
 pub mod errors;
 
@@ -130,6 +132,7 @@ pub struct NightshadeRuntime {
     epoch_manager: SafeEpochManager,
     shard_tracker: ShardTracker,
     genesis_state_roots: Vec<StateRoot>,
+    migration_data: Arc<MigrationData>,
 }
 
 impl NightshadeRuntime {
@@ -181,6 +184,7 @@ impl NightshadeRuntime {
             epoch_manager: SafeEpochManager(epoch_manager),
             shard_tracker,
             genesis_state_roots: state_roots,
+            migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
         }
     }
 
@@ -191,6 +195,11 @@ impl NightshadeRuntime {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
+    }
+
+    fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
@@ -393,7 +402,9 @@ impl NightshadeRuntime {
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
         let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
+        let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -415,6 +426,11 @@ impl NightshadeRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
+            migration_data: if current_protocol_version != prev_block_protocol_version {
+                Some(Arc::clone(&self.migration_data))
+            } else {
+                None
+            },
         };
 
         let apply_result = self
