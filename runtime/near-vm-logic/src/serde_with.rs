@@ -1,6 +1,6 @@
 /// Serialize `Vec<u8>` as base64 encoding.
 pub mod bytes_as_base64 {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
     use std::borrow::Cow;
 
     pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
@@ -15,7 +15,7 @@ pub mod bytes_as_base64 {
         D: Deserializer<'de>,
     {
         let s = Cow::<'_, str>::deserialize(deserializer)?;
-        Ok(base64::decode(s.as_ref()).expect("Failed to deserialize base64 string"))
+        Ok(base64::decode(s.as_ref()).map_err(de::Error::custom)?)
     }
 }
 
@@ -41,7 +41,7 @@ pub mod bytes_as_str {
 
 /// Serialize `Vec<u8>` as base58 encoding.
 pub mod bytes_as_base58 {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
     use std::borrow::Cow;
 
     pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
@@ -56,7 +56,7 @@ pub mod bytes_as_base58 {
         D: Deserializer<'de>,
     {
         let s = Cow::<'_, str>::deserialize(deserializer)?;
-        Ok(bs58::decode(s.as_ref()).into_vec().expect("Failed to deserialize base58 string"))
+        Ok(bs58::decode(s.as_ref()).into_vec().map_err(de::Error::custom)?)
     }
 }
 
