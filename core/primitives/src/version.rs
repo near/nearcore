@@ -103,11 +103,8 @@ pub enum ProtocolFeature {
     AllowCreateAccountOnDelete,
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
     FixStorageUsage,
-<<<<<<< HEAD
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     RestoreReceiptsAfterFix,
-=======
->>>>>>> master
 }
 
 /// Current latest stable version of the protocol.
@@ -118,11 +115,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-<<<<<<< HEAD
 pub const PROTOCOL_VERSION: ProtocolVersion = 112;
-=======
-pub const PROTOCOL_VERSION: ProtocolVersion = 111;
->>>>>>> master
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -150,11 +143,8 @@ impl ProtocolFeature {
             ProtocolFeature::AllowCreateAccountOnDelete => 110,
             #[cfg(feature = "protocol_feature_fix_storage_usage")]
             ProtocolFeature::FixStorageUsage => 111,
-<<<<<<< HEAD
             #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
-=======
->>>>>>> master
         }
     }
 }
