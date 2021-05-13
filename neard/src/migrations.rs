@@ -297,13 +297,13 @@ const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     #[cfg(not(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     )))]
     let _ = chain_id;
     #[cfg(any(
-    feature = "protocol_feature_fix_storage_usage",
-    feature = "protocol_feature_restore_receipts_after_fix"
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
     ))]
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
