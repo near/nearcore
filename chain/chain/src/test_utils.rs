@@ -53,6 +53,7 @@ use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_chain_configs::ProtocolConfig;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::state_record::StateRecord;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -604,6 +605,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _random_seed: CryptoHash,
         generate_storage_proof: bool,
         _is_new_chunk: bool,
+        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];

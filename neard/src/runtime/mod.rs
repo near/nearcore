@@ -1204,6 +1204,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_value,
             is_new_chunk,
+            #[cfg(feature = "ganache")]
+            None,
         )
     }
 

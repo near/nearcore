@@ -2485,7 +2485,7 @@ impl Chain {
 #[cfg(feature = "ganache")]
 impl Chain {
     pub fn patch_state(&mut self, records: Vec<StateRecord>) {
-        match self.pending_states_to_patch {
+        match self.pending_states_to_patch.take() {
             None => self.pending_states_to_patch = Some(records),
             Some(pending) => {
                 let mut pending_states_to_patch = pending;
@@ -2511,6 +2511,8 @@ pub struct ChainUpdate<'a> {
     genesis: &'a Block,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
+    #[cfg(feature = "ganache")]
+    states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2537,6 +2539,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             genesis,
             transaction_validity_period,
+            states_to_patch,
         }
     }
 
@@ -2737,6 +2740,8 @@ impl<'a> ChainUpdate<'a> {
                 *block.header().random_value(),
                 true,
                 true,
+                #[cfg(feature = "ganache")]
+                None,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2885,6 +2890,8 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             true,
+                            #[cfg(feature = "ganache")]
+                            self.states_to_patch.take(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2940,6 +2947,8 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             false,
+                            #[cfg(feature = "ganache")]
+                            self.states_to_patch.take(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -3648,6 +3657,8 @@ impl<'a> ChainUpdate<'a> {
             &block_header.challenges_result(),
             *block_header.random_value(),
             true,
+            #[cfg(feature = "ganache")]
+            None,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3727,6 +3738,8 @@ impl<'a> ChainUpdate<'a> {
             &block_header.challenges_result(),
             *block_header.random_value(),
             false,
+            #[cfg(feature = "ganache")]
+            None,
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
