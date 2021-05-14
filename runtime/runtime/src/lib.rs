@@ -1088,6 +1088,7 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
+        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
@@ -1246,6 +1247,11 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
+        #[cfg(feature = "ganache")]
+        if let Some(patch) = states_to_patch {
+            self.apply_state_patches(state_update, states_to_patch);
+        }
+
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Dedup proposals from the same account.
@@ -1293,6 +1299,36 @@ impl Runtime {
                 )
             })?;
         Ok(())
+    }
+
+    #[cfg(feature = "ganache")]
+    fn apply_state_patches(
+        &mut self,
+        state_update: &mut TrieUpdate,
+        states_to_patch: Vec<StateRecord>,
+    ) {
+        for record in states_to_patch {
+            match record {
+                StateRecord::Account { account_id, account } => {
+                    set_account(&mut state_update, account_id, &account);
+                }
+                StateRecord::Data { account_id, data_key, value } => {
+                    state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
+                }
+                StateRecord::Contract { account_id, code } => {
+                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    // Recompute contract code hash.
+                    let code = ContractCode::new(code, None);
+                    set_code(&mut state_update, account_id, &code);
+                    assert_eq!(code.get_hash(), acc.code_hash());
+                }
+                StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    set_access_key(&mut state_update, account_id, public_key, &access_key);
+                }
+                _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
+            }
+        }
+        state_update.commit(StateChangeCause::PatchState);
     }
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted

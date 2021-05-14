@@ -210,6 +210,8 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
+    #[cfg(feature = "ganache")]
+    pub pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl Chain {
@@ -246,6 +248,8 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            #[cfg(feature = "ganache")]
+            pending_states_to_patch: None,
         })
     }
 
@@ -360,6 +364,8 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            #[cfg(feature = "ganache")]
+            pending_states_to_patch: None,
         })
     }
 
@@ -2084,6 +2090,8 @@ impl Chain {
             self.doomslug_threshold_mode,
             &self.genesis,
             self.transaction_validity_period,
+            #[cfg(feature = "ganache")]
+            self.pending_states_to_patch.take(),
         )
     }
 
@@ -2476,35 +2484,15 @@ impl Chain {
 /// Ganache node specific operations
 #[cfg(feature = "ganache")]
 impl Chain {
-    pub fn patch_state<Record: Borrow<StateRecord>>(&mut self, records: &[Record]) {
-        let mut store_update = self.store.owned_store().store_update();
-        for record in records {
-            match record.borrow().clone() {
-                StateRecord::Account { account_id, account } => store_update.set(
-                    ColState,
-                    &(TrieKey::Account { account_id }.to_vec()),
-                    &account.try_to_vec()?,
-                ),
-                StateRecord::AccessKey { account_id, public_key, access_key } => store_update.set(
-                    ColState,
-                    &(TrieKey::AccessKey { account_id, public_key }.to_vec()),
-                    &access_key.try_to_vec()?,
-                ),
-                StateRecord::Contract { account_id, code } => store_update.set(
-                    ColState,
-                    &(TrieKey::ContractCode { account_id }.to_vec()),
-                    &code,
-                ),
-                StateRecord::Data { account_id, data_key, value } => store_update.set(
-                    ColState,
-                    &(TrieKey::ContractData { account_id, key: data_key }.to_vec()),
-                    &value,
-                ),
-                _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
+    pub fn patch_state(&mut self, records: Vec<StateRecord>) {
+        match self.pending_states_to_patch {
+            None => self.pending_states_to_patch = Some(records),
+            Some(pending) => {
+                let mut pending_states_to_patch = pending;
+                pending_states_to_patch.extend_from_slice(&records);
+                self.pending_states_to_patch = Some(pending_states_to_patch);
             }
         }
-        // store_update.set(ColStateParts, &key, &state_part);
-        store_update.commit().expect("Failed to patch state");
     }
 }
 
@@ -2536,6 +2524,7 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
         transaction_validity_period: BlockHeightDelta,
+        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {

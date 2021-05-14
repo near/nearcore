@@ -299,7 +299,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Ganache(ganache_msg) => {
                 return match ganache_msg {
                     NetworkGanacheMessage::GanachePatchState(state) => {
-                        self.client.chain.patch_state(state.as_ref());
+                        self.client.chain.patch_state(state);
                         NetworkClientResponses::NoResponse
                     }
                 }

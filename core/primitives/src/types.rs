@@ -152,6 +152,9 @@ pub enum StateChangeCause {
     /// State change that happens when we update validator accounts. Not associated with with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
+    /// State patched by a ganache node
+    #[cfg(feature = "ganache")]
+    PatchState,
 }
 
 /// This represents the committed changes in the Trie with a change cause.

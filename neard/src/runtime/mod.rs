@@ -326,6 +326,7 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         is_new_chunk: bool,
+        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -429,6 +430,8 @@ impl NightshadeRuntime {
                 &receipts,
                 &transactions,
                 &self.epoch_manager,
+                #[cfg(feature = "ganache")]
+                states_to_patch,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(_) => Error::from(ErrorKind::InvalidTransactions),
@@ -1133,6 +1136,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
+        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
@@ -1152,6 +1156,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_seed,
             is_new_chunk,
+            #[cfg(feature = "ganache")]
+            states_to_patch,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
