@@ -123,7 +123,7 @@ protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_a
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "neard/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
 
 # enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer1 would be default
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
 wasmer1_default = ["node-runtime/wasmer1_default"]
 wasmer0_default = ["node-runtime/wasmer0_default"]
 wasmtime_default = ["node-runtime/wasmtime_default"]

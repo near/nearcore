@@ -235,8 +235,6 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
 
     let (a, b, _) = least_squares_method(&xs, &ys);
 
-    // println!("xs={:?} ys={:?} errs={:?}: a = {} b = {}", xs, ys, errs, a.to_f64().unwrap(), b.to_f64().unwrap());
-
     // We multiply `b` by 5/4 to accommodate for the fact that test contracts are typically 80% code,
     // so in the worst case it could grow to 100% and our costs still give better upper estimation.
     let safety = Ratio::new(5i128, 4i128); // 5/4.
@@ -260,7 +258,6 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
         let y = measure_contract(vm_kind, gas_metric, &contract, cache);
         let expect = (corrected_a + corrected_b * (x as i128)).to_integer();
         let error = expect - (y as i128);
-        println!("x = {} y = {} error is {}", x, y, error);
         if gas_metric == GasMetric::ICount {
             // Time based metric may lead to unpredictable results.
             assert!(error >= 0);
@@ -295,7 +292,11 @@ pub(crate) fn compute_compile_cost_vm(
             );
         }
     });
-    (u64::try_from(base).unwrap(), u64::try_from(per_byte).unwrap())
+    match metric {
+        GasMetric::ICount => (u64::try_from(base).unwrap(), u64::try_from(per_byte).unwrap()),
+        // Time metric can lead to negative coefficients.
+        GasMetric::Time => (u64::try_from(base).unwrap_or(0), u64::try_from(per_byte).unwrap_or(0)),
+    }
 }
 
 #[allow(dead_code)]
