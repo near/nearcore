@@ -1103,9 +1103,18 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_prev_epoch_id_from_prev_block(
         &self,
-        _prev_block_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
     ) -> Result<EpochId, Error> {
-        unreachable!("get_prev_epoch_id_from_prev_block should not be called in KeyValueRuntime");
+        let mut candidate_hash = prev_block_hash.clone();
+        loop {
+            let header = self
+                .get_block_header(&candidate_hash)?
+                .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&candidate_hash)))?;
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                break Ok(self.get_epoch_and_valset(*header.prev_hash())?.0);
+            }
+            candidate_hash = header.prev_hash().clone();
+        }
     }
 }
 

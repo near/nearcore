@@ -22,7 +22,12 @@ pub fn check_if_block_is_valid_for_migration(
 
     let block_header = chain_store.get_block_header(block_hash)?.clone();
     let protocol_version = runtime_adapter.get_epoch_protocol_version(block_header.epoch_id())?;
-    let prev_epoch_id = runtime_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash)?;
+    let prev_epoch_id = match runtime_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash) {
+        Ok(epoch_id) => epoch_id,
+        _ => {
+            return Ok(false);
+        }
+    };
     let prev_epoch_protocol_version = runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
     // Check that block belongs to the first epoch where the protocol feature was enabled
     // to avoid get_epoch_id_of_last_block_with_chunk call in the opposite case
