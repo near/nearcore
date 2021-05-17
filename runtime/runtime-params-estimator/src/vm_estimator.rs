@@ -200,6 +200,9 @@ fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i12
 /// where `x` is the contract size in bytes. Practically, we compute upper bound
 /// of this approximation, assuming that whole contract consists of code only.
 fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, Ratio<i128>) {
+    if cfg!(debug_assertions) {
+        eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
+    }
     let cache_store1: Arc<StoreCompiledContractCache>;
     let cache_store2: Arc<MockCompiledContractCache>;
     let cache: Option<&dyn CompiledContractCache>;
@@ -322,8 +325,12 @@ fn test_compile_cost_icount() {
     test_compile_cost(GasMetric::ICount)
 }
 
+#[allow(dead_code)]
 fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
-    let count = 1000;
+    if cfg!(debug_assertions) {
+        eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
+    }
+    let count = 10000;
     let mut contracts = vec![];
     // Create many similar, yet not identical small contracts.
     for index in 0..count {
@@ -371,6 +378,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
         output_data_receivers: vec![],
     };
     let fees = RuntimeFeesConfig::default();
+
     let start = start_count(gas_metric);
     for contract in &contracts {
         let promise_results = vec![];
@@ -390,6 +398,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
         assert!(result.1.is_none());
     }
     let total_raw = end_count(gas_metric, &start) as i128;
+
     let total_gas = ratio_to_gas_signed(gas_metric, Ratio::new(total_raw, 1));
     let raw_per_call = total_raw / count;
     let gas_per_call = ratio_to_gas_signed(gas_metric, Ratio::new(total_raw, count as i128));
@@ -408,6 +417,7 @@ fn test_many_contracts_call_time() {
 fn test_many_contracts_call_icount() {
     // Use smth like
     // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --release \
+    // --features near-vm-runner/no_cpu_compatibility_checks \
     // --lib vm_estimator::test_many_contracts_call_icount --no-fail-fast -- --exact --nocapture
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
