@@ -32,7 +32,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new_disabled(),
+            ProfileData::new(),
         );
         assert_eq!(
             result.1,
@@ -54,7 +54,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new_disabled(),
+            ProfileData::new(),
         )
         .0
         .unwrap();
@@ -80,7 +80,7 @@ pub fn test_ts_contract() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new_disabled(),
+            ProfileData::new(),
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {

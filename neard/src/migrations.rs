@@ -5,8 +5,11 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+use near_primitives::types::Gas;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
@@ -262,4 +265,62 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     }
 
     set_store_version(&store, 20);
+}
+
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+lazy_static_include::lazy_static_include_bytes! {
+    /// File with account ids and deltas that need to be applied in order to fix storage usage
+    /// difference between actual and stored usage, introduced due to bug in access key deletion,
+    /// see https://github.com/near/nearcore/issues/3824
+    /// This file was generated using tools/storage-usage-delta-calculator
+    MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
+}
+
+/// In test runs reads and writes here used 442 TGas, but in test on live net migration take
+/// between 4 and 4.5s. We do not want to process any receipts in this block
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
+
+pub fn load_migration_data(chain_id: &String) -> MigrationData {
+    #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+    let _ = chain_id;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    let is_mainnet = chain_id == "mainnet";
+    MigrationData {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_delta: if is_mainnet {
+            serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
+        } else {
+            Vec::new()
+        },
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        storage_usage_fix_gas: if is_mainnet {
+            GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION
+        } else {
+            0
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    use super::*;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    use near_primitives::hash::hash;
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    use near_primitives::serialize::to_base;
+
+    #[test]
+    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    fn test_migration_data() {
+        assert_eq!(
+            to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
+            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx"
+        );
+        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
+        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
+    }
 }

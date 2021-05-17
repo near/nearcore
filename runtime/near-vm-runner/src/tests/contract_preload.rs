@@ -105,7 +105,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
         Some(Arc::new(MockCompiledContractCache::new(0)));
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
-    let profile_data = ProfileData::new_disabled();
+    let profile_data = ProfileData::new();
     let mut oks = 0;
     let mut errs = 0;
 

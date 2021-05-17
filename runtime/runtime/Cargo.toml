@@ -20,6 +20,7 @@ thiserror = "1.0"
 
 borsh = "0.8.1"
 
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
@@ -37,9 +38,9 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives
 wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
 wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
 wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
-wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
-wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
-wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
+wasmer1_default = ["wasmer1_vm", "near-vm-runner/wasmer1_default"]
+wasmer0_default = ["wasmer0_vm", "near-vm-runner/wasmer0_default"]
+wasmtime_default = ["wasmtime_vm", "near-vm-runner/wasmtime_default"]
 
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
@@ -53,6 +54,7 @@ protocol_feature_alt_bn128 = [
 ]
 protocol_feature_tx_size_limit = []
 protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "near-vm-logic/protocol_feature_allow_create_account_on_delete"]
+protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
 ganache = ["near-primitives/ganache"]
 
 [dev-dependencies]

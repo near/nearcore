@@ -20,7 +20,7 @@ wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], 
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
-wasmer-compiler-singlepass = { version = "1.0.2", optional = true }
+wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-features = false, features = ["std", "enable-serde"] } # disable `rayon` feature.
 wasmer-compiler-cranelift = { version = "1.0.2", optional = true }
 wasmer-engine-native = { version = "1.0.2", optional = true }
 wasmer-vm = { version = "1.0.2" }
@@ -49,6 +49,11 @@ default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
 wasmer0_vm = [ "wasmer-runtime" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-compiler-cranelift", "wasmer-engine-native", ]
+
+wasmer0_default = []
+wasmtime_default = []
+wasmer1_default = []
+
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-evm-runner/protocol_feature_evm"]
