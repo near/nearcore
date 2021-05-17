@@ -9,7 +9,7 @@ use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../../neard/lib/res/genesis_config.json"));
+        GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"));
 }
 
 pub enum NodeType {

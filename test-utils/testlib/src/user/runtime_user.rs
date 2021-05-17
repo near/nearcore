@@ -2,9 +2,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use libneard::config::MIN_GAS_PRICE;
-#[cfg(feature = "protocol_feature_evm")]
-use libneard::config::TESTNET_EVM_CHAIN_ID;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
@@ -21,6 +18,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
+use nearcore::config::MIN_GAS_PRICE;
+#[cfg(feature = "protocol_feature_evm")]
+use nearcore::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 

@@ -12,13 +12,13 @@ use env_logger::Builder;
 use log::info;
 
 use git_version::git_version;
-use libneard::config::create_testnet_configs;
-use libneard::{get_default_home, get_store_path};
 use near_crypto::Signer;
 use near_primitives::types::{NumSeats, NumShards};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_store::{create_store, ColState};
+use nearcore::config::create_testnet_configs;
+use nearcore::{get_default_home, get_store_path};
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;

@@ -44,7 +44,7 @@ near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
-libneard = { path = "../../neard/lib" }
+nearcore = { path = "../../nearcore" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
@@ -54,8 +54,8 @@ protocol_feature_alt_bn128 = [
     "node-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "libneard/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
+protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "nearcore/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit"]
 protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete"]
-nightly_protocol_features = ["nightly_protocol", "libneard/nightly_protocol_features"]
-nightly_protocol = ["libneard/nightly_protocol"]
+nightly_protocol_features = ["nightly_protocol", "nearcore/nightly_protocol_features"]
+nightly_protocol = ["nearcore/nightly_protocol"]

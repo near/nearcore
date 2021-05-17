@@ -5,10 +5,10 @@ use std::time::Duration;
 use clap::{App, Arg};
 use log::{error, info, LevelFilter};
 
-use libneard::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
-use libneard::get_default_home;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
+use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
+use nearcore::get_default_home;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
 use testlib::user::{rpc_user::RpcUser, User};
 

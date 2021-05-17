@@ -21,7 +21,7 @@ def main():
 
 
 genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                   '../../neard/lib/res/genesis_config.json')
+                                   '../../nearcore/res/genesis_config.json')
 
 
 def near_init_genesis():

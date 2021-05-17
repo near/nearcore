@@ -94,7 +94,7 @@ def main():
     # Also test new genesis protocol_version matches neard/res/genesis_config's
     new_genesis = json.load(
         open(os.path.join(node_root, 'test0/genesis.json')))
-    res_genesis = json.load(open('../neard/lib/res/genesis_config.json'))
+    res_genesis = json.load(open('../nearcore/res/genesis_config.json'))
     assert new_genesis['protocol_version'] == res_genesis['protocol_version']
 
 

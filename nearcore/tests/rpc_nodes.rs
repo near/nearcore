@@ -9,7 +9,6 @@ use borsh::BorshSerialize;
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 
-use libneard::config::TESTING_INIT_BALANCE;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo, TxStatus};
 use near_crypto::{InMemorySigner, KeyType};
@@ -26,6 +25,7 @@ use near_primitives::types::{
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
 };
+use nearcore::config::TESTING_INIT_BALANCE;
 use testlib::genesis_block;
 
 mod node_cluster;

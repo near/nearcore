@@ -1,6 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian};
 
-use libneard::config::GenesisExt;
 use near_chain_configs::Genesis;
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
@@ -8,6 +7,7 @@ use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::{AccountId, StateRoot};
 use near_store::test_utils::create_tries;
 use near_store::{ShardTries, TrieUpdate};
+use nearcore::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 use std::collections::HashSet;

@@ -7,10 +7,10 @@ use std::{env, thread};
 use log::error;
 use rand::Rng;
 
-use libneard::config::NearConfig;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
+use nearcore::config::NearConfig;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;

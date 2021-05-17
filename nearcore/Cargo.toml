@@ -1,5 +1,5 @@
 [package]
-name = "libneard"
+name = "nearcore"
 version = "1.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -24,30 +24,30 @@ num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = "0.2.8"
 lazy-static-include = "3"
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
-near-chain = { path = "../../chain/chain" }
-near-chunks = { path = "../../chain/chunks" }
-near-client = { path = "../../chain/client" }
-near-pool = { path = "../../chain/pool" }
-near-network = { path = "../../chain/network" }
-near-jsonrpc = { path = "../../chain/jsonrpc" }
-near-rosetta-rpc = { path = "../../chain/rosetta-rpc", optional = true }
-near-telemetry = { path = "../../chain/telemetry" }
-near-epoch-manager = { path = "../../chain/epoch_manager" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
+near-crypto = { path = "../core/crypto" }
+near-primitives = { path = "../core/primitives" }
+near-chain-configs = { path = "../core/chain-configs" }
+near-store = { path = "../core/store" }
+node-runtime = { path = "../runtime/runtime" }
+near-chain = { path = "../chain/chain" }
+near-chunks = { path = "../chain/chunks" }
+near-client = { path = "../chain/client" }
+near-pool = { path = "../chain/pool" }
+near-network = { path = "../chain/network" }
+near-jsonrpc = { path = "../chain/jsonrpc" }
+near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
+near-telemetry = { path = "../chain/telemetry" }
+near-epoch-manager = { path = "../chain/epoch_manager" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
-delay-detector = { path = "../../tools/delay_detector", optional = true }
+delay-detector = { path = "../tools/delay_detector", optional = true }
 
 [dev-dependencies]
-near-logger-utils = { path = "../../test-utils/logger" }
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
+near-logger-utils = { path = "../test-utils/logger" }
+near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 tempfile = "3"
-testlib = { path = "../../test-utils/testlib" }
-near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
+testlib = { path = "../test-utils/testlib" }
+near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.9"
 
 [features]
