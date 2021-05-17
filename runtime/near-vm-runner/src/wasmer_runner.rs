@@ -265,6 +265,16 @@ pub fn run_wasmer<'a>(
         current_protocol_version,
     );
 
+    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
+    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+        return (
+            Some(logic.outcome()),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                near_vm_errors::HostError::GasExceeded,
+            ))),
+        );
+    }
+
     let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
