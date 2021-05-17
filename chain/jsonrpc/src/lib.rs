@@ -31,6 +31,8 @@ use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
+#[cfg(feature = "ganache")]
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
