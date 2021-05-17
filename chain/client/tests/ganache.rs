@@ -44,7 +44,7 @@ use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChun
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
 
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::serialize::from_base64;
+use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
@@ -135,7 +135,7 @@ fn test_patch_state() {
         "test0".to_string(),
         &signer,
         vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "write_block_height".to_string(),
+            method_name: "write_random_value".to_string(),
             args: vec![],
             gas: 100000000000000,
             deposit: 0,
@@ -152,15 +152,11 @@ fn test_patch_state() {
     let state =
         query_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
 
-    println!("{:?}", from_base64(&state[0].key).unwrap());
-    env.clients[0]
-        .chain
-        .patch_state(&[StateRecord::Data {
-            account_id: "test0".to_string(),
-            data_key: from_base64(&state[0].key).unwrap(),
-            value: vec![40u8],
-        }])
-        .unwrap();
+    env.clients[0].chain.patch_state(vec![StateRecord::Data {
+        account_id: "test0".to_string(),
+        data_key: from_base64(&state[0].key).unwrap(),
+        value: b"world".to_vec(),
+    }]);
 
     for i in 9..20 {
         last_block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -170,5 +166,6 @@ fn test_patch_state() {
     let runtime_adapter = env.clients[0].runtime_adapter.clone();
     let state2 =
         query_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
-    println!("{:?}", state2);
+    assert_eq!(state2.len(), 1);
+    assert_eq!(state2[0].value, to_base64(b"world"));
 }

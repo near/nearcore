@@ -2539,6 +2539,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             genesis,
             transaction_validity_period,
+            #[cfg(feature = "ganache")]
             states_to_patch,
         }
     }

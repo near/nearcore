@@ -94,6 +94,8 @@ impl RuntimeUser {
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
+                    #[cfg(feature = "ganache")]
+                    None,
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
