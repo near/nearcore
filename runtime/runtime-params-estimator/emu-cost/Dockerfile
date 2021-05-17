@@ -13,4 +13,4 @@ RUN rustup component add rustfmt --toolchain 1.51.0-x86_64-unknown-linux-gnu
 
 # install build dependencies for QEMU
 RUN apt-get update && apt-get install -y  g++ rsync zip openssh-server \
-     make apt-utils git sudo pkg-config libglib2.0-dev curl clang gdb llvm-dev
+     make apt-utils git sudo pkg-config libglib2.0-dev curl clang gdb llvm-dev cmake

@@ -4851,6 +4851,7 @@ dependencies = [
  "state-viewer",
  "tempfile",
  "testlib",
+ "wabt",
  "walrus",
 ]
 

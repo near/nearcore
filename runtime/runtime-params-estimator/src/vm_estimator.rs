@@ -1,13 +1,14 @@
 use crate::cases::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use near_primitives::contract::ContractCode;
+use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::CompiledContractCache;
+use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
-use near_vm_runner::{compile_module, precompile_contract_vm, prepare, VMError, VMKind};
+use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VMError, VMKind};
 use neard::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
@@ -317,8 +318,101 @@ fn test_compile_cost_icount() {
     // --lib vm_estimator::test_compile_cost_icount --no-fail-fast -- --exact --nocapture
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-    // -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so,arg="count_per_thread" $@
+    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
     test_compile_cost(GasMetric::ICount)
+}
+
+fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
+    let count = 1000;
+    let mut contracts = vec![];
+    // Create many similar, yet not identical small contracts.
+    for index in 0..count {
+        let code_str = format!(
+            r#"
+            (module
+              (type (;0;) (func))
+              (func (;0;) (type 0)
+               i32.const {}
+               return
+              )
+              (export "hello" (func 0))
+            )"#,
+            index
+        );
+        let code = ContractCode::new(wabt::wat2wasm(&code_str).unwrap(), None);
+        contracts.push(code);
+    }
+    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
+    let store = create_store(&get_store_path(workdir.path()));
+    let cache_store = Arc::new(StoreCompiledContractCache { store });
+    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let vm_config = VMConfig::default();
+    for contract in &contracts {
+        let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
+        assert!(result.is_ok());
+    }
+    let mut fake_external = MockedExternal::new();
+    let fake_context = VMContext {
+        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
+        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
+        signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
+        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
+        input: vec![],
+        block_index: 10,
+        block_timestamp: 42,
+        epoch_height: 1,
+        account_balance: 2u128,
+        account_locked_balance: 0,
+        storage_usage: 12,
+        attached_deposit: 2u128,
+        prepaid_gas: 10_u64.pow(14),
+        random_seed: vec![0, 1, 2],
+        is_view: false,
+        output_data_receivers: vec![],
+    };
+    let fees = RuntimeFeesConfig::default();
+    let start = start_count(gas_metric);
+    for contract in &contracts {
+        let promise_results = vec![];
+        let result = run_vm(
+            contract,
+            "hello",
+            &mut fake_external,
+            fake_context.clone(),
+            &vm_config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            ProtocolVersion::MAX,
+            cache,
+            ProfileData::new(),
+        );
+        assert!(result.1.is_none());
+    }
+    let total_raw = end_count(gas_metric, &start) as i128;
+    let total_gas = ratio_to_gas_signed(gas_metric, Ratio::new(total_raw, 1));
+    let raw_per_call = total_raw / count;
+    let gas_per_call = ratio_to_gas_signed(gas_metric, Ratio::new(total_raw, count as i128));
+    println!(
+        "{} calls: {} ({} per call) raw {:?}, {} gas ({} per call)",
+        count, total_raw, raw_per_call, gas_metric, total_gas, gas_per_call
+    );
+}
+
+#[test]
+fn test_many_contracts_call_time() {
+    test_many_contracts_call(GasMetric::Time, VMKind::Wasmer0)
+}
+
+#[test]
+fn test_many_contracts_call_icount() {
+    // Use smth like
+    // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh cargo test --release \
+    // --lib vm_estimator::test_many_contracts_call_icount --no-fail-fast -- --exact --nocapture
+    // Where runner.sh is
+    // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
+    // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
+    test_many_contracts_call(GasMetric::ICount, VMKind::Wasmer0)
 }
 
 fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {
