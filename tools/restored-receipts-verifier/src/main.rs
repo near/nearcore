@@ -69,7 +69,7 @@ fn main() -> Result<()> {
 
     let mut receipts_missing = Vec::<Receipt>::new();
     let height_first: u64 = 34691244; // First height for which lost receipts were found
-    let height_last: u64 = 35524259; // Height for which apply_chunks was already fixed
+    let height_last: u64 = 34691344; //35524259; // Height for which apply_chunks was already fixed
 
     eprintln!("Collecting missing receipts from blocks...");
     for height in height_first..height_last {
