@@ -51,7 +51,7 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -1075,7 +1075,9 @@ impl Runtime {
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
+        incoming_receipts: &mut Vec<Receipt>,
         migration_data: &Arc<MigrationData>,
+        migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
     ) -> Result<Gas, StorageError> {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -1084,7 +1086,9 @@ impl Runtime {
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         let gas_used: Gas = 0;
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
-        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version {
+        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version
+            && migration_flags.is_first_block_of_version
+        {
             for (account_id, delta) in &migration_data.storage_usage_delta {
                 match get_account(state_update, account_id)? {
                     Some(mut account) => {
@@ -1101,8 +1105,27 @@ impl Runtime {
             gas_used += migration_data.storage_usage_fix_gas;
             state_update.commit(StateChangeCause::Migration);
         }
+
+        // Re-introduce receipts lost because of a bug in apply_chunks.
+        // We take the first block with existing chunk in the first epoch in which protocol feature
+        // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
+        // See https://github.com/near/nearcore/pull/4248/ for more details.
+        #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
+        let _ = incoming_receipts;
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+        if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() == protocol_version
+            && migration_flags.is_first_block_with_chunk_of_version
+        {
+            let restored_receipts = migration_data
+                .restored_receipts
+                .get(&0u64)
+                .expect("Receipts to restore must contain an entry for shard 0")
+                .clone();
+            incoming_receipts.extend_from_slice(&restored_receipts);
+        }
+
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        (state_update, migration_data, protocol_version);
+        (state_update, migration_data, migration_flags, protocol_version);
         Ok(gas_used)
     }
 
@@ -1139,16 +1162,16 @@ impl Runtime {
             )?;
         }
 
-        let gas_used_for_migrations = match &apply_state.migration_data {
-            Some(migration_data) => self
-                .apply_migrations(
-                    &mut state_update,
-                    migration_data,
-                    apply_state.current_protocol_version,
-                )
-                .map_err(|e| RuntimeError::StorageError(e))?,
-            None => 0 as Gas,
-        };
+        let mut incoming_receipts = incoming_receipts.to_vec();
+        let gas_used_for_migrations = self
+            .apply_migrations(
+                &mut state_update,
+                &mut incoming_receipts,
+                &apply_state.migration_data,
+                &apply_state.migration_flags,
+                apply_state.current_protocol_version,
+            )
+            .map_err(|e| RuntimeError::StorageError(e))?;
 
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
@@ -1285,7 +1308,7 @@ impl Runtime {
             &initial_state,
             &state_update,
             validator_accounts_update,
-            incoming_receipts,
+            &incoming_receipts,
             transactions,
             &outgoing_receipts,
             &stats,
@@ -1475,7 +1498,8 @@ mod tests {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new(),
-            migration_data: None,
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

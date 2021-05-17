@@ -10,7 +10,7 @@ use clap::{App, Arg, SubCommand};
 
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_valid_for_migration;
+use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_logger_utils::init_integration_logger;
@@ -240,10 +240,9 @@ fn apply_block_at_height(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut chain_store,
             runtime_adapter.as_ref(),
-            &block_hash,
             block.header().prev_hash(),
             shard_id,
         )
@@ -264,7 +263,7 @@ fn apply_block_at_height(
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
-                is_valid_block_for_migration,
+                is_first_block_with_chunk_of_version,
             )
             .unwrap()
     } else {

@@ -59,7 +59,7 @@ use near_primitives::runtime::config::RuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 
 pub mod errors;
 
@@ -336,7 +336,7 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         is_new_chunk: bool,
-        is_valid_block_for_migration: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
@@ -409,6 +409,7 @@ impl NightshadeRuntime {
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
+        let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -430,31 +431,11 @@ impl NightshadeRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
-            migration_data: if current_protocol_version != prev_block_protocol_version {
-                Some(Arc::clone(&self.migration_data))
-            } else {
-                None
+            migration_data: Arc::clone(&self.migration_data),
+            migration_flags: MigrationFlags {
+                is_first_block_of_version,
+                is_first_block_with_chunk_of_version,
             },
-        };
-
-        // This code block re-introduces receipts lost because of a bug in apply_chunks
-        // (see https://github.com/near/nearcore/pull/4248/)
-        #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-        let _ = is_valid_block_for_migration; // Workaround unused variable warning
-        #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-        let incoming_receipts = receipts.to_vec();
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        let incoming_receipts = if is_valid_block_for_migration {
-            let mut restored_receipts = self
-                .migration_data
-                .restored_receipts
-                .get(&shard_id)
-                .expect("Receipts to restore must contain an entry for this shard")
-                .clone();
-            restored_receipts.extend_from_slice(receipts);
-            restored_receipts
-        } else {
-            receipts.to_vec()
         };
 
         let apply_result = self
@@ -464,7 +445,7 @@ impl NightshadeRuntime {
                 state_root,
                 &validator_accounts_update,
                 &apply_state,
-                &incoming_receipts,
+                &receipts,
                 &transactions,
                 &self.epoch_manager,
             )
@@ -1162,7 +1143,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
-        is_valid_block_for_migration: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
@@ -1182,7 +1163,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_seed,
             is_new_chunk,
-            is_valid_block_for_migration,
+            is_first_block_with_chunk_of_version,
         ) {
             Ok(result) => Ok(result),
             Err(e) => match e.kind() {
@@ -1211,7 +1192,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         random_value: CryptoHash,
         is_new_chunk: bool,
-        is_valid_block_for_migration: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1230,7 +1211,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_value,
             is_new_chunk,
-            is_valid_block_for_migration,
+            is_first_block_with_chunk_of_version,
         )
     }
 

@@ -7,6 +7,7 @@ use borsh::BorshDeserialize;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
@@ -95,7 +96,8 @@ impl RuntimeTestbed {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
-            migration_data: None,
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
         Self {
             workdir,

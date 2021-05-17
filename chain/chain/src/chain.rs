@@ -51,7 +51,7 @@ use near_primitives::views::{
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
 use crate::lightclient::get_epoch_block_producers_view;
-use crate::migrations::check_if_block_is_valid_for_migration;
+use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
@@ -2688,10 +2688,9 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
-        let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut self.chain_store_update,
             self.runtime_adapter.as_ref(),
-            &block.hash(),
             &prev_block.hash(),
             chunk_shard_id,
         )?;
@@ -2713,7 +2712,7 @@ impl<'a> ChainUpdate<'a> {
                 *block.header().random_value(),
                 true,
                 true,
-                is_valid_block_for_migration,
+                is_first_block_with_chunk_of_version,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2846,13 +2845,13 @@ impl<'a> ChainUpdate<'a> {
                     // (see https://github.com/near/nearcore/pull/4248/)
                     // We take the first block with existing chunk in the first epoch in which protocol feature
                     // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
-                    let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
-                        &mut self.chain_store_update,
-                        self.runtime_adapter.as_ref(),
-                        &block.hash(),
-                        &prev_block.hash(),
-                        shard_id,
-                    )?;
+                    let is_first_block_with_chunk_of_version =
+                        check_if_block_is_first_with_chunk_of_version(
+                            &mut self.chain_store_update,
+                            self.runtime_adapter.as_ref(),
+                            &prev_block.hash(),
+                            shard_id,
+                        )?;
 
                     // Apply transactions and receipts.
                     let apply_result = self
@@ -2872,7 +2871,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             true,
-                            is_valid_block_for_migration,
+                            is_first_block_with_chunk_of_version,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -3609,10 +3608,9 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
-        let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
             &mut self.chain_store_update,
             self.runtime_adapter.as_ref(),
-            block_header.hash(),
             &chunk_header.prev_block_hash(),
             shard_id,
         )?;
@@ -3632,7 +3630,7 @@ impl<'a> ChainUpdate<'a> {
             &block_header.challenges_result(),
             *block_header.random_value(),
             true,
-            is_valid_block_for_migration,
+            is_first_block_with_chunk_of_version,
         )?;
 
         let (outcome_root, outcome_proofs) =

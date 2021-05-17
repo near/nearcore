@@ -1,7 +1,7 @@
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
-use near_chain::migrations::check_if_block_is_valid_for_migration;
+use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
@@ -48,10 +48,9 @@ fn apply_block_at_height(
         block_hash,
         prev_block.chunks()[shard_id as usize].height_included(),
     )?;
-    let is_valid_block_for_migration = check_if_block_is_valid_for_migration(
+    let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         &mut chain_store_update,
         runtime_adapter,
-        block.hash(),
         prev_block.hash(),
         shard_id,
     )?;
@@ -75,7 +74,7 @@ fn apply_block_at_height(
             &block.header().challenges_result(),
             *block.header().random_value(),
             true,
-            is_valid_block_for_migration,
+            is_first_block_with_chunk_of_version,
         )
         .unwrap();
     let (_, outcome_paths) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);

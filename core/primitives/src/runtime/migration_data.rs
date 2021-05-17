@@ -22,3 +22,12 @@ impl Debug for MigrationData {
         f.debug_struct("MigrationData").finish()
     }
 }
+
+#[derive(Debug, Default)]
+pub struct MigrationFlags {
+    // True iff the current block is the first one in the chain with the current version
+    pub is_first_block_of_version: bool,
+    // True iff the current block containing chunk for some specific shard is the first one in the
+    // chain with the current version
+    pub is_first_block_with_chunk_of_version: bool,
+}
