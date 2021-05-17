@@ -1,69 +1,34 @@
-use std::collections::{HashSet, VecDeque};
-use std::iter::FromIterator;
 use std::path::Path;
-use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
 
-use actix::System;
-use futures::{future, FutureExt};
-use num_rational::Rational;
+use std::sync::Arc;
 
-use near_actix_test_utils::run_actix_until_stop;
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::LatestKnown;
-use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{
-    Block, ChainGenesis, ChainStore, ChainStoreAccess, ErrorKind, Provenance, RuntimeAdapter,
-};
-use near_chain_configs::{ClientConfig, Genesis};
-use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
-use near_client::test_utils::{setup_client, setup_mock, TestEnv};
-use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-use near_logger_utils::init_test_logger;
+use near_chain::{ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter};
+use near_chain_configs::Genesis;
+
+use near_client::test_utils::TestEnv;
+
+use near_crypto::{InMemorySigner, KeyType};
+
 #[cfg(feature = "metric_recorder")]
 use near_network::recorder::MetricRecorder;
-use near_network::routing::EdgeInfo;
-use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
-use near_network::{
-    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
-    PeerInfo,
-};
-use near_primitives::block::{Approval, ApprovalInner};
-use near_primitives::block_header::BlockHeader;
-use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::verify_hash;
+
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-use near_primitives::sharding::ShardChunkHeaderV2;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
 
-use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::state_record::StateRecord;
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
+
 use near_primitives::transaction::{
-    Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
-    Transaction,
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::trie_key::TrieKey;
-use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, StoreKey};
-use near_primitives::utils::to_timestamp;
-use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
-};
-use near_store::get;
+
+use near_primitives::types::AccountId;
+
+use near_primitives::views::{QueryRequest, QueryResponseKind};
+
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::NEAR_BASE;
+use neard::config::GenesisExt;
 
 #[cfg(feature = "ganache")]
 #[test]
@@ -85,7 +50,7 @@ fn test_patch_state() {
         )) as Arc<dyn RuntimeAdapter>],
     );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-    let genesis_height = genesis_block.header().height();
+    let _genesis_height = genesis_block.header().height();
 
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let tx = SignedTransaction::from_actions(
@@ -109,7 +74,6 @@ fn test_patch_state() {
                        account_id: AccountId| {
         let final_head = chain.store().final_head().unwrap();
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
-        println!("{}", last_final_block.header().height());
         let response = runtime_adapter
             .query(
                 0,

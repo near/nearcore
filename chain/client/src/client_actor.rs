@@ -31,7 +31,7 @@ use near_network::recorder::MetricRecorder;
 use near_network::types::NetworkAdversarialMessage;
 #[cfg(feature = "ganache")]
 use near_network::types::NetworkGanacheMessage;
-use near_network::types::{NetworkInfo, NetworkViewClientMessages, ReasonForBan};
+use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };

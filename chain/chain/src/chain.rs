@@ -64,10 +64,6 @@ use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpda
 
 #[cfg(feature = "ganache")]
 use near_primitives::state_record::StateRecord;
-#[cfg(feature = "ganache")]
-use near_primitives::trie_key::TrieKey;
-#[cfg(feature = "ganache")]
-use std::borrow::Borrow;
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;

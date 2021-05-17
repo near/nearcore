@@ -607,6 +607,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _is_new_chunk: bool,
         #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
+        #[cfg(feature = "ganache")]
+        assert!(states_to_patch.is_none(), "KeyValueRuntime does not support patch states.");
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
