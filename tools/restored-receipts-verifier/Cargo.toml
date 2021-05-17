@@ -17,5 +17,7 @@ near-chain = { path = "../../chain/chain" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 
 [features]
-protocol_feature_restore_receipts_after_fix = ["neard/protocol_feature_restore_receipts_after_fix"]
-nightly_protocol = ["neard/nightly_protocol"]
+protocol_feature_restore_receipts_after_fix = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_restore_receipts_after_fix"]
+nightly_protocol = []
+

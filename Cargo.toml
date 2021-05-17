@@ -61,6 +61,7 @@ near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
 runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
+restored-receipts-verifier = { path = "./tools/restored-receipts-verifier"}
 near-chain = { path = "./chain/chain" }
 
 node-runtime = { path = "./runtime/runtime" }
@@ -122,7 +123,7 @@ protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limi
 protocol_feature_allow_create_account_on_delete = ["testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete", "node-runtime/protocol_feature_allow_create_account_on_delete", "neard/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "neard/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
-protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "neard/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix"]
+protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "neard/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix", "restored-receipts-verifier/protocol_feature_restore_receipts_after_fix"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
