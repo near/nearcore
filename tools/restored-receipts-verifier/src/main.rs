@@ -38,6 +38,11 @@ fn get_differences_with_hashes_from_repo(
 }
 
 fn main() -> Result<()> {
+    #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
+    println!("NOT ENABLED");
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    println!("ENABLED");
+
     // Script to verify that receipts being restored after apply_chunks fix were actually created.
     // Because receipt hashes are unique, we only check for their presence.
     // See https://github.com/near/nearcore/pull/4248/ for more details.
