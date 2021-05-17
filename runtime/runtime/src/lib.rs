@@ -30,12 +30,13 @@ use near_primitives::{
         system_account,
     },
 };
-pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
+#[cfg(feature = "ganache")]
+use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
@@ -49,6 +50,8 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+#[cfg(feature = "ganache")]
+use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::MigrationData;
