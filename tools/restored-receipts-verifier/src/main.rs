@@ -20,6 +20,7 @@ fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     let receipt_result = ReceiptResult::default();
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
+    println!("{:?}", receipt_result);
     let receipts = receipt_result.get(&0u64).unwrap();
     receipts.into_iter().map(|receipt| receipt.get_hash()).collect()
 }

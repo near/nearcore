@@ -226,7 +226,9 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         feature = "protocol_feature_fix_storage_usage",
         feature = "protocol_feature_restore_receipts_after_fix"
     ))]
+    println!("{}", chain_id);
     let is_mainnet = chain_id == "mainnet";
+    println!("{}", is_mainnet);
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         storage_usage_delta: if is_mainnet {
@@ -242,6 +244,7 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         },
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if is_mainnet {
+            println!("test");
             serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
                 .expect("File with receipts restored after apply_chunks fix have to be correct")
         } else {
