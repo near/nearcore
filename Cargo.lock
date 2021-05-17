@@ -3594,6 +3594,7 @@ dependencies = [
  "neard",
  "node-runtime",
  "rand 0.7.3",
+ "restored-receipts-verifier",
  "runtime-params-estimator",
  "testlib",
 ]
