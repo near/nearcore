@@ -1110,10 +1110,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             let header = self
                 .get_block_header(&candidate_hash)?
                 .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&candidate_hash)))?;
-            if self.is_next_block_epoch_start(&candidate_hash)? {
-                break Ok(self.get_epoch_and_valset(*header.prev_hash())?.0);
-            }
             candidate_hash = header.prev_hash().clone();
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                Ok(self.get_epoch_and_valset(candidate_hash)?.0)
+            }
         }
     }
 }
