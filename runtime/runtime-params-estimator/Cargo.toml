@@ -68,4 +68,4 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
                         "testlib/protocol_feature_evm"]
-ganache = ["node-runtime/ganache", "state-viewer/ganache"]
+sandbox = ["node-runtime/sandbox", "state-viewer/sandbox"]

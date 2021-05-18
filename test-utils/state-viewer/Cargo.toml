@@ -25,4 +25,4 @@ serde_json = "1"
 near-client = { path = "../../chain/client" }
 
 [features]
-ganache = ["node-runtime/ganache", "near-chain/ganache", "near-network/ganache", "near-client/ganache"]
+sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-network/sandbox", "near-client/sandbox"]

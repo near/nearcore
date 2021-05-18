@@ -44,4 +44,4 @@ protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-chain-conf
 protocol_feature_block_header_v3 = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]
 nightly_protocol = []
-ganache = []
+sandbox = []

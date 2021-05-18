@@ -24,14 +24,14 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
-#[cfg(feature = "ganache")]
-use near_network::types::NetworkGanacheMessage;
+#[cfg(feature = "sandbox")]
+use near_network::types::NetworkSandboxMessage;
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
@@ -92,7 +92,7 @@ impl RpcConfig {
     }
 }
 
-#[cfg(any(feature = "adversarial", feature = "ganache"))]
+#[cfg(any(feature = "adversarial", feature = "sandbox"))]
 fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -234,13 +234,13 @@ impl JsonRpcHandler {
             }
         }
 
-        #[cfg(feature = "ganache")]
+        #[cfg(feature = "sandbox")]
         {
             let params = request.params.clone();
 
             let res = match request.method.as_ref() {
-                // Ganache controls
-                "ganache_patch_state" => Some(self.ganache_patch_state(params).await),
+                // Sandbox controls
+                "sandbox_patch_state" => Some(self.sandbox_patch_state(params).await),
                 _ => None,
             };
 
@@ -977,13 +977,13 @@ impl JsonRpcHandler {
     }
 }
 
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 impl JsonRpcHandler {
-    async fn ganache_patch_state(&self, params: Option<Value>) -> Result<Value, RpcError> {
+    async fn sandbox_patch_state(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let records = parse_params::<Vec<StateRecord>>(params)?;
         actix::spawn(
             self.client_addr
-                .send(NetworkClientMessages::Ganache(NetworkGanacheMessage::GanachePatchState(
+                .send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxPatchState(
                     records,
                 )))
                 .map(|_| ()),

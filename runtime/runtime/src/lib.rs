@@ -35,7 +35,7 @@ use near_store::{
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
@@ -50,7 +50,7 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -1127,7 +1127,7 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
+        #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
@@ -1298,7 +1298,7 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
-        #[cfg(feature = "ganache")]
+        #[cfg(feature = "sandbox")]
         if let Some(patch) = states_to_patch {
             self.apply_state_patches(&mut state_update, patch);
         }
@@ -1352,7 +1352,7 @@ impl Runtime {
         Ok(())
     }
 
-    #[cfg(feature = "ganache")]
+    #[cfg(feature = "sandbox")]
     fn apply_state_patches(
         &self,
         state_update: &mut TrieUpdate,
@@ -1533,7 +1533,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1564,7 +1564,7 @@ mod tests {
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1594,7 +1594,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    #[cfg(feature = "ganache")]
+                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .unwrap();
@@ -1645,7 +1645,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    #[cfg(feature = "ganache")]
+                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .unwrap();
@@ -1705,7 +1705,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    #[cfg(feature = "ganache")]
+                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .unwrap();
@@ -1798,7 +1798,7 @@ mod tests {
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1847,7 +1847,7 @@ mod tests {
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1888,7 +1888,7 @@ mod tests {
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1937,7 +1937,7 @@ mod tests {
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1971,7 +1971,7 @@ mod tests {
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2010,7 +2010,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .err()
@@ -2057,7 +2057,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .err()
@@ -2095,7 +2095,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2156,7 +2156,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2227,7 +2227,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2277,7 +2277,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2331,7 +2331,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();

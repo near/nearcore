@@ -29,8 +29,8 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-#[cfg(feature = "ganache")]
-use near_network::types::NetworkGanacheMessage;
+#[cfg(feature = "sandbox")]
+use near_network::types::NetworkSandboxMessage;
 use near_network::types::{NetworkInfo, ReasonForBan};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
@@ -295,10 +295,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     _ => panic!("invalid adversary message"),
                 };
             }
-            #[cfg(feature = "ganache")]
-            NetworkClientMessages::Ganache(ganache_msg) => {
-                return match ganache_msg {
-                    NetworkGanacheMessage::GanachePatchState(state) => {
+            #[cfg(feature = "sandbox")]
+            NetworkClientMessages::Sandbox(sandbox_msg) => {
+                return match sandbox_msg {
+                    NetworkSandboxMessage::SandboxPatchState(state) => {
                         self.client.chain.patch_state(state);
                         NetworkClientResponses::NoResponse
                     }

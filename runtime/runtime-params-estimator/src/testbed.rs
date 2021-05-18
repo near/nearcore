@@ -124,7 +124,7 @@ impl RuntimeTestbed {
                 &self.prev_receipts,
                 transactions,
                 &self.epoch_info_provider,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();

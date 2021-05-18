@@ -155,7 +155,7 @@ pub enum StateChangeCause {
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
     Migration,
-    /// State patched by a ganache node
+    /// State patched by a sandbox node
     PatchState,
 }
 

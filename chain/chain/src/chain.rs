@@ -62,7 +62,7 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 use near_primitives::state_record::StateRecord;
 
 #[cfg(feature = "delay_detector")]
@@ -206,7 +206,7 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
-    #[cfg(feature = "ganache")]
+    #[cfg(feature = "sandbox")]
     pub pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
@@ -244,7 +244,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             pending_states_to_patch: None,
         })
     }
@@ -360,7 +360,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             pending_states_to_patch: None,
         })
     }
@@ -2086,7 +2086,7 @@ impl Chain {
             self.doomslug_threshold_mode,
             &self.genesis,
             self.transaction_validity_period,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             self.pending_states_to_patch.take(),
         )
     }
@@ -2477,8 +2477,8 @@ impl Chain {
     }
 }
 
-/// Ganache node specific operations
-#[cfg(feature = "ganache")]
+/// Sandbox node specific operations
+#[cfg(feature = "sandbox")]
 impl Chain {
     pub fn patch_state(&mut self, records: Vec<StateRecord>) {
         match self.pending_states_to_patch.take() {
@@ -2507,7 +2507,7 @@ pub struct ChainUpdate<'a> {
     genesis: &'a Block,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
-    #[cfg(feature = "ganache")]
+    #[cfg(feature = "sandbox")]
     states_to_patch: Option<Vec<StateRecord>>,
 }
 
@@ -2522,7 +2522,7 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
         transaction_validity_period: BlockHeightDelta,
-        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
+        #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2535,7 +2535,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             genesis,
             transaction_validity_period,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             states_to_patch,
         }
     }
@@ -2737,7 +2737,7 @@ impl<'a> ChainUpdate<'a> {
                 *block.header().random_value(),
                 true,
                 true,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2887,7 +2887,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             true,
-                            #[cfg(feature = "ganache")]
+                            #[cfg(feature = "sandbox")]
                             self.states_to_patch.take(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -2944,7 +2944,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             false,
-                            #[cfg(feature = "ganache")]
+                            #[cfg(feature = "sandbox")]
                             self.states_to_patch.take(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -3654,7 +3654,7 @@ impl<'a> ChainUpdate<'a> {
             &block_header.challenges_result(),
             *block_header.random_value(),
             true,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             None,
         )?;
 
@@ -3735,7 +3735,7 @@ impl<'a> ChainUpdate<'a> {
             &block_header.challenges_result(),
             *block_header.random_value(),
             false,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             None,
         )?;
 

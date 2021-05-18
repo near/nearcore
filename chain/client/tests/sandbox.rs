@@ -1,5 +1,5 @@
 #[cfg(test)]
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 mod tests {
     use std::path::Path;
 

@@ -27,7 +27,7 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
@@ -1413,10 +1413,10 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 #[derive(Debug)]
-pub enum NetworkGanacheMessage {
-    GanachePatchState(Vec<StateRecord>),
+pub enum NetworkSandboxMessage {
+    SandboxPatchState(Vec<StateRecord>),
 }
 
 #[derive(Debug, strum::AsRefStr, AsStaticStr)]
@@ -1426,8 +1426,8 @@ pub enum NetworkClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
 
-    #[cfg(feature = "ganache")]
-    Ganache(NetworkGanacheMessage),
+    #[cfg(feature = "sandbox")]
+    Sandbox(NetworkSandboxMessage),
 
     /// Received transaction.
     Transaction {

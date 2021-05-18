@@ -66,7 +66,7 @@ fn apply_block_at_height(
             &block.header().challenges_result(),
             *block.header().random_value(),
             true,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             None,
         )
         .unwrap();
@@ -244,7 +244,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
-                            #[cfg(feature = "ganache")]
+                            #[cfg(feature = "sandbox")]
                             None,
                         )
                         .unwrap();

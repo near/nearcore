@@ -60,4 +60,4 @@ protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_a
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_add_account_versions", "protocol_feature_fix_storage_usage"]
-ganache = ["near-network/ganache", "near-chain/ganache", "neard/ganache", "testlib/ganache"]
+sandbox = ["near-network/sandbox", "near-chain/sandbox"]

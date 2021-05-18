@@ -35,7 +35,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
-#[cfg(feature = "ganache")]
+#[cfg(feature = "sandbox")]
 use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -516,7 +516,7 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         is_new_chunk: bool,
-        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
+        #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -534,7 +534,7 @@ pub trait RuntimeAdapter: Send + Sync {
             random_seed,
             false,
             is_new_chunk,
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             states_to_patch,
         )
     }
@@ -556,7 +556,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
-        #[cfg(feature = "ganache")] states_to_patch: Option<Vec<StateRecord>>,
+        #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(

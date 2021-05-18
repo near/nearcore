@@ -255,7 +255,7 @@ fn apply_block_at_height(
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap()
@@ -279,7 +279,7 @@ fn apply_block_at_height(
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
-                #[cfg(feature = "ganache")]
+                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap()

@@ -242,14 +242,14 @@ fn main() {
                 near_config.client_config.archive = true;
             }
 
-            #[cfg(feature = "ganache")]
+            #[cfg(feature = "sandbox")]
             {
                 if near_config.client_config.chain_id == "mainnet"
                     || near_config.client_config.chain_id == "testnet"
                     || near_config.client_config.chain_id == "betanet"
                 {
                     eprintln!(
-                        "Ganache node can only run dedicate localnet, cannot connect to a network"
+                        "Sandbox node can only run dedicate localnet, cannot connect to a network"
                     );
                     std::process::exit(1);
                 }
