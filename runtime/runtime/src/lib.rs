@@ -1075,11 +1075,10 @@ impl Runtime {
     pub fn apply_migrations(
         &self,
         state_update: &mut TrieUpdate,
-        incoming_receipts: &mut Vec<Receipt>,
         migration_data: &Arc<MigrationData>,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
-    ) -> Result<Gas, StorageError> {
+    ) -> Result<(Gas, Option<Vec<Receipt>>), StorageError> {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
 
@@ -1111,22 +1110,23 @@ impl Runtime {
         // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
         // See https://github.com/near/nearcore/pull/4248/ for more details.
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-        let _ = incoming_receipts;
+        let receipts_to_restore = None;
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() == protocol_version
+        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
-            let restored_receipts = migration_data
+            Some(migration_data
                 .restored_receipts
                 .get(&0u64)
                 .expect("Receipts to restore must contain an entry for shard 0")
-                .clone();
-            incoming_receipts.extend_from_slice(&restored_receipts);
-        }
+                .clone())
+        } else {
+            None
+        };
 
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, migration_data, migration_flags, protocol_version);
-        Ok(gas_used)
+        Ok((gas_used, receipts_to_restore))
     }
 
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
@@ -1162,16 +1162,23 @@ impl Runtime {
             )?;
         }
 
-        let mut incoming_receipts = incoming_receipts.to_vec();
-        let gas_used_for_migrations = self
+        let (gas_used_for_migrations, receipts_to_restore) = self
             .apply_migrations(
                 &mut state_update,
-                &mut incoming_receipts,
                 &apply_state.migration_data,
                 &apply_state.migration_flags,
                 apply_state.current_protocol_version,
             )
             .map_err(|e| RuntimeError::StorageError(e))?;
+        let mut all_receipts = Vec::<Receipt>::new();
+        let incoming_receipts = match receipts_to_restore {
+            Some(new_receipts) => {
+                all_receipts.extend(new_receipts.into_iter());
+                all_receipts.extend_from_slice(incoming_receipts);
+                all_receipts.as_slice()
+            },
+            None => incoming_receipts,
+        };
 
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
@@ -1308,7 +1315,7 @@ impl Runtime {
             &initial_state,
             &state_update,
             validator_accounts_update,
-            &incoming_receipts,
+            incoming_receipts,
             transactions,
             &outgoing_receipts,
             &stats,
