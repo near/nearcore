@@ -1685,7 +1685,8 @@ mod test {
                     challenges,
                     CryptoHash::default(),
                     true,
-                    #[cfg(feature = "ganache")] None,
+                    #[cfg(feature = "ganache")]
+                    None,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();

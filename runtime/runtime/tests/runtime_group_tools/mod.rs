@@ -113,7 +113,8 @@ impl StandaloneRuntime {
                 receipts,
                 transactions,
                 &self.epoch_info_provider,
-                #[cfg(feature = "ganache")] None,
+                #[cfg(feature = "ganache")]
+                None,
             )
             .unwrap();
 
