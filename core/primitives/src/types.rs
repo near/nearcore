@@ -156,7 +156,6 @@ pub enum StateChangeCause {
     /// after protocol upgrade
     Migration,
     /// State patched by a ganache node
-    #[cfg(feature = "ganache")]
     PatchState,
 }
 

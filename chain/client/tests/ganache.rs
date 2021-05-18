@@ -12,9 +12,6 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType};
 
-    #[cfg(feature = "metric_recorder")]
-    use near_network::recorder::MetricRecorder;
-
     #[cfg(not(feature = "protocol_feature_block_header_v3"))]
     #[cfg(feature = "protocol_feature_block_header_v3")]
     use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};

@@ -1533,6 +1533,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
     }
@@ -1562,6 +1563,7 @@ mod tests {
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
     }
@@ -1590,6 +1592,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    #[cfg(feature = "ganache")] None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1639,6 +1642,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    #[cfg(feature = "ganache")] None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1697,6 +1701,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    #[cfg(feature = "ganache")] None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1788,6 +1793,7 @@ mod tests {
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1835,6 +1841,7 @@ mod tests {
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1874,6 +1881,7 @@ mod tests {
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1921,6 +1929,7 @@ mod tests {
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1953,6 +1962,7 @@ mod tests {
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
 
@@ -1990,6 +2000,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .err()
             .unwrap();
@@ -2035,6 +2046,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .err()
             .unwrap();
@@ -2071,6 +2083,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
@@ -2130,6 +2143,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         // We used part of the prepaid gas to paying extra fees.
@@ -2199,6 +2213,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         // Used full prepaid gas, but it still not enough to cover deficit.
@@ -2247,6 +2262,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -2299,6 +2315,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                #[cfg(feature = "ganache")] None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();

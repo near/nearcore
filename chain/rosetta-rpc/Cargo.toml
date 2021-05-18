@@ -34,6 +34,3 @@ near-network = { path = "../network" }
 
 [dev-dependencies]
 insta = "1"
-
-[features]
-ganache = ["near-client/ganache", "near-network/ganache"]

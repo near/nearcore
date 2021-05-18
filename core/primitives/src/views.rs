@@ -1492,7 +1492,6 @@ pub enum StateChangeCauseView {
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
     Migration,
-    #[cfg(feature = "ganache")]
     PatchState,
 }
 
@@ -1519,7 +1518,6 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
-            #[cfg(feature = "ganache")]
             StateChangeCause::PatchState => Self::PatchState,
         }
     }
