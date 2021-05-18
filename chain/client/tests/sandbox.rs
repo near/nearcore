@@ -49,7 +49,6 @@ mod tests {
             )) as Arc<dyn RuntimeAdapter>],
         );
         let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-        let _genesis_height = genesis_block.header().height();
 
         let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
         let tx = SignedTransaction::from_actions(

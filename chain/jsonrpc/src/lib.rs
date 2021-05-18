@@ -31,8 +31,6 @@ use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
-#[cfg(feature = "sandbox")]
-use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
@@ -234,21 +232,6 @@ impl JsonRpcHandler {
             }
         }
 
-        #[cfg(feature = "sandbox")]
-        {
-            let params = request.params.clone();
-
-            let res = match request.method.as_ref() {
-                // Sandbox controls
-                "sandbox_patch_state" => Some(self.sandbox_patch_state(params).await),
-                _ => None,
-            };
-
-            if let Some(res) = res {
-                return res;
-            }
-        }
-
         let response: Result<Value, RpcError> = match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => {
@@ -428,6 +411,14 @@ impl JsonRpcHandler {
                 let validators = self.validators_ordered(rpc_validators_ordered_request).await?;
                 serde_json::to_value(validators)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            #[cfg(feature = "sandbox")]
+            "sandbox_patch_state" => {
+                let sandbox_patch_state_request =
+                    near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest::parse(
+                        request.params,
+                    )?;
+                self.sandbox_patch_state(sandbox_patch_state_request).await
             }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
@@ -979,12 +970,14 @@ impl JsonRpcHandler {
 
 #[cfg(feature = "sandbox")]
 impl JsonRpcHandler {
-    async fn sandbox_patch_state(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let records = parse_params::<Vec<StateRecord>>(params)?;
+    async fn sandbox_patch_state(
+        &self,
+        patch_state_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest,
+    ) -> Result<Value, RpcError> {
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxPatchState(
-                    records,
+                    patch_state_request.records,
                 )))
                 .map(|_| ()),
         );
