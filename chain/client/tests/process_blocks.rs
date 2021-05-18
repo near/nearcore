@@ -2898,7 +2898,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         high_height_with_no_chunk: BlockHeight,
         should_pass: bool,
     ) {
-        init_test_logger();
+        // init_test_logger();
 
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);

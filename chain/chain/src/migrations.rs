@@ -29,11 +29,6 @@ pub fn check_if_block_is_first_with_chunk_of_version(
     prev_block_hash: &CryptoHash,
     shard_id: ShardId,
 ) -> Result<bool, Error> {
-    // At first, check that shard id = 0 and don't do unnecessary computation otherwise
-    if shard_id != 0 {
-        return Ok(false);
-    }
-
     // Check that block belongs to the first epoch with current protocol version
     // to avoid get_epoch_id_of_last_block_with_chunk call in the opposite case
     if is_first_epoch_with_protocol_version(runtime_adapter, prev_block_hash)? {
