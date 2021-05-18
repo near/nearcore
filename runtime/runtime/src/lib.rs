@@ -1112,14 +1112,17 @@ impl Runtime {
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
         let receipts_to_restore = None;
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() == protocol_version
+        let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
+            == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
-            Some(migration_data
-                .restored_receipts
-                .get(&0u64)
-                .expect("Receipts to restore must contain an entry for shard 0")
-                .clone())
+            Some(
+                migration_data
+                    .restored_receipts
+                    .get(&0u64)
+                    .expect("Receipts to restore must contain an entry for shard 0")
+                    .clone(),
+            )
         } else {
             None
         };
@@ -1170,13 +1173,13 @@ impl Runtime {
                 apply_state.current_protocol_version,
             )
             .map_err(|e| RuntimeError::StorageError(e))?;
-        let mut all_receipts = Vec::<Receipt>::new();
+        let all_receipts;
         let incoming_receipts = match receipts_to_restore {
-            Some(new_receipts) => {
-                all_receipts.extend(new_receipts.into_iter());
-                all_receipts.extend_from_slice(incoming_receipts);
+            Some(mut new_receipts) => {
+                new_receipts.extend_from_slice(incoming_receipts);
+                all_receipts = new_receipts;
                 all_receipts.as_slice()
-            },
+            }
             None => incoming_receipts,
         };
 
