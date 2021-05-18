@@ -1078,7 +1078,7 @@ impl Runtime {
         migration_data: &Arc<MigrationData>,
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
-    ) -> Result<(Gas, Option<Vec<Receipt>>), StorageError> {
+    ) -> Result<(Gas, Vec<Receipt>), StorageError> {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
 
@@ -1110,21 +1110,19 @@ impl Runtime {
         // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
         // See https://github.com/near/nearcore/pull/4248/ for more details.
         #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-        let receipts_to_restore = None;
+        let receipts_to_restore = vec![];
         #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
             == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
-            Some(
-                migration_data
+            migration_data
                     .restored_receipts
                     .get(&0u64)
                     .expect("Receipts to restore must contain an entry for shard 0")
-                    .clone(),
-            )
+                    .clone()
         } else {
-            None
+            vec![]
         };
 
         #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
@@ -1165,7 +1163,7 @@ impl Runtime {
             )?;
         }
 
-        let (gas_used_for_migrations, receipts_to_restore) = self
+        let (gas_used_for_migrations, mut receipts_to_restore) = self
             .apply_migrations(
                 &mut state_update,
                 &apply_state.migration_data,
@@ -1173,14 +1171,12 @@ impl Runtime {
                 apply_state.current_protocol_version,
             )
             .map_err(|e| RuntimeError::StorageError(e))?;
-        let all_receipts;
-        let incoming_receipts = match receipts_to_restore {
-            Some(mut new_receipts) => {
-                new_receipts.extend_from_slice(incoming_receipts);
-                all_receipts = new_receipts;
-                all_receipts.as_slice()
-            }
-            None => incoming_receipts,
+        // If we have receipts that need to be restored, prepend them to the list of incoming receipts
+        let incoming_receipts = if receipts_to_restore.is_empty() {
+            incoming_receipts
+        } else {
+            receipts_to_restore.extend_from_slice(incoming_receipts);
+            receipts_to_restore.as_slice()
         };
 
         if !apply_state.is_new_chunk
