@@ -2914,7 +2914,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             vec![],
             None,
         );
-        let migration_data = runtime.migration_data();
+        let migration_data = runtime.get_migration_data();
 
         let mut env = TestEnv::new_with_runtime(
             chain_genesis.clone(),

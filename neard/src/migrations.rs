@@ -282,6 +282,11 @@ lazy_static_include::lazy_static_include_bytes! {
     MAINNET_STORAGE_USAGE_DELTA => "res/storage_usage_delta.json",
 }
 
+/// In test runs reads and writes here used 442 TGas, but in test on live net migration take
+/// between 4 and 4.5s. We do not want to process any receipts in this block
+#[cfg(feature = "protocol_feature_fix_storage_usage")]
+const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
+
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 lazy_static_include::lazy_static_include_bytes! {
     /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
@@ -289,11 +294,6 @@ lazy_static_include::lazy_static_include_bytes! {
     /// See https://github.com/near/nearcore/pull/4248/ for more details.
     MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
-
-/// In test runs reads and writes here used 442 TGas, but in test on live net migration take
-/// between 4 and 4.5s. We do not want to process any receipts in this block
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
-const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     #[cfg(not(any(

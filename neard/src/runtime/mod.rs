@@ -314,7 +314,7 @@ impl NightshadeRuntime {
         }
     }
 
-    pub fn migration_data(&self) -> Arc<MigrationData> {
+    pub fn get_migration_data(&self) -> Arc<MigrationData> {
         Arc::clone(&self.migration_data)
     }
 
