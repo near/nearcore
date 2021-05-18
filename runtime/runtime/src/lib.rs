@@ -1117,10 +1117,10 @@ impl Runtime {
             && migration_flags.is_first_block_with_chunk_of_version
         {
             migration_data
-                    .restored_receipts
-                    .get(&0u64)
-                    .expect("Receipts to restore must contain an entry for shard 0")
-                    .clone()
+                .restored_receipts
+                .get(&0u64)
+                .expect("Receipts to restore must contain an entry for shard 0")
+                .clone()
         } else {
             vec![]
         };
