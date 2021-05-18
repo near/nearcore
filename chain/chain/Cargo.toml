@@ -17,7 +17,6 @@ num-rational = "0.3"
 tracing = "0.1.13"
 thiserror = "1.0"
 strum = "0.20"
-serde_json = "1"
 
 borsh = "0.8.1"
 
