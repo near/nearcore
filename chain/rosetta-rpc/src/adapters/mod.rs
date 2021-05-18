@@ -189,6 +189,10 @@ fn convert_block_changes_to_transactions(
             StateChangeCauseView::Migration => {
                 format!("migration:{}", block_hash)
             }
+            #[cfg(features = "ganache")]
+            StateChangeCauseView::PatchState => {
+                format!("patch-state:{}", block_hash)
+            }
         };
 
         let current_transaction =
