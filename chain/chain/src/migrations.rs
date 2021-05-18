@@ -9,10 +9,10 @@ fn is_first_epoch_with_protocol_version(
     runtime_adapter: &dyn RuntimeAdapter,
     prev_block_hash: &CryptoHash,
 ) -> Result<bool, Error> {
-    let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
-    let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
     match runtime_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash) {
         Ok(prev_epoch_id) => {
+            let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
+            let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
             let prev_epoch_protocol_version =
                 runtime_adapter.get_epoch_protocol_version(&prev_epoch_id)?;
             Ok(protocol_version != prev_epoch_protocol_version)
