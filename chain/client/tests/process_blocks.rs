@@ -60,8 +60,8 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::NEAR_BASE;
 use neard::migrations::load_migration_data;
+use neard::NEAR_BASE;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
