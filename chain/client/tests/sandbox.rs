@@ -5,7 +5,7 @@ mod tests {
 
     use std::sync::Arc;
 
-    use near_chain::{ChainGenesis, ChainStoreAccess, Provenance, RuntimeAdapter};
+    use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
 
     use near_client::test_utils::TestEnv;
@@ -25,12 +25,11 @@ mod tests {
 
     use near_primitives::types::{AccountId, BlockHeight, Nonce};
 
-    use near_primitives::views::{QueryRequest, QueryResponseKind, StateItem};
-
+    use near_primitives::account::Account;
     use near_store::test_utils::create_test_store;
     use neard::config::GenesisExt;
 
-    fn test_setup() -> (TestEnv, InMemorySigner, Arc<dyn RuntimeAdapter>) {
+    fn test_setup() -> (TestEnv, InMemorySigner) {
         let epoch_length = 5;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         genesis.config.epoch_length = epoch_length;
@@ -48,7 +47,6 @@ mod tests {
             )) as Arc<dyn RuntimeAdapter>],
         );
         let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-        let runtime_adapter = env.clients[0].runtime_adapter.clone();
         send_tx(
             &mut env,
             1,
@@ -75,7 +73,7 @@ mod tests {
             })],
         );
         do_blocks(&mut env, 3, 9);
-        (env, signer, runtime_adapter)
+        (env, signer)
     }
 
     fn do_blocks(env: &mut TestEnv, start: BlockHeight, end: BlockHeight) {
@@ -99,37 +97,11 @@ mod tests {
         env.clients[0].process_tx(tx, false, false);
     }
 
-    fn query_state(
-        chain: &mut near_chain::Chain,
-        runtime_adapter: Arc<dyn RuntimeAdapter>,
-        account_id: AccountId,
-    ) -> Vec<StateItem> {
-        let final_head = chain.store().final_head().unwrap();
-        let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
-        let response = runtime_adapter
-            .query(
-                0,
-                &last_final_block.chunks()[0].prev_state_root(),
-                last_final_block.header().height(),
-                last_final_block.header().raw_timestamp(),
-                &final_head.prev_block_hash,
-                last_final_block.hash(),
-                last_final_block.header().epoch_id(),
-                &QueryRequest::ViewState { account_id, prefix: vec![].into() },
-            )
-            .unwrap();
-        match response.kind {
-            QueryResponseKind::ViewState(view_state_result) => view_state_result.values,
-            _ => panic!("Wrong return value"),
-        }
-    }
-
     #[test]
     fn test_patch_state() {
-        let (mut env, _signer, runtime_adapter) = test_setup();
+        let (mut env, _signer) = test_setup();
 
-        let state =
-            query_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
+        let state = env.query_state("test0".to_string());
         env.clients[0].chain.patch_state(vec![StateRecord::Data {
             account_id: "test0".to_string(),
             data_key: from_base64(&state[0].key).unwrap(),
@@ -137,9 +109,23 @@ mod tests {
         }]);
 
         do_blocks(&mut env, 9, 20);
-        let state2 =
-            query_state(&mut env.clients[0].chain, runtime_adapter.clone(), "test0".to_string());
+        let state2 = env.query_state("test0".to_string());
         assert_eq!(state2.len(), 1);
         assert_eq!(state2[0].value, to_base64(b"world"));
+    }
+
+    #[test]
+    fn test_patch_account() {
+        let (mut env, _signer) = test_setup();
+        let mut test1: Account = env.query_account("test1".to_string()).into();
+        test1.set_amount(10);
+
+        env.clients[0].chain.patch_state(vec![StateRecord::Account {
+            account_id: "test1".to_string(),
+            account: test1,
+        }]);
+        do_blocks(&mut env, 9, 20);
+        let test1_after = env.query_account("test1".to_string());
+        assert_eq!(test1_after.amount, 10);
     }
 }
