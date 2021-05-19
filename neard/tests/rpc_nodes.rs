@@ -25,7 +25,6 @@ use near_primitives::types::{
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
 };
-use neard::config::TESTING_INIT_BALANCE;
 use testlib::genesis_block;
 
 mod node_cluster;
