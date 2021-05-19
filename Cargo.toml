@@ -56,14 +56,8 @@ lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 overflow-checks = true
 
-[profile.dev.package.hex]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.package.ring]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.package.rand]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.package.bs58]
-opt-level = 3 # bs58 library is too slow to use in debug
+[profile.dev.package]
+hex.opt-level = 3 # BLS library is too slow to use in debug
+ring.opt-level = 3 # BLS library is too slow to use in debug
+rand.opt-level = 3 # BLS library is too slow to use in debug
+bs58.opt-level = 3 # bs58 library is too slow to use in debug
