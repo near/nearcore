@@ -90,7 +90,7 @@ impl RpcConfig {
     }
 }
 
-#[cfg(any(feature = "adversarial", feature = "sandbox"))]
+#[cfg(feature = "adversarial")]
 fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
