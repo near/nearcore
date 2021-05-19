@@ -314,10 +314,6 @@ impl NightshadeRuntime {
         }
     }
 
-    pub fn get_migration_data(&self) -> Arc<MigrationData> {
-        Arc::clone(&self.migration_data)
-    }
-
     /// Processes state update.
     fn process_state_update(
         &self,

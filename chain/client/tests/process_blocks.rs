@@ -61,6 +61,7 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use neard::NEAR_BASE;
+use neard::migrations::load_migration_data;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -2914,7 +2915,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             vec![],
             None,
         );
-        let migration_data = runtime.get_migration_data();
+        // TODO #4305: get directly from NightshadeRuntime
+        let migration_data = load_migration_data(&genesis.config.chain_id);
 
         let mut env = TestEnv::new_with_runtime(
             chain_genesis.clone(),
@@ -2935,7 +2937,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             )
         };
 
-        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(migration_data.as_ref());
+        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&migration_data);
         let mut height: BlockHeight = 1;
         let mut last_update_height: BlockHeight = 0;
 
@@ -2986,7 +2988,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         } else {
             assert_eq!(
                 receipt_hashes_to_restore,
-                get_restored_receipt_hashes(migration_data.as_ref()),
+                get_restored_receipt_hashes(&migration_data),
                 "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
             );
         }
