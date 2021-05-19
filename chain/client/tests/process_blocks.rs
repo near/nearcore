@@ -60,6 +60,7 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use neard::migrations::load_migration_data;
 use neard::NEAR_BASE;
 
