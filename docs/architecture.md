@@ -103,9 +103,36 @@ In `VMLogic`, interaction with NEAR blockchain happens in the following two ways
 As mentioned before, `neard` is the crate that contains that main entry points.
 It is also worth noting that `NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
 
+## Cross Cutting Concerns
 
+### Logging & Observability
 
+The [tracing](https://tracing.rs) crate is used for logging:
 
+```rust
+tracing::warn!(
+    target: "jsonrpc",
+    "Timeout: tx_exists method. tx_hash {:?} signer_account_id {:?}", tx_hash, signer_account_id,
+);
+```
 
+The [span! API](https://tracing.rs/tracing/macro.debug_span.html) is used to measure durations of long-running operations:
 
+```rust
+fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
+    let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
+    //
+}
+```
 
+This will record when the `_span` object is created and dropped, logging the time diff between the two events:
+
+```
+May 19 21:05:07.516 DEBUG run_vm:compile_and_serialize_wasmer:  close time.busy=5ms time.idle=6ns
+```
+
+Always specify the `target` explicitly.
+
+The `INFO` level is enabled by default, use it for information useful for node operators.
+The `DEBUG` level is enabled on the canary nodes, use it for information useful in debugging testnet failures.
+The `TRACE` level is not generally enabled, use it for arbitrary debug output.
