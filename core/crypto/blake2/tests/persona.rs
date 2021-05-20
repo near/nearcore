@@ -1,4 +1,4 @@
-use blake2::{Blake2b, Blake2s, Digest};
+use near_blake2::{Blake2b, Blake2s, Digest};
 use hex_literal::hex;
 
 #[test]
