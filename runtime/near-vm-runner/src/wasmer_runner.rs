@@ -219,7 +219,7 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!("run_wasmer").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_wasmer").entered();
 
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -286,20 +286,20 @@ pub fn run_wasmer<'a>(
 }
 
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
-    let _span = tracing::debug_span!("run_method").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
-        let _span = tracing::debug_span!("run_method/instantiate").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         module.instantiate(import).map_err(|err| err.into_vm_error())?
     };
 
     {
-        let _span = tracing::debug_span!("run_method/call").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
         instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
 
     {
-        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
         drop(instance)
     }
 
