@@ -531,6 +531,72 @@ fn test_keccak512() {
 }
 
 #[test]
+#[cfg(feature = "protocol_feature_btp")]
+fn test_sha3_256() {
+    use hex_literal::hex;
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+    let data = hex!("0448250ebe88d77e0a12bcf530fe6a2cf1ac176945638d309b840d631940c93b78c2bd6d16f227a8877e3f1604cd75b9c5a8ab0cac95174a8a0a0f8ea9e4c10bca");
+    let hash = hex!("c7647f7e251bf1bd70863c8693e93a4e77dd0c9a689073e987d51254317dc704");
+
+    logic.sha3_256(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 32];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+
+    assert_eq!(res, &hash);
+
+    let len = data.len() as u64;
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::sha3_256_base: 1,
+        ExtCosts::sha3_256_byte: len,
+    });
+}
+
+#[test]
+#[cfg(feature = "protocol_feature_btp")]
+fn test_ecrecover_public_key() {
+    use hex_literal::hex;
+
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let hash = hex!("c5d6c454e4d7a8e8a654f5ef96e8efe41d21a65b171b298925414aa3dc061e37");
+    let signature = hex!("4011de30c04302a2352400df3d1459d6d8799580dceb259f45db1d99243a8d0c64f548b7776cb93e37579b830fc3efce41e12e0958cda9f8c5fcad682c61079500");
+    let signer = hex!("0448250ebe88d77e0a12bcf530fe6a2cf1ac176945638d309b840d631940c93b78c2bd6d16f227a8877e3f1604cd75b9c5a8ab0cac95174a8a0a0f8ea9e4c10bca");
+
+    let (r, s, v) = (&signature[0..32], &signature[32..64], signature[64] as u32);
+    logic.ecrecover_public_key(hash.as_ptr() as _, v, r.as_ptr() as _, s.as_ptr() as _, 0).unwrap();
+
+    let result = &vec![0u8; 65];
+    logic.read_register(0, result.as_ptr() as _).expect("OK");
+
+    assert_eq!(result.to_vec(), signer);
+
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 3,
+        ExtCosts::read_memory_byte: 96,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 65,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 65,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 65,
+        ExtCosts::ecrecover_public_key_base: 1,
+    });
+}
+
+#[test]
 fn test_hash256_register() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));

@@ -198,6 +198,12 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
+    #[cfg(feature = "protocol_feature_btp")]
+    sha3_256_10b_10k,
+    #[cfg(feature = "protocol_feature_btp")]
+    sha3_256_10kib_10k,
+    #[cfg(feature = "protocol_feature_btp")]
+    ecrecover_public_key_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -584,6 +590,9 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         keccak256_10kib_10k => keccak256_10kib_10k,
         keccak512_10b_10k => keccak512_10b_10k,
         keccak512_10kib_10k => keccak512_10kib_10k,
+        #["protocol_feature_btp"] sha3_256_10b_10k => sha3_256_10b_10k,
+        #["protocol_feature_btp"] sha3_256_10kib_10k => sha3_256_10kib_10k,
+        #["protocol_feature_btp"] ecrecover_public_key_10k => ecrecover_public_key_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -811,6 +820,12 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
             &measured,
             alt_bn128_pairing_check_byte,
         ),
+        #[cfg(feature = "protocol_feature_btp")]
+        sha3_256_base: measured_to_gas(metric, &measured, sha3_256_base),
+        #[cfg(feature = "protocol_feature_btp")]
+        sha3_256_byte: measured_to_gas(metric, &measured, sha3_256_byte),
+        #[cfg(feature = "protocol_feature_btp")]
+        ecrecover_public_key_base: measured_to_gas(metric, &measured, ecrecover_public_key_base),
     }
 }
 

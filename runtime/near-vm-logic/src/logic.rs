@@ -951,6 +951,79 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
+    /// Hashes the given value using SHA3-256 FIPS202 and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + sha3_256_base + sha3_256_byte * num_bytes`
+    #[cfg(feature = "protocol_feature_btp")]
+    pub fn sha3_256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+        use tiny_keccak::Hasher;
+
+        self.gas_counter.pay_base(sha3_256_base)?;
+        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
+        self.gas_counter.pay_per_byte(sha3_256_byte, value.len() as u64)?;
+
+        let mut value_hash = vec![0; 32];
+        let mut sha3 = tiny_keccak::Sha3::v256();
+
+        sha3.update(&value);
+        sha3.finalize(&mut value_hash);
+
+        self.internal_write_register(register_id, value_hash.to_vec())
+    }
+
+    /// Recovers an ECDSA signer address and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
+    ///   memory than the limit, then returns `MemoryAccessViolation`.
+    /// * If the ECDSA recovery fails for any reason, then returns `InvalidECDSASignature`.
+    ///
+    /// # Cost
+    ///
+    /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
+    #[cfg(feature = "protocol_feature_btp")]
+    pub fn ecrecover_public_key(
+        &mut self,
+        hash_ptr: u64,
+        v: u32,
+        r_ptr: u64,
+        s_ptr: u64,
+        register_id: u64,
+    ) -> Result<()> {
+        self.gas_counter.pay_base(ecrecover_public_key_base)?;
+        let hash = self.memory_get_vec(hash_ptr, 32)?;
+        let v = (v & 0xFF) as u8;
+        let r = self.memory_get_vec(r_ptr, 32)?;
+        let s = self.memory_get_vec(s_ptr, 32)?;
+
+        let hash = secp256k1::Message::parse_slice(hash.as_slice()).unwrap();
+
+        let mut signature = [0u8; 64];
+        signature[0..32].copy_from_slice(r.as_slice());
+        signature[32..64].copy_from_slice(s.as_slice());
+        let signature = secp256k1::Signature::parse(&signature);
+
+        let recovery_id = match secp256k1::RecoveryId::parse(v) {
+            Err(_) => return Err(HostError::InvalidECDSASignature.into()),
+            Ok(rid) => rid,
+        };
+
+        let public_key = match secp256k1::recover(&hash, &signature, &recovery_id) {
+            Err(_) => return Err(HostError::InvalidECDSASignature.into()),
+            Ok(pk) => pk,
+        };
+
+        self.internal_write_register(register_id, public_key.serialize().to_vec())
+    }
+
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
     ///
     /// # Errors

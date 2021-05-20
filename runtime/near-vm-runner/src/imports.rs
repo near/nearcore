@@ -334,4 +334,9 @@ wrapped_imports! {
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_multiexp<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_g1_sum<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     #["protocol_feature_alt_bn128", AltBn128] alt_bn128_pairing_check<[value_len: u64, value_ptr: u64] -> [u64]>,
+    // #############
+    // #    BTP    #
+    // #############
+    #["protocol_feature_btp", BTP] sha3_256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #["protocol_feature_btp", BTP] ecrecover_public_key<[hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64] -> []>,
 }

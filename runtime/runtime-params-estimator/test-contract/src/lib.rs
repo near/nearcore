@@ -47,6 +47,10 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_btp")]
+    fn sha3_256(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_btp")]
+    fn ecrecover_public_key(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -421,6 +425,46 @@ pub unsafe fn keccak512_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         keccak512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `sha3_256_base` and `sha3_256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `sha3_256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute sha3_256 on 10b 10k times.
+#[cfg(feature = "protocol_feature_btp")]
+#[no_mangle]
+pub unsafe fn sha3_256_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        sha3_256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `sha3_256_base` and `sha3_256_byte`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `sha3_256` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute sha3_256 on 10kib 10k times.
+#[cfg(feature = "protocol_feature_btp")]
+#[no_mangle]
+pub unsafe fn sha3_256_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        sha3_256(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `ecrecover_public_key_base`. Also measures `base`, `write_register_base`, and
+// `write_register_byte`. However `ecrecover_public_key` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ecrecover_public_key 10k times.
+#[no_mangle]
+#[cfg(feature = "protocol_feature_btp")]
+pub unsafe fn ecrecover_public_key_10k() {
+    let hash = [0u8; 32];
+    let signature = [0u8; 65];
+    let (r, s, v) = (&signature[0..32], &signature[32..64], 0);
+    for _ in 0..10_000 {
+        ecrecover_public_key(hash.as_ptr() as _, v, r.as_ptr() as _, s.as_ptr() as _, 0);
     }
 }
 

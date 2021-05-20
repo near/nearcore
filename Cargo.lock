@@ -3605,6 +3605,8 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "hex-literal",
+ "libsecp256k1",
  "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",
@@ -3613,6 +3615,7 @@ dependencies = [
  "serde_json",
  "sha2 0.9.3",
  "sha3",
+ "tiny-keccak",
  "zeropool-bn",
 ]
 

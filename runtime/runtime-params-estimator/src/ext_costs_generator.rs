@@ -65,6 +65,14 @@ impl ExtCostsGenerator {
         self.extract(keccak512_10b_10k, keccak512_base);
         self.extract(keccak512_10kib_10k, keccak512_byte);
 
+        #[cfg(feature = "protocol_feature_btp")]
+        {
+            self.extract(sha3_256_10b_10k, sha3_256_base);
+            self.extract(sha3_256_10kib_10k, sha3_256_byte);
+
+            self.extract(ecrecover_public_key_10k, ecrecover_public_key_base);
+        }
+
         #[cfg(feature = "protocol_feature_alt_bn128")]
         {
             self.extract(alt_bn128_g1_multiexp_1_1k, alt_bn128_g1_multiexp_base);

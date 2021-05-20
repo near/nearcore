@@ -323,6 +323,16 @@ pub struct ExtCostsConfig {
     /// Cost for pairing check per byte
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_pairing_check_byte: Gas,
+
+    /// Cost of getting sha3 256 FIPS 202 base
+    #[cfg(feature = "protocol_feature_btp")]
+    pub sha3_256_base: Gas,
+    /// Cost of getting sha3 256 FIPS 202 per byte
+    #[cfg(feature = "protocol_feature_btp")]
+    pub sha3_256_byte: Gas,
+    /// Cost of recovering uncompressed public key using secp256k1 elliptic curve
+    #[cfg(feature = "protocol_feature_btp")]
+    pub ecrecover_public_key_base: Gas,
 }
 
 // We multiply the actual computed costs by the fixed factor to ensure we
@@ -395,6 +405,12 @@ impl Default for ExtCostsConfig {
             alt_bn128_g1_sum_base: SAFETY_MULTIPLIER * 1058438125,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_byte: SAFETY_MULTIPLIER * 25406181,
+            #[cfg(feature = "protocol_feature_btp")]
+            sha3_256_base: SAFETY_MULTIPLIER * 1513656750,
+            #[cfg(feature = "protocol_feature_btp")]
+            sha3_256_byte: SAFETY_MULTIPLIER * 8039117,
+            #[cfg(feature = "protocol_feature_btp")]
+            ecrecover_public_key_base: SAFETY_MULTIPLIER * 1000000000,
         }
     }
 }
@@ -465,6 +481,12 @@ impl ExtCostsConfig {
             alt_bn128_g1_sum_base: 0,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_byte: 0,
+            #[cfg(feature = "protocol_feature_btp")]
+            sha3_256_base: 0,
+            #[cfg(feature = "protocol_feature_btp")]
+            sha3_256_byte: 0,
+            #[cfg(feature = "protocol_feature_btp")]
+            ecrecover_public_key_base: 0,
         }
     }
 }
@@ -536,7 +558,12 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_base,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_sum_byte,
-
+    #[cfg(feature = "protocol_feature_btp")]
+    sha3_256_base,
+    #[cfg(feature = "protocol_feature_btp")]
+    sha3_256_byte,
+    #[cfg(feature = "protocol_feature_btp")]
+    ecrecover_public_key_base,
     // NOTE: this should be the last element of the enum.
     __count,
 }
@@ -660,7 +687,12 @@ impl ExtCosts {
             alt_bn128_g1_sum_base => config.alt_bn128_g1_sum_base,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             alt_bn128_g1_sum_byte => config.alt_bn128_g1_sum_byte,
-
+            #[cfg(feature = "protocol_feature_btp")]
+            sha3_256_base => config.sha3_256_base,
+            #[cfg(feature = "protocol_feature_btp")]
+            sha3_256_byte => config.sha3_256_byte,
+            #[cfg(feature = "protocol_feature_btp")]
+            ecrecover_public_key_base => config.ecrecover_public_key_base,
             __count => unreachable!(),
         }
     }
@@ -734,6 +766,12 @@ impl ExtCosts {
             "alt_bn128_g1_sum_base",
             #[cfg(feature = "protocol_feature_alt_bn128")]
             "alt_bn128_g1_sum_byte",
+            #[cfg(feature = "protocol_feature_btp")]
+            "sha3_256_base",
+            #[cfg(feature = "protocol_feature_btp")]
+            "sha3_256_byte",
+            #[cfg(feature = "protocol_feature_btp")]
+            "ecrecover_public_key_base",
         ][index]
     }
 }

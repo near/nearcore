@@ -20,6 +20,8 @@ byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
+tiny-keccak = { version = "2.0", features = ["fips202"], optional = true }
+libsecp256k1 = { version = "0.3.5", optional = true }
 
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
@@ -30,12 +32,14 @@ bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = tru
 
 [dev-dependencies]
 serde_json = {version= "1", features= ["preserve_order"]}
+hex-literal = "0.2"
 
 [features]
 default = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_allow_create_account_on_delete = []
+protocol_feature_btp = ["near-primitives-core/protocol_feature_btp", "tiny-keccak", "libsecp256k1"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []
