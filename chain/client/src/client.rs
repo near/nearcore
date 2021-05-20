@@ -1671,7 +1671,7 @@ mod test {
 
     use cached::Cached;
 
-    use near_chain::{ChainGenesis, RuntimeAdapter, Provenance};
+    use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_chunks::test_utils::ChunkForwardingTestFixture;
     use near_chunks::ProcessPartialEncodedChunkResult;
@@ -1679,7 +1679,7 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
+    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
     use near_store::test_utils::create_test_store;
     use neard::config::GenesisExt;
 
@@ -1761,21 +1761,18 @@ mod test {
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     #[test]
     fn test_cap_max_gas_price() {
-        let old_protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version() - 1;
-        let old_max_gas_price = 1_000_000;
-
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         genesis.config.min_gas_price = 1_000;
-        genesis.config.max_gas_price = old_max_gas_price;
-        genesis.config.protocol_version = old_protocol_version;
+        genesis.config.max_gas_price = 1_000_000;
+        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version() - 1;
         genesis.config.epoch_length = 5;
         let chain_genesis = ChainGenesis::from(&genesis);
-        let runtimes = create_nightshade_runtimes(&genesis,1);
+        let runtimes = create_nightshade_runtimes(&genesis, 1);
         let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
 
         for i in 1..15 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
-            env.process_block(0, block,Provenance::PRODUCED);
+            env.process_block(0, block, Provenance::PRODUCED);
         }
 
         let last_block = env.clients[0].chain.get_block_by_height(14).unwrap().clone();
@@ -1783,8 +1780,10 @@ mod test {
             .runtime_adapter
             .get_epoch_protocol_version(last_block.header().epoch_id())
             .unwrap();
-        let min_gas_price = env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-        let max_gas_price = env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
+        let min_gas_price =
+            env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+        let max_gas_price =
+            env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
         assert!(max_gas_price <= 10 * min_gas_price);
     }
 

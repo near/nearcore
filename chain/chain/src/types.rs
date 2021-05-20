@@ -13,6 +13,7 @@ use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
@@ -32,7 +33,6 @@ use near_primitives::version::{
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
-use near_primitives::checked_feature;
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
@@ -172,11 +172,8 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if checked_feature!(
-            "protocol_feature_cap_max_gas_price",
-            CapMaxGasPrice,
-            protocol_version
-        ) {
+        if checked_feature!("protocol_feature_cap_max_gas_price", CapMaxGasPrice, protocol_version)
+        {
             std::cmp::min(self.max_gas_price, 10 * self.min_gas_price(protocol_version))
         } else {
             self.max_gas_price
