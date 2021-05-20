@@ -1760,7 +1760,7 @@ mod test {
 
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     #[test]
-    fn test_cap_gas_price() {
+    fn test_cap_max_gas_price() {
         let old_protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version() - 1;
         let old_max_gas_price = 1_000_000;
 
