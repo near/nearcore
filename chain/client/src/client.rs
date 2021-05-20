@@ -1671,7 +1671,9 @@ mod test {
 
     use cached::Cached;
 
-    use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    use near_chain::Provenance;
+    use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_chunks::test_utils::ChunkForwardingTestFixture;
     use near_chunks::ProcessPartialEncodedChunkResult;
@@ -1679,7 +1681,9 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    use near_primitives::version::ProtocolFeature;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use neard::config::GenesisExt;
 
@@ -1762,20 +1766,22 @@ mod test {
     #[test]
     fn test_cap_max_gas_price() {
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let epoch_length = 5;
         genesis.config.min_gas_price = 1_000;
         genesis.config.max_gas_price = 1_000_000;
-        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version() - 1;
-        genesis.config.epoch_length = 5;
+        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
+        genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::from(&genesis);
         let runtimes = create_nightshade_runtimes(&genesis, 1);
         let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
 
-        for i in 1..15 {
+        for i in 1..epoch_length {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
             env.process_block(0, block, Provenance::PRODUCED);
         }
 
-        let last_block = env.clients[0].chain.get_block_by_height(14).unwrap().clone();
+        let last_block =
+            env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap().clone();
         let protocol_version = env.clients[0]
             .runtime_adapter
             .get_epoch_protocol_version(last_block.header().epoch_id())
