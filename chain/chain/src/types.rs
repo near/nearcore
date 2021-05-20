@@ -32,6 +32,7 @@ use near_primitives::version::{
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
+use near_primitives::checked_feature;
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
@@ -170,8 +171,16 @@ impl BlockEconomicsConfig {
         }
     }
 
-    pub fn max_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
-        self.max_gas_price
+    pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
+        if checked_feature!(
+            "protocol_feature_cap_max_gas_price",
+            CapMaxGasPrice,
+            protocol_version
+        ) {
+            std::cmp::min(self.max_gas_price, 10 * self.min_gas_price(protocol_version))
+        } else {
+            self.max_gas_price
+        }
     }
 
     pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {

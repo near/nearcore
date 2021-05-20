@@ -58,5 +58,6 @@ delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "d
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
+protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_add_account_versions", "protocol_feature_fix_storage_usage"]

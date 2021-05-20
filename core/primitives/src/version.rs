@@ -103,6 +103,8 @@ pub enum ProtocolFeature {
     AllowCreateAccountOnDelete,
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
     FixStorageUsage,
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    CapMaxGasPrice,
 }
 
 /// Current latest stable version of the protocol.
@@ -113,7 +115,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 111;
+pub const PROTOCOL_VERSION: ProtocolVersion = 112;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -141,6 +143,8 @@ impl ProtocolFeature {
             ProtocolFeature::AllowCreateAccountOnDelete => 110,
             #[cfg(feature = "protocol_feature_fix_storage_usage")]
             ProtocolFeature::FixStorageUsage => 111,
+            #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+            ProtocolFeature::CapMaxGasPrice => 112,
         }
     }
 }
