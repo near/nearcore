@@ -24,7 +24,7 @@ use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
+use crate::vm_estimator::{compute_compile_cost_vm, cost_per_op, load_and_compile};
 use crate::TestContract;
 
 use near_primitives::runtime::config::RuntimeConfig;
@@ -239,14 +239,8 @@ pub enum Metric {
 pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     if only_compile {
-        let (contract_compile_cost, contract_compile_base_cost) =
-            cost_to_compile(config.metric, config.vm_kind, true);
-        let contract_byte_cost = ratio_to_gas(config.metric, contract_compile_cost);
-        println!(
-            "{}, {}",
-            contract_byte_cost,
-            ratio_to_gas(config.metric, contract_compile_base_cost)
-        );
+        let (contract_compile_base_cost, contract_per_byte_cost) =
+            compute_compile_cost_vm(config.metric, config.vm_kind, true);
         process::exit(0);
     } else {
         #[cfg(feature = "protocol_feature_evm")]
@@ -654,6 +648,23 @@ fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
     .unwrap()
 }
 
+pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> i64 {
+    let divisor = match gas_metric {
+        // We use factor of 8 to approximately match the price of SHA256 operation between
+        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+        GasMetric::ICount => 8i128,
+        GasMetric::Time => 1i128,
+    };
+    i64::try_from(
+        Ratio::<i128>::new(
+            (*value.numer() as i128) * (GAS_IN_MEASURE_UNIT as i128),
+            (*value.denom() as i128) * divisor,
+        )
+        .to_integer(),
+    )
+    .unwrap()
+}
+
 /// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
 fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
     let value = ratio_to_gas(gas_metric, value);
@@ -725,7 +736,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
-    let (contract_compile_bytes_, contract_compile_base_) = get_compile_cost(config, false);
+    let (contract_compile_bytes_, contract_compile_base_) =
+        compute_compile_cost_vm(config.metric, config.vm_kind, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
         contract_compile_base: contract_compile_base_,
@@ -840,12 +852,11 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     )
     .unwrap();
 
-    // let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
-
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
 
     // Shifting compilation costs from function call runtime to the deploy action cost at execution
-    // time.
+    // time. Contract used in deploy action testing is very small, so we have to use more complex
+    // technique to compute the actual coefficients.
     runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
         runtime_config.wasm_config.ext_costs.contract_compile_base;
     runtime_config
@@ -857,9 +868,4 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
 
     runtime_config
-}
-
-fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
-    let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
-    (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
 }
