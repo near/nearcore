@@ -25,7 +25,6 @@ use near_primitives::types::{
 use near_primitives::views::{
     ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
 };
-use neard::config::TESTING_INIT_BALANCE;
 use testlib::genesis_block;
 
 mod node_cluster;
@@ -332,7 +331,6 @@ fn test_tx_status_with_light_client1() {
     });
 }
 
-#[ignore] // TODO: change this test https://github.com/near/nearcore/issues/4062
 #[test]
 fn test_rpc_routing() {
     init_integration_logger();
@@ -357,17 +355,14 @@ fn test_rpc_routing() {
                             spawn_interruptible(
                                 client
                                     .query_by_path("account/near.2".to_string(), "".to_string())
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| match result.kind {
-                                        near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account_view) => {
-                                            assert_eq!(
-                                                account_view.amount,
-                                                TESTING_INIT_BALANCE
-                                            );
-                                            System::current().stop();
-                                        }
-                                        _ => panic!("wrong query response"),
+                                    .map_err(|err| {
+                                        assert_eq!(
+                                            err.data.unwrap(),
+                                            "The node does not track the shard ID 2"
+                                        );
+                                        System::current().stop();
                                     })
+                                    .map_ok(|_| panic!("Expected error but received Ok"))
                                     .map(drop),
                             );
                         }
@@ -382,8 +377,7 @@ fn test_rpc_routing() {
     });
 }
 
-#[ignore] // TODO: change this test https://github.com/near/nearcore/issues/4062
-/// When we call rpc to view an account that does not exist, an error should be routed back.
+/// When we call rpc to view an account that does not exist on shard, an error about not tracking shard should occur immediately.
 #[test]
 fn test_rpc_routing_error() {
     init_integration_logger();
@@ -412,10 +406,13 @@ fn test_rpc_routing_error() {
                                         "".to_string(),
                                     )
                                     .map_err(|err| {
-                                        println!("error: {}", err.to_string());
+                                        assert_eq!(
+                                            err.data.unwrap(),
+                                            "The node does not track the shard ID 1"
+                                        );
                                         System::current().stop();
                                     })
-                                    .map_ok(|_| panic!("wrong query response"))
+                                    .map_ok(|_| panic!("Expected error but got Ok"))
                                     .map(drop),
                             );
                         }
