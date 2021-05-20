@@ -4845,11 +4845,13 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
+ "rayon",
  "rocksdb",
  "serde_json",
  "state-viewer",
  "tempfile",
  "testlib",
+ "wabt",
  "walrus",
 ]
 
