@@ -1006,6 +1006,8 @@ pub fn setup_client(
     )
 }
 
+/// An environment for writing integration tests with multiple clients.
+/// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
     validators: Vec<AccountId>,
@@ -1014,6 +1016,7 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
+    /// Create a `TestEnv` with `KeyValueRuntime`
     pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
@@ -1037,6 +1040,7 @@ impl TestEnv {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
+    /// Create a `TestEnv` with custom runtime adapters. This allows us to construct `TestEnv` with `NightshadeRuntime`.
     pub fn new_with_runtime(
         chain_genesis: ChainGenesis,
         num_clients: usize,
@@ -1054,6 +1058,7 @@ impl TestEnv {
         )
     }
 
+    /// Create a `TestEnv` with custom runtime adapters and `MockNetworkAdapter`s.
     pub fn new_with_runtime_and_network_adapter(
         chain_genesis: ChainGenesis,
         num_clients: usize,
@@ -1078,6 +1083,8 @@ impl TestEnv {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
+    /// Process a given block in the client with index `id`.
+    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
@@ -1092,8 +1099,8 @@ impl TestEnv {
         }
     }
 
-    /// Produces block by given client, which kicks of creation of chunk.
-    /// Which means that transactions added before this call, will be included in the next block of this validator.
+    /// Produces block by given client, which may kick off chunk production.
+    /// This means that transactions added before this call will be included in the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
@@ -1179,6 +1186,8 @@ pub fn create_chunk_with_transactions(
     create_chunk(client, Some(transactions), None)
 }
 
+/// Create a chunk with specified transactions and possibly a new state root.
+/// Useful for writing tests with challenges.
 pub fn create_chunk(
     client: &mut Client,
     replace_transactions: Option<Vec<SignedTransaction>>,
