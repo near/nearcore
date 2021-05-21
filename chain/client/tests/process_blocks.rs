@@ -53,7 +53,7 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -3000,11 +3000,11 @@ mod storage_usage_fix_tests {
     }
 }
 
-
 #[cfg(feature = "protocol_feature_cap_max_gas_price")]
 #[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
+    use near_primitives::version::ProtocolFeature;
 
     fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
         let mut env =
