@@ -1,5 +1,3 @@
-use digest::generic_array::GenericArray;
-
 macro_rules! blake2_impl {
     (
         $state:ident, $fix_state:ident, $word:ident, $vec:ident, $bytes:ident,
@@ -7,6 +5,7 @@ macro_rules! blake2_impl {
         $vardoc:expr, $doc:expr,
     ) => {
         use $crate::as_bytes::AsBytes;
+        use $crate::error::Error;
         use $crate::simd::{$vec, Vector4};
 
         use core::{cmp, convert::TryInto, ops::Div};
@@ -29,6 +28,13 @@ macro_rules! blake2_impl {
             h0: [$vec; 2],
             m0: [$word; 16],
             t0: u64,
+
+            rounds: u32,
+        }
+
+        // Can't make this a const, else it would be great as that.
+        fn max_rounds() -> u32 {
+           if $bytes::to_u8() == 64 { 12 } else { 10 }
         }
 
         #[inline(always)]
@@ -73,42 +79,6 @@ macro_rules! blake2_impl {
             unshuffle(v);
         }
 
-        /// The compression function of the blake2 algorithm.
-        ///
-        /// Takes as an argument the state vector "h", message block vector "m"
-        /// (the last block is padded with zeros to full block size, if
-        /// required), 2w-bit offset counter "t", and final block indicator flag
-        /// "f". Local vector v[0..15] is used in processing. F returns a new
-        /// state vector. The number of rounds, "r", is 12 for BLAKE2b and 10
-        /// for BLAKE2s. Rounds are numbered from 0 to r - 1.
-        pub fn f(rounds: u32, h: [$word; 8], m: [$word; 16], t: [$word; 2], f: bool) -> Output {
-            use $crate::consts::SIGMA;
-            let mut h: [$vec; 2] = [
-                $vec::new(h[0], h[1], h[2], h[3]),
-                $vec::new(h[4], h[5], h[6], h[7]),
-            ];
-
-            let (f0, f1) = if f { (!0, 0) } else { (0, 0) };
-
-            let (t0, t1) = (t[0], t[1]);
-
-            let mut v = [h[0], h[1], iv0(), iv1() ^ $vec::new(t0, t1, f0, f1)];
-
-            for x in 1..rounds + 1 {
-                let x = if x > 10 { x - 11 } else { x - 1 };
-                round(&mut v, &m, &SIGMA[x as usize]);
-            }
-
-            h[0] = h[0] ^ (v[0] ^ v[2]);
-            h[1] = h[1] ^ (v[1] ^ v[3]);
-
-            let buf = [h[0].to_le(), h[1].to_le()];
-            let mut out = GenericArray::default();
-            copy(buf.as_bytes(), &mut out);
-
-            out
-        }
-
         impl $state {
             /// Creates a new hashing context with a key.
             ///
@@ -148,9 +118,7 @@ macro_rules! blake2_impl {
                     }
                     p[4] = $word::from_le_bytes(padded_salt[0..length / 2].try_into().unwrap());
                     p[5] = $word::from_le_bytes(
-                        padded_salt[length / 2..padded_salt.len()]
-                            .try_into()
-                            .unwrap(),
+                        padded_salt[length / 2..padded_salt.len()].try_into().unwrap(),
                     );
                 } else {
                     p[4] = $word::from_le_bytes(salt[0..salt.len() / 2].try_into().unwrap());
@@ -167,9 +135,7 @@ macro_rules! blake2_impl {
                     }
                     p[6] = $word::from_le_bytes(padded_persona[0..length / 2].try_into().unwrap());
                     p[7] = $word::from_le_bytes(
-                        padded_persona[length / 2..padded_persona.len()]
-                            .try_into()
-                            .unwrap(),
+                        padded_persona[length / 2..padded_persona.len()].try_into().unwrap(),
                     );
                 } else {
                     p[6] = $word::from_le_bytes(persona[0..length / 2].try_into().unwrap());
@@ -211,11 +177,33 @@ macro_rules! blake2_impl {
                     t0: 0,
                     m0: [0; 16],
                     h0,
+
+                    rounds: max_rounds(),
                 }
             }
 
+            /// Constructs a new hashing context with a given state.
+            ///
+            /// This enables continued hashing of a pre-hashed state.
+            ///
+            /// **Warning**: The user of this method is responsible for the
+            /// initialization of the vectors for the first round.
+            pub fn with_state(rounds: u32, state: [$word; 8], t: u64) -> Result<Self, Error> {
+                if rounds > 12 {
+                    return Err(Error::TooManyRounds { max: max_rounds(), actual: rounds });
+                }
+
+                let h0 = [
+                    $vec::new(state[0], state[1], state[2], state[3]),
+                    $vec::new(state[4], state[5], state[6], state[7]),
+                ];
+                let nn = $bytes::to_u8() as usize;
+
+                Ok($state { m: [0; 16], h: h0, t, n: nn, t0: t, m0: [0; 16], h0, rounds })
+            }
+
             /// Updates the hashing context with more data.
-            fn update(&mut self, data: &[u8]) {
+            pub fn update(&mut self, data: &[u8]) -> Result<(), Error> {
                 let mut rest = data;
 
                 let block = 2 * $bytes::to_usize();
@@ -228,10 +216,10 @@ macro_rules! blake2_impl {
                     rest = &rest[part.len()..];
 
                     copy(part, &mut self.m.as_mut_bytes()[off..]);
-                    self.t = self
-                        .t
-                        .checked_add(part.len() as u64)
-                        .expect("hash data length overflow");
+                    self.t = match self.t.checked_add(part.len() as u64) {
+                        Some(v) => v,
+                        None => return Err(Error::HashDataOverflow),
+                    }
                 }
 
                 while rest.len() >= block {
@@ -241,10 +229,10 @@ macro_rules! blake2_impl {
                     rest = &rest[part.len()..];
 
                     copy(part, &mut self.m.as_mut_bytes());
-                    self.t = self
-                        .t
-                        .checked_add(part.len() as u64)
-                        .expect("hash data length overflow");
+                    self.t = match self.t.checked_add(part.len() as u64) {
+                        Some(v) => v,
+                        None => return Err(Error::HashDataOverflow),
+                    }
                 }
 
                 let n = rest.len();
@@ -252,11 +240,13 @@ macro_rules! blake2_impl {
                     self.compress(0, 0);
 
                     copy(rest, &mut self.m.as_mut_bytes());
-                    self.t = self
-                        .t
-                        .checked_add(rest.len() as u64)
-                        .expect("hash data length overflow");
+                    self.t = match self.t.checked_add(rest.len() as u64) {
+                        Some(v) => v,
+                        None => return Err(Error::HashDataOverflow),
+                    }
                 }
+
+                Ok(())
             }
 
             #[doc(hidden)]
@@ -272,14 +262,11 @@ macro_rules! blake2_impl {
 
                 self.compress(!0, f1);
 
-                let buf = [self.h[0].to_le(), self.h[1].to_le()];
-
-                let mut out = GenericArray::default();
-                copy(buf.as_bytes(), &mut out);
-                out
+                self.output()
             }
 
-            fn compress(&mut self, f0: $word, f1: $word) {
+            /// Compression `F` function.
+            pub fn compress(&mut self, f0: $word, f1: $word) {
                 use $crate::consts::SIGMA;
 
                 let m = &self.m;
@@ -294,24 +281,28 @@ macro_rules! blake2_impl {
 
                 let mut v = [h[0], h[1], iv0(), iv1() ^ $vec::new(t0, t1, f0, f1)];
 
-                round(&mut v, m, &SIGMA[0]);
-                round(&mut v, m, &SIGMA[1]);
-                round(&mut v, m, &SIGMA[2]);
-                round(&mut v, m, &SIGMA[3]);
-                round(&mut v, m, &SIGMA[4]);
-                round(&mut v, m, &SIGMA[5]);
-                round(&mut v, m, &SIGMA[6]);
-                round(&mut v, m, &SIGMA[7]);
-                round(&mut v, m, &SIGMA[8]);
-                round(&mut v, m, &SIGMA[9]);
-
-                if $bytes::to_u8() == 64 {
-                    round(&mut v, m, &SIGMA[0]);
-                    round(&mut v, m, &SIGMA[1]);
+                for x in 1..=self.rounds {
+                    // FIXME: this might not work if greater than 20.
+                    let x = if x > 10 { x - 11 } else { x - 1 };
+                    round(&mut v, &m, &SIGMA[x as usize]);
                 }
 
                 h[0] = h[0] ^ (v[0] ^ v[2]);
                 h[1] = h[1] ^ (v[1] ^ v[3]);
+            }
+
+            /// Returns the current count value `t`.
+            pub fn counter(&self) -> u64 {
+                self.t
+            }
+
+            /// Returns the current hashed state.
+            pub fn output(&self) -> Output {
+                let buf = [self.h[0].to_le(), self.h[1].to_le()];
+
+                let mut out = GenericArray::default();
+                copy(buf.as_bytes(), &mut out);
+                out
             }
         }
 
@@ -327,7 +318,7 @@ macro_rules! blake2_impl {
 
         impl Update for $state {
             fn update(&mut self, data: impl AsRef<[u8]>) {
-                self.update(data.as_ref());
+                self.update(data.as_ref()).unwrap();
             }
         }
 
@@ -388,7 +379,7 @@ macro_rules! blake2_impl {
 
         impl Update for $fix_state {
             fn update(&mut self, data: impl AsRef<[u8]>) {
-                self.state.update(data.as_ref());
+                self.state.update(data.as_ref()).unwrap();
             }
         }
 
@@ -428,7 +419,7 @@ macro_rules! blake2_impl {
             type OutputSize = $bytes;
 
             fn update(&mut self, data: &[u8]) {
-                self.state.update(data);
+                self.state.update(data).unwrap();
             }
 
             fn reset(&mut self) {

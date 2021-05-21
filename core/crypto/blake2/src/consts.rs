@@ -1,5 +1,6 @@
 #![allow(clippy::unreadable_literal)]
 
+/// Message word permutations.
 pub static SIGMA: [[usize; 16]; 12] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
@@ -15,6 +16,7 @@ pub static SIGMA: [[usize; 16]; 12] = [
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
+/// Blake2b initialization vector.
 pub static BLAKE2B_IV: [u64; 8] = [
     0x6a09e667f3bcc908,
     0xbb67ae8584caa73b,
@@ -34,6 +36,7 @@ pub const BLAKE2B_SALTBYTES : usize = 16;
 pub const BLAKE2B_PERSONALBYTES : usize = 16;
 */
 
+/// Blake2s initialization vector.
 pub static BLAKE2S_IV: [u32; 8] = [
     0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 ];
