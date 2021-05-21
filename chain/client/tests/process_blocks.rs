@@ -2761,45 +2761,6 @@ fn test_congestion_receipt_execution() {
     }
 }
 
-#[cfg(feature = "protocol_feature_cap_max_gas_price")]
-#[cfg(test)]
-mod cap_max_gas_price_tests {
-    use super::*;
-
-    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
-        let mut env =
-            create_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
-
-        for i in 3..20 {
-            env.produce_block(0, i);
-            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-            let protocol_version = env.clients[0]
-                .runtime_adapter
-                .get_epoch_protocol_version(block.header().epoch_id())
-                .unwrap();
-            let min_gas_price =
-                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-            if block.header().gas_price() > 10 * min_gas_price {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    #[test]
-    fn test_not_capped_gas_price() {
-        assert!(does_gas_price_exceed_limit(
-            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
-        ));
-    }
-
-    #[test]
-    fn test_capped_gas_price() {
-        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
-    }
-}
-
 #[cfg(test)]
 mod access_key_nonce_range_tests {
     use super::*;
@@ -3036,5 +2997,45 @@ mod storage_usage_fix_tests {
                 }
             },
         );
+    }
+}
+
+
+#[cfg(feature = "protocol_feature_cap_max_gas_price")]
+#[cfg(test)]
+mod cap_max_gas_price_tests {
+    use super::*;
+
+    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
+        let mut env =
+            create_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+
+        for i in 3..20 {
+            env.produce_block(0, i);
+            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(block.header().epoch_id())
+                .unwrap();
+            let min_gas_price =
+                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+            if block.header().gas_price() > 10 * min_gas_price {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    #[test]
+    fn test_not_capped_gas_price() {
+        assert!(does_gas_price_exceed_limit(
+            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
+        ));
+    }
+
+    #[test]
+    fn test_capped_gas_price() {
+        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
     }
 }
