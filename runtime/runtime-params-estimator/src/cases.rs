@@ -203,11 +203,17 @@ pub enum Metric {
     #[cfg(feature = "protocol_feature_evm")]
     ripemd160_10kib_10k,
     #[cfg(feature = "protocol_feature_evm")]
-    blake2b_10b_10k,
+    blake2b_128b_0r_10k,
     #[cfg(feature = "protocol_feature_evm")]
-    blake2b_10kib_10k,
+    blake2b_128kb_0r_10k,
     #[cfg(feature = "protocol_feature_evm")]
-    blake2b_f_1r_10k,
+    blake2b_128b_12r_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2s_128b_0r_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2s_128kb_0r_10k,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2s_128b_12r_10k,
     #[cfg(feature = "protocol_feature_evm")]
     ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -696,7 +702,7 @@ fn measured_to_gas(
 ) -> u64 {
     match measured.get(&cost) {
         Some(value) => ratio_to_gas(gas_metric, *value),
-        None => panic!("cost {:?} not found", cost),
+        None => panic!("cost {} not found", cost as u32),
     }
 }
 
@@ -785,9 +791,15 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         #[cfg(feature = "protocol_feature_evm")]
         blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
         #[cfg(feature = "protocol_feature_evm")]
-        blake2b_byte: measured_to_gas(metric, &measured, blake2b_byte),
+        blake2b_block: measured_to_gas(metric, &measured, blake2b_block),
         #[cfg(feature = "protocol_feature_evm")]
-        blake2b_f_base: measured_to_gas(metric, &measured, blake2b_f_base),
+        blake2b_round: measured_to_gas(metric, &measured, blake2b_round),
+        #[cfg(feature = "protocol_feature_evm")]
+        blake2s_base: measured_to_gas(metric, &measured, blake2s_base),
+        #[cfg(feature = "protocol_feature_evm")]
+        blake2s_block: measured_to_gas(metric, &measured, blake2s_block),
+        #[cfg(feature = "protocol_feature_evm")]
+        blake2s_round: measured_to_gas(metric, &measured, blake2s_round),
         #[cfg(feature = "protocol_feature_evm")]
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
