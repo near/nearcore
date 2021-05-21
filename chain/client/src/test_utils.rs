@@ -1016,7 +1016,7 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
-    /// Create a `TestEnv` with `KeyValueRuntime`
+    /// Create a `TestEnv` with `KeyValueRuntime`.
     pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
