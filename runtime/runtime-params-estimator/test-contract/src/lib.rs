@@ -50,9 +50,9 @@ extern "C" {
     #[cfg(feature = "protocol_feature_evm")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "protocol_feature_evm")]
-    fn blake2b(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u64, 1: u64, register_id: u64,);
+    fn blake2b(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u64, f1: u64, register_id: u64);
     #[cfg(feature = "protocol_feature_evm")]
-    fn blake2s(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u32, f1: u32, register_id: u64,);
+    fn blake2s(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u32, f1: u32, register_id: u64);
     #[cfg(feature = "protocol_feature_evm")]
     fn ecrecover(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
