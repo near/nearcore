@@ -9,10 +9,6 @@ use near_client::test_utils::TestEnv;
 
 use near_crypto::{InMemorySigner, KeyType};
 
-#[cfg(not(feature = "protocol_feature_block_header_v3"))]
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
-
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::state_record::StateRecord;
 
