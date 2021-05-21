@@ -20,7 +20,7 @@ wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], 
 wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
-wasmer-compiler-singlepass = { version = "1.0.2", optional = true }
+wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-features = false, features = ["std", "enable-serde"] } # disable `rayon` feature.
 wasmer-compiler-cranelift = { version = "1.0.2", optional = true }
 wasmer-engine-native = { version = "1.0.2", optional = true }
 wasmer-vm = "1.0.2"

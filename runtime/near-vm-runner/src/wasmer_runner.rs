@@ -100,8 +100,28 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // invoke returns false and doesn't fill error info what Singlepass BE doesn't.
                 // Failed unwinder may happen in the case of deep recursion/stack overflow.
                 // Also can be thrown on unreachable instruction, which is quite unfortunate.
+                //
+                // See https://github.com/near/wasmer/blob/0.17.2/lib/runtime-core/src/fault.rs#L285
                 InvokeError::FailedWithNoError => VMError::FunctionCallError(
-                    FunctionCallError::Nondeterministic("FailedWithNoError".to_string()),
+                    // XXX: Initially, we treated this error case as
+                    // deterministic (so, we stored this error in our state,
+                    // etc.)
+                    //
+                    // Then, in
+                    // https://github.com/near/nearcore/pull/4181#discussion_r606267838
+                    // we reasoned that this error actually happens
+                    // non-deterministically, so it's better to panic in this
+                    // case.
+                    //
+                    // However, when rolling this out, we noticed that this
+                    // error happens deterministically for at least one
+                    // contract. So here we roll this back to a previous
+                    // behavior and emit some deterministic error, which won't
+                    // cause the node to panic.
+                    //
+                    // So far, we are unable to reproduce this deterministic
+                    // failure though.
+                    FunctionCallError::WasmTrap(WasmTrap::Unreachable),
                 ),
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
@@ -199,7 +219,7 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!("run_wasmer").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_wasmer").entered();
 
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -245,6 +265,7 @@ pub fn run_wasmer<'a>(
         current_protocol_version,
     );
 
+    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
@@ -265,20 +286,20 @@ pub fn run_wasmer<'a>(
 }
 
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
-    let _span = tracing::debug_span!("run_method").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
-        let _span = tracing::debug_span!("run_method/instantiate").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         module.instantiate(import).map_err(|err| err.into_vm_error())?
     };
 
     {
-        let _span = tracing::debug_span!("run_method/call").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
         instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
 
     {
-        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
         drop(instance)
     }
 

@@ -152,6 +152,9 @@ pub enum StateChangeCause {
     /// State change that happens when we update validator accounts. Not associated with with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
+    /// State change that is happens due to migration that happens in first block of an epoch
+    /// after protocol upgrade
+    Migration,
 }
 
 /// This represents the committed changes in the Trie with a change cause.

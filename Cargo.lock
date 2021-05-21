@@ -4852,11 +4852,13 @@ dependencies = [
  "once_cell",
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
+ "rayon",
  "rocksdb",
  "serde_json",
  "state-viewer",
  "tempfile",
  "testlib",
+ "wabt",
  "walrus",
 ]
 
@@ -5328,6 +5330,18 @@ name = "stdweb-internal-runtime"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
+
+[[package]]
+name = "storage-usage-delta-calculator"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.8.3",
+ "log",
+ "near-chain-configs",
+ "near-primitives",
+ "node-runtime",
+ "serde_json",
+]
 
 [[package]]
 name = "store-validator"
@@ -6271,15 +6285,13 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-singlepass"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "426ae6ef0f606ca815510f3e2ef6f520e217514bfb7a664defe180b9a9e75d07"
+source = "git+https://github.com/near/wasmer?branch=1.0.2-single-threaded#a98937b4e9e149e4a7773689313b7e43800f6eb9"
 dependencies = [
  "byteorder",
  "dynasm",
  "dynasmrt",
  "lazy_static",
  "more-asserts",
- "rayon",
  "serde",
  "smallvec",
  "wasmer-compiler",

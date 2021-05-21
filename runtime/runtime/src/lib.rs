@@ -51,10 +51,12 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
 use std::rc::Rc;
+use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -1070,6 +1072,40 @@ impl Runtime {
         Ok(())
     }
 
+    pub fn apply_migrations(
+        &self,
+        state_update: &mut TrieUpdate,
+        migration_data: &Arc<MigrationData>,
+        protocol_version: ProtocolVersion,
+    ) -> Result<Gas, StorageError> {
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        let mut gas_used: Gas = 0;
+
+        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+        let gas_used: Gas = 0;
+        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version {
+            for (account_id, delta) in &migration_data.storage_usage_delta {
+                match get_account(state_update, account_id)? {
+                    Some(mut account) => {
+                        // Storage usage is saved in state, hence it is nowhere close to max value
+                        // of u64, and maximal delta is 4196, se we can add here without checking
+                        // for overflow
+                        account.set_storage_usage(account.storage_usage() + delta);
+                        set_account(state_update, account_id.clone(), &account);
+                    }
+                    // Account could have been deleted in the meantime
+                    None => {}
+                }
+            }
+            gas_used += migration_data.storage_usage_fix_gas;
+            state_update.commit(StateChangeCause::Migration);
+        }
+        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+        (state_update, migration_data, protocol_version);
+        Ok(gas_used)
+    }
+
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
     /// given trie and the given state root.
     /// If the validator accounts update is provided, updates validators accounts.
@@ -1102,6 +1138,18 @@ impl Runtime {
                 &mut stats,
             )?;
         }
+
+        let gas_used_for_migrations = match &apply_state.migration_data {
+            Some(migration_data) => self
+                .apply_migrations(
+                    &mut state_update,
+                    migration_data,
+                    apply_state.current_protocol_version,
+                )
+                .map_err(|e| RuntimeError::StorageError(e))?,
+            None => 0 as Gas,
+        };
+
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
                 >= ProtocolFeature::FixApplyChunks.protocol_version()
@@ -1124,7 +1172,7 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
-        let mut total_gas_burnt = 0;
+        let mut total_gas_burnt = gas_used_for_migrations;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1426,7 +1474,8 @@ mod tests {
             is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
-            profile: ProfileData::new_enabled(),
+            profile: ProfileData::new(),
+            migration_data: None,
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

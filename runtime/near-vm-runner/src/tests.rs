@@ -81,7 +81,7 @@ fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
-        ProfileData::new_disabled(),
+        ProfileData::new(),
     )
 }
 
@@ -123,6 +123,6 @@ fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
-        ProfileData::new_disabled(),
+        ProfileData::new(),
     )
 }

@@ -49,7 +49,7 @@ impl Default for Script {
             vm_kind: VMKind::default(),
             vm_config: VMConfig::default(),
             protocol_version: ProtocolVersion::MAX,
-            profile: ProfileData::new_disabled(),
+            profile: ProfileData::new(),
             contract_cache: None,
             initial_state: None,
             steps: Vec::new(),
@@ -86,10 +86,6 @@ impl Script {
 
     pub(crate) fn protocol_version(&mut self, protocol_version: ProtocolVersion) {
         self.protocol_version = protocol_version;
-    }
-
-    pub(crate) fn profile(&mut self, yes: bool) {
-        self.profile = if yes { ProfileData::new_enabled() } else { ProfileData::new_disabled() }
     }
 
     #[allow(unused)]
