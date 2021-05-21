@@ -188,7 +188,7 @@ impl<'a> VMLogic<'a> {
 
     fn memory_get_into(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
         self.gas_counter.pay_base(read_memory_base)?;
-        self.gas_counter.pay_per_byte(read_memory_byte, buf.len() as _)?;
+        self.gas_counter.pay_per(read_memory_byte, buf.len() as _)?;
         self.try_fit_mem(offset, buf.len() as _)?;
         self.memory.read_memory(offset, buf);
         Ok(())
@@ -196,7 +196,7 @@ impl<'a> VMLogic<'a> {
 
     fn memory_get_vec(&mut self, offset: u64, len: u64) -> Result<Vec<u8>> {
         self.gas_counter.pay_base(read_memory_base)?;
-        self.gas_counter.pay_per_byte(read_memory_byte, len)?;
+        self.gas_counter.pay_per(read_memory_byte, len)?;
         self.try_fit_mem(offset, len)?;
         let mut buf = vec![0; len as usize];
         self.memory.read_memory(offset, &mut buf);
@@ -229,7 +229,7 @@ impl<'a> VMLogic<'a> {
 
     fn memory_set_slice(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.gas_counter.pay_base(write_memory_base)?;
-        self.gas_counter.pay_per_byte(write_memory_byte, buf.len() as _)?;
+        self.gas_counter.pay_per(write_memory_byte, buf.len() as _)?;
         self.try_fit_mem(offset, buf.len() as _)?;
         self.memory.write_memory(offset, buf);
         Ok(())
@@ -244,7 +244,7 @@ impl<'a> VMLogic<'a> {
     fn internal_read_register(&mut self, register_id: u64) -> Result<Vec<u8>> {
         if let Some(data) = self.registers.get(&register_id) {
             self.gas_counter.pay_base(read_register_base)?;
-            self.gas_counter.pay_per_byte(read_register_byte, data.len() as _)?;
+            self.gas_counter.pay_per(read_register_byte, data.len() as _)?;
             Ok(data.clone())
         } else {
             Err(HostError::InvalidRegisterId { register_id }.into())
@@ -253,7 +253,7 @@ impl<'a> VMLogic<'a> {
 
     fn internal_write_register(&mut self, register_id: u64, data: Vec<u8>) -> Result<()> {
         self.gas_counter.pay_base(write_register_base)?;
-        self.gas_counter.pay_per_byte(write_register_byte, data.len() as u64)?;
+        self.gas_counter.pay_per(write_register_byte, data.len() as u64)?;
         if data.len() as u64 > self.config.limit_config.max_register_size
             || self.registers.len() as u64 >= self.config.limit_config.max_number_registers
         {
@@ -390,7 +390,7 @@ impl<'a> VMLogic<'a> {
                 buf.push(el);
             }
         }
-        self.gas_counter.pay_per_byte(utf8_decoding_byte, buf.len() as _)?;
+        self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as _)?;
         String::from_utf8(buf).map_err(|_| HostError::BadUTF8.into())
     }
 
@@ -453,7 +453,7 @@ impl<'a> VMLogic<'a> {
             }
         }
         self.gas_counter
-            .pay_per_byte(utf16_decoding_byte, u16_buffer.len() as u64 * size_of::<u16>() as u64)?;
+            .pay_per(utf16_decoding_byte, u16_buffer.len() as u64 * size_of::<u16>() as u64)?;
         String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
     }
 
@@ -809,14 +809,14 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(alt_bn128_g1_multiexp_base)?;
         let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
         let len = value_buf.len() as u64;
-        self.gas_counter.pay_per_byte(alt_bn128_g1_multiexp_byte, len)?;
+        self.gas_counter.pay_per(alt_bn128_g1_multiexp_byte, len)?;
 
         let discount = (alt_bn128_g1_multiexp_base as u64
             + alt_bn128_g1_multiexp_byte as u64 * len)
             / alt_bn128_g1_multiexp_sublinear as u64;
         let sublinear_complexity =
             crate::alt_bn128::alt_bn128_g1_multiexp_sublinear_complexity_estimate(len, discount);
-        self.gas_counter.pay_per_byte(alt_bn128_g1_multiexp_sublinear, sublinear_complexity)?;
+        self.gas_counter.pay_per(alt_bn128_g1_multiexp_sublinear, sublinear_complexity)?;
 
         let res = crate::alt_bn128::alt_bn128_g1_multiexp(&value_buf)?;
 
@@ -845,7 +845,7 @@ impl<'a> VMLogic<'a> {
     ) -> Result<()> {
         self.gas_counter.pay_base(alt_bn128_g1_sum_base)?;
         let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(alt_bn128_g1_sum_byte, value_buf.len() as u64)?;
+        self.gas_counter.pay_per(alt_bn128_g1_sum_byte, value_buf.len() as u64)?;
 
         let res = crate::alt_bn128::alt_bn128_g1_sum(&value_buf)?;
 
@@ -869,7 +869,7 @@ impl<'a> VMLogic<'a> {
     pub fn alt_bn128_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(alt_bn128_pairing_check_base)?;
         let value_buf = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(alt_bn128_pairing_check_byte, value_buf.len() as u64)?;
+        self.gas_counter.pay_per(alt_bn128_pairing_check_byte, value_buf.len() as u64)?;
 
         Ok(crate::alt_bn128::alt_bn128_pairing_check(&value_buf)? as u64)
     }
@@ -901,7 +901,7 @@ impl<'a> VMLogic<'a> {
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(sha256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(sha256_byte, value.len() as u64)?;
+        self.gas_counter.pay_per(sha256_byte, value.len() as u64)?;
 
         use sha2::Digest;
 
@@ -922,7 +922,7 @@ impl<'a> VMLogic<'a> {
     pub fn keccak256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak256_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(keccak256_byte, value.len() as u64)?;
+        self.gas_counter.pay_per(keccak256_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
@@ -943,7 +943,7 @@ impl<'a> VMLogic<'a> {
     pub fn keccak512(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(keccak512_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(keccak512_byte, value.len() as u64)?;
+        self.gas_counter.pay_per(keccak512_byte, value.len() as u64)?;
 
         use sha3::Digest;
 
@@ -965,7 +965,7 @@ impl<'a> VMLogic<'a> {
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ripemd160_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(ripemd160_byte, value.len() as u64)?;
+        self.gas_counter.pay_per(ripemd160_byte, value.len() as u64)?;
 
         use ripemd160::Digest;
 
@@ -984,56 +984,97 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + blake2b_base + blake2b_byte * num_bytes`
     #[cfg(feature = "protocol_feature_evm")]
-    pub fn blake2b(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        use blake2::{Blake2b, Digest};
-
-        self.gas_counter.pay_base(blake2b_base)?;
-        let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per_byte(blake2b_byte, value.len() as u64)?;
-
-        let mut hasher = Blake2b::new();
-        hasher.update(&value);
-        let value_hash = hasher.finalize();
-        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
-    }
-
-    /// The compression function of the blake2 algorithm.
-    ///
-    /// Takes as an argument the state vector "h", message block vector "m" (the
-    /// last block is padded with zeros to full block size, if required), 2w-bit
-    /// offset counter "t", and final block indicator flag "f". Local vector
-    /// v[0..15] is used in processing. F returns a new state vector. The number
-    /// of rounds, "r", is 12 for BLAKE2b and 10 for BLAKE2s. Rounds are
-    /// numbered from 0 to r - 1.
-    ///
-    /// # Cost
-    /// base + write_register_base + write_register_byte * 64 + blake2b_f_base
-    #[cfg(feature = "protocol_feature_evm")]
-    pub fn blake2b_f(
+    pub fn blake2b(
         &mut self,
-        rounds_ptr: u64,
-        h_ptr: u64,
-        m_ptr: u64,
-        t_ptr: u64,
-        f_ptr: u64,
+        rounds: u32,
+        state_len: u64,
+        state_ptr: u64,
+        message_len: u64,
+        message_ptr: u64,
+        t: u64,
+        f0: u64,
+        f1: u64,
         register_id: u64,
     ) -> Result<()> {
+        use blake2::{Error as Blake2Error, VarBlake2b};
         use std::convert::TryFrom;
 
-        let rounds = self.memory_get_u32(rounds_ptr)?;
-        for _ in 0..rounds {
-            self.gas_counter.pay_base(blake2b_f_base)?;
+        if state_len != 64 {
+            return Err(HostError::Blake2InvalidStateLength { length: state_len }.into());
         }
-        let h =
-            <[u64; 8]>::try_from(self.memory_get_vec_u64(h_ptr, 8)?).expect("vec bytes conversion");
-        let m = <[u64; 16]>::try_from(self.memory_get_vec_u64(m_ptr, 16)?)
-            .expect("vec bytes conversion");
-        let t =
-            <[u64; 2]>::try_from(self.memory_get_vec_u64(t_ptr, 2)?).expect("vec bytes conversion");
-        let f: bool = self.memory_get_u8(f_ptr)? != 0;
 
-        let value = blake2::blake2b_f(rounds, h, m, t, f);
-        self.internal_write_register(register_id, value.as_slice().to_vec())
+        // Change to per block for gas.
+        let message_blocks = (message_len / 128 + 1);
+
+        self.gas_counter.pay_base(blake2b_base);
+        self.gas_counter.pay_per(blake2b_byte, message_blocks);
+        self.gas_counter.pay_per(blake2b_round, (rounds * message_blocks) as u64);
+
+        let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
+            .expect("vec bytes conversion");
+        let m = self.memory_get_vec(message_ptr, message_len)?;
+
+        let mut hasher = match VarBlake2b::with_state(rounds, state, t) {
+            Ok(h) => h,
+            Err(Blake2Error::TooManyRounds { max, actual }) => {
+                return Err(HostError::Blake2TooManyRounds { max, actual }.into())
+            }
+            _ => unreachable!(),
+        };
+        if hasher.update(&m).is_err() {
+            return Err(HostError::Blake2HashDataOverflow.into());
+        }
+        hasher.compress(f0, f1);
+        let res = hasher.output();
+
+        self.internal_write_register(register_id, res.as_slice().to_vec())
+    }
+
+    #[cfg(feature = "protocol_feature_evm")]
+    pub fn blake2s(
+        &mut self,
+        rounds: u32,
+        state_len: u64,
+        state_ptr: u64,
+        message_len: u64,
+        message_ptr: u64,
+        t: u64,
+        f0: u32,
+        f1: u32,
+        register_id: u64,
+    ) -> Result<()> {
+        use blake2::{Error as Blake2Error, VarBlake2s};
+        use std::convert::TryFrom;
+
+        if state_len != 64 {
+            return Err(HostError::Blake2InvalidStateLength { length: state_len }.into());
+        }
+
+        // Change to per block for gas.
+        let message_blocks = (message_len / 128 + 1);
+
+        self.gas_counter.pay_base(blake2b_base);
+        self.gas_counter.pay_per(blake2b_block, message_blocks);
+        self.gas_counter.pay_per(blake2b_round, (rounds * message_blocks) as u64);
+
+        let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
+            .expect("vec bytes conversion");
+        let m = self.memory_get_vec(message_ptr, message_len)?;
+
+        let mut hasher = match VarBlake2s::with_state(rounds, state, t) {
+            Ok(h) => h,
+            Err(Blake2Error::TooManyRounds { max, actual }) => {
+                return Err(HostError::Blake2TooManyRounds { max, actual }.into())
+            }
+            _ => unreachable!(),
+        };
+        if hasher.update(&m).is_err() {
+            return Err(HostError::Blake2HashDataOverflow.into());
+        }
+        hasher.compress(f0, f1);
+        let res = hasher.output();
+
+        self.internal_write_register(register_id, res.as_slice().to_vec())
     }
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
@@ -1271,7 +1312,7 @@ impl<'a> VMLogic<'a> {
             );
         }
         self.gas_counter.pay_base(promise_and_base)?;
-        self.gas_counter.pay_per_byte(
+        self.gas_counter.pay_per(
             promise_and_per_promise,
             promise_idx_count
                 .checked_mul(size_of::<u64>() as u64)
@@ -2125,7 +2166,7 @@ impl<'a> VMLogic<'a> {
         self.check_can_add_a_log_message()?;
         let message = self.get_utf8_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per_byte(log_byte, message.len() as u64)?;
+        self.gas_counter.pay_per(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
@@ -2150,7 +2191,7 @@ impl<'a> VMLogic<'a> {
         let message = self.get_utf16_string(len, ptr)?;
         self.gas_counter.pay_base(log_base)?;
         // Let's not use `encode_utf16` for gas per byte here, since it's a lot of compute.
-        self.gas_counter.pay_per_byte(log_byte, message.len() as u64)?;
+        self.gas_counter.pay_per(log_byte, message.len() as u64)?;
         self.checked_push_log(message)
     }
 
@@ -2185,7 +2226,7 @@ impl<'a> VMLogic<'a> {
 
         let message = format!("{}, filename: \"{}\" line: {} col: {}", msg, filename, line, col);
         self.gas_counter.pay_base(log_base)?;
-        self.gas_counter.pay_per_byte(log_byte, message.as_bytes().len() as u64)?;
+        self.gas_counter.pay_per(log_byte, message.as_bytes().len() as u64)?;
         self.checked_push_log(format!("ABORT: {}", message))?;
 
         Err(HostError::GuestPanic { panic_msg: message }.into())
@@ -2209,7 +2250,7 @@ impl<'a> VMLogic<'a> {
     fn read_and_parse_account_id(&mut self, ptr: u64, len: u64) -> Result<AccountId> {
         let buf = self.get_vec_from_memory_or_register(ptr, len)?;
         self.gas_counter.pay_base(utf8_decoding_base)?;
-        self.gas_counter.pay_per_byte(utf8_decoding_byte, buf.len() as u64)?;
+        self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
     }
@@ -2266,14 +2307,14 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.gas_counter.pay_per_byte(storage_write_key_byte, key.len() as u64)?;
-        self.gas_counter.pay_per_byte(storage_write_value_byte, value.len() as u64)?;
+        self.gas_counter.pay_per(storage_write_key_byte, key.len() as u64)?;
+        self.gas_counter.pay_per(storage_write_value_byte, value.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let evicted_ptr = self.ext.storage_get(&key)?;
         let evicted =
             Self::deref_value(&mut self.gas_counter, storage_write_evicted_byte, evicted_ptr)?;
         self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         self.ext.storage_set(&key, &value)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match evicted {
@@ -2313,7 +2354,7 @@ impl<'a> VMLogic<'a> {
     ) -> Result<Option<Vec<u8>>> {
         match value_ptr {
             Some(value_ptr) => {
-                gas_counter.pay_per_byte(cost_per_byte, value_ptr.len() as u64)?;
+                gas_counter.pay_per(cost_per_byte, value_ptr.len() as u64)?;
                 value_ptr.deref().map(Some)
             }
             None => Ok(None),
@@ -2348,11 +2389,11 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.gas_counter.pay_per_byte(storage_read_key_byte, key.len() as u64)?;
+        self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let read = self.ext.storage_get(&key);
         self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         let read = Self::deref_value(&mut self.gas_counter, storage_read_value_byte, read?)?;
         match read {
             Some(value) => {
@@ -2398,7 +2439,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.gas_counter.pay_per_byte(storage_remove_key_byte, key.len() as u64)?;
+        self.gas_counter.pay_per(storage_remove_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let removed_ptr = self.ext.storage_get(&key)?;
         let removed =
@@ -2406,7 +2447,7 @@ impl<'a> VMLogic<'a> {
 
         self.ext.storage_remove(&key)?;
         self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         let storage_config = &self.fees_config.storage_usage_config;
         match removed {
             Some(value) => {
@@ -2449,11 +2490,11 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        self.gas_counter.pay_per_byte(storage_has_key_byte, key.len() as u64)?;
+        self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_touched_nodes_count();
         let res = self.ext.storage_has_key(&key);
         self.gas_counter
-            .pay_per_byte(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
+            .pay_per(touching_trie_node, self.ext.get_touched_nodes_count() - nodes_before)?;
         Ok(res? as u64)
     }
 
@@ -2576,7 +2617,7 @@ impl<'a> VMLogic<'a> {
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
-        self.gas_counter.pay_per_byte(contract_compile_bytes, code_len)?;
+        self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)
     }
 }

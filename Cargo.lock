@@ -530,16 +530,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2"
-version = "0.9.1"
-source = "git+https://github.com/near/near-blake2.git?branch=f-standard-out#a930c335a3b04814c37ef2a33b4a0f26ae6e047b"
-dependencies = [
- "crypto-mac 0.8.0",
- "digest 0.9.0",
- "opaque-debug 0.3.0",
-]
-
-[[package]]
 name = "blake2b_simd"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -563,6 +553,15 @@ dependencies = [
  "constant_time_eq",
  "crypto-mac 0.8.0",
  "digest 0.9.0",
+]
+
+[[package]]
+name = "blobby"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fe5f8c2940b65859ece4b3b2ba02d2b12c87cab455fd42dee2556a187bb2cf6"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]
@@ -1310,6 +1309,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
 dependencies = [
+ "blobby",
  "generic-array 0.14.4",
  "subtle 2.4.0",
 ]
@@ -1475,6 +1475,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3dd60d1080a57a05ab032377049e0591415d2b31afd7028356dbf3cc6dcb066"
 dependencies = [
+ "blobby",
  "generic-array 0.14.4",
 ]
 
@@ -3001,6 +3002,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-blake2"
+version = "0.9.1"
+dependencies = [
+ "crypto-mac 0.8.0",
+ "digest 0.9.0",
+ "hex-literal",
+ "opaque-debug 0.3.0",
+]
+
+[[package]]
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
@@ -3143,7 +3154,6 @@ name = "near-crypto"
 version = "0.1.0"
 dependencies = [
  "arrayref",
- "blake2",
  "borsh",
  "bs58",
  "c2-chacha",
@@ -3153,6 +3163,7 @@ dependencies = [
  "hex-literal",
  "lazy_static",
  "libc",
+ "near-blake2",
  "parity-secp256k1",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -3601,10 +3612,12 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "blake2",
  "borsh",
  "bs58",
  "byteorder",
+ "hex-literal",
+ "libsecp256k1",
+ "near-blake2",
  "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",

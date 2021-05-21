@@ -233,12 +233,12 @@ pub struct ExtCostsConfig {
     /// Cost of getting blake2b base
     #[cfg(feature = "protocol_feature_evm")]
     pub blake2b_base: Gas,
-    /// Cost of getting blake2b per byte
+    /// Cost of getting blake2b per 128 byte message block.
     #[cfg(feature = "protocol_feature_evm")]
-    pub blake2b_byte: Gas,
-    /// Cost of calculating blake2b F compression base
+    pub blake2b_block: Gas,
+    /// Cost of a single blake2b round.
     #[cfg(feature = "protocol_feature_evm")]
-    pub blake2b_f_base: Gas,
+    pub blake2b_round: Gas,
 
     /// Cost of calling ecrecover
     #[cfg(feature = "protocol_feature_evm")]
@@ -381,9 +381,9 @@ impl Default for ExtCostsConfig {
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_base: SAFETY_MULTIPLIER * 1513656750, // TODO
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_byte: SAFETY_MULTIPLIER * 8039117, // TODO
+            blake2b_block: SAFETY_MULTIPLIER * 8039117, // TODO
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_f_base: SAFETY_MULTIPLIER * 1513656750, // TODO
+            blake2b_round: SAFETY_MULTIPLIER * 150000, // TODO
             #[cfg(feature = "protocol_feature_evm")]
             ecrecover_base: SAFETY_MULTIPLIER * 1000000000, // TODO
             log_base: SAFETY_MULTIPLIER * 1181104350,
@@ -463,9 +463,9 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_base: 0,
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_byte: 0,
+            blake2b_block: 0,
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_f_base: 0,
+            blake2b_round: 0,
             #[cfg(feature = "protocol_feature_evm")]
             ecrecover_base: 0,
             log_base: 0,
@@ -546,7 +546,9 @@ pub enum ExtCosts {
     #[cfg(feature = "protocol_feature_evm")]
     blake2b_base,
     #[cfg(feature = "protocol_feature_evm")]
-    blake2b_byte,
+    blake2b_block,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_round,
     #[cfg(feature = "protocol_feature_evm")]
     blake2b_f_base,
     #[cfg(feature = "protocol_feature_evm")]
@@ -682,7 +684,9 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_base => config.blake2b_base,
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_byte => config.blake2b_byte,
+            blake2b_block => config.blake2b_block,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_round => config.blake2b_round,
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_f_base => config.blake2b_f_base,
             #[cfg(feature = "protocol_feature_evm")]
