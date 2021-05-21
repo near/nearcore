@@ -240,8 +240,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             new_extra.gas_limit(),
                             &block.header().challenges_result(),
                             *block.header().random_value(),
-                            // doesn't really matter here since the old blocks are on the old version
-                            false,
+                            true,
                         )
                         .unwrap();
                     if !apply_result.outcomes.is_empty() {
@@ -261,6 +260,77 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     }
 
     set_store_version(&store, 20);
+}
+
+pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
+    let store = create_store(path);
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let runtime = NightshadeRuntime::new(
+            &Path::new(path),
+            store.clone(),
+            &near_config.genesis,
+            near_config.client_config.tracked_accounts.clone(),
+            near_config.client_config.tracked_shards.clone(),
+            None,
+        );
+        let shard_id = 0;
+        // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
+        let block_heights = vec![22633807];
+        for height in block_heights {
+            let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+            let block = chain_store.get_block(&block_hash).unwrap().clone();
+            if block.chunks()[shard_id as usize].height_included() == block.header().height() {
+                let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+                let chunk = chain_store.get_chunk(&chunk_hash).unwrap().clone();
+                let chunk_header = chunk.cloned_header();
+                let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+                let prev_block =
+                    chain_store_update.get_block(block.header().prev_hash()).unwrap().clone();
+                let receipt_proof_response = chain_store_update
+                    .get_incoming_receipts_for_shard(
+                        shard_id,
+                        block_hash,
+                        prev_block.chunks()[shard_id as usize].height_included(),
+                    )
+                    .unwrap();
+                let receipts = collect_receipts_from_response(&receipt_proof_response);
+
+                let apply_result = runtime
+                    .apply_transactions(
+                        shard_id,
+                        &chunk_header.prev_state_root(),
+                        block.header().height(),
+                        block.header().raw_timestamp(),
+                        block.header().prev_hash(),
+                        &block.hash(),
+                        &receipts,
+                        chunk.transactions(),
+                        chunk_header.validator_proposals(),
+                        block.header().gas_price(),
+                        chunk_header.gas_limit(),
+                        &block.header().challenges_result(),
+                        *block.header().random_value(),
+                        // doesn't really matter here since the old blocks are on the old version
+                        false,
+                    )
+                    .unwrap();
+                if !apply_result.outcomes.is_empty() {
+                    let (_, outcome_paths) =
+                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    chain_store_update.save_outcomes_with_proofs(
+                        &block.hash(),
+                        shard_id,
+                        apply_result.outcomes,
+                        outcome_paths,
+                    );
+                    chain_store_update.commit().unwrap();
+                }
+            }
+        }
+    }
+    set_store_version(&store, 23);
 }
 
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
