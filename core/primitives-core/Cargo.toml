@@ -26,6 +26,5 @@ lazy_static = "1.4"
 default = []
 protocol_feature_evm = []
 protocol_feature_add_account_versions = []
-protocol_feature_evm = []
 protocol_feature_alt_bn128 = []
 protocol_feature_tx_size_limit = []
