@@ -713,7 +713,7 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_round => config.blake2b_round,
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_base => config.blake2s_f_base,
+            blake2s_base => config.blake2s_base,
             #[cfg(feature = "protocol_feature_evm")]
             blake2s_block => config.blake2s_block,
             #[cfg(feature = "protocol_feature_evm")]

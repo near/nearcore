@@ -1004,11 +1004,11 @@ impl<'a> VMLogic<'a> {
         }
 
         // Change to per block for gas.
-        let message_blocks = (message_len / 128 + 1);
+        let message_blocks = message_len / 128 + 1;
 
-        self.gas_counter.pay_base(blake2b_base);
-        self.gas_counter.pay_per(blake2b_block, message_blocks);
-        self.gas_counter.pay_per(blake2b_round, (rounds * message_blocks) as u64);
+        self.gas_counter.pay_base(blake2b_base)?;
+        self.gas_counter.pay_per(blake2b_block, message_blocks)?;
+        self.gas_counter.pay_per(blake2b_round, (rounds as u64) * message_blocks)?;
 
         let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
             .expect("vec bytes conversion");
@@ -1051,14 +1051,20 @@ impl<'a> VMLogic<'a> {
         }
 
         // Change to per block for gas.
-        let message_blocks = (message_len / 128 + 1);
+        let message_blocks = message_len / 128 + 1;
 
-        self.gas_counter.pay_base(blake2b_base);
-        self.gas_counter.pay_per(blake2b_block, message_blocks);
-        self.gas_counter.pay_per(blake2b_round, (rounds * message_blocks) as u64);
+        self.gas_counter.pay_base(blake2b_base)?;
+        self.gas_counter.pay_per(blake2b_block, message_blocks)?;
+        self.gas_counter.pay_per(blake2b_round, (rounds as u64) * message_blocks)?;
 
-        let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
-            .expect("vec bytes conversion");
+        let state = {
+            let mut buf = [0u32; 8];
+            let values = self.memory_get_vec_u64(state_ptr, 8)?;
+            for (x, y) in buf.iter_mut().zip(values.into_iter()) {
+                *x = <u32>::try_from(y).map_err(|_| HostError::Blake2HashDataOverflow)?;
+            }
+            buf
+        };
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
         let mut hasher = match VarBlake2s::with_state(rounds, state, t) {
