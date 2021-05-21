@@ -46,11 +46,7 @@ fn rotate_right_32(vec: u64x4) -> u64x4 {
 #[cfg(feature = "simd_opt")]
 #[inline(always)]
 fn rotate_right_24(vec: u64x4) -> u64x4 {
-    if cfg!(all(
-        feature = "simd_asm",
-        target_feature = "neon",
-        target_arch = "arm"
-    )) {
+    if cfg!(all(feature = "simd_asm", target_feature = "neon", target_arch = "arm")) {
         // 4 x vext (NEON)
         rotate_right_vext(vec, 3)
     } else if cfg!(target_feature = "ssse3") {
@@ -72,11 +68,7 @@ fn rotate_right_24(vec: u64x4) -> u64x4 {
 #[cfg(feature = "simd_opt")]
 #[inline(always)]
 fn rotate_right_16(vec: u64x4) -> u64x4 {
-    if cfg!(all(
-        feature = "simd_asm",
-        target_feature = "neon",
-        target_arch = "arm"
-    )) {
+    if cfg!(all(feature = "simd_asm", target_feature = "neon", target_arch = "arm")) {
         // 4 x vext (NEON)
         rotate_right_vext(vec, 2)
     } else if cfg!(target_feature = "ssse3") {

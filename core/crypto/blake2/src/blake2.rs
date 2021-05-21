@@ -34,7 +34,11 @@ macro_rules! blake2_impl {
 
         // Can't make this a const, else it would be great as that.
         fn max_rounds() -> u32 {
-           if $bytes::to_u8() == 64 { 12 } else { 10 }
+            if $bytes::to_u8() == 64 {
+                12
+            } else {
+                10
+            }
         }
 
         #[inline(always)]

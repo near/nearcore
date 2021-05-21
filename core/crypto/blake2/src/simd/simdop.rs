@@ -46,12 +46,7 @@ macro_rules! impl_ops {
             #[cfg(not(feature = "simd"))]
             #[inline(always)]
             fn bitxor(self, rhs: Self) -> Self::Output {
-                $vec::new(
-                    self.0 ^ rhs.0,
-                    self.1 ^ rhs.1,
-                    self.2 ^ rhs.2,
-                    self.3 ^ rhs.3,
-                )
+                $vec::new(self.0 ^ rhs.0, self.1 ^ rhs.1, self.2 ^ rhs.2, self.3 ^ rhs.3)
             }
         }
 
@@ -67,12 +62,7 @@ macro_rules! impl_ops {
             #[cfg(not(feature = "simd"))]
             #[inline(always)]
             fn shl(self, rhs: Self) -> Self::Output {
-                $vec::new(
-                    self.0 << rhs.0,
-                    self.1 << rhs.1,
-                    self.2 << rhs.2,
-                    self.3 << rhs.3,
-                )
+                $vec::new(self.0 << rhs.0, self.1 << rhs.1, self.2 << rhs.2, self.3 << rhs.3)
             }
         }
 
@@ -88,12 +78,7 @@ macro_rules! impl_ops {
             #[cfg(not(feature = "simd"))]
             #[inline(always)]
             fn shr(self, rhs: Self) -> Self::Output {
-                $vec::new(
-                    self.0 >> rhs.0,
-                    self.1 >> rhs.1,
-                    self.2 >> rhs.2,
-                    self.3 >> rhs.3,
-                )
+                $vec::new(self.0 >> rhs.0, self.1 >> rhs.1, self.2 >> rhs.2, self.3 >> rhs.3)
             }
         }
     };

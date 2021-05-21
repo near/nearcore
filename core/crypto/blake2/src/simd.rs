@@ -78,22 +78,12 @@ macro_rules! impl_vector4 {
             #[cfg(not(target_endian = "little"))]
             #[inline(always)]
             fn to_le(self) -> Self {
-                $vec::new(
-                    self.0.to_le(),
-                    self.1.to_le(),
-                    self.2.to_le(),
-                    self.3.to_le(),
-                )
+                $vec::new(self.0.to_le(), self.1.to_le(), self.2.to_le(), self.3.to_le())
             }
 
             #[inline(always)]
             fn to_be(self) -> Self {
-                $vec::new(
-                    self.0.to_be(),
-                    self.1.to_be(),
-                    self.2.to_be(),
-                    self.3.to_be(),
-                )
+                $vec::new(self.0.to_be(), self.1.to_be(), self.2.to_be(), self.3.to_be())
             }
 
             #[inline(always)]

@@ -11,7 +11,7 @@ pub enum Error {
         /// Max rounds allowed.
         max: u32,
         /// Actual round value.
-        actual: u32
+        actual: u32,
     },
 }
 
