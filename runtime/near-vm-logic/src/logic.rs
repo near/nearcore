@@ -1007,7 +1007,7 @@ impl<'a> VMLogic<'a> {
         let message_blocks = (message_len / 128 + 1);
 
         self.gas_counter.pay_base(blake2b_base);
-        self.gas_counter.pay_per(blake2b_byte, message_blocks);
+        self.gas_counter.pay_per(blake2b_block, message_blocks);
         self.gas_counter.pay_per(blake2b_round, (rounds * message_blocks) as u64);
 
         let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
@@ -1021,7 +1021,7 @@ impl<'a> VMLogic<'a> {
             }
             _ => unreachable!(),
         };
-        if hasher.update(&m).is_err() {
+        if hasher.update_inner(&m).is_err() {
             return Err(HostError::Blake2HashDataOverflow.into());
         }
         hasher.compress(f0, f1);
@@ -1068,7 +1068,7 @@ impl<'a> VMLogic<'a> {
             }
             _ => unreachable!(),
         };
-        if hasher.update(&m).is_err() {
+        if hasher.update_inner(&m).is_err() {
             return Err(HostError::Blake2HashDataOverflow.into());
         }
         hasher.compress(f0, f1);

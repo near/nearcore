@@ -207,7 +207,7 @@ macro_rules! blake2_impl {
             }
 
             /// Updates the hashing context with more data.
-            pub fn update(&mut self, data: &[u8]) -> Result<(), Error> {
+            pub fn update_inner(&mut self, data: &[u8]) -> Result<(), Error> {
                 let mut rest = data;
 
                 let block = 2 * $bytes::to_usize();
@@ -286,7 +286,6 @@ macro_rules! blake2_impl {
                 let mut v = [h[0], h[1], iv0(), iv1() ^ $vec::new(t0, t1, f0, f1)];
 
                 for x in 1..=self.rounds {
-                    // FIXME: this might not work if greater than 20.
                     let x = if x > 10 { x - 11 } else { x - 1 };
                     round(&mut v, &m, &SIGMA[x as usize]);
                 }
@@ -322,7 +321,7 @@ macro_rules! blake2_impl {
 
         impl Update for $state {
             fn update(&mut self, data: impl AsRef<[u8]>) {
-                self.update(data.as_ref()).unwrap();
+                self.update_inner(data.as_ref()).unwrap();
             }
         }
 
@@ -383,7 +382,7 @@ macro_rules! blake2_impl {
 
         impl Update for $fix_state {
             fn update(&mut self, data: impl AsRef<[u8]>) {
-                self.state.update(data.as_ref()).unwrap();
+                self.state.update_inner(data.as_ref()).unwrap();
             }
         }
 
@@ -423,7 +422,7 @@ macro_rules! blake2_impl {
             type OutputSize = $bytes;
 
             fn update(&mut self, data: &[u8]) {
-                self.state.update(data).unwrap();
+                self.state.update_inner(data).unwrap();
             }
 
             fn reset(&mut self) {
