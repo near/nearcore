@@ -975,7 +975,7 @@ impl<'a> VMLogic<'a> {
         sha3.update(&value);
         sha3.finalize(&mut value_hash);
 
-        self.internal_write_register(register_id, value_hash.to_vec())
+        self.internal_write_register(register_id, value_hash)
     }
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
