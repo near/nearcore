@@ -1004,9 +1004,12 @@ impl<'a> VMLogic<'a> {
         let r = self.memory_get_vec(r_ptr, 32)?;
         let s = self.memory_get_vec(s_ptr, 32)?;
 
+        // unwrap does not panic as the hash read from the registry will be of 32 bytes
         let hash = secp256k1::Message::parse_slice(hash.as_slice()).unwrap();
 
         let mut signature = [0u8; 64];
+
+        // copy_from_slice does not panic as r and s are read as vec from registry
         signature[0..32].copy_from_slice(r.as_slice());
         signature[32..64].copy_from_slice(s.as_slice());
         let signature = secp256k1::Signature::parse(&signature);
