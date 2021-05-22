@@ -410,7 +410,7 @@ impl Default for ExtCostsConfig {
             #[cfg(feature = "protocol_feature_btp")]
             sha3_256_byte: SAFETY_MULTIPLIER * 8039117,
             #[cfg(feature = "protocol_feature_btp")]
-            ecrecover_public_key_base: SAFETY_MULTIPLIER * 1000000000,
+            ecrecover_public_key_base: SAFETY_MULTIPLIER * 275895314587,
         }
     }
 }
