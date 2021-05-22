@@ -212,9 +212,6 @@ pub enum HostError {
     /// Serialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128SerializationError { msg: String },
-    /// Invalid ECDSA signature.
-    #[cfg(feature = "protocol_feature_btp")]
-    InvalidECDSASignature,
 }
 
 /// Errors specifically from native EVM.
@@ -501,8 +498,6 @@ impl std::fmt::Display for HostError {
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
-            #[cfg(feature = "protocol_feature_btp")]
-            InvalidECDSASignature => write!(f, "Invalid ECDSA signature"),
         }
     }
 }

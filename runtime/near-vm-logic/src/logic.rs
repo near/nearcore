@@ -984,7 +984,6 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
     ///   memory than the limit, then returns `MemoryAccessViolation`.
-    /// * If the ECDSA recovery fails for any reason, then returns `InvalidECDSASignature`.
     ///
     /// # Cost
     ///
@@ -999,6 +998,7 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(ecrecover_public_key_base)?;
+
         let hash = self.memory_get_vec(hash_ptr, 32)?;
         let v = (v & 0xFF) as u8;
         let r = self.memory_get_vec(r_ptr, 32)?;
@@ -1008,23 +1008,24 @@ impl<'a> VMLogic<'a> {
         let hash = secp256k1::Message::parse_slice(hash.as_slice()).unwrap();
 
         let mut signature = [0u8; 64];
+        let mut public_key = vec![];
 
         // copy_from_slice does not panic as r and s are read as vec from registry
         signature[0..32].copy_from_slice(r.as_slice());
         signature[32..64].copy_from_slice(s.as_slice());
+
         let signature = secp256k1::Signature::parse(&signature);
 
-        let recovery_id = match secp256k1::RecoveryId::parse(v) {
-            Err(_) => return Err(HostError::InvalidECDSASignature.into()),
-            Ok(rid) => rid,
-        };
+        if let Ok(recovery_id) = secp256k1::RecoveryId::parse(v) {
+            match secp256k1::recover(&hash, &signature, &recovery_id) {
+                Err(_) => (),
+                Ok(pk) => {
+                    public_key = pk.serialize().to_vec();
+                }
+            }
+        }
 
-        let public_key = match secp256k1::recover(&hash, &signature, &recovery_id) {
-            Err(_) => return Err(HostError::InvalidECDSASignature.into()),
-            Ok(pk) => pk,
-        };
-
-        self.internal_write_register(register_id, public_key.serialize().to_vec())
+        self.internal_write_register(register_id, public_key)
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.

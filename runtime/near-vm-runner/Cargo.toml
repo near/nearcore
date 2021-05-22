@@ -66,7 +66,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
 
-protocol_feature_btp = ["near-vm-logic/protocol_feature_btp", "near-primitives/protocol_feature_btp", "near-vm-errors/protocol_feature_btp"]
+protocol_feature_btp = ["near-vm-logic/protocol_feature_btp", "near-primitives/protocol_feature_btp"]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

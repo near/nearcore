@@ -59,4 +59,4 @@ protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limi
 protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete"]
 nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features"]
 nightly_protocol = ["neard/nightly_protocol"]
-protocol_feature_btp = ["near-primitives/protocol_feature_btp", "node-runtime/protocol_feature_btp", "near-vm-errors/protocol_feature_btp"]
+protocol_feature_btp = ["near-primitives/protocol_feature_btp", "node-runtime/protocol_feature_btp"]

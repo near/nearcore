@@ -50,7 +50,7 @@ protocol_feature_allow_create_account_on_delete = []
 protocol_feature_fix_storage_usage = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "protocol_feature_fix_storage_usage", "protocol_feature_btp"]
 nightly_protocol = []
-protocol_feature_btp = ["near-primitives-core/protocol_feature_btp", "near-vm-errors/protocol_feature_btp"]
+protocol_feature_btp = ["near-primitives-core/protocol_feature_btp"]
 
 [dev-dependencies]
 bencher = "0.1.5"

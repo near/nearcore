@@ -55,7 +55,7 @@ protocol_feature_alt_bn128 = [
 protocol_feature_tx_size_limit = []
 protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "near-vm-logic/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
-protocol_feature_btp = ["near-primitives/protocol_feature_btp", "near-vm-logic/protocol_feature_btp", "near-vm-runner/protocol_feature_btp", "near-vm-errors/protocol_feature_btp"]
+protocol_feature_btp = ["near-primitives/protocol_feature_btp", "near-vm-logic/protocol_feature_btp", "near-vm-runner/protocol_feature_btp"]
 
 [dev-dependencies]
 tempfile = "3"
