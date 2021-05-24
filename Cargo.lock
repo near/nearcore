@@ -3684,6 +3684,7 @@ dependencies = [
  "neard",
  "node-runtime",
  "rand 0.7.3",
+ "restored-receipts-verifier",
  "runtime-params-estimator",
  "testlib",
 ]
@@ -4766,6 +4767,19 @@ dependencies = [
  "near-primitives",
  "neard",
  "testlib",
+]
+
+[[package]]
+name = "restored-receipts-verifier"
+version = "0.1.0"
+dependencies = [
+ "clap 3.0.0-beta.2",
+ "near-chain",
+ "near-jsonrpc",
+ "near-primitives",
+ "near-store",
+ "neard",
+ "serde_json",
 ]
 
 [[package]]

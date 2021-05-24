@@ -18,7 +18,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -75,9 +75,6 @@ pub struct AcceptedBlock {
     pub status: BlockStatus,
     pub provenance: Provenance,
 }
-
-/// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
@@ -514,6 +511,7 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -531,6 +529,7 @@ pub trait RuntimeAdapter: Send + Sync {
             random_seed,
             false,
             is_new_chunk,
+            is_first_block_with_chunk_of_version,
         )
     }
 
@@ -551,6 +550,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -570,6 +570,7 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
         random_value: CryptoHash,
         is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -651,6 +652,12 @@ pub trait RuntimeAdapter: Send + Sync {
     fn evm_chain_id(&self) -> u64;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Get previous epoch id by hash of previous block.
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error>;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
