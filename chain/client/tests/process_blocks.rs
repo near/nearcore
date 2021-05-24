@@ -80,7 +80,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
 }
 
 /// Create environment and set of transactions which cause congestion on the chain.
-fn create_env_with_congestion(
+fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
     gas_price_adjustment_rate: Option<Rational>,
     number_of_transactions: u64,
@@ -2719,7 +2719,7 @@ fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
 
 #[test]
 fn test_congestion_receipt_execution() {
-    let (mut env, tx_hashes) = create_env_with_congestion(PROTOCOL_VERSION, None, 3);
+    let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
 
     // Produce block with no new chunk.
     env.produce_block(0, 3);
@@ -3143,7 +3143,9 @@ mod cap_max_gas_price_tests {
 
     fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
         let mut env =
-            create_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+            prepare_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+        let mut was_congested = false;
+        let mut price_exceeded_limit = false;
 
         for i in 3..20 {
             env.produce_block(0, i);
@@ -3154,12 +3156,12 @@ mod cap_max_gas_price_tests {
                 .unwrap();
             let min_gas_price =
                 env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-            if block.header().gas_price() > 10 * min_gas_price {
-                return true;
-            }
+            was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
+            price_exceeded_limit |= block.header().gas_price() > 10 * min_gas_price;
         }
 
-        false
+        assert!(was_congested);
+        price_exceeded_limit
     }
 
     #[test]
