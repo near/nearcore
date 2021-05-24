@@ -50,7 +50,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -77,6 +77,79 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
+}
+
+/// Create environment and set of transactions which cause congestion on the chain.
+fn prepare_env_with_congestion(
+    protocol_version: ProtocolVersion,
+    gas_price_adjustment_rate: Option<Rational>,
+    number_of_transactions: u64,
+) -> (TestEnv, Vec<CryptoHash>) {
+    init_test_logger();
+    let epoch_length = 100;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.protocol_version = protocol_version;
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.gas_limit = 10_000_000_000_000;
+    if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
+        genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    }
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    // Deploy contract to test0.
+    let tx = SignedTransaction::from_actions(
+        1,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..3 {
+        env.produce_block(0, i);
+    }
+
+    // Create function call transactions that generate promises.
+    let gas_1 = 9_000_000_000_000;
+    let gas_2 = gas_1 / 3;
+    let mut tx_hashes = vec![];
+
+    for i in 0..number_of_transactions {
+        let data = serde_json::json!([
+            {"create": {
+            "account_id": "test0",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": gas_2,
+            }, "id": 0 }
+        ]);
+
+        let signed_transaction = SignedTransaction::from_actions(
+            i + 10,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&data).unwrap(),
+                gas: gas_1,
+                deposit: 0,
+            })],
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(signed_transaction.get_hash());
+        env.clients[0].process_tx(signed_transaction, false, false);
+    }
+
+    (env, tx_hashes)
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -2646,67 +2719,9 @@ fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
 
 #[test]
 fn test_congestion_receipt_execution() {
-    init_test_logger();
-    let epoch_length = 100;
-    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = 10000000000000;
-    let chain_genesis = ChainGenesis::from(&genesis);
-    let mut env =
-        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
 
-    // step 0: deploy contract to test0
-    let tx = SignedTransaction::from_actions(
-        1,
-        "test0".to_string(),
-        "test0".to_string(),
-        &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
-        })],
-        *genesis_block.hash(),
-    );
-    env.clients[0].process_tx(tx, false, false);
-    for i in 1..3 {
-        env.produce_block(0, i);
-    }
-
-    // step 1: create function call transactions that generate promises
-    let gas_1 = 9_000_000_000_000;
-    let gas_2 = gas_1 / 3;
-    let mut tx_hashes = vec![];
-
-    for i in 0..3 {
-        let data = serde_json::json!([
-            {"create": {
-            "account_id": "test0",
-            "method_name": "call_promise",
-            "arguments": [],
-            "amount": "0",
-            "gas": gas_2,
-            }, "id": 0 }
-        ]);
-
-        let signed_transaction = SignedTransaction::from_actions(
-            i + 10,
-            "test0".to_string(),
-            "test0".to_string(),
-            &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "call_promise".to_string(),
-                args: serde_json::to_vec(&data).unwrap(),
-                gas: gas_1,
-                deposit: 0,
-            })],
-            *genesis_block.hash(),
-        );
-        tx_hashes.push(signed_transaction.get_hash());
-        env.clients[0].process_tx(signed_transaction, false, false);
-    }
-
-    // step 2: produce block with no new chunk
+    // Produce block with no new chunk.
     env.produce_block(0, 3);
     let height = 4;
     env.produce_block(0, height);
@@ -3117,5 +3132,47 @@ mod storage_usage_fix_tests {
                 }
             },
         );
+    }
+}
+
+#[cfg(feature = "protocol_feature_cap_max_gas_price")]
+#[cfg(test)]
+mod cap_max_gas_price_tests {
+    use super::*;
+    use near_primitives::version::ProtocolFeature;
+
+    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
+        let mut env =
+            prepare_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+        let mut was_congested = false;
+        let mut price_exceeded_limit = false;
+
+        for i in 3..20 {
+            env.produce_block(0, i);
+            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(block.header().epoch_id())
+                .unwrap();
+            let min_gas_price =
+                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+            was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
+            price_exceeded_limit |= block.header().gas_price() > 10 * min_gas_price;
+        }
+
+        assert!(was_congested);
+        price_exceeded_limit
+    }
+
+    #[test]
+    fn test_not_capped_gas_price() {
+        assert!(does_gas_price_exceed_limit(
+            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
+        ));
+    }
+
+    #[test]
+    fn test_capped_gas_price() {
+        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
     }
 }

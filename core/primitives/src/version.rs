@@ -105,6 +105,8 @@ pub enum ProtocolFeature {
     FixStorageUsage,
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     RestoreReceiptsAfterFix,
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    CapMaxGasPrice,
 }
 
 /// Current latest stable version of the protocol.
@@ -145,6 +147,8 @@ impl ProtocolFeature {
             ProtocolFeature::FixStorageUsage => 111,
             #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
+            #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+            ProtocolFeature::CapMaxGasPrice => 113,
         }
     }
 }
