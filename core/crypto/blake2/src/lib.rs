@@ -5,7 +5,7 @@
 //! `Blake2b` can be used in the following way:
 //!
 //! ```rust
-//! use blake2::{Blake2b, Blake2s, Digest};
+//! use near_blake2::{Blake2b, Blake2s, Digest};
 //! use hex_literal::hex;
 //!
 //! // create a Blake2b object
@@ -39,8 +39,8 @@
 //! trait has to be imported as well.
 //!
 //! ```rust
-//! use blake2::VarBlake2b;
-//! use blake2::digest::{Update, VariableOutput};
+//! use near_blake2::VarBlake2b;
+//! use near_blake2::digest::{Update, VariableOutput};
 //!
 //! let mut hasher = VarBlake2b::new(10).unwrap();
 //! hasher.update(b"my_input");
@@ -54,8 +54,8 @@
 //! BLAKE2 can be used as a MAC without any additional constructs:
 //!
 //! ```rust
-//! use blake2::Blake2b;
-//! use blake2::crypto_mac::{Mac, NewMac};
+//! use near_blake2::Blake2b;
+//! use near_blake2::crypto_mac::{Mac, NewMac};
 //!
 //! let mut hasher = Blake2b::new_varkey(b"my key").unwrap();
 //! hasher.update(b"hello world");
