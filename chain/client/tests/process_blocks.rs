@@ -2720,7 +2720,6 @@ fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
 #[test]
 fn test_congestion_receipt_execution() {
     let (mut env, tx_hashes) = create_env_with_congestion(PROTOCOL_VERSION, None, 3);
-    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
 
     // Produce block with no new chunk.
     env.produce_block(0, 3);
