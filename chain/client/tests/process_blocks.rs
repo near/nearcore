@@ -60,6 +60,8 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use neard::migrations::load_migration_data;
 use neard::NEAR_BASE;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
@@ -2698,10 +2700,26 @@ fn test_block_ordinal() {
     assert_eq!(next_block.header().block_ordinal(), ordinal);
 }
 
+fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
+    let chunk_headers = vec![prev_block.chunks()[0].clone()];
+    block.set_chunks(chunk_headers.clone());
+    block.mut_header().get_mut().inner_rest.chunk_headers_root =
+        Block::compute_chunk_headers_root(&chunk_headers).0;
+    block.mut_header().get_mut().inner_rest.chunk_tx_root =
+        Block::compute_chunk_tx_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+        Block::compute_chunk_receipts_root(&chunk_headers);
+    block.mut_header().get_mut().inner_lite.prev_state_root =
+        Block::compute_state_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
+    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    block.mut_header().resign(&validator_signer);
+}
+
 #[test]
 fn test_congestion_receipt_execution() {
     let (mut env, tx_hashes) = create_env_with_congestion(PROTOCOL_VERSION, None, 3);
-
     let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
 
     // Produce block with no new chunk.
@@ -2719,19 +2737,7 @@ fn test_congestion_receipt_execution() {
             .unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
-    let chunk_headers = vec![prev_block.chunks()[0].clone()];
-    block.set_chunks(chunk_headers.clone());
-    block.mut_header().get_mut().inner_rest.chunk_headers_root =
-        Block::compute_chunk_headers_root(&chunk_headers).0;
-    block.mut_header().get_mut().inner_rest.chunk_tx_root =
-        Block::compute_chunk_tx_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-        Block::compute_chunk_receipts_root(&chunk_headers);
-    block.mut_header().get_mut().inner_lite.prev_state_root =
-        Block::compute_state_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
-    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
-    block.mut_header().resign(&validator_signer);
+    set_no_chunk_in_block(&mut block, &prev_block);
     env.process_block(0, block.clone(), Provenance::NONE);
 
     // let all receipts finish
@@ -2892,6 +2898,136 @@ mod access_key_nonce_range_tests {
             res,
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
         ));
+    }
+}
+
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+#[cfg(test)]
+mod protocol_feature_restore_receipts_after_fix_tests {
+    use super::*;
+    use near_primitives::runtime::migration_data::MigrationData;
+    use near_primitives::version::ProtocolFeature;
+
+    const EPOCH_LENGTH: u64 = 5;
+    const HEIGHT_TIMEOUT: u64 = 10;
+
+    fn run_test(
+        low_height_with_no_chunk: BlockHeight,
+        high_height_with_no_chunk: BlockHeight,
+        should_pass: bool,
+    ) {
+        init_test_logger();
+
+        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.chain_id = String::from("mainnet");
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.protocol_version = protocol_version;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtime = neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+        );
+        // TODO #4305: get directly from NightshadeRuntime
+        let migration_data = load_migration_data(&genesis.config.chain_id);
+
+        let mut env = TestEnv::new_with_runtime(
+            chain_genesis.clone(),
+            1,
+            1,
+            vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
+        );
+
+        let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
+            HashSet::from_iter(
+                migration_data
+                    .restored_receipts
+                    .get(&0u64)
+                    .expect("Receipts to restore must contain an entry for shard 0")
+                    .clone()
+                    .iter()
+                    .map(|receipt| receipt.receipt_id),
+            )
+        };
+
+        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&migration_data);
+        let mut height: BlockHeight = 1;
+        let mut last_update_height: BlockHeight = 0;
+
+        // If some receipts are still not applied, upgrade already happened, and no new receipt was
+        // applied in some last blocks, consider the process stuck to avoid any possibility of infinite loop.
+        while !receipt_hashes_to_restore.is_empty() && height - last_update_height < HEIGHT_TIMEOUT
+        {
+            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
+            if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
+                let prev_block =
+                    env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+                set_no_chunk_in_block(&mut block, &prev_block);
+            }
+            env.process_block(0, block, Provenance::PRODUCED);
+
+            let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(last_block.header().epoch_id())
+                .unwrap();
+
+            for receipt_id in receipt_hashes_to_restore.clone().iter() {
+                if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
+                    assert!(
+                        protocol_version
+                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                        "Restored receipt {} was executed before protocol upgrade",
+                        receipt_id
+                    );
+                    receipt_hashes_to_restore.remove(receipt_id);
+                    last_update_height = height;
+                };
+            }
+
+            // Update last updated height anyway if upgrade did not happen
+            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+                last_update_height = height;
+            }
+            height += 1;
+        }
+
+        if should_pass {
+            assert!(
+                receipt_hashes_to_restore.is_empty(),
+                "Some of receipts were not executed, hashes: {:?}",
+                receipt_hashes_to_restore
+            );
+        } else {
+            assert_eq!(
+                receipt_hashes_to_restore,
+                get_restored_receipt_hashes(&migration_data),
+                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_chunks_missing() {
+        // If there are no chunks missing, all receipts should be applied
+        run_test(1, 0, true);
+    }
+
+    #[test]
+    fn test_first_chunk_in_epoch_missing() {
+        // If the first chunk in the first epoch with needed protocol version is missing,
+        // all receipts should still be applied
+        run_test(8, 12, true);
+    }
+
+    #[test]
+    fn test_all_chunks_in_epoch_missing() {
+        // If all chunks are missing in the first epoch, no receipts should be applied
+        run_test(11, 11 + EPOCH_LENGTH, false);
     }
 }
 

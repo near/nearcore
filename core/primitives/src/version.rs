@@ -103,6 +103,8 @@ pub enum ProtocolFeature {
     AllowCreateAccountOnDelete,
     #[cfg(feature = "protocol_feature_fix_storage_usage")]
     FixStorageUsage,
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    RestoreReceiptsAfterFix,
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     CapMaxGasPrice,
 }
@@ -143,8 +145,10 @@ impl ProtocolFeature {
             ProtocolFeature::AllowCreateAccountOnDelete => 110,
             #[cfg(feature = "protocol_feature_fix_storage_usage")]
             ProtocolFeature::FixStorageUsage => 111,
+            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+            ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_cap_max_gas_price")]
-            ProtocolFeature::CapMaxGasPrice => 112,
+            ProtocolFeature::CapMaxGasPrice => 113,
         }
     }
 }

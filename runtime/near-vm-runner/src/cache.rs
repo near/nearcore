@@ -47,7 +47,7 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
 }
 
 fn get_key(code: &ContractCode, vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
-    let _span = tracing::debug_span!("get_key").entered();
+    let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version2 {
         code_hash: code.hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
@@ -121,7 +121,7 @@ pub mod wasmer0_cache {
         key: &CryptoHash,
         cache: &dyn CompiledContractCache,
     ) -> Result<wasmer_runtime::Module, VMError> {
-        let _span = tracing::debug_span!("compile_and_serialize_wasmer").entered();
+        let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
 
         let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
         let artifact =
@@ -140,7 +140,7 @@ pub mod wasmer0_cache {
     fn deserialize_wasmer(
         serialized: &[u8],
     ) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
-        let _span = tracing::debug_span!("deserialize_wasmer").entered();
+        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer").entered();
 
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_artifact = match record {
@@ -232,7 +232,7 @@ pub mod wasmer1_cache {
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let _span = tracing::debug_span!("compile_and_serialize_wasmer1").entered();
+        let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer1").entered();
 
         let module = compile_module_wasmer1(wasm_code, config, store)
             .map_err(|e| cache_error(e, &key, cache))?;
@@ -248,7 +248,7 @@ pub mod wasmer1_cache {
         serialized: &[u8],
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, VMError>, CacheError> {
-        let _span = tracing::debug_span!("deserialize_wasmer1").entered();
+        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer1").entered();
 
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_module = match record {
@@ -315,7 +315,7 @@ pub mod wasmer1_cache {
     }
 }
 
-pub(crate) fn precompile_contract_impl(
+pub fn precompile_contract_vm(
     vm_kind: VMKind,
     wasm_code: &ContractCode,
     config: &VMConfig,
@@ -369,5 +369,5 @@ pub fn precompile_contract(
     config: &VMConfig,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
-    precompile_contract_impl(VMKind::default(), wasm_code, config, cache)
+    precompile_contract_vm(VMKind::default(), wasm_code, config, cache)
 }
