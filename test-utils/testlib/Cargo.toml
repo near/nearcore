@@ -8,7 +8,7 @@ name = "run-nodes"
 path = "src/run_nodes.rs"
 
 [dependencies]
-actix = "0.11.0-beta.2"
+actix = "=0.11.0-beta.2"
 actix-rt = "2"
 clap = "2.33"
 log = "0.4"
