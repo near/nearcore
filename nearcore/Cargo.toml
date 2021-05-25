@@ -43,6 +43,7 @@ near-performance-metrics = { path = "../utils/near-performance-metrics" }
 delay-detector = { path = "../tools/delay_detector", optional = true }
 
 [dev-dependencies]
+funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
 near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 tempfile = "3"
