@@ -46,7 +46,7 @@ If you want to know how long a particular function executes, use the following p
 
 ```rust
 fn compute_thing() {
-    let _span = tracing::debug_span!("compute_thing").entered();
+    let _span = tracing::debug_span!(target: "vm", "compute_thing").entered();
     for i in 0..99 {
         do_work()
     }

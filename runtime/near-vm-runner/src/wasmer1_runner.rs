@@ -191,7 +191,7 @@ pub fn run_wasmer1(
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!("run_wasmer1").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_wasmer1").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
     // So doesn't require x86. However, when it is on x86, AVX is required:
     // https://github.com/wasmerio/wasmer/issues/1567
@@ -242,6 +242,7 @@ pub fn run_wasmer1(
         current_protocol_version,
     );
 
+    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
@@ -250,6 +251,7 @@ pub fn run_wasmer1(
             ))),
         );
     }
+
     let import_object =
         imports::build_wasmer1(&store, memory_copy, &mut logic, current_protocol_version);
 
@@ -262,22 +264,22 @@ pub fn run_wasmer1(
 }
 
 fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
-    let _span = tracing::debug_span!("run_method").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
-        let _span = tracing::debug_span!("run_method/instantiate").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
     };
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
 
     {
-        let _span = tracing::debug_span!("run_method/call").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
         f.call().map_err(|err| err.into_vm_error())?
     }
 
     {
-        let _span = tracing::debug_span!("run_method/drop_instance").entered();
+        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
         drop(instance)
     }
 

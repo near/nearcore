@@ -1,10 +1,13 @@
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
+use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -45,11 +48,16 @@ fn apply_block_at_height(
         block_hash,
         prev_block.chunks()[shard_id as usize].height_included(),
     )?;
+    let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+        &mut chain_store_update,
+        runtime_adapter,
+        prev_block.hash(),
+        shard_id,
+    )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
     let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
     let chunk = get_chunk(&chain_store, chunk_hash);
     let chunk_header = ShardChunkHeader::V1(chunk.header);
-
     let apply_result = runtime_adapter
         .apply_transactions(
             shard_id,
@@ -66,6 +74,7 @@ fn apply_block_at_height(
             &block.header().challenges_result(),
             *block.header().random_value(),
             true,
+            is_first_block_with_chunk_of_version,
             #[cfg(feature = "sandbox")]
             None,
         )
@@ -244,6 +253,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
+                            false,
                             #[cfg(feature = "sandbox")]
                             None,
                         )
@@ -281,10 +291,24 @@ lazy_static_include::lazy_static_include_bytes! {
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+lazy_static_include::lazy_static_include_bytes! {
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+}
+
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
-    #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+    #[cfg(not(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    )))]
     let _ = chain_id;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
         #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -299,16 +323,32 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         } else {
             0
         },
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+        restored_receipts: if is_mainnet {
+            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+                .expect("File with receipts restored after apply_chunks fix have to be correct")
+        } else {
+            ReceiptResult::default()
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use super::*;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use near_primitives::hash::hash;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use near_primitives::serialize::to_base;
 
     #[test]
@@ -322,5 +362,18 @@ mod tests {
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
         let testnet_migration_data = load_migration_data(&"testnet".to_string());
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    fn test_restored_receipts_data() {
+        assert_eq!(
+            to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
+            "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
+        );
+        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
+        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }

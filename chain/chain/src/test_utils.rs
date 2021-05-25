@@ -606,6 +606,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _random_seed: CryptoHash,
         generate_storage_proof: bool,
         _is_new_chunk: bool,
+        _is_first_block_with_chunk_of_version: bool,
         #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         #[cfg(feature = "sandbox")]
@@ -788,6 +789,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _challenges: &ChallengesResult,
         _random_value: CryptoHash,
         _is_new_chunk: bool,
+        _is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }
@@ -1102,6 +1104,22 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
+    }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut candidate_hash = prev_block_hash.clone();
+        loop {
+            let header = self
+                .get_block_header(&candidate_hash)?
+                .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&candidate_hash)))?;
+            candidate_hash = header.prev_hash().clone();
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
+            }
+        }
     }
 }
 

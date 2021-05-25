@@ -35,7 +35,7 @@ use near_store::migrations::migrate_20_to_21;
 
 pub mod config;
 pub mod genesis_validate;
-mod migrations;
+pub mod migrations;
 mod runtime;
 mod shard_tracker;
 

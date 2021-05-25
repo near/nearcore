@@ -3,6 +3,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -85,7 +86,8 @@ impl StandaloneRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
-            migration_data: None,
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
 
         Self {

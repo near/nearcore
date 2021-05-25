@@ -477,6 +477,8 @@ pub(crate) fn action_deploy_contract(
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the database.
+    // Note, that contract compilation costs are already accounted in deploy cost using
+    // special logic in estimator (see get_runtime_config() function).
     if false {
         let _ = precompile_contract(
             &code,

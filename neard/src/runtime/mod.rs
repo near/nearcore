@@ -10,7 +10,6 @@ use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
-
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
@@ -60,7 +59,7 @@ use near_primitives::runtime::config::RuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 
 pub mod errors;
 
@@ -333,6 +332,7 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
         #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let validator_accounts_update = {
@@ -406,6 +406,7 @@ impl NightshadeRuntime {
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
+        let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -427,10 +428,10 @@ impl NightshadeRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
-            migration_data: if current_protocol_version != prev_block_protocol_version {
-                Some(Arc::clone(&self.migration_data))
-            } else {
-                None
+            migration_data: Arc::clone(&self.migration_data),
+            migration_flags: MigrationFlags {
+                is_first_block_of_version,
+                is_first_block_with_chunk_of_version,
             },
         };
 
@@ -1141,6 +1142,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         random_seed: CryptoHash,
         generate_storage_proof: bool,
         is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
         #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = self.get_trie_for_shard(shard_id);
@@ -1161,6 +1163,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_seed,
             is_new_chunk,
+            is_first_block_with_chunk_of_version,
             #[cfg(feature = "sandbox")]
             states_to_patch,
         ) {
@@ -1191,6 +1194,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         challenges: &ChallengesResult,
         random_value: CryptoHash,
         is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = Trie::from_recorded_storage(partial_storage);
         self.process_state_update(
@@ -1209,6 +1213,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             challenges,
             random_value,
             is_new_chunk,
+            is_first_block_with_chunk_of_version,
             #[cfg(feature = "sandbox")]
             None,
         )
@@ -1509,6 +1514,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         config.runtime_config = (*runtime_config).clone();
         Ok(config)
     }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            epoch_manager.get_epoch_id(prev_block_hash).map_err(Error::from)
+        } else {
+            epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
+        }
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
@@ -1615,11 +1632,11 @@ mod test {
 
     use num_rational::Rational;
 
-    use near_chain::ReceiptResult;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
+    use near_primitives::receipt::ReceiptResult;
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
@@ -1685,6 +1702,7 @@ mod test {
                     challenges,
                     CryptoHash::default(),
                     true,
+                    false,
                     #[cfg(feature = "sandbox")]
                     None,
                 )
