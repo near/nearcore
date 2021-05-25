@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+* Add "travel" logic to find local receipt to be attached to `IndexerExecutionOutcomeWithReceipt` in case of receipt has been delayed
+
 ## 0.9.0
 
 * Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
