@@ -3686,6 +3686,7 @@ version = "1.2.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "actix_derive",
  "awc",
  "borsh",
  "byteorder",
