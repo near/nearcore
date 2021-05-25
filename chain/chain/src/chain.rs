@@ -11,8 +11,6 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use tracing::{debug, error, info, warn};
 
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
