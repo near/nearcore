@@ -36,7 +36,7 @@ near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [dev-dependencies]
-funty = "=1.1.0"
+funty = "1.1.0"
 rand = "0.7"
 near-logger-utils = { path = "../test-utils/logger" }
 near-crypto = { path = "../core/crypto" }
