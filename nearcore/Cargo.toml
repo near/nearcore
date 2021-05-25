@@ -44,6 +44,8 @@ delay-detector = { path = "../tools/delay_detector", optional = true }
 
 [dev-dependencies]
 funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
+rand = "0.7"
+runtime-params-estimator = { path = "../runtime/runtime-params-estimator", default_features = false }
 near-logger-utils = { path = "../test-utils/logger" }
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 tempfile = "3"
