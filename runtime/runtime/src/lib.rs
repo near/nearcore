@@ -1379,7 +1379,7 @@ impl Runtime {
                 _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
             }
         }
-        state_update.commit(StateChangeCause::PatchState);
+        state_update.commit(StateChangeCause::Migration);
     }
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted

@@ -1482,7 +1482,6 @@ pub enum StateChangeCauseView {
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
     Migration,
-    PatchState,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -1508,7 +1507,6 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
-            StateChangeCause::PatchState => Self::PatchState,
         }
     }
 }
