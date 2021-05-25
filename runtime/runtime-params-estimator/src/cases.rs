@@ -213,7 +213,7 @@ pub enum Metric {
     #[cfg(feature = "protocol_feature_evm")]
     blake2s_128kb_0r_10k,
     #[cfg(feature = "protocol_feature_evm")]
-    blake2s_128b_12r_10k,
+    blake2s_128b_10r_10k,
     #[cfg(feature = "protocol_feature_evm")]
     ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -603,7 +603,7 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         #["protocol_feature_evm"] blake2b_128b_12r_10k => blake2b_128b_12r_10k,
         #["protocol_feature_evm"] blake2s_128b_0r_10k => blake2s_128b_0r_10k,
         #["protocol_feature_evm"] blake2s_128kb_0r_10k => blake2s_128kb_0r_10k,
-        #["protocol_feature_evm"] blake2s_128b_12r_10k => blake2s_128b_12r_10k,
+        #["protocol_feature_evm"] blake2s_128b_10r_10k => blake2s_128b_10r_10k,
         #["protocol_feature_evm"] ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,

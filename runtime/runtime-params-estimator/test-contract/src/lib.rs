@@ -588,8 +588,8 @@ pub unsafe fn blake2s_128kb_0r_10k() {
 // Compute blake2b on 10kib 10k times.
 #[no_mangle]
 #[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2s_128b_12r_10k() {
-    let rounds = 12;
+pub unsafe fn blake2s_128b_10r_10k() {
+    let rounds = 10;
     let state = [65u8; 64];
     let buffer = [65u8; 128];
     for _ in 0..10_000 {
