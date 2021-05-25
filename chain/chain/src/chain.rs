@@ -11,20 +11,8 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use tracing::{debug, error, info, warn};
 
-use crate::lightclient::get_epoch_block_producers_view;
-use crate::missing_chunks::{BlockLike, MissingChunksPool};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
-use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
-};
-use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
-    validate_transactions_order,
-};
-use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
-use crate::{metrics, DoomslugThresholdMode};
-
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
@@ -62,8 +50,20 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
+use crate::lightclient::get_epoch_block_producers_view;
+use crate::migrations::check_if_block_is_first_with_chunk_of_version;
+use crate::missing_chunks::{BlockLike, MissingChunksPool};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
+use crate::types::{
+    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
+};
+use crate::validate::{
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
+};
+use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
+use crate::{metrics, DoomslugThresholdMode};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2688,6 +2688,12 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            &mut self.chain_store_update,
+            self.runtime_adapter.as_ref(),
+            &prev_block.hash(),
+            chunk_shard_id,
+        )?;
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
@@ -2706,6 +2712,7 @@ impl<'a> ChainUpdate<'a> {
                 *block.header().random_value(),
                 true,
                 true,
+                is_first_block_with_chunk_of_version,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2792,7 +2799,6 @@ impl<'a> ChainUpdate<'a> {
                             Err(err) => err,
                         }
                     })?;
-
                     let receipt_proof_response: Vec<ReceiptProofResponse> =
                         self.chain_store_update.get_incoming_receipts_for_shard(
                             shard_id,
@@ -2800,7 +2806,6 @@ impl<'a> ChainUpdate<'a> {
                             prev_chunk_header.height_included(),
                         )?;
                     let receipts = collect_receipts_from_response(&receipt_proof_response);
-
                     let chunk = self
                         .chain_store_update
                         .get_chunk_clone_from_header(&chunk_header.clone())?;
@@ -2836,6 +2841,18 @@ impl<'a> ChainUpdate<'a> {
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
 
+                    // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
+                    // (see https://github.com/near/nearcore/pull/4248/)
+                    // We take the first block with existing chunk in the first epoch in which protocol feature
+                    // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
+                    let is_first_block_with_chunk_of_version =
+                        check_if_block_is_first_with_chunk_of_version(
+                            &mut self.chain_store_update,
+                            self.runtime_adapter.as_ref(),
+                            &prev_block.hash(),
+                            shard_id,
+                        )?;
+
                     // Apply transactions and receipts.
                     let apply_result = self
                         .runtime_adapter
@@ -2854,6 +2871,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             true,
+                            is_first_block_with_chunk_of_version,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2909,6 +2927,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.header().challenges_result(),
                             *block.header().random_value(),
                             false,
+                            false,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2916,19 +2935,6 @@ impl<'a> ChainUpdate<'a> {
                     *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
-
-                    if !apply_result.outcomes.is_empty() {
-                        // debug_assert!(false);
-                        // Remove in next release
-                        let (_, outcome_paths) =
-                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-                        self.chain_store_update.save_outcomes_with_proofs(
-                            &block.hash(),
-                            shard_id,
-                            apply_result.outcomes,
-                            outcome_paths,
-                        );
-                    }
                 }
             }
         }
@@ -3602,6 +3608,13 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            &mut self.chain_store_update,
+            self.runtime_adapter.as_ref(),
+            &chunk_header.prev_block_hash(),
+            shard_id,
+        )?;
+
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk_header.prev_state_root(),
@@ -3617,6 +3630,7 @@ impl<'a> ChainUpdate<'a> {
             &block_header.challenges_result(),
             *block_header.random_value(),
             true,
+            is_first_block_with_chunk_of_version,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3695,6 +3709,7 @@ impl<'a> ChainUpdate<'a> {
             chunk_extra.gas_limit(),
             &block_header.challenges_result(),
             *block_header.random_value(),
+            false,
             false,
         )?;
 
