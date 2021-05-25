@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use actix::Addr;
+use async_recursion::async_recursion;
 use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -12,8 +13,8 @@ use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes, fetch_state_changes,
-    fetch_status,
+    fetch_block_by_hash, fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_state_changes, fetch_status,
 };
 pub use self::types::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -34,6 +35,7 @@ const INTERVAL: Duration = Duration::from_millis(500);
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
+#[async_recursion]
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
@@ -116,15 +118,44 @@ async fn build_streamer_message(
 
         let shard_id = header.shard_id.clone() as usize;
 
-        indexer_shards[shard_id].receipt_execution_outcomes = receipt_outcomes
-            .into_iter()
-            .map(|IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt }| {
-                IndexerExecutionOutcomeWithReceipt {
-                    execution_outcome,
-                    receipt: receipt.expect("`receipt` must be present at this moment"),
+        let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
+        for outcome in receipt_outcomes {
+            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
+            let receipt = if let Some(receipt) = receipt {
+                receipt
+            } else {
+                // Receipt might be missing only in case of delayed local receipt
+                // that appeared in some of the previous blocks
+                // we will be iterating over previous blocks until we found the receipt
+                'find_local_receipt: loop {
+                    let prev_block =
+                        match fetch_block_by_hash(&client, block.header.prev_hash).await {
+                            Ok(block) => block,
+                            Err(err) => panic!("Unable to get previous block: {:?}", err),
+                        };
+                    let streamer_message = match build_streamer_message(&client, prev_block).await {
+                        Ok(response) => response,
+                        Err(err) => {
+                            panic!("Unable to build streamer message for previous block: {:?}", err)
+                        }
+                    };
+                    for shard in streamer_message.shards {
+                        if let Some(chunk) = shard.chunk {
+                            if let Some(receipt) = chunk
+                                .receipts
+                                .into_iter()
+                                .find(|rec| rec.receipt_id == execution_outcome.id)
+                            {
+                                break 'find_local_receipt receipt;
+                            }
+                        }
+                    }
                 }
-            })
-            .collect();
+            };
+            receipt_execution_outcomes
+                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
+        }
+        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes;
 
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_id].chunk = Some(IndexerChunkView {
