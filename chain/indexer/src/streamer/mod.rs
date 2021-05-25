@@ -124,15 +124,23 @@ async fn build_streamer_message(
             let receipt = if let Some(receipt) = receipt {
                 receipt
             } else {
+                // TODO(#4317): optimize it https://github.com/near/nearcore/issues/4317
                 // Receipt might be missing only in case of delayed local receipt
                 // that appeared in some of the previous blocks
                 // we will be iterating over previous blocks until we found the receipt
+                let mut prev_block_tried = 0u16;
+                let mut prev_block_hash = block.header.prev_hash;
                 'find_local_receipt: loop {
-                    let prev_block =
-                        match fetch_block_by_hash(&client, block.header.prev_hash).await {
-                            Ok(block) => block,
-                            Err(err) => panic!("Unable to get previous block: {:?}", err),
-                        };
+                    if prev_block_tried > 1000 {
+                        panic!("Failed to find local receipt in 1000 prev blocks");
+                    }
+                    let prev_block = match fetch_block_by_hash(&client, prev_block_hash).await {
+                        Ok(block) => block,
+                        Err(err) => panic!("Unable to get previous block: {:?}", err),
+                    };
+
+                    prev_block_hash = prev_block.header.prev_hash;
+
                     let streamer_message = match build_streamer_message(&client, prev_block).await {
                         Ok(response) => response,
                         Err(err) => {
@@ -150,6 +158,7 @@ async fn build_streamer_message(
                             }
                         }
                     }
+                    prev_block_tried += 1;
                 }
             };
             receipt_execution_outcomes
