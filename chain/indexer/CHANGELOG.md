@@ -2,9 +2,9 @@
 
 ## 0.9.1
 
-* Add "travel" logic to find local receipt to be attached to `IndexerExecutionOutcomeWithReceipt` in case of receipt has been delayed
+* Introduce a hot-fix. Execution outcome for local receipt might appear not in the same block as the receipt. Local receipts are not saved in database and unable to be fetched. To include a receipt in `IndexerExecutionOutcomeWithReceipt` and prevent NEAR Indexer Framework from panic we fetch previous blocks to find corresponding local receipt to include.
 
-## 0.9.0
+## 0.9.0 (do not use this version, it contains a bug)
 
 * Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
 * `receipt` field in `IndexerExecutionOutcomeWithReceipt` is no longer optional as it used to be always set anyway, 
