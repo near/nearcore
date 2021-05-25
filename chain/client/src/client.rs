@@ -1671,6 +1671,8 @@ mod test {
 
     use cached::Cached;
 
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    use near_chain::Provenance;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_chunks::test_utils::ChunkForwardingTestFixture;
@@ -1679,6 +1681,8 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;
@@ -1693,8 +1697,7 @@ mod test {
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
     use near_primitives::utils::MaybeValidated;
 
-    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+    pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         (0..n)
             .map(|_| {
                 Arc::new(nearcore::NightshadeRuntime::new(
@@ -1707,6 +1710,11 @@ mod test {
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect()
+    }
+
+    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+        create_nightshade_runtimes(&genesis, n)
     }
 
     #[test]
@@ -1752,6 +1760,37 @@ mod test {
         let approval = Approval::new(genesis_hash, 0, 1, &signer);
         env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
         assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
+    }
+
+    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
+    #[test]
+    fn test_cap_max_gas_price() {
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let epoch_length = 5;
+        genesis.config.min_gas_price = 1_000;
+        genesis.config.max_gas_price = 1_000_000;
+        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes = create_nightshade_runtimes(&genesis, 1);
+        let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+
+        for i in 1..epoch_length {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+
+        let last_block =
+            env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap().clone();
+        let protocol_version = env.clients[0]
+            .runtime_adapter
+            .get_epoch_protocol_version(last_block.header().epoch_id())
+            .unwrap();
+        let min_gas_price =
+            env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+        let max_gas_price =
+            env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
+        assert!(max_gas_price <= 10 * min_gas_price);
     }
 
     #[test]

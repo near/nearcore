@@ -8,6 +8,7 @@ use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
@@ -143,7 +144,8 @@ impl RuntimeUser {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
-            migration_data: None,
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         }
     }
 

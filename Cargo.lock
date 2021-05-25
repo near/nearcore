@@ -365,6 +365,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-recursion"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7d78656ba01f1b93024b7c3a0467f1608e4be67d725749fdcd7d2c7678fd7a2"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.9",
+ "syn 1.0.60",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2793,7 +2804,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -2803,6 +2813,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -3227,9 +3238,10 @@ dependencies = [
 
 [[package]]
 name = "near-indexer"
-version = "0.8.1"
+version = "0.9.1"
 dependencies = [
  "actix",
+ "async-recursion",
  "futures",
  "near-chain-configs",
  "near-client",
@@ -3706,6 +3718,7 @@ dependencies = [
  "num-rational",
  "primitive-types",
  "rand 0.7.3",
+ "restored-receipts-verifier",
  "serde",
  "serde_json",
  "tempfile",
@@ -3986,7 +3999,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "semver",
  "serde",
  "serde_derive",
@@ -4007,7 +4020,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "serde_json",
 ]
 
@@ -4020,7 +4033,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "pin-project",
  "regex",
  "serde",
@@ -4773,6 +4786,19 @@ dependencies = [
  "near-primitives",
  "nearcore",
  "testlib",
+]
+
+[[package]]
+name = "restored-receipts-verifier"
+version = "0.1.0"
+dependencies = [
+ "clap 3.0.0-beta.2",
+ "near-chain",
+ "near-jsonrpc",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "serde_json",
 ]
 
 [[package]]
