@@ -108,6 +108,8 @@ fn main() -> Result<()> {
                 *block.header().random_value(),
                 false,
                 false, // because fix was not applied in for the blocks analyzed here
+                #[cfg(feature = "sandbox")]
+                None,
             )
             .unwrap();
 
