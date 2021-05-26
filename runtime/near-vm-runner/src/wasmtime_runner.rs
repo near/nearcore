@@ -11,7 +11,6 @@ pub mod wasmtime_runner {
         config::VMConfig, profile::ProfileData, types::CompiledContractCache,
         version::ProtocolVersion,
     };
-    use near_vm_errors::FunctionCallError::LinkError;
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap};
     use near_vm_logic::{
         types::PromiseResult, External, MemoryLike, VMContext, VMLogic, VMOutcome,
@@ -131,7 +130,9 @@ pub mod wasmtime_runner {
             let cause = self.root_cause();
             match cause.downcast_ref::<wasmtime::Trap>() {
                 Some(trap) => trap_to_error(trap),
-                None => VMError::FunctionCallError(LinkError { msg: format!("{:#?}", cause) }),
+                None => VMError::FunctionCallError(FunctionCallError::LinkError {
+                    msg: format!("{:#?}", cause),
+                }),
             }
         }
     }
@@ -167,7 +168,10 @@ pub mod wasmtime_runner {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
         };
-        let module = Module::new(&engine, prepared_code).unwrap();
+        let module = match Module::new(&engine, prepared_code) {
+            Ok(module) => module,
+            Err(err) => return (None, Some(err.into_vm_error())),
+        };
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
