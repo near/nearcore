@@ -2911,15 +2911,16 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     const HEIGHT_TIMEOUT: u64 = 10;
 
     fn run_test(
+        chain_id: &str,
         low_height_with_no_chunk: BlockHeight,
         high_height_with_no_chunk: BlockHeight,
-        should_pass: bool,
+        should_be_restored: bool,
     ) {
         init_test_logger();
 
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.chain_id = String::from("mainnet");
+        genesis.config.chain_id = String::from(chain_id);
         genesis.config.epoch_length = EPOCH_LENGTH;
         genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
@@ -2946,8 +2947,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                 migration_data
                     .restored_receipts
                     .get(&0u64)
-                    .expect("Receipts to restore must contain an entry for shard 0")
-                    .clone()
+                    .cloned()
+                    .unwrap_or_default()
                     .iter()
                     .map(|receipt| receipt.receipt_id),
             )
@@ -2957,9 +2958,13 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         let mut height: BlockHeight = 1;
         let mut last_update_height: BlockHeight = 0;
 
-        // If some receipts are still not applied, upgrade already happened, and no new receipt was
-        // applied in some last blocks, consider the process stuck to avoid any possibility of infinite loop.
-        while !receipt_hashes_to_restore.is_empty() && height - last_update_height < HEIGHT_TIMEOUT
+        // Simulate several blocks to guarantee that they are produced successfully.
+        // Stop block production if all receipts were restored. Or, if some receipts are still not
+        // applied, upgrade already happened, and no new receipt was applied in some last blocks,
+        // consider the process stuck to avoid any possibility of infinite loop.
+        while height < 15
+            || (!receipt_hashes_to_restore.is_empty()
+                && height - last_update_height < HEIGHT_TIMEOUT)
         {
             let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
             if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
@@ -2995,7 +3000,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             height += 1;
         }
 
-        if should_pass {
+        if should_be_restored {
             assert!(
                 receipt_hashes_to_restore.is_empty(),
                 "Some of receipts were not executed, hashes: {:?}",
@@ -3013,20 +3018,27 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     #[test]
     fn test_no_chunks_missing() {
         // If there are no chunks missing, all receipts should be applied
-        run_test(1, 0, true);
+        run_test("mainnet", 1, 0, true);
     }
 
     #[test]
     fn test_first_chunk_in_epoch_missing() {
         // If the first chunk in the first epoch with needed protocol version is missing,
         // all receipts should still be applied
-        run_test(8, 12, true);
+        run_test("mainnet", 8, 12, true);
     }
 
     #[test]
     fn test_all_chunks_in_epoch_missing() {
         // If all chunks are missing in the first epoch, no receipts should be applied
-        run_test(11, 11 + EPOCH_LENGTH, false);
+        run_test("mainnet", 11, 11 + EPOCH_LENGTH, false);
+    }
+
+    #[test]
+    fn test_run_for_testnet() {
+        // Run the same process for chain other than mainnet to ensure that blocks are produced
+        // successfully during the protocol upgrade.
+        run_test("testnet", 1, 0, true);
     }
 }
 
