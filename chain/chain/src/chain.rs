@@ -2483,10 +2483,9 @@ impl Chain {
     pub fn patch_state(&mut self, records: Vec<StateRecord>) {
         match self.pending_states_to_patch.take() {
             None => self.pending_states_to_patch = Some(records),
-            Some(pending) => {
-                let mut pending_states_to_patch = pending;
-                pending_states_to_patch.extend_from_slice(&records);
-                self.pending_states_to_patch = Some(pending_states_to_patch);
+            Some(mut pending) => {
+                pending.extend_from_slice(&records);
+                self.pending_states_to_patch = Some(pending);
             }
         }
     }

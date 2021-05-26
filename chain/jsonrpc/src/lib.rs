@@ -981,7 +981,9 @@ impl JsonRpcHandler {
                 )))
                 .map(|_| ()),
         );
-        Ok(Value::String("".to_string()))
+        Ok(serde_json::to_value(
+            near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {},
+        )?)
     }
 }
 

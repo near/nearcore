@@ -12,3 +12,6 @@ impl RpcSandboxPatchStateRequest {
         Ok(crate::utils::parse_params::<RpcSandboxPatchStateRequest>(value)?)
     }
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct RpcSandboxPatchStateResponse {}
