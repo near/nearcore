@@ -1116,6 +1116,7 @@ impl Runtime {
             == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
+            // We restore receipts only on mainnet so result will be None on other chains.
             migration_data.restored_receipts.get(&0u64).cloned().unwrap_or_default()
         } else {
             vec![]
