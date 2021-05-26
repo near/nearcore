@@ -24,10 +24,10 @@ use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
-#[cfg(feature = "sandbox")]
-use near_network::types::NetworkSandboxMessage;
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
+#[cfg(feature = "sandbox")]
+use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
@@ -418,6 +418,7 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest::parse(
                         request.params,
                     )?;
+                self.poll_patch_state().await;
                 serde_json::to_value(self.sandbox_patch_state(sandbox_patch_state_request).await?)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
@@ -490,6 +491,30 @@ impl JsonRpcHandler {
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
+    }
+
+    #[cfg(feature = "sandbox")]
+    async fn poll_patch_state(&self) {
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let patch_state_finished = self
+                    .client_addr
+                    .send(NetworkClientMessages::Sandbox(
+                        NetworkSandboxMessage::SandboxPatchStateStatus {},
+                    ))
+                    .await;
+                match patch_state_finished {
+                    Ok(NetworkClientResponses::SandboxResult(
+                        SandboxResponse::SandboxPatchStateFinished(true),
+                    )) => break,
+                    _ => {}
+                }
+                let _ = sleep(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        // patch state should happen at next block, never timeout
+        .unwrap();
     }
 
     async fn tx_status_fetch(
