@@ -20,6 +20,7 @@ fn try_main() -> io::Result<()> {
         "nightly_test_contract_rs",
     )?;
     build_contract("./tiny-contract-rs", &[], "tiny_contract_rs")?;
+    build_contract("./load-contract-rs", &[], "load_contract_rs")?;
     Ok(())
 }
 
