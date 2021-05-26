@@ -459,7 +459,8 @@ pub enum RoutedMessageBody {
         response: Result<QueryResponse, String>,
     },
     ReceiptOutcomeRequest(CryptoHash),
-    ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
+    /// Not used, but needed to preserve backward compatibility.
+    Unused,
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfoV1),
@@ -506,9 +507,6 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::QueryRequest { .. } => write!(f, "QueryRequest"),
             RoutedMessageBody::QueryResponse { .. } => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
-            RoutedMessageBody::ReceiptOutComeResponse(response) => {
-                write!(f, "ReceiptResponse({})", response.outcome_with_id.id)
-            }
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
             }
@@ -547,6 +545,7 @@ impl Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
+            RoutedMessageBody::Unused => write!(f, "Unused"),
         }
     }
 }
@@ -817,7 +816,6 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::ReceiptOutComeResponse(_)
                 | RoutedMessageBody::StateRequestHeader(_, _)
                 | RoutedMessageBody::StateRequestPart(_, _, _) => true,
                 _ => false,
@@ -1781,5 +1779,34 @@ mod tests {
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
+    }
+
+    #[test]
+    fn routed_message_body_compatibility_smoke_test() {
+        #[track_caller]
+        fn check(msg: RoutedMessageBody, expected: &[u8]) {
+            let actual = msg.try_to_vec().unwrap();
+            assert_eq!(actual.as_slice(), expected);
+        }
+
+        check(
+            RoutedMessageBody::TxStatusRequest("x".to_string(), CryptoHash([42; 32])),
+            &[
+                2, 1, 0, 0, 0, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+            ],
+        );
+
+        check(
+            RoutedMessageBody::VersionedStateResponse(StateResponseInfo::V1(StateResponseInfoV1 {
+                shard_id: 62,
+                sync_hash: CryptoHash([92; 32]),
+                state_response: ShardStateSyncResponseV1 { header: None, part: None },
+            })),
+            &[
+                17, 0, 62, 0, 0, 0, 0, 0, 0, 0, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92,
+                92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 0, 0,
+            ],
+        );
     }
 }
