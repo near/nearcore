@@ -2904,9 +2904,9 @@ mod access_key_nonce_range_tests {
 #[cfg(test)]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
+    use near_primitives::receipt::Receipt;
     use near_primitives::runtime::migration_data::MigrationData;
     use near_primitives::version::ProtocolFeature;
-    use near_primitives::receipt::Receipt;
 
     const EPOCH_LENGTH: u64 = 5;
     const HEIGHT_TIMEOUT: u64 = 10;
@@ -2963,7 +2963,9 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         // Stop block production if all receipts were restored. Or, if some receipts are still not
         // applied, upgrade already happened, and no new receipt was applied in some last blocks,
         // consider the process stuck to avoid any possibility of infinite loop.
-        while height < 15 || (!receipt_hashes_to_restore.is_empty() && height - last_update_height < HEIGHT_TIMEOUT)
+        while height < 15
+            || (!receipt_hashes_to_restore.is_empty()
+                && height - last_update_height < HEIGHT_TIMEOUT)
         {
             let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
             if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
@@ -3017,14 +3019,14 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     #[test]
     fn test_no_chunks_missing() {
         // If there are no chunks missing, all receipts should be applied
-        run_test("mainnet",1, 0, true);
+        run_test("mainnet", 1, 0, true);
     }
 
     #[test]
     fn test_first_chunk_in_epoch_missing() {
         // If the first chunk in the first epoch with needed protocol version is missing,
         // all receipts should still be applied
-        run_test("mainnet",8, 12, true);
+        run_test("mainnet", 8, 12, true);
     }
 
     #[test]
@@ -3037,7 +3039,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     fn test_run_for_testnet() {
         // Run the same process for chain other than mainnet to ensure that blocks are produced
         // successfully during the protocol upgrade.
-        run_test("testnet",1, 0, true);
+        run_test("testnet", 1, 0, true);
     }
 }
 
