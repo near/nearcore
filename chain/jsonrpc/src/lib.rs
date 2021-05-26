@@ -983,7 +983,8 @@ impl JsonRpcHandler {
         );
         Ok(serde_json::to_value(
             near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {},
-        )?)
+        )
+        .unwrap())
     }
 }
 
