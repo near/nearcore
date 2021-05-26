@@ -1119,8 +1119,8 @@ impl Runtime {
             migration_data
                 .restored_receipts
                 .get(&0u64)
-                .expect("Receipts to restore must contain an entry for shard 0")
-                .clone()
+                .cloned()
+                .unwrap_or_default()
         } else {
             vec![]
         };
