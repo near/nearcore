@@ -1417,6 +1417,7 @@ pub enum NetworkAdversarialMessage {
 #[derive(Debug)]
 pub enum NetworkSandboxMessage {
     SandboxPatchState(Vec<StateRecord>),
+    SandboxPatchStateStatus,
 }
 
 #[derive(Debug, strum::AsRefStr, AsStaticStr)]
@@ -1486,6 +1487,16 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
+
+    /// Sandbox controls
+    #[cfg(feature = "sandbox")]
+    SandboxResult(SandboxResponse),
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

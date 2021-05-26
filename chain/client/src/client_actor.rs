@@ -29,9 +29,9 @@ use near_crypto::Signature;
 use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
-#[cfg(feature = "sandbox")]
-use near_network::types::NetworkSandboxMessage;
 use near_network::types::{NetworkInfo, ReasonForBan};
+#[cfg(feature = "sandbox")]
+use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
@@ -301,6 +301,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkSandboxMessage::SandboxPatchState(state) => {
                         self.client.chain.patch_state(state);
                         NetworkClientResponses::NoResponse
+                    }
+                    NetworkSandboxMessage::SandboxPatchStateStatus => {
+                        NetworkClientResponses::SandboxResult(
+                            SandboxResponse::SandboxPatchStateFinished(
+                                self.client.chain.patch_state_finished(),
+                            ),
+                        )
                     }
                 }
             }

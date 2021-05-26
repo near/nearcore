@@ -2489,6 +2489,10 @@ impl Chain {
             }
         }
     }
+
+    pub fn patch_state_finished(&self) -> bool {
+        self.pending_states_to_patch.is_none()
+    }
 }
 
 /// Chain update helper, contains information that is needed to process block
