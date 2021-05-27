@@ -999,7 +999,7 @@ impl<'a> VMLogic<'a> {
         use blake2::{Error as Blake2Error, VarBlake2b};
         use std::convert::TryFrom;
 
-        if state_len != 64 {
+        if state_len != 8 {
             return Err(HostError::Blake2InvalidStateLength { length: state_len }.into());
         }
 
@@ -1038,7 +1038,8 @@ impl<'a> VMLogic<'a> {
         state_ptr: u64,
         message_len: u64,
         message_ptr: u64,
-        t: u64,
+        t0: u32,
+        t1: u32,
         f0: u32,
         f1: u32,
         register_id: u64,
@@ -1046,7 +1047,7 @@ impl<'a> VMLogic<'a> {
         use blake2::{Error as Blake2Error, VarBlake2s};
         use std::convert::TryFrom;
 
-        if state_len != 64 {
+        if state_len != 8 {
             return Err(HostError::Blake2InvalidStateLength { length: state_len }.into());
         }
 
@@ -1067,6 +1068,10 @@ impl<'a> VMLogic<'a> {
         };
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
+        let mut t_buf = [0u8; 8];
+        t_buf[0..4].copy_from_slice(&t0.to_le_bytes());
+        t_buf[4..8].copy_from_slice(&t1.to_le_bytes());
+        let t = u64::from_le_bytes(t_buf);
         let mut hasher = match VarBlake2s::with_state(rounds, state, t) {
             Ok(h) => h,
             Err(Blake2Error::TooManyRounds { max, actual }) => {

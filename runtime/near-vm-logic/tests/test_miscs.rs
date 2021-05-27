@@ -566,42 +566,7 @@ fn test_blake2b() {
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
-    let data = b"tesdsst";
-    logic.blake2b(data.len() as _, data.as_ptr() as _, 0).unwrap();
-    let res = &vec![0u8; 64];
-    logic.read_register(0, res.as_ptr() as _).expect("OK");
-    assert_eq!(
-        res,
-        &[
-            144, 12, 165, 192, 98, 246, 37, 228, 134, 61, 43, 212, 111, 32, 204, 204, 186, 212, 47,
-            44, 209, 53, 167, 80, 195, 200, 226, 84, 34, 162, 249, 135, 172, 3, 90, 122, 205, 96,
-            211, 100, 188, 18, 134, 125, 111, 130, 31, 143, 25, 108, 194, 209, 205, 73, 169, 10,
-            132, 222, 75, 219, 103, 234, 67, 180
-        ]
-    );
-    let len = data.len() as u64;
-    assert_costs(map! {
-        ExtCosts::base: 1,
-        ExtCosts::read_memory_base: 1,
-        ExtCosts::read_memory_byte: len,
-        ExtCosts::write_memory_base: 1,
-        ExtCosts::write_memory_byte: 64,
-        ExtCosts::read_register_base: 1,
-        ExtCosts::read_register_byte: 64,
-        ExtCosts::write_register_base: 1,
-        ExtCosts::write_register_byte: 64,
-        ExtCosts::blake2b_base: 1,
-        ExtCosts::blake2b_byte: len,
-    });
-}
-
-#[test]
-#[cfg(feature = "protocol_feature_evm")]
-fn test_blake2b_f() {
-    let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
-
-    let rounds: [u8; 4] = 1_u32.to_le_bytes();
+    let rounds = 12;
     let h: [u64; 8] = [
         0x6a09e667f2bdc948,
         0xbb67ae8584caa73b,
@@ -612,61 +577,111 @@ fn test_blake2b_f() {
         0x1f83d9abfb41bd6b,
         0x5be0cd19137e2179,
     ];
-    let m: [u64; 16] = [
-        0x0000000000636261,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-        0x0000000000000000,
-    ];
-    let t: [u64; 2] = [3, 0];
-    let f_bool: [u8; 1] = 1_u8.to_le_bytes();
+    let m = b"abc";
+    let t = 0;
+    let f0 = !0;
+    let f1 = 0;
+
     logic
-        .blake2b_f(
-            rounds.as_ptr() as u64,
-            h.as_ptr() as u64,
-            m.as_ptr() as u64,
-            t.as_ptr() as u64,
-            f_bool.as_ptr() as u64,
+        .blake2b(
+            rounds,
+            h.len() as u64,
+            h.as_ptr() as _,
+            m.len() as u64,
+            m.as_ptr() as _,
+            t,
+            f0,
+            f1,
             0,
         )
         .unwrap();
 
-    let res = &vec![0u8; 64];
+    let res = [0u8; 64];
     logic.read_register(0, res.as_ptr() as _).expect("OK");
-    assert_eq!(
-        res,
-        &[
-            0xB6, 0x3A, 0x38, 0x0C, 0xB2, 0x89, 0x7D, 0x52, 0x19, 0x94, 0xA8, 0x52, 0x34, 0xEE,
-            0x2C, 0x18, 0x1B, 0x5F, 0x84, 0x4D, 0x2C, 0x62, 0x4C, 0x00, 0x26, 0x77, 0xE9, 0x70,
-            0x34, 0x49, 0xD2, 0xFB, 0xA5, 0x51, 0xB3, 0xA8, 0x33, 0x3B, 0xCD, 0xF5, 0xF2, 0xF7,
-            0xE0, 0x89, 0x93, 0xD5, 0x39, 0x23, 0xDE, 0x3D, 0x64, 0xFC, 0xC6, 0x8C, 0x03, 0x4E,
-            0x71, 0x7B, 0x92, 0x93, 0xFE, 0xD7, 0xA4, 0x21
-        ],
-    );
 
+    let expected: [u8; 64] = [
+        0xba, 0x80, 0xa5, 0x3f, 0x98, 0x1c, 0x4d, 0x0d, 0x6a, 0x27, 0x97, 0xb6, 0x9f, 0x12, 0xf6,
+        0xe9, 0x4c, 0x21, 0x2f, 0x14, 0x68, 0x5a, 0xc4, 0xb7, 0x4b, 0x12, 0xbb, 0x6f, 0xdb, 0xff,
+        0xa2, 0xd1, 0x7d, 0x87, 0xc5, 0x39, 0x2a, 0xab, 0x79, 0x2d, 0xc2, 0x52, 0xd5, 0xde, 0x45,
+        0x33, 0xcc, 0x95, 0x18, 0xd3, 0x8a, 0xa8, 0xdb, 0xf1, 0x92, 0x5a, 0xb9, 0x23, 0x86, 0xed,
+        0xd4, 0x0, 0x99, 0x23,
+    ];
+    assert_eq!(res, expected);
+
+    let len = m.len() as u64 + (h.len() as u64 * 8);
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::blake2b_f_base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
         ExtCosts::read_register_base: 1,
         ExtCosts::read_register_byte: 64,
         ExtCosts::write_register_base: 1,
         ExtCosts::write_register_byte: 64,
-        ExtCosts::read_memory_base: 5,
-        ExtCosts::read_memory_byte: 4 + 64 + 128 + 8 + 8 + 1, // 213 per EIP-152
+        ExtCosts::blake2b_base: 1,
+        ExtCosts::blake2b_block: 1,
+        ExtCosts::blake2b_round: 12,
+    });
+}
+
+#[test]
+#[cfg(feature = "protocol_feature_evm")]
+fn test_blake2s() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let rounds = 10;
+    // These must be u64, even though they are actually u32.
+    let h: [u64; 8] = [
+        0x6b08e647, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let m: &[u8; 3] = b"abc";
+    let t0: u32 = 0;
+    let t1: u32 = 0;
+    let f0: u32 = !0;
+    let f1: u32 = 0;
+
+    logic
+        .blake2s(
+            rounds,
+            h.len() as u64,
+            h.as_ptr() as _,
+            m.len() as u64,
+            m.as_ptr() as _,
+            t0,
+            t1,
+            f0,
+            f1,
+            0,
+        )
+        .unwrap();
+
+    let res = [0u8; 32];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+
+    let expected: [u8; 32] = [
+        0x50, 0x8c, 0x5e, 0x8c, 0x32, 0x7c, 0x14, 0xe2, 0xe1, 0xa7, 0x2b, 0xa3, 0x4e, 0xeb, 0x45,
+        0x2f, 0x37, 0x45, 0x8b, 0x20, 0x9e, 0xd6, 0x3a, 0x29, 0x4d, 0x99, 0x9b, 0x4c, 0x86, 0x67,
+        0x59, 0x82,
+    ];
+    assert_eq!(res, expected);
+
+    let len = m.len() as u64 + (h.len() as u64 * 8);
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: len,
         ExtCosts::write_memory_base: 1,
-        ExtCosts::write_memory_byte: 64,
+        ExtCosts::write_memory_byte: 32,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 32,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 32,
+        ExtCosts::blake2b_base: 1,
+        ExtCosts::blake2b_block: 1,
+        ExtCosts::blake2b_round: 10,
     });
 }
 

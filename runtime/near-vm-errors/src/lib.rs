@@ -507,7 +507,7 @@ impl std::fmt::Display for HostError {
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
             InvalidECDSASignature => write!(f, "Invalid ECDSA signature"),
             #[cfg(feature = "protocol_feature_evm")]
-            Blake2InvalidStateLength { length } => write!(f, "Invalid Blake2 state length {}, must be 64 bytes", length),
+            Blake2InvalidStateLength { length } => write!(f, "Invalid Blake2 state length {}, must be 8 words of 8 bytes", length),
             #[cfg(feature = "protocol_feature_evm")]
             Blake2HashDataOverflow => write!(f, "Blake2 hash data length overflow."),
             #[cfg(feature = "protocol_feature_evm")]
