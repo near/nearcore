@@ -50,7 +50,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -60,6 +60,8 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use neard::migrations::load_migration_data;
 use neard::NEAR_BASE;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
@@ -75,6 +77,79 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
+}
+
+/// Create environment and set of transactions which cause congestion on the chain.
+fn prepare_env_with_congestion(
+    protocol_version: ProtocolVersion,
+    gas_price_adjustment_rate: Option<Rational>,
+    number_of_transactions: u64,
+) -> (TestEnv, Vec<CryptoHash>) {
+    init_test_logger();
+    let epoch_length = 100;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.protocol_version = protocol_version;
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.gas_limit = 10_000_000_000_000;
+    if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
+        genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    }
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    // Deploy contract to test0.
+    let tx = SignedTransaction::from_actions(
+        1,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..3 {
+        env.produce_block(0, i);
+    }
+
+    // Create function call transactions that generate promises.
+    let gas_1 = 9_000_000_000_000;
+    let gas_2 = gas_1 / 3;
+    let mut tx_hashes = vec![];
+
+    for i in 0..number_of_transactions {
+        let data = serde_json::json!([
+            {"create": {
+            "account_id": "test0",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": gas_2,
+            }, "id": 0 }
+        ]);
+
+        let signed_transaction = SignedTransaction::from_actions(
+            i + 10,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&data).unwrap(),
+                gas: gas_1,
+                deposit: 0,
+            })],
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(signed_transaction.get_hash());
+        env.clients[0].process_tx(signed_transaction, false, false);
+    }
+
+    (env, tx_hashes)
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -2625,70 +2700,28 @@ fn test_block_ordinal() {
     assert_eq!(next_block.header().block_ordinal(), ordinal);
 }
 
+fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
+    let chunk_headers = vec![prev_block.chunks()[0].clone()];
+    block.set_chunks(chunk_headers.clone());
+    block.mut_header().get_mut().inner_rest.chunk_headers_root =
+        Block::compute_chunk_headers_root(&chunk_headers).0;
+    block.mut_header().get_mut().inner_rest.chunk_tx_root =
+        Block::compute_chunk_tx_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+        Block::compute_chunk_receipts_root(&chunk_headers);
+    block.mut_header().get_mut().inner_lite.prev_state_root =
+        Block::compute_state_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
+    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    block.mut_header().resign(&validator_signer);
+}
+
 #[test]
 fn test_congestion_receipt_execution() {
-    init_test_logger();
-    let epoch_length = 100;
-    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = 10000000000000;
-    let chain_genesis = ChainGenesis::from(&genesis);
-    let mut env =
-        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
 
-    // step 0: deploy contract to test0
-    let tx = SignedTransaction::from_actions(
-        1,
-        "test0".to_string(),
-        "test0".to_string(),
-        &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
-        })],
-        *genesis_block.hash(),
-    );
-    env.clients[0].process_tx(tx, false, false);
-    for i in 1..3 {
-        env.produce_block(0, i);
-    }
-
-    // step 1: create function call transactions that generate promises
-    let gas_1 = 9_000_000_000_000;
-    let gas_2 = gas_1 / 3;
-    let mut tx_hashes = vec![];
-
-    for i in 0..3 {
-        let data = serde_json::json!([
-            {"create": {
-            "account_id": "test0",
-            "method_name": "call_promise",
-            "arguments": [],
-            "amount": "0",
-            "gas": gas_2,
-            }, "id": 0 }
-        ]);
-
-        let signed_transaction = SignedTransaction::from_actions(
-            i + 10,
-            "test0".to_string(),
-            "test0".to_string(),
-            &signer,
-            vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "call_promise".to_string(),
-                args: serde_json::to_vec(&data).unwrap(),
-                gas: gas_1,
-                deposit: 0,
-            })],
-            *genesis_block.hash(),
-        );
-        tx_hashes.push(signed_transaction.get_hash());
-        env.clients[0].process_tx(signed_transaction, false, false);
-    }
-
-    // step 2: produce block with no new chunk
+    // Produce block with no new chunk.
     env.produce_block(0, 3);
     let height = 4;
     env.produce_block(0, height);
@@ -2703,19 +2736,7 @@ fn test_congestion_receipt_execution() {
             .unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
-    let chunk_headers = vec![prev_block.chunks()[0].clone()];
-    block.set_chunks(chunk_headers.clone());
-    block.mut_header().get_mut().inner_rest.chunk_headers_root =
-        Block::compute_chunk_headers_root(&chunk_headers).0;
-    block.mut_header().get_mut().inner_rest.chunk_tx_root =
-        Block::compute_chunk_tx_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-        Block::compute_chunk_receipts_root(&chunk_headers);
-    block.mut_header().get_mut().inner_lite.prev_state_root =
-        Block::compute_state_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
-    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
-    block.mut_header().resign(&validator_signer);
+    set_no_chunk_in_block(&mut block, &prev_block);
     env.process_block(0, block.clone(), Provenance::NONE);
 
     // let all receipts finish
@@ -2879,6 +2900,148 @@ mod access_key_nonce_range_tests {
     }
 }
 
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+#[cfg(test)]
+mod protocol_feature_restore_receipts_after_fix_tests {
+    use super::*;
+    use near_primitives::runtime::migration_data::MigrationData;
+    use near_primitives::version::ProtocolFeature;
+
+    const EPOCH_LENGTH: u64 = 5;
+    const HEIGHT_TIMEOUT: u64 = 10;
+
+    fn run_test(
+        chain_id: &str,
+        low_height_with_no_chunk: BlockHeight,
+        high_height_with_no_chunk: BlockHeight,
+        should_be_restored: bool,
+    ) {
+        init_test_logger();
+
+        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.chain_id = String::from(chain_id);
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.protocol_version = protocol_version;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtime = neard::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+        );
+        // TODO #4305: get directly from NightshadeRuntime
+        let migration_data = load_migration_data(&genesis.config.chain_id);
+
+        let mut env = TestEnv::new_with_runtime(
+            chain_genesis.clone(),
+            1,
+            1,
+            vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
+        );
+
+        let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
+            HashSet::from_iter(
+                migration_data
+                    .restored_receipts
+                    .get(&0u64)
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|receipt| receipt.receipt_id),
+            )
+        };
+
+        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&migration_data);
+        let mut height: BlockHeight = 1;
+        let mut last_update_height: BlockHeight = 0;
+
+        // Simulate several blocks to guarantee that they are produced successfully.
+        // Stop block production if all receipts were restored. Or, if some receipts are still not
+        // applied, upgrade already happened, and no new receipt was applied in some last blocks,
+        // consider the process stuck to avoid any possibility of infinite loop.
+        while height < 15
+            || (!receipt_hashes_to_restore.is_empty()
+                && height - last_update_height < HEIGHT_TIMEOUT)
+        {
+            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
+            if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
+                let prev_block =
+                    env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+                set_no_chunk_in_block(&mut block, &prev_block);
+            }
+            env.process_block(0, block, Provenance::PRODUCED);
+
+            let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(last_block.header().epoch_id())
+                .unwrap();
+
+            for receipt_id in receipt_hashes_to_restore.clone().iter() {
+                if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
+                    assert!(
+                        protocol_version
+                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                        "Restored receipt {} was executed before protocol upgrade",
+                        receipt_id
+                    );
+                    receipt_hashes_to_restore.remove(receipt_id);
+                    last_update_height = height;
+                };
+            }
+
+            // Update last updated height anyway if upgrade did not happen
+            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+                last_update_height = height;
+            }
+            height += 1;
+        }
+
+        if should_be_restored {
+            assert!(
+                receipt_hashes_to_restore.is_empty(),
+                "Some of receipts were not executed, hashes: {:?}",
+                receipt_hashes_to_restore
+            );
+        } else {
+            assert_eq!(
+                receipt_hashes_to_restore,
+                get_restored_receipt_hashes(&migration_data),
+                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_chunks_missing() {
+        // If there are no chunks missing, all receipts should be applied
+        run_test("mainnet", 1, 0, true);
+    }
+
+    #[test]
+    fn test_first_chunk_in_epoch_missing() {
+        // If the first chunk in the first epoch with needed protocol version is missing,
+        // all receipts should still be applied
+        run_test("mainnet", 8, 12, true);
+    }
+
+    #[test]
+    fn test_all_chunks_in_epoch_missing() {
+        // If all chunks are missing in the first epoch, no receipts should be applied
+        run_test("mainnet", 11, 11 + EPOCH_LENGTH, false);
+    }
+
+    #[test]
+    fn test_run_for_testnet() {
+        // Run the same process for chain other than mainnet to ensure that blocks are produced
+        // successfully during the protocol upgrade.
+        run_test("testnet", 1, 0, true);
+    }
+}
+
 #[cfg(test)]
 #[cfg(feature = "protocol_feature_fix_storage_usage")]
 mod storage_usage_fix_tests {
@@ -2981,5 +3144,47 @@ mod storage_usage_fix_tests {
                 }
             },
         );
+    }
+}
+
+#[cfg(feature = "protocol_feature_cap_max_gas_price")]
+#[cfg(test)]
+mod cap_max_gas_price_tests {
+    use super::*;
+    use near_primitives::version::ProtocolFeature;
+
+    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
+        let mut env =
+            prepare_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+        let mut was_congested = false;
+        let mut price_exceeded_limit = false;
+
+        for i in 3..20 {
+            env.produce_block(0, i);
+            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(block.header().epoch_id())
+                .unwrap();
+            let min_gas_price =
+                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+            was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
+            price_exceeded_limit |= block.header().gas_price() > 10 * min_gas_price;
+        }
+
+        assert!(was_congested);
+        price_exceeded_limit
+    }
+
+    #[test]
+    fn test_not_capped_gas_price() {
+        assert!(does_gas_price_exceed_limit(
+            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
+        ));
+    }
+
+    #[test]
+    fn test_capped_gas_price() {
+        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
     }
 }

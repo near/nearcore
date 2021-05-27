@@ -1,4 +1,4 @@
-use crate::runtime::migration_data::MigrationData;
+use crate::runtime::migration_data::{MigrationData, MigrationFlags};
 use crate::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -44,5 +44,7 @@ pub struct ApplyState {
     pub profile: crate::profile::ProfileData,
     /// Data for migrations that may need to be applied at the start of an epoch when protocol
     /// version changes
-    pub migration_data: Option<Arc<MigrationData>>,
+    pub migration_data: Arc<MigrationData>,
+    /// Flags for migrations indicating whether they can be applied at this block
+    pub migration_flags: MigrationFlags,
 }

@@ -1,3 +1,4 @@
+use crate::{actions::execute_function_call, ext::RuntimeExt};
 use log::debug;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::{
@@ -6,7 +7,11 @@ use near_primitives::{
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
-    runtime::{apply_state::ApplyState, config::RuntimeConfig},
+    runtime::{
+        apply_state::ApplyState,
+        config::RuntimeConfig,
+        migration_data::{MigrationData, MigrationFlags},
+    },
     serialize::to_base64,
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
@@ -17,8 +22,6 @@ use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
 use std::{str, sync::Arc, time::Instant};
-
-use crate::{actions::execute_function_call, ext::RuntimeExt};
 
 pub mod errors;
 
@@ -225,7 +228,8 @@ impl TrieViewer {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
-            migration_data: None,
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
