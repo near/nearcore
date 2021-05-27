@@ -88,6 +88,44 @@ fn test_simple_contract() {
     });
 }
 
+fn multi_memories_contract() -> Vec<u8> {
+    vec![
+        0, 97, 115, 109, 1, 0, 0, 0, 2, 12, 1, 3, 101, 110, 118, 0, 2, 1, 239, 1, 248, 1, 4, 6, 1,
+        112, 0, 143, 129, 32, 7, 12, 1, 8, 0, 17, 17, 17, 17, 17, 17, 2, 2, 0,
+    ]
+}
+
+#[test]
+fn test_multiple_memories() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let (result, error) =
+            make_simple_contract_call_vm(&multi_memories_contract(), "hello", vm_kind);
+        assert_eq!(result, None);
+        match error {
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::WasmerCompileError { .. },
+            ))) => match vm_kind {
+                VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+                VMKind::Wasmtime => {
+                    panic!("Unexpected")
+                }
+            },
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { .. })) => {
+                // Wasmtime classifies this error as link error at the moment.
+                match vm_kind {
+                    VMKind::Wasmer0 | VMKind::Wasmer1 => {
+                        panic!("Unexpected")
+                    }
+                    VMKind::Wasmtime => {}
+                }
+            }
+            _ => {
+                panic!("Unexpected error: {:?}", error)
+            }
+        }
+    });
+}
+
 #[test]
 fn test_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
