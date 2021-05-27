@@ -1063,6 +1063,10 @@ impl Chain {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.chain_store_update.save_block_height_processed(block_height);
                 chain_update.commit()?;
+                #[cfg(feature = "sandbox")]
+                if self.pending_states_to_patch.is_some() {
+                    self.pending_states_to_patch = None;
+                }
 
                 if needs_to_start_fetching_state {
                     debug!(target: "chain", "Downloading state for block {}", block.hash());
@@ -2087,7 +2091,7 @@ impl Chain {
             &self.genesis,
             self.transaction_validity_period,
             #[cfg(feature = "sandbox")]
-            self.pending_states_to_patch.take(),
+            self.pending_states_to_patch.clone(),
         )
     }
 
