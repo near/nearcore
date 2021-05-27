@@ -59,15 +59,15 @@ use near_primitives::views::{
 };
 use near_store::get;
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use neard::migrations::load_migration_data;
-use neard::NEAR_BASE;
+use nearcore::migrations::load_migration_data;
+use nearcore::NEAR_BASE;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(neard::NightshadeRuntime::new(
+            Arc::new(nearcore::NightshadeRuntime::new(
                 Path::new("."),
                 create_test_store(),
                 genesis,
@@ -1786,7 +1786,7 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0", "test1"], 2);
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         &genesis,
@@ -2924,7 +2924,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         genesis.config.epoch_length = EPOCH_LENGTH;
         genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
-        let runtime = neard::NightshadeRuntime::new(
+        let runtime = nearcore::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             &genesis,

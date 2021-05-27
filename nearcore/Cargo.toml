@@ -1,40 +1,59 @@
 [package]
-name = "neard"
+name = "nearcore"
 version = "1.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
-default-run = "neard"
-
-[[bin]]
-path = "src/main.rs"
-name = "neard"
-
-[[bin]]
-path = "src/../src/main.rs"
-name = "near"
 
 [dependencies]
-clap = "2.32"
-actix = "=0.11.0-beta.2"
+jemallocator = "0.3"
+awc = "3.0.0-beta.5"
+actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
+actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
+actix-rt = "2"
+byteorder = "1.2"
+easy-ext = "0.2"
+chrono = { version = "0.4.4", features = ["serde"] }
+futures = "0.3"
+rand = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "3"
+borsh = "0.8.1"
+thiserror = "1.0"
 tracing = "0.1.13"
-git-version = "0.3.1"
-tracing-subscriber = "0.2.4"
-openssl-probe = "0.1.2"
+num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = "0.2.8"
+lazy-static-include = "3"
 
-nearcore = { path = "../nearcore" }
+near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime" }
 near-chain = { path = "../chain/chain" }
+near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
+near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
 near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
+near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
+
+delay-detector = { path = "../tools/delay_detector", optional = true }
+
+[dev-dependencies]
+funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
+rand = "0.7"
+runtime-params-estimator = { path = "../runtime/runtime-params-estimator", default_features = false }
+near-logger-utils = { path = "../test-utils/logger" }
+near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
+tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
+near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+primitive-types = "0.9"
+restored-receipts-verifier = { path = "../tools/restored-receipts-verifier"}
 
 [features]
 performance_stats = ["near-performance-metrics/performance_stats"]
@@ -51,12 +70,11 @@ protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "nod
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit"]
-protocol_feature_allow_create_account_on_delete = ["node-runtime/protocol_feature_allow_create_account_on_delete", "testlib/protocol_feature_allow_create_account_on_delete"]
+protocol_feature_allow_create_account_on_delete = ["node-runtime/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
-protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix"]
-protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
+protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix", "restored-receipts-verifier/protocol_feature_restore_receipts_after_fix"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
@@ -68,3 +86,6 @@ wasmtime_default = ["node-runtime/wasmtime_default"]
 wasmer1_vm = ["node-runtime/wasmer1_vm"]
 wasmer0_vm = ["node-runtime/wasmer0_vm"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
+
+[package.metadata.workspaces]
+independent = true

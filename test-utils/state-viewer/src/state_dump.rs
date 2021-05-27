@@ -6,7 +6,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
 use near_store::TrieIterator;
-use neard::NightshadeRuntime;
+use nearcore::NightshadeRuntime;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
@@ -78,10 +78,10 @@ mod test {
     use near_primitives::types::NumBlocks;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use neard::config::GenesisExt;
-    use neard::config::TESTING_INIT_STAKE;
-    use neard::genesis_validate::validate_genesis;
-    use neard::NightshadeRuntime;
+    use nearcore::config::GenesisExt;
+    use nearcore::config::TESTING_INIT_STAKE;
+    use nearcore::genesis_validate::validate_genesis;
+    use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
 

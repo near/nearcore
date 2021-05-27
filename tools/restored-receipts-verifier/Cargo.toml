@@ -11,7 +11,7 @@ clap = "3.0.0-beta.1"
 serde_json = "1"
 
 near-primitives = { path = "../../core/primitives" }
-neard = { path = "../../neard" }
+nearcore = { path = "../../nearcore" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../../chain/chain" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
