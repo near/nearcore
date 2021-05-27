@@ -57,3 +57,14 @@ protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
+
+# enable this to build neard with wasmer 1.0 runner
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer1_default = ["node-runtime/wasmer1_default"]
+wasmer0_default = ["node-runtime/wasmer0_default"]
+wasmtime_default = ["node-runtime/wasmtime_default"]
+# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
+# but would not change default runner used by neard
+wasmer1_vm = ["node-runtime/wasmer1_vm"]
+wasmer0_vm = ["node-runtime/wasmer0_vm"]
+wasmtime_vm = ["node-runtime/wasmtime_vm"]
