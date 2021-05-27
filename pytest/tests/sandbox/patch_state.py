@@ -57,7 +57,6 @@ res = nodes[0].json_rpc('sandbox_patch_state', {
         'value': base64.b64encode(new_v).decode('ascii'),
     }}]
 })
-time.sleep(2)
 
 # patch should succeed
 res = nodes[0].call_function("test0", "read_value", base64.b64encode(k).decode('ascii'))

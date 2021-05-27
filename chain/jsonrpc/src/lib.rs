@@ -418,9 +418,12 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest::parse(
                         request.params,
                     )?;
+                self.sandbox_patch_state(sandbox_patch_state_request).await?;
                 self.poll_patch_state().await;
-                serde_json::to_value(self.sandbox_patch_state(sandbox_patch_state_request).await?)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+                serde_json::to_value(
+                    near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {},
+                )
+                .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
@@ -999,14 +1002,13 @@ impl JsonRpcHandler {
     async fn sandbox_patch_state(
         &self,
         patch_state_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest,
-    ) -> Result<near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse, RpcError>
-    {
+    ) -> Result<(), RpcError> {
         self.client_addr
             .send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxPatchState(
                 patch_state_request.records,
             )))
             .await?;
-        Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
+        Ok(())
     }
 }
 
