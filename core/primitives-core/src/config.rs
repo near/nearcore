@@ -384,23 +384,23 @@ impl Default for ExtCostsConfig {
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
             #[cfg(feature = "protocol_feature_evm")]
-            ripemd160_base: SAFETY_MULTIPLIER * 1513656750, // TODO
+            ripemd160_base: SAFETY_MULTIPLIER * 15136567500, // 10 x sha256_base
             #[cfg(feature = "protocol_feature_evm")]
-            ripemd160_byte: SAFETY_MULTIPLIER * 8039117, // TODO
+            ripemd160_byte: SAFETY_MULTIPLIER * 80391170, // 10 x sha256_byte
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_base: SAFETY_MULTIPLIER * 1513656750, // TODO
+            blake2b_base: SAFETY_MULTIPLIER * 88256037, // same as base.
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_block: SAFETY_MULTIPLIER * 8039117, // TODO
+            blake2b_block: SAFETY_MULTIPLIER * 1029006976, // sha256 per byte x 128
             #[cfg(feature = "protocol_feature_evm")]
-            blake2b_round: SAFETY_MULTIPLIER * 150000, // TODO
+            blake2b_round: SAFETY_MULTIPLIER * 25227612, // sha256 base / 60
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_base: SAFETY_MULTIPLIER * 1513656750, // TODO
+            blake2s_base: SAFETY_MULTIPLIER * 58837358, // blake2b / (2/3)
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_block: SAFETY_MULTIPLIER * 8039117, // TODO
+            blake2s_block: SAFETY_MULTIPLIER * 686004650, // blake2b / (2/3)
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_round: SAFETY_MULTIPLIER * 150000, // TODO
+            blake2s_round: SAFETY_MULTIPLIER * 16818408, // blake2b / (2/3)
             #[cfg(feature = "protocol_feature_evm")]
-            ecrecover_base: SAFETY_MULTIPLIER * 1000000000, // TODO
+            ecrecover_base: SAFETY_MULTIPLIER * 75682837500, // 50 x sha256_base
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
             storage_write_base: SAFETY_MULTIPLIER * 21398912000,
