@@ -688,16 +688,23 @@ fn test_blake2s() {
 #[test]
 #[cfg(feature = "protocol_feature_evm")]
 fn test_ecrecover() {
-    use hex_literal::hex;
-
     let mut logic_builder = VMLogicBuilder::default();
     let mut logic = logic_builder.build(get_context(vec![], false));
 
     // See: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/test/cryptography/ECDSA.test.js
     use sha3::Digest;
     let hash = sha3::Keccak256::digest(b"OpenZeppelin");
-    let signature = hex!("5d99b6f7f6d1f73d1a26497f2b1c89b24c0993913f86e9a2d02cd69887d9c94f3c880358579d811b21dd1b7fd9bb01c1d81d10e69f0384e675c32b39643be8921b");
-    let signer = hex!("2cc1166f6212628A0deEf2B33BEFB2187D35b86c");
+    let signature: [u8; 65] = [
+        0x5d, 0x99, 0xb6, 0xf7, 0xf6, 0xd1, 0xf7, 0x3d, 0x1a, 0x26, 0x49, 0x7f, 0x2b, 0x1c, 0x89,
+        0xb2, 0x4c, 0x09, 0x93, 0x91, 0x3f, 0x86, 0xe9, 0xa2, 0xd0, 0x2c, 0xd6, 0x98, 0x87, 0xd9,
+        0xc9, 0x4f, 0x3c, 0x88, 0x03, 0x58, 0x57, 0x9d, 0x81, 0x1b, 0x21, 0xdd, 0x1b, 0x7f, 0xd9,
+        0xbb, 0x01, 0xc1, 0xd8, 0x1d, 0x10, 0xe6, 0x9f, 0x03, 0x84, 0xe6, 0x75, 0xc3, 0x2b, 0x39,
+        0x64, 0x3b, 0xe8, 0x92, 0x1b,
+    ];
+    let signer: [u8; 20] = [
+        0x2c, 0xc1, 0x16, 0x6f, 0x62, 0x12, 0x62, 0x8a, 0x0d, 0xee, 0xf2, 0xb3, 0x3b, 0xef, 0xb2,
+        0x18, 0x7d, 0x35, 0xb8, 0x6c,
+    ];
 
     logic.ecrecover(hash.as_ptr() as _, signature.as_ptr() as _, 0).unwrap();
 
@@ -707,8 +714,8 @@ fn test_ecrecover() {
     assert_eq!(result.to_vec(), signer);
     assert_costs(map! {
         ExtCosts::base: 1,
-        ExtCosts::read_memory_base: 3,
-        ExtCosts::read_memory_byte: 96,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 97,
         ExtCosts::write_memory_base: 1,
         ExtCosts::write_memory_byte: 20,
         ExtCosts::read_register_base: 1,

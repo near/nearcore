@@ -32,12 +32,11 @@ near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
 bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = true }
 
 [dev-dependencies]
-hex-literal = "0.2"
 serde_json = {version= "1", features= ["preserve_order"]}
 
 [features]
 default = []
-protocol_feature_evm = ["near-primitives-core/protocol_feature_evm", "blake2", "ripemd160", "libsecp256k1"]
+protocol_feature_evm = ["near-primitives-core/protocol_feature_evm", "near-vm-errors/protocol_feature_evm", "blake2", "ripemd160", "libsecp256k1"]
 protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_allow_create_account_on_delete = []
 
