@@ -394,11 +394,11 @@ impl Default for ExtCostsConfig {
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_round: SAFETY_MULTIPLIER * 25227612, // sha256 base / 60
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_base: SAFETY_MULTIPLIER * 58837358, // blake2b / (2/3)
+            blake2s_base: SAFETY_MULTIPLIER * 58837358, // blake2b * (2/3)
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_block: SAFETY_MULTIPLIER * 686004650, // blake2b / (2/3)
+            blake2s_block: SAFETY_MULTIPLIER * 686004650, // blake2b * (2/3)
             #[cfg(feature = "protocol_feature_evm")]
-            blake2s_round: SAFETY_MULTIPLIER * 16818408, // blake2b / (2/3)
+            blake2s_round: SAFETY_MULTIPLIER * 16818408, // blake2b * (2/3)
             #[cfg(feature = "protocol_feature_evm")]
             ecrecover_base: SAFETY_MULTIPLIER * 75682837500, // 50 x sha256_base
             log_base: SAFETY_MULTIPLIER * 1181104350,
