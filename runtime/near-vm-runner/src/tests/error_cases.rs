@@ -744,6 +744,41 @@ fn test_external_call_error() {
     });
 }
 
+fn external_indirect_call_contract() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
+              (type $prepaid_gas_t (func (result i64)))
+
+              (table 1 funcref)
+              (elem (i32.const 0) $prepaid_gas)
+
+              (func (export "main")
+                (call_indirect (type $prepaid_gas_t) (i32.const 0))
+                drop
+              )
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_external_call_indirect() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            // Upstream bug: https://github.com/wasmerio/wasmer/issues/2329.
+            VMKind::Wasmer1 => return,
+            _ => (),
+        }
+
+        let (outcome, err) =
+            make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
+        assert_eq!(err, None);
+        assert_eq!(outcome, Some(vm_outcome_with_gas(329123187)));
+    });
+}
+
 #[test]
 fn test_contract_error_caching() {
     with_vm_variants(|vm_kind: VMKind| {
