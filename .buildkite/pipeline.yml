@@ -124,11 +124,12 @@ steps:
   #  artifact_paths:
   #  - "rainbow-bridge/logs/**/*.log"
 
-  - label: "cargo release check"
+  - label: "cargo check nearcore library (without Cargo.lock)"
     command: |
       source ~/.cargo/env
       rm Cargo.lock
-      RUSTFLAGS='-D warnings' cargo build
+      cd nearcore
+      RUSTFLAGS='-D warnings' cargo check
 
     timeout: 30
     agents:

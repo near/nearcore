@@ -21,7 +21,6 @@ import branches
 import cluster
 from utils import wait_for_blocks_or_timeout
 
-
 def main():
     node_root = '/tmp/near/state_migration'
     if os.path.exists(node_root):
@@ -93,8 +92,9 @@ def main():
 
     # New genesis can be deserialized by new near is verified above (new near can produce blocks)
     # Also test new genesis protocol_version matches neard/res/genesis_config's
-    new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
-    res_genesis = json.load(open('../neard/res/genesis_config.json'))
+    new_genesis = json.load(
+        open(os.path.join(node_root, 'test0/genesis.json')))
+    res_genesis = json.load(open('../nearcore/res/genesis_config.json'))
     assert new_genesis['protocol_version'] == res_genesis['protocol_version']
 
 
