@@ -1119,11 +1119,9 @@ impl Runtime {
             == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
         {
-            migration_data
-                .restored_receipts
-                .get(&0u64)
-                .expect("Receipts to restore must contain an entry for shard 0")
-                .clone()
+            // Note that receipts are restored only on mainnet so restored_receipts will be empty on
+            // other chains.
+            migration_data.restored_receipts.get(&0u64).cloned().unwrap_or_default()
         } else {
             vec![]
         };

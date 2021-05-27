@@ -20,7 +20,7 @@ use near_primitives::types::{AccountId, BlockHeight, Nonce};
 
 use near_primitives::account::Account;
 use near_store::test_utils::create_test_store;
-use neard::config::GenesisExt;
+use nearcore::config::GenesisExt;
 
 fn test_setup() -> (TestEnv, InMemorySigner) {
     let epoch_length = 5;
@@ -30,7 +30,7 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
         ChainGenesis::test(),
         1,
         1,
-        vec![Arc::new(neard::NightshadeRuntime::new(
+        vec![Arc::new(nearcore::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             &genesis,

@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 ansi_term = "0.12"
-actix = "0.11.0-beta.2"
+actix = "=0.11.0-beta.2"
 actix-rt = "2"
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -45,7 +45,7 @@ delay-detector = { path = "../../tools/delay_detector", optional = true }
 near-logger-utils = { path = "../../test-utils/logger" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 testlib = { path = "../../test-utils/testlib" }
-neard = { path = "../../neard" }
+nearcore = { path = "../../nearcore" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]
@@ -62,7 +62,7 @@ protocol_feature_restore_receipts_after_fix = []
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_add_account_versions", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
-sandbox = ["near-network/sandbox", "near-chain/sandbox"]
+sandbox = ["near-network/sandbox", "near-chain/sandbox", "nearcore/sandbox", "testlib/sandbox"]
 
 [[test]]
 name = "sandbox"

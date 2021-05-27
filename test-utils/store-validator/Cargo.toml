@@ -13,7 +13,7 @@ near-logger-utils = { path = "../../test-utils/logger" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../../chain/chain" }
-neard = { path = "../../neard" }
+nearcore = { path = "../../nearcore" }
 
 [dev-dependencies]
 testlib = { path = "../../test-utils/testlib" }

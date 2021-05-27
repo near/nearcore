@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use clap::{App, AppSettings, Arg, SubCommand};
 
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
-use neard::get_default_home;
+use nearcore::get_default_home;
 
 fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
     let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
@@ -88,7 +88,7 @@ fn main() {
                 let account_id =
                     account_id.expect("Account id must be specified if --generate-config is used");
                 let mut path = home_dir.to_path_buf();
-                path.push(neard::config::VALIDATOR_KEY_FILE);
+                path.push(nearcore::config::VALIDATOR_KEY_FILE);
                 generate_key_to_file(account_id, key, path);
             }
         }
@@ -97,7 +97,7 @@ fn main() {
             println!("PK: {}", key.public_key());
             if generate_config {
                 let mut path = home_dir.to_path_buf();
-                path.push(neard::config::NODE_KEY_FILE);
+                path.push(nearcore::config::NODE_KEY_FILE);
                 generate_key_to_file("", key, path);
             }
         }
