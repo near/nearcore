@@ -52,7 +52,7 @@ extern "C" {
     #[cfg(feature = "protocol_feature_evm")]
     fn blake2b(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u64, f1: u64, register_id: u64);
     #[cfg(feature = "protocol_feature_evm")]
-    fn blake2s(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u32, f1: u32, register_id: u64);
+    fn blake2s(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t0: u32, t1: u32, f0: u32, f1: u32, register_id: u64);
     #[cfg(feature = "protocol_feature_evm")]
     fn ecrecover(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
@@ -550,6 +550,7 @@ pub unsafe fn blake2s_128b_0r_10k() {
             buffer.len() as u64,
             buffer.as_ptr() as *const u64 as u64,
             0,
+            0,
             !0,
             0,
             0
@@ -575,6 +576,7 @@ pub unsafe fn blake2s_128kb_0r_10k() {
             buffer.len() as u64,
             buffer.as_ptr() as *const u64 as u64,
             0,
+            0,
             !0,
             0,
             0
@@ -599,6 +601,7 @@ pub unsafe fn blake2s_128b_10r_10k() {
             state.as_ptr() as *const u64 as u64,
             buffer.len() as u64,
             buffer.as_ptr() as *const u64 as u64,
+            0,
             0,
             !0,
             0,

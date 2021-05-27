@@ -3627,7 +3627,6 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
- "hex-literal",
  "libsecp256k1",
  "near-blake2",
  "near-primitives",
