@@ -25,6 +25,13 @@ pub fn init_test_logger() {
     setup_subscriber_from_filter(env_filter);
 }
 
+pub fn init_test_logger_runner_info() {
+    let env_filter = EnvFilter::new(
+        "tokio_reactor=info,tokio_core=info,hyper=info,debug,node-runtime=info,near-vm-runner=info",
+    );
+    setup_subscriber_from_filter(env_filter);
+}
+
 pub fn init_test_logger_allow_panic() {
     let env_filter = EnvFilter::new("tokio_reactor=info,tokio_core=info,hyper=info,debug");
     setup_subscriber_from_filter(env_filter);
