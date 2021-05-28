@@ -75,7 +75,6 @@ fn apply_block_at_height(
             *block.header().random_value(),
             true,
             is_first_block_with_chunk_of_version,
-            #[cfg(feature = "sandbox")]
             None,
         )
         .unwrap();
@@ -254,7 +253,6 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             // doesn't really matter here since the old blocks are on the old version
                             false,
                             false,
-                            #[cfg(feature = "sandbox")]
                             None,
                         )
                         .unwrap();

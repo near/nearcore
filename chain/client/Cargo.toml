@@ -39,6 +39,10 @@ near-telemetry = { path = "../telemetry" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 
+# Required to pass sandbox feature to node-runtime. Used in tests but cannot in dev-dependencies because
+# of passing features
+node-runtime = { path = "../../runtime/runtime"}
+
 delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
@@ -62,7 +66,7 @@ protocol_feature_restore_receipts_after_fix = []
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_add_account_versions", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
-sandbox = ["near-network/sandbox", "near-chain/sandbox", "nearcore/sandbox", "testlib/sandbox"]
+sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox"]
 
 [[test]]
 name = "sandbox"

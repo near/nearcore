@@ -95,7 +95,6 @@ impl RuntimeUser {
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
-                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .map_err(|e| match e {

@@ -1149,8 +1149,11 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
-        #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
+        if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
+            panic!("Can only patch state in sandbox mode");
+        }
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
@@ -1561,7 +1564,6 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1592,7 +1594,6 @@ mod tests {
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1622,7 +1623,6 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .unwrap();
@@ -1673,7 +1673,6 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .unwrap();
@@ -1733,7 +1732,6 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
-                    #[cfg(feature = "sandbox")]
                     None,
                 )
                 .unwrap();
@@ -1826,7 +1824,6 @@ mod tests {
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1875,7 +1872,6 @@ mod tests {
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1916,7 +1912,6 @@ mod tests {
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1965,7 +1960,6 @@ mod tests {
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -1999,7 +1993,6 @@ mod tests {
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2038,7 +2031,6 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .err()
@@ -2085,7 +2077,6 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .err()
@@ -2123,7 +2114,6 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2184,7 +2174,6 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2255,7 +2244,6 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2305,7 +2293,6 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2359,7 +2346,6 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();

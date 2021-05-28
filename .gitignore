@@ -6,7 +6,7 @@ docker-build
 **/target/
 /storage/
 /test-utils/node/storage
-/test-utils/sandbox/storage
+/test-utils/ganache/storage
 /node/service/storage
 /keystore/
 /chain/client/tmp_bench

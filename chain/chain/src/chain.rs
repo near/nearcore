@@ -2751,7 +2751,6 @@ impl<'a> ChainUpdate<'a> {
                 true,
                 true,
                 is_first_block_with_chunk_of_version,
-                #[cfg(feature = "sandbox")]
                 None,
             )
             .unwrap();
@@ -2914,6 +2913,8 @@ impl<'a> ChainUpdate<'a> {
                             is_first_block_with_chunk_of_version,
                             #[cfg(feature = "sandbox")]
                             self.states_to_patch.take(),
+                            #[cfg(not(feature = "sandbox"))]
+                            None,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2972,6 +2973,8 @@ impl<'a> ChainUpdate<'a> {
                             false,
                             #[cfg(feature = "sandbox")]
                             self.states_to_patch.take(),
+                            #[cfg(not(feature = "sandbox"))]
+                            None,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -3675,7 +3678,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             true,
             is_first_block_with_chunk_of_version,
-            #[cfg(feature = "sandbox")]
             None,
         )?;
 
@@ -3757,7 +3759,6 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             false,
             false,
-            #[cfg(feature = "sandbox")]
             None,
         )?;
 
