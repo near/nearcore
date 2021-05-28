@@ -13,6 +13,17 @@ More specifically, the neard binary can do the following:
 - generate files necessary to start a node
 - start a node with a given folder that contains required data
 
+There are three major components of nearcore:
+
+- Network. We implement a peer-to-peer network that powers communications between blockchain nodes.
+This includes initiating connections with other nodes, maintain a view of the entire network, routing messages to the right nodes, etc.
+Network is a somewhat standalone module, though it uses information about validators to propagate and validate certain messages.
+- Chain. Chain is responsible for building and maintaining the blockchain data structure.
+This includes block and chunk production and processing, consensus, and validator selection.
+However, chain is not responsible for actually applying transactions and receipts.
+- Runtime. Runtime is the execution engine that actually applies transactions and receipts and performs state transitions.
+This also includes compilation of contracts (wasm binaries) and execution of contract calls.
+
 ## Entry Points
 
 `neard/src/main.rs` contains the main function that starts a blockchain node.
@@ -104,6 +115,15 @@ As mentioned before, `neard` is the crate that contains that main entry points.
 It is also worth noting that `NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
 
 ## Cross Cutting Concerns
+
+## State update
+
+The blockchain state can be changed in the following two ways:
+- Applying a chunk. This is how the state is normally updated: through `Runtime::apply`.
+- State sync. State sync can happen in two cases:
+    * A node is far enough behind the most recent block and triggers state sync to fast forward to the state of a very recent block without having to apply blocks in the middle.
+    * A node is about to become validator for some shard in the next epoch, but it does not yet have the state for that shard.
+    In this case, it would run state sync through the `catchup` routine.
 
 ### Logging & Observability
 
