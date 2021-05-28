@@ -426,11 +426,11 @@ impl NightshadeRuntime {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
             profile: Default::default(),
-            migration_data: if current_protocol_version != prev_block_protocol_version {
+            migration_data: //if current_protocol_version != prev_block_protocol_version {
                 Some(Arc::clone(&self.migration_data))
-            } else {
+            /*} else {
                 None
-            },
+            }*/,
         };
 
         let apply_result = self

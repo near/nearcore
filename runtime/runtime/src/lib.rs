@@ -37,7 +37,7 @@ use near_store::{
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::ReturnData;
+use near_vm_logic::{ReturnData, VMConfig, VMContext, VMLogic};
 pub use near_vm_runner::with_ext_cost_counter;
 
 use crate::actions::*;
@@ -47,16 +47,22 @@ use crate::config::{
     total_prepaid_exec_fees, total_prepaid_gas, RuntimeConfig,
 };
 use crate::genesis::{GenesisStateApplier, StorageComputer};
+use crate::mocked::{get_context, MockedExternal};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
+use near_vm_logic::mocks::mock_memory::MockedMemory;
+use std::borrow::Borrow;
+use std::convert::TryInto;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 mod actions;
 pub mod adapter;
@@ -66,6 +72,7 @@ pub mod config;
 pub mod ext;
 mod genesis;
 mod metrics;
+mod mocked;
 pub mod state_viewer;
 mod verifier;
 
@@ -1078,30 +1085,82 @@ impl Runtime {
         migration_data: &Arc<MigrationData>,
         protocol_version: ProtocolVersion,
     ) -> Result<Gas, StorageError> {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        // #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        let mut rd: u64;
+        unsafe {
+            rd = core::arch::x86_64::_rdtsc();
+        }
+        let instant = Instant::now();
         let mut gas_used: Gas = 0;
 
-        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        let gas_used: Gas = 0;
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
-        if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version {
-            for (account_id, delta) in &migration_data.storage_usage_delta {
-                match get_account(state_update, account_id)? {
-                    Some(mut account) => {
-                        // Storage usage is saved in state, hence it is nowhere close to max value
-                        // of u64, and maximal delta is 4196, se we can add here without checking
-                        // for overflow
-                        account.set_storage_usage(account.storage_usage() + delta);
-                        set_account(state_update, account_id.clone(), &account);
-                    }
-                    // Account could have been deleted in the meantime
-                    None => {}
-                }
+        // #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+        // let gas_used: Gas = 0;
+        // #[cfg(feature = "protocol_feature_fix_storage_usage")]
+        // if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version {
+        let mut mocked_external = MockedExternal {
+            trie_update: state_update,
+            receipts: vec![],
+            validators: Default::default(),
+        };
+        let vm_config = VMConfig::default();
+        let runtime_fees_config = RuntimeFeesConfig::default();
+        let mut mocked_memory = MockedMemory::default();
+        let promise_results = vec![];
+        let mut logic = VMLogic::new_with_protocol_version(
+            &mut mocked_external,
+            get_context(vec![], false),
+            &vm_config,
+            &runtime_fees_config,
+            &promise_results,
+            &mut mocked_memory,
+            Default::default(),
+            protocol_version,
+        );
+
+        for (account_id, delta) in &migration_data.storage_usage_delta {
+            let key = account_id.as_bytes();
+            if logic.storage_read(key.len() as _, key.as_ptr() as _, 0).unwrap() == 0 {
+                continue;
             }
-            gas_used += migration_data.storage_usage_fix_gas;
-            state_update.commit(StateChangeCause::Migration);
+            let account_raw = [0u8; std::mem::size_of::<Account>()];
+            logic.read_register(0, account_raw.as_ptr() as _).unwrap();
+            let mut account = Account::try_from_slice(&account_raw).unwrap();
+            // match get_account(state_update, account_id)? {
+            //     Some(mut account) => {
+            // Storage usage is saved in state, hence it is nowhere close to max value
+            // of u64, and maximal delta is 4196, se we can add here without checking
+            // for overflow
+            account.set_storage_usage(account.storage_usage() + delta);
+
+            // set_account(state_update, account_id.clone(), &account);
+            let val = account.try_to_vec().unwrap();
+            logic
+                .storage_write(
+                    key.len() as _,
+                    key.as_ptr() as _,
+                    val.len() as _,
+                    val.as_ptr() as _,
+                    0,
+                )
+                .unwrap();
+
+            // }
+            // Account could have been deleted in the meantime
+            // None => {}
+            // }
         }
-        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
+        gas_used += migration_data.storage_usage_fix_gas;
+        unsafe {
+            rd = core::arch::x86_64::_rdtsc() - rd;
+        }
+        log::error!(
+            "Gas used {}, rd {}, elapsed {}",
+            logic.used_gas().unwrap(),
+            rd,
+            instant.elapsed().as_nanos()
+        );
+        state_update.commit(StateChangeCause::Migration);
+        // }        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, migration_data, protocol_version);
         Ok(gas_used)
     }
@@ -1131,14 +1190,6 @@ impl Runtime {
 
         let mut stats = ApplyStats::default();
 
-        if let Some(validator_accounts_update) = validator_accounts_update {
-            self.update_validator_accounts(
-                &mut state_update,
-                validator_accounts_update,
-                &mut stats,
-            )?;
-        }
-
         let gas_used_for_migrations = match &apply_state.migration_data {
             Some(migration_data) => self
                 .apply_migrations(
@@ -1149,6 +1200,15 @@ impl Runtime {
                 .map_err(|e| RuntimeError::StorageError(e))?,
             None => 0 as Gas,
         };
+        state_update = TrieUpdate::new(trie.clone(), root);
+
+        if let Some(validator_accounts_update) = validator_accounts_update {
+            self.update_validator_accounts(
+                &mut state_update,
+                validator_accounts_update,
+                &mut stats,
+            )?;
+        }
 
         if !apply_state.is_new_chunk
             && apply_state.current_protocol_version
@@ -1172,7 +1232,7 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
-        let mut total_gas_burnt = gas_used_for_migrations;
+        let mut total_gas_burnt = 0;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(

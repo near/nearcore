@@ -5,7 +5,7 @@ mod cache;
 mod errors;
 mod imports;
 #[cfg(feature = "wasmer0_vm")]
-mod memory;
+pub mod memory;
 mod vm_kind;
 
 mod preload;
