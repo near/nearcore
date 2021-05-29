@@ -34,12 +34,12 @@ perf-debug:
 
 nightly-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --release --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release --features nightly_protocol,nightly_protocol_features
-	cargo $(RUST_OPTIONS) build -p state-viewer --release --features nightly_protocol,nightly_protocol_features
-	cargo $(RUST_OPTIONS) build -p store-validator --release --features nightly_protocol,nightly_protocol_features
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release
+	cargo $(RUST_OPTIONS) build -p state-viewer --release
+	cargo $(RUST_OPTIONS) build -p store-validator --release
 
 nightly-debug:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
-	cargo $(RUST_OPTIONS) build -p state-viewer --features nightly_protocol,nightly_protocol_features
-	cargo $(RUST_OPTIONS) build -p store-validator --features nightly_protocol,nightly_protocol_features
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard,performance_stats,memory_stats
+	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone
+	cargo $(RUST_OPTIONS) build -p state-viewer
+	cargo $(RUST_OPTIONS) build -p store-validator
