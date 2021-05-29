@@ -20,24 +20,15 @@ tracing = "0.1.13"
 git-version = "0.3.1"
 tracing-subscriber = "0.2.4"
 openssl-probe = "0.1.2"
-near-rust-allocator-proxy = "0.2.8"
+near-rust-allocator-proxy = { version = "0.2.8", optional = true }
 
 nearcore = { path = "../nearcore" }
 near-primitives = { path = "../core/primitives" }
-near-chain-configs = { path = "../core/chain-configs" }
-near-store = { path = "../core/store" }
-node-runtime = { path = "../runtime/runtime" }
-near-chain = { path = "../chain/chain" }
-near-client = { path = "../chain/client" }
-near-network = { path = "../chain/network" }
-near-jsonrpc = { path = "../chain/jsonrpc" }
-near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
-near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [features]
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats"]
+memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
 adversarial = ["nearcore/adversarial"]
 expensive_tests = ["nearcore/expensive_tests"]
