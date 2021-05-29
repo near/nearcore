@@ -2517,6 +2517,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "1.2.0"
+dependencies = [
+ "funty",
+ "near-chain",
+ "near-chain-configs",
+ "near-crypto",
+ "near-jsonrpc",
+ "near-logger-utils",
+ "near-network",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "node-runtime",
+ "rand 0.7.3",
+ "restored-receipts-verifier",
+ "runtime-params-estimator",
+ "testlib",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3694,7 +3715,6 @@ dependencies = [
  "delay-detector",
  "dirs",
  "easy-ext",
- "funty",
  "futures",
  "jemallocator",
  "lazy-static-include",
@@ -3720,8 +3740,6 @@ dependencies = [
  "num-rational",
  "primitive-types",
  "rand 0.7.3",
- "restored-receipts-verifier",
- "runtime-params-estimator",
  "serde",
  "serde_json",
  "tempfile",
@@ -3751,7 +3769,6 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "openssl-probe",
- "testlib",
  "tracing",
  "tracing-subscriber",
 ]

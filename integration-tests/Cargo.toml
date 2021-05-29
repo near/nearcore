@@ -1,0 +1,45 @@
+[package]
+name = "integration-tests"
+version = "1.2.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
+rand = "0.7"
+
+near-logger-utils = { path = "../test-utils/logger" }
+near-chain-configs = { path = "../core/chain-configs" }
+near-crypto = { path = "../core/crypto" }
+near-primitives = { path = "../core/primitives" }
+near-store = { path = "../core/store" }
+runtime-params-estimator = { path = "../runtime/runtime-params-estimator", default_features = false }
+restored-receipts-verifier = { path = "../tools/restored-receipts-verifier" }
+near-chain = { path = "../chain/chain" }
+node-runtime = { path = "../runtime/runtime" }
+near-jsonrpc = { path = "../chain/jsonrpc" }
+near-network = { path = "../chain/network" }
+nearcore = { path = "../nearcore" }
+testlib = { path = "../test-utils/testlib" }
+
+[features]
+performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
+regression_tests = []
+adversarial = ["nearcore/adversarial", "near-jsonrpc/adversarial"]
+protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
+protocol_feature_allow_create_account_on_delete = ["nearcore/protocol_feature_allow_create_account_on_delete", "testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features", "testlib/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_allow_create_account_on_delete", "protocol_feature_restore_receipts_after_fix"]
+nightly_protocol = ["nearcore/nightly_protocol", "testlib/nightly_protocol"]
+protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix", "restored-receipts-verifier/protocol_feature_restore_receipts_after_fix"]
+
+# enable this to build neard with wasmer 1.0 runner
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer1_default = ["node-runtime/wasmer1_default"]
+wasmer0_default = ["node-runtime/wasmer0_default"]
+wasmtime_default = ["node-runtime/wasmtime_default"]
+# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
+# but would not change default runner used by neard
+wasmer1_vm = ["node-runtime/wasmer1_vm"]
+wasmer0_vm = ["node-runtime/wasmer0_vm"]
+wasmtime_vm = ["node-runtime/wasmtime_vm"]
