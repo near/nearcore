@@ -116,7 +116,7 @@ It is also worth noting that `NightshadeRuntime` is the struct that implements `
 
 ## Cross Cutting Concerns
 
-## State update
+### State update
 
 The blockchain state can be changed in the following two ways:
 - Applying a chunk. This is how the state is normally updated: through `Runtime::apply`.
