@@ -32,13 +32,15 @@ use near_primitives::{
 };
 pub use near_store;
 use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
+    get, get_account, get_code, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
+// cfg[]
+use near_vm_runner::{get_key, precompile_contract};
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -1406,9 +1408,7 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::{
-        AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
-    };
+    use near_primitives::transaction::{AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction};
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::set_access_key;
@@ -1416,6 +1416,9 @@ mod tests {
     use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
+    // cfg[()]
+    use near_primitives::transaction::DeployContractAction;
+    use near_vm_runner::VMKind;
 
     const GAS_PRICE: Balance = 5000;
 
@@ -2298,4 +2301,95 @@ mod tests {
 
         assert_eq!(final_account_state.storage_usage(), 0);
     }
+
+
+    #[test]
+    fn test_compiled_contract() {
+        // let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        // let chain_genesis = ChainGenesis::from(&genesis);
+        // let store = create_test_store();
+        // let compiled_contract_cache = Arc::new(StoreCompiledContractCache { store: store.clone() });
+        // let runtime = neard::NightshadeRuntime::new(
+        //     Path::new("."),
+        //     store,
+        //     &genesis,
+        //     vec![],
+        //     vec![],
+        //     None,
+        // );
+        // let mut env = TestEnv::new_with_runtime(
+        //     chain_genesis.clone(),
+        //     1,
+        //     1,
+        //     vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
+        // );
+
+        // let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        // let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        // let gas = 1_000_000;
+        // let gas_price = GAS_PRICE / 10;
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })];
+
+        let receipts = vec![Receipt {
+            predecessor_id: alice_account(),
+            receiver_id: alice_account(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: alice_account(),
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }];
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+            )
+            .unwrap();
+        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        // let contract_code =  runtime_ext.get_code(account.code_hash())
+        // let wasm_code = None;
+        // let config = None;
+
+        // let x = 5;
+        // apply_state.cache.unwrap().get(x);
+        let state_update = tries.new_trie_update(0, root);
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let wasm_code = get_code(&state_update, &alice_account(), Some(account.code_hash())).unwrap().unwrap();
+        let key = get_key(&wasm_code, VMKind::default(), &apply_state.config.wasm_config);
+
+        precompile_contract(
+            &wasm_code,
+            &apply_state.config.wasm_config,
+            apply_state.cache.as_deref(),
+        );
+        // apply_state.cache.clone().unwrap().put(&key.0, &key.0);
+        println!("{}", key);
+
+        let y = apply_state.cache.unwrap().get(&key.0).unwrap().unwrap();
+
+        println!("{:?}", y);
+        // println!(compiled_contract_cache.get())
+    }
+
 }

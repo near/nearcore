@@ -12,6 +12,8 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateRoot, StateRootNode};
+// cfg []
+use near_primitives::state_record::is_contract_code_key;
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -443,6 +445,10 @@ pub struct TrieChanges {
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
+    }
+
+    pub fn inserted_contracts(&self, shard_id: ShardId) -> Vec<Vec<u8>> {
+        self.insertions.iter().filter(|&item| {is_contract_code_key(&TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &item.0))}).map(|&t| {t.1}).collect()
     }
 }
 

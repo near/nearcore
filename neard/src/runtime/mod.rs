@@ -42,6 +42,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
+use near_vm_runner::precompile_contract;
+
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState,
     PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie,
@@ -60,6 +62,8 @@ use near_primitives::runtime::config::RuntimeConfig;
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+// cfg[]
+use near_primitives::state_record::is_contract_code_key;
 
 pub mod errors;
 
@@ -1408,15 +1412,28 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: u64,
         num_parts: u64,
         data: &[u8],
+        epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
         let trie_changes = Trie::apply_state_part(&state_root, part_id, num_parts, part)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
+        // add compiled contracts to cache
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
+        let runtime_config = RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        for code in trie_changes.inserted_contracts(shard_id).iter() {
+            let contract_code = ContractCode::new(code.clone(), None);
+            precompile_contract(
+                &contract_code,
+                &runtime_config.wasm_config,
+                compiled_contract_cache.as_deref(),
+            );
+        }
         let tries = self.get_tries();
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
+
     }
 
     fn get_state_root_node(
@@ -2277,7 +2294,8 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.apply_state_part(0, &env.state_roots[0], 0, 1, &state_part).unwrap();
+        let epoch_id = &new_env.head.epoch_id;
+        new_env.runtime.apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id).unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);
