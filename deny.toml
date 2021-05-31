@@ -21,6 +21,12 @@ deny = [
 ]
 
 skip = [
+    { name = "clap", version = "=2.33.3" },
+    { name = "env_logger", version = "=0.7.1" },
+    { name = "humantime", version = "=2.1.0" },
+    { name = "socket2", version = "=0.3.19" },
+    { name = "textwrap", version = "=0.12.1" },
+
     # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
     { name = "subtle", version = "=1.0.0" },
 
@@ -71,9 +77,6 @@ skip = [
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
-
-    # tokia via actix and actix-server
-    { name = "miow", version = "=0.3.6" },
 
     # crossbeam-epoch and wasmtime-runtime
     { name = "memoffset", version = "=0.6.1" },
