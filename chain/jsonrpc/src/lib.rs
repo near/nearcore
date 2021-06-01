@@ -418,12 +418,10 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest::parse(
                         request.params,
                     )?;
-                self.sandbox_patch_state(sandbox_patch_state_request).await?;
-                self.poll_patch_state().await;
-                serde_json::to_value(
-                    near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {},
-                )
-                .map_err(|err| RpcError::serialization_error(err.to_string()))
+                let sandbox_patch_state_response =
+                    self.sandbox_patch_state(sandbox_patch_state_request).await?;
+                serde_json::to_value(sandbox_patch_state_response)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             _ => Err(RpcError::method_not_found(request.method.clone())),
         };
@@ -494,30 +492,6 @@ impl JsonRpcHandler {
             );
             near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
-    }
-
-    #[cfg(feature = "sandbox")]
-    async fn poll_patch_state(&self) {
-        timeout(self.polling_config.polling_timeout, async {
-            loop {
-                let patch_state_finished = self
-                    .client_addr
-                    .send(NetworkClientMessages::Sandbox(
-                        NetworkSandboxMessage::SandboxPatchStateStatus {},
-                    ))
-                    .await;
-                match patch_state_finished {
-                    Ok(NetworkClientResponses::SandboxResult(
-                        SandboxResponse::SandboxPatchStateFinished(true),
-                    )) => break,
-                    _ => {}
-                }
-                let _ = sleep(self.polling_config.polling_interval).await;
-            }
-        })
-        .await
-        // patch state should happen at next block, never timeout
-        .unwrap();
     }
 
     async fn tx_status_fetch(
@@ -1002,13 +976,37 @@ impl JsonRpcHandler {
     async fn sandbox_patch_state(
         &self,
         patch_state_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest,
-    ) -> Result<(), RpcError> {
+    ) -> Result<
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse,
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
+    > {
         self.client_addr
             .send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxPatchState(
                 patch_state_request.records,
             )))
             .await?;
-        Ok(())
+
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let patch_state_finished = self
+                    .client_addr
+                    .send(NetworkClientMessages::Sandbox(
+                        NetworkSandboxMessage::SandboxPatchStateStatus {},
+                    ))
+                    .await;
+                if let Ok(NetworkClientResponses::SandboxResult(
+                    SandboxResponse::SandboxPatchStateFinished(true),
+                )) = patch_state_finished
+                {
+                    break;
+                }
+                let _ = sleep(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .expect("patch state should happen at next block, never timeout");
+
+        Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
     }
 }
 
