@@ -88,6 +88,44 @@ fn test_simple_contract() {
     });
 }
 
+fn multi_memories_contract() -> Vec<u8> {
+    vec![
+        0, 97, 115, 109, 1, 0, 0, 0, 2, 12, 1, 3, 101, 110, 118, 0, 2, 1, 239, 1, 248, 1, 4, 6, 1,
+        112, 0, 143, 129, 32, 7, 12, 1, 8, 0, 17, 17, 17, 17, 17, 17, 2, 2, 0,
+    ]
+}
+
+#[test]
+fn test_multiple_memories() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let (result, error) =
+            make_simple_contract_call_vm(&multi_memories_contract(), "hello", vm_kind);
+        assert_eq!(result, None);
+        match error {
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::WasmerCompileError { .. },
+            ))) => match vm_kind {
+                VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+                VMKind::Wasmtime => {
+                    panic!("Unexpected")
+                }
+            },
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { .. })) => {
+                // Wasmtime classifies this error as link error at the moment.
+                match vm_kind {
+                    VMKind::Wasmer0 | VMKind::Wasmer1 => {
+                        panic!("Unexpected")
+                    }
+                    VMKind::Wasmtime => {}
+                }
+            }
+            _ => {
+                panic!("Unexpected error: {:?}", error)
+            }
+        }
+    });
+}
+
 #[test]
 fn test_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
@@ -703,6 +741,41 @@ fn test_external_call_error() {
                 )))
             )
         );
+    });
+}
+
+fn external_indirect_call_contract() -> Vec<u8> {
+    wabt::wat2wasm(
+        r#"
+            (module
+              (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
+              (type $prepaid_gas_t (func (result i64)))
+
+              (table 1 funcref)
+              (elem (i32.const 0) $prepaid_gas)
+
+              (func (export "main")
+                (call_indirect (type $prepaid_gas_t) (i32.const 0))
+                drop
+              )
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_external_call_indirect() {
+    with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            // Upstream bug: https://github.com/wasmerio/wasmer/issues/2329.
+            VMKind::Wasmer1 => return,
+            _ => (),
+        }
+
+        let (outcome, err) =
+            make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
+        assert_eq!(err, None);
+        assert_eq!(outcome, Some(vm_outcome_with_gas(329123187)));
     });
 }
 

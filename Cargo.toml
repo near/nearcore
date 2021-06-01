@@ -1,10 +1,5 @@
-[package]
-name = "nearcore"
-version = "0.1.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
-
 [workspace]
+resolver = "2"
 members = [
     "core/chain-configs",
     "core/crypto",
@@ -36,7 +31,8 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
-    "neard/",
+    "neard",
+    "nearcore",
     "tools/rpctypegen/core",
     "tools/rpctypegen/macro",
     "genesis-tools/genesis-csv-to-json",
@@ -49,36 +45,12 @@ members = [
     "tools/restored-receipts-verifier"
 ]
 
-[dev-dependencies]
-# Pin dependency to avoid compilation errors
-funty = "=1.1.0"
-
-rand = "0.7"
-
-near-logger-utils = { path = "./test-utils/logger" }
-near-chain-configs = { path = "./core/chain-configs" }
-near-crypto = { path = "./core/crypto" }
-near-primitives = { path = "./core/primitives" }
-near-store = { path = "./core/store" }
-runtime-params-estimator = { path = "./runtime/runtime-params-estimator", default_features = false }
-restored-receipts-verifier = { path = "./tools/restored-receipts-verifier"}
-near-chain = { path = "./chain/chain" }
-
-node-runtime = { path = "./runtime/runtime" }
-
-near-jsonrpc = { path = "./chain/jsonrpc" }
-near-network = { path = "./chain/network" }
-
-neard = { path = "./neard"}
-
-testlib = { path = "./test-utils/testlib" }
-
 [patch.crates-io]
 ethereum-types = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
 # Temporary wasmer fork which disables rayon (parallel compilation)
 # https://github.com/wasmerio/wasmer/pull/2262
 # Revome this when the new version of wasmer is published.
-wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "1.0.2-single-threaded"}
+wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "1.0.2-single-threaded" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
@@ -101,38 +73,3 @@ opt-level = 3 # BLS library is too slow to use in debug
 
 [profile.dev.package.bs58]
 opt-level = 3 # bs58 library is too slow to use in debug
-
-[features]
-performance_stats = ["neard/performance_stats", "near-network/performance_stats"]
-memory_stats = ["neard/memory_stats"]
-c_memory_stats = ["neard/c_memory_stats"]
-expensive_tests = ["neard/expensive_tests"]
-regression_tests = []
-old_tests = []
-adversarial = ["neard/adversarial", "near-jsonrpc/adversarial", "near-store/adversarial"]
-no_cache = ["neard/no_cache"]
-metric_recorder = ["neard/metric_recorder"]
-delay_detector = ["neard/delay_detector"]
-rosetta_rpc = ["neard/rosetta_rpc"]
-nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol", "testlib/nightly_protocol", "neard/nightly_protocol"]
-nightly_protocol_features = ["nightly_protocol", "neard/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "testlib/nightly_protocol_features", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
-protocol_feature_evm = ["neard/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
-protocol_feature_alt_bn128 = ["neard/protocol_feature_alt_bn128", "testlib/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
-protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "neard/protocol_feature_block_header_v3"]
-protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit", "neard/protocol_feature_tx_size_limit"]
-protocol_feature_allow_create_account_on_delete = ["testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete", "node-runtime/protocol_feature_allow_create_account_on_delete", "neard/protocol_feature_allow_create_account_on_delete"]
-protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
-protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "neard/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
-protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "neard/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix", "restored-receipts-verifier/protocol_feature_restore_receipts_after_fix"]
-protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "neard/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
-
-# enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer1_default = ["node-runtime/wasmer1_default"]
-wasmer0_default = ["node-runtime/wasmer0_default"]
-wasmtime_default = ["node-runtime/wasmtime_default"]
-# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
-# but would not change default runner used by neard
-wasmer1_vm = ["node-runtime/wasmer1_vm"]
-wasmer0_vm = ["node-runtime/wasmer0_vm"]
-wasmtime_vm = ["node-runtime/wasmtime_vm"]

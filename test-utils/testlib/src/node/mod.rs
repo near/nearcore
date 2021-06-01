@@ -9,10 +9,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
-use neard::config::{
+use nearcore::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt,
 };
-use neard::NearConfig;
+use nearcore::NearConfig;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;

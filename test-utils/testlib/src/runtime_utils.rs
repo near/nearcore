@@ -7,7 +7,7 @@ use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::{AccountId, StateRoot};
 use near_store::test_utils::create_tries;
 use near_store::{ShardTries, TrieUpdate};
-use neard::config::GenesisExt;
+use nearcore::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 use std::collections::HashSet;

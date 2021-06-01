@@ -1,10 +1,10 @@
 docker-nearcore:
-	DOCKER_BUILDKIT=1 docker build -t nearcore -f Dockerfile .
+	DOCKER_BUILDKIT=1 docker build -t nearcore -f Dockerfile --progress=plain . 
 
 docker-nearcore-nightly:
-	DOCKER_BUILDKIT=1 docker build -t nearcore-nightly -f Dockerfile.nightly .
+	DOCKER_BUILDKIT=1 docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain . 
 
-RUST_OPTIONS:=+stable
+RUST_OPTIONS:=$(cat rust-toolchain)
 
 export RUSTFLAGS = -D warnings
 
