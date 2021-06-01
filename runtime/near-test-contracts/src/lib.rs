@@ -23,6 +23,11 @@ pub fn tiny_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("tiny_contract_rs.wasm").unwrap()).as_slice()
 }
 
+pub fn load_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("load_contract_rs.wasm").unwrap()).as_slice()
+}
+
 fn read_contract(file_name: &str) -> io::Result<Vec<u8>> {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = base.join("res").join(file_name);
@@ -35,4 +40,5 @@ fn smoke_test() {
     assert!(!nightly_rs_contract().is_empty());
     assert!(!ts_contract().is_empty());
     assert!(!tiny_contract().is_empty());
+    assert!(!load_contract().is_empty());
 }
