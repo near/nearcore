@@ -3188,3 +3188,172 @@ mod cap_max_gas_price_tests {
         assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
     }
 }
+
+#[test]
+fn test_apply_after_high_load() {
+    use log::debug;
+    use std::time::{Duration, Instant};
+    use near_logger_utils::init_test_logger_with_file;
+
+    let log_path = "../../log.txt";
+
+    let num_accounts = 100;
+    let num_clients: u64 = 1;
+    let num_validators: u64 = 1;
+
+    let accounts: Vec<String> = (0..num_accounts).map(|i| format!("test{}", i)).collect();
+    let mut genesis = Genesis::test(accounts.iter().map(|x| x.as_ref()).collect(), num_validators);
+
+    let gas_limit: u64 = 1_000_000_000_000_000;
+    genesis.config.gas_limit = gas_limit;
+    genesis.config.epoch_length = 43200;
+
+    let test_duration = Duration::from_secs(600);
+
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::from(&genesis),
+        num_clients as usize,
+        num_validators,
+        create_nightshade_runtimes(&genesis, num_clients as usize),
+    );
+
+    let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+    for i in 0..num_accounts {
+        let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+        let tx = SignedTransaction::from_actions(
+            i + 1 as u64,
+            "test0".to_string(),
+            format!("test{}", i),
+            &signer,
+            vec![Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::load_contract().to_vec(),
+            })],
+            *last_block.hash(),
+        );
+        env.clients[0].process_tx(tx, false, false);
+    }
+
+    let mut height: u64 = 1;
+    for _ in 1..10 {
+        debug!(target: "runtime", "Height: {}", height);
+
+        last_block = env.clients[0].produce_block(height).unwrap().unwrap();
+        env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+        height += 1;
+    }
+
+
+    let mut max_block_production_time = Duration::from_secs(0);
+    let mut max_block_production_time_height = height;
+
+    let starting_height = height;
+    {
+        init_test_logger_with_file(&log_path);
+        debug!("Start sending random transactions");
+
+        let test_start_time = Instant::now();
+
+        while (Instant::now() - test_start_time) < test_duration {
+            let max_tps_per_account = if (Instant::now() - test_start_time) < test_duration / 2 {
+                3
+            } else {
+                0
+            };
+
+            let mut txs = vec![];
+            for account_idx in 0..num_accounts {
+                for i in 0..max_tps_per_account {
+                    let account_id = format!("test{}", account_idx);
+                    let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+
+                    let nonce = height * 500 * 2 + account_idx * 5 + i;
+
+                    txs.push(SignedTransaction::from_actions(
+                        nonce,
+                        account_id.clone(),
+                        account_id.clone(),
+                        &signer,
+                        vec![Action::FunctionCall(FunctionCallAction {
+                            method_name: "bubble_sort".to_string(),
+                            args: vec![],
+                            gas: 1000,
+                            deposit: 1,
+                        })],
+                        *last_block.hash(),
+                    ));
+                }
+            }
+
+            debug!(target: "runtime", "Height: {}", height);
+
+            let starting_time = Instant::now();
+
+            for tx in txs {
+                env.clients[0].process_tx(tx, false, false);
+            }
+
+            let med_time = Instant::now();
+
+            last_block = env.clients[0].produce_block(height).unwrap().unwrap();
+
+            env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+
+            let finish_time = Instant::now();
+
+            debug!("Txs processed in {:?}", med_time - starting_time);
+            debug!("Block produced and processed in {:?}", finish_time - med_time);
+
+            let production_time = finish_time - med_time;
+
+            if production_time > max_block_production_time {
+                max_block_production_time = production_time;
+                max_block_production_time_height = height;
+            }
+
+            height += 1;
+        }
+    }
+
+    debug!(
+        "Longest production time was {:?} for block at height {}({})",
+        max_block_production_time,
+        max_block_production_time_height,
+        max_block_production_time_height - starting_height
+    );
+
+    {
+        use parse_duration::parse;
+        use regex::Regex;
+        use std::fs::File;
+        use std::io::Read;
+
+        let mut file = File::open(log_path).expect("Unable to open log file");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).expect("Unable to read log file");
+
+        let re = Regex::new(r#"Runtime::apply.{6}node_runtime: close time.busy=(.*) "#).unwrap();
+
+        let lines: Vec<_> = re.captures_iter(&contents).collect();
+
+        let mut max_duration = Duration::from_secs(0);
+        for line in lines {
+            let cur_duration = parse(&line[1]);
+            match cur_duration {
+                Ok(duration) => {
+                    if duration > max_duration {
+                        max_duration = duration;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        debug!("Longest Runtime::apply call took {:?}", max_duration);
+        assert!(
+            max_duration < Duration::from_secs(1),
+            "Longest Runtime::apply call took {:?} > 1s",
+            max_duration
+        );
+    }
+}
