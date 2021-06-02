@@ -2521,19 +2521,13 @@ name = "integration-tests"
 version = "1.2.0"
 dependencies = [
  "funty",
- "near-chain",
  "near-chain-configs",
  "near-crypto",
- "near-jsonrpc",
  "near-logger-utils",
  "near-network",
  "near-primitives",
- "near-store",
  "nearcore",
- "node-runtime",
  "rand 0.7.3",
- "restored-receipts-verifier",
- "runtime-params-estimator",
  "testlib",
 ]
 

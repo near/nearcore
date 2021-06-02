@@ -12,12 +12,6 @@ near-logger-utils = { path = "../test-utils/logger" }
 near-chain-configs = { path = "../core/chain-configs" }
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
-near-store = { path = "../core/store" }
-runtime-params-estimator = { path = "../runtime/runtime-params-estimator", default_features = false }
-restored-receipts-verifier = { path = "../tools/restored-receipts-verifier" }
-near-chain = { path = "../chain/chain" }
-node-runtime = { path = "../runtime/runtime" }
-near-jsonrpc = { path = "../chain/jsonrpc" }
 near-network = { path = "../chain/network" }
 nearcore = { path = "../nearcore" }
 testlib = { path = "../test-utils/testlib" }
@@ -25,10 +19,10 @@ testlib = { path = "../test-utils/testlib" }
 [features]
 performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
 regression_tests = []
-adversarial = ["nearcore/adversarial", "near-jsonrpc/adversarial"]
-protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm", "runtime-params-estimator/protocol_feature_evm"]
-protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128", "runtime-params-estimator/protocol_feature_alt_bn128"]
+adversarial = ["nearcore/adversarial"]
+protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_allow_create_account_on_delete = ["nearcore/protocol_feature_allow_create_account_on_delete", "testlib/protocol_feature_allow_create_account_on_delete", "near-primitives/protocol_feature_allow_create_account_on_delete"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features", "testlib/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_allow_create_account_on_delete", "protocol_feature_restore_receipts_after_fix"]
 nightly_protocol = ["nearcore/nightly_protocol", "testlib/nightly_protocol"]
-protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix", "restored-receipts-verifier/protocol_feature_restore_receipts_after_fix"]
+protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
