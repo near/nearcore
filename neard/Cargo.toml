@@ -47,3 +47,14 @@ nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["nearcore/protocol_feature_cap_max_gas_price"]
+
+# enable this to build neard with wasmer 1.0 runner
+# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer1_default = ["nearcore/wasmer1_default"]
+wasmer0_default = ["nearcore/wasmer0_default"]
+wasmtime_default = ["nearcore/wasmtime_default"]
+# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
+# but would not change default runner used by neard
+wasmer1_vm = ["nearcore/wasmer1_vm"]
+wasmer0_vm = ["nearcore/wasmer0_vm"]
+wasmtime_vm = ["nearcore/wasmtime_vm"]
