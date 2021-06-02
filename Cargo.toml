@@ -42,7 +42,8 @@ members = [
     "tools/indexer/example",
     "tools/delay_detector",
     "tools/storage-usage-delta-calculator",
-    "tools/restored-receipts-verifier"
+    "tools/restored-receipts-verifier",
+    "integration-tests",
 ]
 
 [patch.crates-io]
