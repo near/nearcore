@@ -973,16 +973,22 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
-    /// Hashes the given value using BLAKE2b and returns it into `register_id`.
+    /// Hashes the given message using BLAKE2b and returns it into `register_id`.
     ///
     /// # Errors
     ///
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
     ///
+    /// If the message is too long and overflows, an error is returned with
+    /// `Blake2HashDataOverflow`.
+    ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + blake2b_base + blake2b_byte * num_bytes`
+    /// Where `message_blocks` is `(message_len / 128 + 1)`.
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// message_blocks * blake2b_block + rounds * message_blocks`
     #[cfg(feature = "protocol_feature_evm")]
     pub fn blake2b(
         &mut self,
@@ -1030,6 +1036,22 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, res.as_slice().to_vec())
     }
 
+    /// Hashes the given message using BLAKE2s and returns it into `register_id`.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the limit with `MemoryAccessViolation`.
+    ///
+    /// If the message is too long and overflows, an error is returned with
+    /// `Blake2HashDataOverflow`.
+    ///
+    /// # Cost
+    ///
+    /// Where `message_blocks` is `(message_len / 128 + 1)`.
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    /// message_blocks * blake2s_block + rounds * message_blocks`
     #[cfg(feature = "protocol_feature_evm")]
     pub fn blake2s(
         &mut self,
