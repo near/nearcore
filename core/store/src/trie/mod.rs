@@ -446,10 +446,6 @@ impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
-
-    pub fn inserted_contracts(&self, shard_id: ShardId) -> Vec<Vec<u8>> {
-        self.insertions.iter().filter(|&item| {is_contract_code_key(&TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &item.0))}).map(|&t| {t.1}).collect()
-    }
 }
 
 impl Trie {

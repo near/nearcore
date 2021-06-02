@@ -108,14 +108,18 @@ impl ShardTries {
         tries: ShardTries,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), StorageError> {
+    ) -> Result<Vec<&Vec<u8>>, StorageError> {
         store_update.tries = Some(tries);
-        let mut compiled_contract_cache = Some(StoreCompiledContractCache { store: tries.store.clone() });
+        let mut contract_codes = Vec::new();
         for (hash, value, rc) in insertions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
             store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, *rc as i64);
+
+            if is_contract_code_key(&key) {
+                contract_codes.push(value);
+            }
         }
-        Ok(())
+        Ok(contract_codes)
     }
 
     fn apply_all_inner(
@@ -123,9 +127,9 @@ impl ShardTries {
         tries: ShardTries,
         shard_id: ShardId,
         apply_deletions: bool,
-    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
+    ) -> Result<(StoreUpdate, StateRoot, Vec<&Vec<u8>>), StorageError> {
         let mut store_update = StoreUpdate::new_with_tries(tries.clone());
-        ShardTries::apply_insertions_inner(
+        let contract_codes = ShardTries::apply_insertions_inner(
             &trie_changes.insertions,
             tries.clone(),
             shard_id,
@@ -139,7 +143,7 @@ impl ShardTries {
                 &mut store_update,
             )?;
         }
-        Ok((store_update, trie_changes.new_root))
+        Ok((store_update, trie_changes.new_root, contract_codes))
     }
 
     pub fn apply_insertions(
@@ -153,7 +157,8 @@ impl ShardTries {
             self.clone(),
             shard_id,
             store_update,
-        )
+        )?;
+        Ok(())
     }
 
     pub fn apply_deletions(
@@ -188,7 +193,7 @@ impl ShardTries {
         &self,
         trie_changes: &TrieChanges,
         shard_id: ShardId,
-    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
+    ) -> Result<(StoreUpdate, StateRoot, Vec<&Vec<u8>>), StorageError> {
         ShardTries::apply_all_inner(trie_changes, self.clone(), shard_id, true)
     }
 

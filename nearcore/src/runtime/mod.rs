@@ -1421,7 +1421,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         // add compiled contracts to cache
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
-        for code in trie_changes.inserted_contracts(shard_id).iter() {
+        let tries = self.get_tries();
+        let (store_update, _, contract_codes) =
+            tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
+        for code in contract_codes.iter().cloned() {
             let contract_code = ContractCode::new(code.clone(), None);
             precompile_contract(
                 &contract_code,
@@ -1429,9 +1432,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 compiled_contract_cache.as_deref(),
             );
         }
-        let tries = self.get_tries();
-        let (store_update, _) =
-            tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
         Ok(store_update.commit()?)
 
     }

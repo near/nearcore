@@ -3716,6 +3716,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
+ "near-vm-runner",
  "node-runtime",
  "num-rational",
  "primitive-types",
