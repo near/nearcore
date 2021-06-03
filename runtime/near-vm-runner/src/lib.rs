@@ -31,8 +31,6 @@ pub use near_vm_logic::with_ext_cost_counter;
 pub use cache::precompile_contract;
 pub use cache::precompile_contract_vm;
 pub use cache::MockCompiledContractCache;
-// cfg[]
-pub use cache::get_key;
 
 // These two are public for the standalone runner, but are an implementation
 // detail of `near-vm-runner`. Public API like `run` should not expose VMKind.

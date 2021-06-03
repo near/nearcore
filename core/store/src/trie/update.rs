@@ -387,7 +387,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
 
@@ -398,7 +398,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
 
@@ -408,7 +408,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         assert_ne!(new_root, CryptoHash::default());
         let mut trie_update = tries.new_trie_update(0, new_root);
@@ -416,7 +416,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         assert_eq!(new_root, CryptoHash::default());
     }
