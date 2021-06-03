@@ -12,8 +12,6 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateRoot, StateRootNode};
-// cfg []
-use near_primitives::state_record::is_contract_code_key;
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -755,7 +753,7 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
         let trie_changes = trie.update(root, other_delete_changes.drain(..)).unwrap();
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), Ok(None));

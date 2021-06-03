@@ -517,7 +517,7 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         (signer, tries.new_trie_update(0, root), 100)

@@ -33,10 +33,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode,
-};
+use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, CompiledContractCache};
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
@@ -62,8 +59,6 @@ use near_primitives::runtime::config::RuntimeConfig;
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-// cfg[]
-use near_primitives::state_record::is_contract_code_key;
 
 pub mod errors;
 
@@ -1418,22 +1413,22 @@ impl RuntimeAdapter for NightshadeRuntime {
             .expect("Part was already validated earlier, so could never fail here");
         let trie_changes = Trie::apply_state_part(&state_root, part_id, num_parts, part)
             .expect("combine_state_parts is guaranteed to succeed when each part is valid");
-        // add compiled contracts to cache
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let tries = self.get_tries();
         let (store_update, _, contract_codes) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
+        // add compiled contracts to cache
+        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> = Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         for code in contract_codes.iter().cloned() {
             let contract_code = ContractCode::new(code.clone(), None);
             precompile_contract(
                 &contract_code,
                 &runtime_config.wasm_config,
                 compiled_contract_cache.as_deref(),
-            );
+            ).map_err(|e| {Error::from(e.to_string())})?;
         }
         Ok(store_update.commit()?)
-
     }
 
     fn get_state_root_node(

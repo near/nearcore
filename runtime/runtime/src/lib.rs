@@ -32,15 +32,13 @@ use near_primitives::{
 };
 pub use near_store;
 use near_store::{
-    get, get_account, get_code, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
+    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
-// cfg[]
-use near_vm_runner::{get_key, precompile_contract};
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -1411,14 +1409,14 @@ mod tests {
     use near_primitives::transaction::{AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction};
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::set_access_key;
+    use near_store::{set_access_key, get_code};
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
     // cfg[()]
     use near_primitives::transaction::DeployContractAction;
-    use near_vm_runner::VMKind;
+    use near_vm_runner::{VMKind, get_key, precompile_contract};
 
     const GAS_PRICE: Balance = 5000;
 
@@ -1447,7 +1445,7 @@ mod tests {
         set_account(&mut state_update, account_id.clone(), &test_account);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         let new_state_update = tries.new_trie_update(0, new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
@@ -1485,7 +1483,7 @@ mod tests {
         );
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
@@ -1584,7 +1582,7 @@ mod tests {
                     &epoch_info_provider,
                 )
                 .unwrap();
-            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            let (store_update, new_root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1633,7 +1631,7 @@ mod tests {
                     &epoch_info_provider,
                 )
                 .unwrap();
-            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            let (store_update, new_root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1691,7 +1689,7 @@ mod tests {
                     &epoch_info_provider,
                 )
                 .unwrap();
-            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            let (store_update, new_root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1782,7 +1780,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1829,7 +1827,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1868,7 +1866,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -1915,7 +1913,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         assert_eq!(
@@ -2015,7 +2013,7 @@ mod tests {
         set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let err = runtime
@@ -2241,7 +2239,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let state_update = tries.new_trie_update(0, root);
@@ -2263,7 +2261,7 @@ mod tests {
         set_account(&mut state_update, alice_account(), &initial_account_state);
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
@@ -2293,7 +2291,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let state_update = tries.new_trie_update(0, root);
@@ -2364,7 +2362,7 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         // let contract_code =  runtime_ext.get_code(account.code_hash())

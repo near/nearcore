@@ -1,15 +1,14 @@
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate, StoreCompiledContractCache};
+use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot, CompiledContractCache};
+use near_primitives::types::{NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot};
 use near_primitives::utils::get_block_shard_id;
 use near_primitives::state_record::is_contract_code_key;
 use std::rc::Rc;
 use std::sync::Arc;
-use near_primitives::contract::ContractCode;
 
 #[derive(Clone)]
 pub struct ShardTries {
@@ -103,12 +102,12 @@ impl ShardTries {
         Ok(())
     }
 
-    fn apply_insertions_inner(
-        insertions: &Vec<(CryptoHash, Vec<u8>, u32)>,
+    fn apply_insertions_inner<'a>(
+        insertions: &'a Vec<(CryptoHash, Vec<u8>, u32)>,
         tries: ShardTries,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
-    ) -> Result<Vec<&Vec<u8>>, StorageError> {
+    ) -> Result<Vec<&'a Vec<u8>>, StorageError> {
         store_update.tries = Some(tries);
         let mut contract_codes = Vec::new();
         for (hash, value, rc) in insertions.iter() {
@@ -189,11 +188,11 @@ impl ShardTries {
         )
     }
 
-    pub fn apply_all(
+    pub fn apply_all<'a>(
         &self,
-        trie_changes: &TrieChanges,
+        trie_changes: &'a TrieChanges,
         shard_id: ShardId,
-    ) -> Result<(StoreUpdate, StateRoot, Vec<&Vec<u8>>), StorageError> {
+    ) -> Result<(StoreUpdate, StateRoot, Vec<&'a Vec<u8>>), StorageError> {
         ShardTries::apply_all_inner(trie_changes, self.clone(), shard_id, true)
     }
 

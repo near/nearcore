@@ -176,7 +176,7 @@ impl GenesisBuilder {
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize()?.0;
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_idx)?;
+        let (store_update, root, _) = tries.apply_all(&trie_changes, shard_idx)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());

@@ -1763,7 +1763,7 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id();
+        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
@@ -1775,7 +1775,7 @@ impl Chain {
                 part_id,
                 num_parts,
                 &part,
-                epoch_id,
+                &epoch_id,
             )?;
         }
 

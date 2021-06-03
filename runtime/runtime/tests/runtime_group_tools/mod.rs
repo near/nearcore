@@ -118,7 +118,7 @@ impl StandaloneRuntime {
             )
             .unwrap();
 
-        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root, _) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
