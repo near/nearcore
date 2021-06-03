@@ -1416,7 +1416,7 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account};
     // cfg[()]
     use near_primitives::transaction::DeployContractAction;
-    use near_vm_runner::{VMKind, get_key, precompile_contract};
+    use near_vm_runner::{VMKind, precompile_contract};
 
     const GAS_PRICE: Balance = 5000;
 

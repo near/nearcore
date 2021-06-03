@@ -362,7 +362,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
         let trie_update2 = tries.new_trie_update(0, new_root);
         assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
@@ -430,7 +430,7 @@ mod tests {
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().0;
-        let (store_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let mut trie_update = tries.new_trie_update(0, new_root);
