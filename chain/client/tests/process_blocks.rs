@@ -63,6 +63,7 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
+use near_primitives::contract::ContractCode;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -1496,12 +1497,14 @@ fn test_process_block_after_state_sync() {
 fn test_precompile_on_apply_state_part() {
     let num_clients = 2;
     let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| {create_test_store()}).collect();
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    let genesis_config = genesis.config.clone();
     let runtimes = stores.iter()
         .map(|store| {
             Arc::new(nearcore::NightshadeRuntime::new(
                 Path::new("."),
                 store.clone(),
-                &Genesis::test(vec!["test0", "test1"], 1),
+                &genesis,
                 vec![],
                 vec![],
                 None,
@@ -1542,9 +1545,10 @@ fn test_precompile_on_apply_state_part() {
             .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
             .unwrap();
     }
-    for i in 0..num_clients {
-        stores[1].as_ref().
-    }
+    let compiled_contract_cache = Arc::new(StoreCompiledContractCache { store: stores[1].clone() });
+    let contract_code = ContractCode::new(wasm_code, None);
+    let key = get_key(&contract_code, VMKind::default(), genesis_config.runtime_config.wasm_config);
+    let y = compiled_contract_cache.get(&key.0).unwrap().unwrap();
 }
 
 #[test]
