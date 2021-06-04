@@ -1002,7 +1002,7 @@ impl<'a> VMLogic<'a> {
         f1: u64,
         register_id: u64,
     ) -> Result<()> {
-        use blake2::{Error as Blake2Error, VarBlake2b};
+        use blake2::VarBlake2b;
         use std::convert::TryFrom;
 
         if state_len != 8 {
@@ -1020,13 +1020,7 @@ impl<'a> VMLogic<'a> {
             .expect("vec bytes conversion");
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
-        let mut hasher = match VarBlake2b::with_state(rounds, state, t) {
-            Ok(h) => h,
-            Err(Blake2Error::TooManyRounds { max, actual }) => {
-                return Err(HostError::Blake2TooManyRounds { max, actual }.into())
-            }
-            _ => unreachable!(),
-        };
+        let mut hasher = VarBlake2b::with_state(rounds, state, t);
         if hasher.update_inner(&m).is_err() {
             return Err(HostError::Blake2HashDataOverflow.into());
         }
@@ -1066,7 +1060,7 @@ impl<'a> VMLogic<'a> {
         f1: u32,
         register_id: u64,
     ) -> Result<()> {
-        use blake2::{Error as Blake2Error, VarBlake2s};
+        use blake2::VarBlake2b;
         use std::convert::TryFrom;
 
         if state_len != 8 {
@@ -1094,13 +1088,7 @@ impl<'a> VMLogic<'a> {
         t_buf[0..4].copy_from_slice(&t0.to_le_bytes());
         t_buf[4..8].copy_from_slice(&t1.to_le_bytes());
         let t = u64::from_le_bytes(t_buf);
-        let mut hasher = match VarBlake2s::with_state(rounds, state, t) {
-            Ok(h) => h,
-            Err(Blake2Error::TooManyRounds { max, actual }) => {
-                return Err(HostError::Blake2TooManyRounds { max, actual }.into())
-            }
-            _ => unreachable!(),
-        };
+        let mut hasher = VarBlake2s::with_state(rounds, state, t);
         if hasher.update_inner(&m).is_err() {
             return Err(HostError::Blake2HashDataOverflow.into());
         }

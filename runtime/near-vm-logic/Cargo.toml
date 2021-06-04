@@ -14,7 +14,7 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 base64 = "0.13"
-blake2 = { package = "near-blake2", git = "https://github.com/near/near-blake2.git", rev = "5e9890f", optional = true }
+blake2 = { package = "near-blake2", git = "https://github.com/near/near-blake2.git", rev = "650b67", optional = true }
 borsh = "0.8.1"
 bs58 = "0.4"
 byteorder = "1.2"
