@@ -57,7 +57,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use near_store::{get, StoreCompiledContractCache};
+use near_store::{get, StoreCompiledContractCache, Store};
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
@@ -1482,14 +1482,69 @@ fn test_process_block_after_state_sync() {
         assert!(env.clients[0].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
-    let epoch_id = env.clients[0].chain.get_block_header(&sync_hash)?.epoch_id();
+    let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, epoch_id)
+        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
     assert!(res.is_ok());
+}
+
+#[test]
+fn test_precompile_on_apply_state_part() {
+    let num_clients = 2;
+    let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| {create_test_store()}).collect();
+    let runtimes = stores.iter()
+        .map(|store| {
+            Arc::new(nearcore::NightshadeRuntime::new(
+                Path::new("."),
+                store.clone(),
+                &Genesis::test(vec!["test0", "test1"], 1),
+                vec![],
+                vec![],
+                None,
+            )) as Arc<dyn RuntimeAdapter>
+        }).collect();
+
+    let mut env =
+        TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtimes);
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    // Deploy contract to test0.
+    let tx = SignedTransaction::from_actions(
+        1,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+    for i in 1..5 {
+        let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+        let sync_hash = *sync_block.hash();
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+        let state_part = env.clients[0]
+            .runtime_adapter
+            .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+            .unwrap();
+        let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+        env.clients[1]
+            .runtime_adapter
+            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+            .unwrap();
+    }
+    for i in 0..num_clients {
+        stores[1].as_ref().
+    }
 }
 
 #[test]

@@ -2328,28 +2328,6 @@ mod tests {
 
     #[test]
     fn test_compiled_contract() {
-        // let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        // let chain_genesis = ChainGenesis::from(&genesis);
-        // let store = create_test_store();
-        // let compiled_contract_cache = Arc::new(StoreCompiledContractCache { store: store.clone() });
-        // let runtime = neard::NightshadeRuntime::new(
-        //     Path::new("."),
-        //     store,
-        //     &genesis,
-        //     vec![],
-        //     vec![],
-        //     None,
-        // );
-        // let mut env = TestEnv::new_with_runtime(
-        //     chain_genesis.clone(),
-        //     1,
-        //     1,
-        //     vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
-        // );
-
-        // let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-        // let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let gas_limit = 10u64.pow(15);
@@ -2358,8 +2336,9 @@ mod tests {
 
         // let gas = 1_000_000;
         // let gas_price = GAS_PRICE / 10;
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
         let actions = vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
+            code: wasm_code.clone(),
         })];
 
         let receipts = vec![Receipt {
@@ -2390,23 +2369,8 @@ mod tests {
         let (store_update, root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
-        // let contract_code =  runtime_ext.get_code(account.code_hash())
-        // let wasm_code = None;
-        // let config = None;
-
-        // let x = 5;
-        // apply_state.cache.unwrap().get(x);
-        let state_update = tries.new_trie_update(0, root);
-        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
-        let wasm_code = get_code(&state_update, &alice_account(), Some(account.code_hash())).unwrap().unwrap();
-        let key = get_key(&wasm_code, VMKind::default(), &apply_state.config.wasm_config);
-
-        // precompile_contract(
-        //     &wasm_code,
-        //     &apply_state.config.wasm_config,
-        //     apply_state.cache.as_deref(),
-        // );
-        // apply_state.cache.clone().unwrap().put(&key.0, &key.0);
+        let contract_code = ContractCode::new(wasm_code, None);
+        let key = get_key(&contract_code, VMKind::default(), &apply_state.config.wasm_config);
         println!("{}", key);
 
         let y = apply_state.cache.unwrap().get(&key.0).unwrap().unwrap();
