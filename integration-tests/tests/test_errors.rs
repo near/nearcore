@@ -9,8 +9,8 @@ use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::load_test_config;
+use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::load_test_config;
 use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {

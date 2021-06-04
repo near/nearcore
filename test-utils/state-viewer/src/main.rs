@@ -10,6 +10,7 @@ use clap::{App, Arg, SubCommand};
 
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
+use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_logger_utils::init_integration_logger;
@@ -24,7 +25,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
 
@@ -214,14 +215,14 @@ fn apply_block_at_height(
     shard_id: ShardId,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime = NightshadeRuntime::new(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
         &home_dir,
         store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
         None,
-    );
+    ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
@@ -239,7 +240,14 @@ fn apply_block_at_height(
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
-        runtime
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            &mut chain_store,
+            runtime_adapter.as_ref(),
+            block.header().prev_hash(),
+            shard_id,
+        )
+        .unwrap();
+        runtime_adapter
             .apply_transactions(
                 shard_id,
                 chunk_inner.prev_state_root(),
@@ -255,13 +263,14 @@ fn apply_block_at_height(
                 &block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
+                is_first_block_with_chunk_of_version,
             )
             .unwrap()
     } else {
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
 
-        runtime
+        runtime_adapter
             .apply_transactions(
                 shard_id,
                 chunk_extra.state_root(),
@@ -276,6 +285,7 @@ fn apply_block_at_height(
                 chunk_extra.gas_limit(),
                 &block.header().challenges_result(),
                 *block.header().random_value(),
+                false,
                 false,
             )
             .unwrap()

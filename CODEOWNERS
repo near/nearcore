@@ -22,7 +22,8 @@
 /tools/indexer/ @khorolets @frol
 
 /core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
-/neard/ @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
+/neard/ @bowenwang1996 @frol
+/nearcore/ @bowenwang1996 @frol @evgenykuzyakov @SkidanovAlex
 
 /.buildkite/ @chefsale @mhalambek
 /scripts/ @chefsale @mhalambek

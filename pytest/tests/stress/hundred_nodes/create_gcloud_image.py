@@ -9,7 +9,8 @@ sys.path.append('lib')
 
 additional_flags = ''
 
-toolchain = open(os.path.join(os.path.dirname(__file__), '../../../../rust-toolchain')).read().strip()
+toolchain = open(os.path.join(os.path.dirname(__file__),
+                              '../../../../rust-toolchain')).read().strip()
 
 try:
     image_name = sys.argv[1]

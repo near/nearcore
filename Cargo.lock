@@ -365,6 +365,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-recursion"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7d78656ba01f1b93024b7c3a0467f1608e4be67d725749fdcd7d2c7678fd7a2"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.9",
+ "syn 1.0.60",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2039,7 +2050,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-runtime-utils",
- "neard",
+ "nearcore",
  "node-runtime",
  "serde",
  "serde_json",
@@ -2066,7 +2077,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
- "neard",
+ "nearcore",
  "tempfile",
 ]
 
@@ -2506,6 +2517,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "1.2.0"
+dependencies = [
+ "funty",
+ "near-chain-configs",
+ "near-crypto",
+ "near-logger-utils",
+ "near-network",
+ "near-primitives",
+ "nearcore",
+ "rand 0.7.3",
+ "testlib",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2618,7 +2644,7 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "near-crypto",
- "neard",
+ "nearcore",
 ]
 
 [[package]]
@@ -2758,7 +2784,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "neard",
+ "nearcore",
  "node-runtime",
  "rand 0.7.3",
  "reqwest",
@@ -2793,7 +2819,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -2803,6 +2828,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -3110,7 +3136,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
- "neard",
+ "nearcore",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -3227,15 +3253,16 @@ dependencies = [
 
 [[package]]
 name = "near-indexer"
-version = "0.8.1"
+version = "0.9.1"
 dependencies = [
  "actix",
+ "async-recursion",
  "futures",
  "near-chain-configs",
  "near-client",
  "near-crypto",
  "near-primitives",
- "neard",
+ "nearcore",
  "node-runtime",
  "rocksdb",
  "serde",
@@ -3670,40 +3697,19 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "0.1.0"
-dependencies = [
- "funty",
- "near-chain",
- "near-chain-configs",
- "near-crypto",
- "near-jsonrpc",
- "near-logger-utils",
- "near-network",
- "near-primitives",
- "near-store",
- "neard",
- "node-runtime",
- "rand 0.7.3",
- "runtime-params-estimator",
- "testlib",
-]
-
-[[package]]
-name = "neard"
 version = "1.2.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "actix_derive",
  "awc",
  "borsh",
  "byteorder",
  "chrono",
- "clap 2.33.3",
  "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
- "git-version",
  "jemallocator",
  "lazy-static-include",
  "near-actix-test-utils",
@@ -3726,7 +3732,6 @@ dependencies = [
  "near-telemetry",
  "node-runtime",
  "num-rational",
- "openssl-probe",
  "primitive-types",
  "rand 0.7.3",
  "serde",
@@ -3734,6 +3739,21 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "neard"
+version = "1.2.0"
+dependencies = [
+ "actix",
+ "clap 2.33.3",
+ "git-version",
+ "near-performance-metrics",
+ "near-primitives",
+ "near-rust-allocator-proxy",
+ "nearcore",
+ "openssl-probe",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3979,7 +3999,7 @@ dependencies = [
  "paperclip-actix",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "semver",
  "serde",
  "serde_derive",
@@ -4000,7 +4020,7 @@ dependencies = [
  "once_cell",
  "paperclip-core",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "serde_json",
 ]
 
@@ -4013,7 +4033,7 @@ dependencies = [
  "mime",
  "once_cell",
  "paperclip-macros",
- "parking_lot 0.10.2",
+ "parking_lot 0.11.1",
  "pin-project",
  "regex",
  "serde",
@@ -4764,8 +4784,21 @@ dependencies = [
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
- "neard",
+ "nearcore",
  "testlib",
+]
+
+[[package]]
+name = "restored-receipts-verifier"
+version = "0.1.0"
+dependencies = [
+ "clap 3.0.0-beta.2",
+ "near-chain",
+ "near-jsonrpc",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "serde_json",
 ]
 
 [[package]]
@@ -4838,7 +4871,7 @@ dependencies = [
  "near-store",
  "near-vm-logic",
  "near-vm-runner",
- "neard",
+ "nearcore",
  "node-runtime",
  "num-rational",
  "num-traits",
@@ -5264,7 +5297,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-store",
- "neard",
+ "nearcore",
  "node-runtime",
  "serde_json",
 ]
@@ -5348,7 +5381,7 @@ dependencies = [
  "near-logger-utils",
  "near-primitives",
  "near-store",
- "neard",
+ "nearcore",
  "serde_json",
  "testlib",
 ]
@@ -5537,7 +5570,7 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "neard",
+ "nearcore",
  "node-runtime",
  "num-rational",
  "rand 0.7.3",

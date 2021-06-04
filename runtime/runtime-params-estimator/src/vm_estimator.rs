@@ -9,7 +9,7 @@ use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VMError, VMKind};
-use neard::get_store_path;
+use nearcore::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 use std::convert::TryFrom;
