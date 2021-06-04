@@ -57,6 +57,9 @@ use near_primitives::version::{
 };
 use std::rc::Rc;
 use std::sync::Arc;
+use near_primitives::state_record::is_contract_code_key;
+use near_primitives::contract::ContractCode;
+use near_vm_runner::precompile_contract;
 
 mod actions;
 pub mod adapter;
@@ -1322,6 +1325,28 @@ impl Runtime {
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
         let (trie_changes, state_changes) = state_update.finalize()?;
+        let mut contract_codes = Vec::new();
+        for state_change in state_changes.iter() {
+            match state_change.trie_key {
+                TrieKey::ContractCode { .. } => {
+                    contract_codes.push(state_change.changes
+                        .last()
+                        .expect("Committed entry should have at least one change")
+                        .data
+                        .as_ref()
+                        .expect("Contract code key should have non-empty data"));
+                }
+                _ => {},
+            }
+        }
+        for code in contract_codes.iter().cloned() {
+            let contract_code = ContractCode::new(code.clone(), None);
+            precompile_contract(
+                &contract_code,
+                &apply_state.config.wasm_config,
+                apply_state.cache.as_deref(),
+            ).map_err(|e| {RuntimeError::UnexpectedIntegerOverflow})?;
+        }
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
@@ -2376,11 +2401,11 @@ mod tests {
         let wasm_code = get_code(&state_update, &alice_account(), Some(account.code_hash())).unwrap().unwrap();
         let key = get_key(&wasm_code, VMKind::default(), &apply_state.config.wasm_config);
 
-        precompile_contract(
-            &wasm_code,
-            &apply_state.config.wasm_config,
-            apply_state.cache.as_deref(),
-        );
+        // precompile_contract(
+        //     &wasm_code,
+        //     &apply_state.config.wasm_config,
+        //     apply_state.cache.as_deref(),
+        // );
         // apply_state.cache.clone().unwrap().put(&key.0, &key.0);
         println!("{}", key);
 

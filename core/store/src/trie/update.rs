@@ -131,6 +131,7 @@ impl TrieUpdate {
                 (k, data)
             }),
         )?;
+
         Ok((trie_changes, state_changes))
     }
 
