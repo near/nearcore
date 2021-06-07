@@ -64,12 +64,13 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
 
-fn set_block_protocol_version(block: &mut Block, block_producer: &str, protocol_version: ProtocolVersion) {
-    let validator_signer = InMemoryValidatorSigner::from_seed(
-        block_producer,
-        KeyType::ED25519,
-        block_producer,
-    );
+fn set_block_protocol_version(
+    block: &mut Block,
+    block_producer: &str,
+    protocol_version: ProtocolVersion,
+) {
+    let validator_signer =
+        InMemoryValidatorSigner::from_seed(block_producer, KeyType::ED25519, block_producer);
     block.mut_header().get_mut().inner_rest.latest_protocol_version = protocol_version;
     block.mut_header().resign(&validator_signer);
 }
@@ -2975,7 +2976,11 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                     env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
                 set_no_chunk_in_block(&mut block, &prev_block);
             }
-            set_block_protocol_version(&mut block, "test0",ProtocolFeature::RestoreReceiptsAfterFix.protocol_version());
+            set_block_protocol_version(
+                &mut block,
+                "test0",
+                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+            );
 
             env.process_block(0, block, Provenance::PRODUCED);
 
@@ -3074,7 +3079,11 @@ mod storage_usage_fix_tests {
             // We cannot just use TestEnv::produce_block as we are updating protocol version
 
             let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-            set_block_protocol_version(&mut block, "test0",ProtocolFeature::FixStorageUsage.protocol_version());
+            set_block_protocol_version(
+                &mut block,
+                "test0",
+                ProtocolFeature::FixStorageUsage.protocol_version(),
+            );
 
             let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
