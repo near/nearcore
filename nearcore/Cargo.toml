@@ -73,7 +73,7 @@ nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protoc
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
-protocol_feature_precompile_contracts = ["near-primitives/protocol_feature_precompile_contracts"]
+protocol_feature_precompile_contracts = ["near-client/protocol_feature_precompile_contracts", "near-primitives/protocol_feature_precompile_contracts"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default

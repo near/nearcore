@@ -31,7 +31,7 @@ impl Trie {
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
-
+        println!("LEN: {}", trie_nodes.0.len());
         Ok(trie_nodes)
     }
 

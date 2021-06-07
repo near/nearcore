@@ -326,6 +326,7 @@ pub fn precompile_contract_vm(
         Some(it) => it,
     };
     let key = get_key(wasm_code, vm_kind, config);
+    println!("ADD KEY {}", key);
     // Check if we already cached with such a key.
     match cache.get(&key.0) {
         // If so - do not override.

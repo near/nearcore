@@ -1416,6 +1416,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let tries = self.get_tries();
         let (store_update, _, contract_codes) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
+        println!("CODES: {:#?}", contract_codes);
         // add compiled contracts to cache
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);

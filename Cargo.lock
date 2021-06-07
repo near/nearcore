@@ -3136,6 +3136,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "num-rational",
  "rand 0.7.3",

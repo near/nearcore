@@ -57,7 +57,6 @@ use near_primitives::version::{
 };
 use std::rc::Rc;
 use std::sync::Arc;
-use near_primitives::state_record::is_contract_code_key;
 use near_primitives::contract::ContractCode;
 use near_vm_runner::precompile_contract;
 
@@ -1339,6 +1338,8 @@ impl Runtime {
                 _ => {},
             }
         }
+        println!("TO INSERT:");
+        println!("{:?}", contract_codes.len());
         for code in contract_codes.iter().cloned() {
             let contract_code = ContractCode::new(code.clone(), None);
             precompile_contract(
