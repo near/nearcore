@@ -17,7 +17,6 @@ num-traits = "0.2.11"
 hex = "0.4.2"
 ethereum-types = "0.11.0"
 thiserror = "1.0"
-
 borsh = "0.8.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
@@ -30,6 +29,8 @@ near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
+
+perf-event = "0.4.7"
 
 [features]
 default = []

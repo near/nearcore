@@ -39,6 +39,8 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ReturnData, VMConfig, VMContext, VMLogic};
 pub use near_vm_runner::with_ext_cost_counter;
+use perf_event::{Builder, Group};
+use perf_event::events::Hardware;
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -1090,6 +1092,9 @@ impl Runtime {
         unsafe {
             rd = core::arch::x86_64::_rdtsc();
         }
+        let mut group = Group::new().unwrap();
+        let insns = Builder::new().group(&mut group).kind(Hardware::INSTRUCTIONS).build().unwrap();
+        let cycles = Builder::new().group(&mut group).kind(Hardware::CPU_CYCLES).build().unwrap();
         let instant = Instant::now();
         let mut gas_used: Gas = 0;
 
@@ -1153,10 +1158,14 @@ impl Runtime {
         unsafe {
             rd = core::arch::x86_64::_rdtsc() - rd;
         }
+        let counts = group.read().unwrap();
         log::error!(
-            "Gas used {}, rd {}, elapsed {}",
+            "Gas used {}, rd {}, insn {} cycles {} insn per cycle {:.2} elapsed {}",
             logic.used_gas().unwrap(),
             rd,
+            counts[&insns],
+            counts[&cycles],
+            (counts[&insns] as f64 / counts[&cycles] as f64),
             instant.elapsed().as_nanos()
         );
         state_update.commit(StateChangeCause::Migration);
