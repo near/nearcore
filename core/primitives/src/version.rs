@@ -117,7 +117,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 113;
+pub const PROTOCOL_VERSION: ProtocolVersion = 112;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
