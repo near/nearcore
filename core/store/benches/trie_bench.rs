@@ -21,7 +21,7 @@ fn trie_lookup(bench: &mut Bencher) {
     }
     let other_changes = changes.clone();
     let trie_changes = trie.update(&root, changes.drain(..)).unwrap();
-    let (state_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+    let (state_update, root, _) = tries.apply_all(&trie_changes, 0).unwrap();
     state_update.commit().expect("Failed to commit");
 
     bench.iter(|| {

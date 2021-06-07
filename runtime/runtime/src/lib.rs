@@ -49,16 +49,16 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
+use near_vm_runner::precompile_contract;
 use std::rc::Rc;
 use std::sync::Arc;
-use near_primitives::contract::ContractCode;
-use near_vm_runner::precompile_contract;
 
 mod actions;
 pub mod adapter;
@@ -1328,14 +1328,17 @@ impl Runtime {
         for state_change in state_changes.iter() {
             match state_change.trie_key {
                 TrieKey::ContractCode { .. } => {
-                    contract_codes.push(state_change.changes
-                        .last()
-                        .expect("Committed entry should have at least one change")
-                        .data
-                        .as_ref()
-                        .expect("Contract code key should have non-empty data"));
+                    contract_codes.push(
+                        state_change
+                            .changes
+                            .last()
+                            .expect("Committed entry should have at least one change")
+                            .data
+                            .as_ref()
+                            .expect("Contract code key should have non-empty data"),
+                    );
                 }
-                _ => {},
+                _ => {}
             }
         }
         println!("TO INSERT:");
@@ -1346,7 +1349,8 @@ impl Runtime {
                 &contract_code,
                 &apply_state.config.wasm_config,
                 apply_state.cache.as_deref(),
-            ).map_err(|e| {RuntimeError::UnexpectedIntegerOverflow})?;
+            )
+            .map_err(|e| RuntimeError::UnexpectedIntegerOverflow)?;
         }
 
         // Dedup proposals from the same account.
@@ -1432,17 +1436,19 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    use near_primitives::transaction::{AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction};
+    use near_primitives::transaction::{
+        AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
+    };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::{set_access_key, get_code};
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
+    use near_store::{get_code, set_access_key};
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
     // cfg[()]
     use near_primitives::transaction::DeployContractAction;
-    use near_vm_runner::{VMKind, precompile_contract, get_key};
+    use near_vm_runner::{get_key, precompile_contract, VMKind};
 
     const GAS_PRICE: Balance = 5000;
 
@@ -1608,7 +1614,8 @@ mod tests {
                     &epoch_info_provider,
                 )
                 .unwrap();
-            let (store_update, new_root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            let (store_update, new_root, _) =
+                tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1657,7 +1664,8 @@ mod tests {
                     &epoch_info_provider,
                 )
                 .unwrap();
-            let (store_update, new_root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            let (store_update, new_root, _) =
+                tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -1715,7 +1723,8 @@ mod tests {
                     &epoch_info_provider,
                 )
                 .unwrap();
-            let (store_update, new_root, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            let (store_update, new_root, _) =
+                tries.apply_all(&apply_result.trie_changes, 0).unwrap();
             root = new_root;
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
@@ -2326,7 +2335,6 @@ mod tests {
         assert_eq!(final_account_state.storage_usage(), 0);
     }
 
-
     #[test]
     fn test_compiled_contract() {
         let initial_balance = to_yocto(1_000_000);
@@ -2338,9 +2346,8 @@ mod tests {
         // let gas = 1_000_000;
         // let gas_price = GAS_PRICE / 10;
         let wasm_code = near_test_contracts::rs_contract().to_vec();
-        let actions = vec![Action::DeployContract(DeployContractAction {
-            code: wasm_code.clone(),
-        })];
+        let actions =
+            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
 
         let receipts = vec![Receipt {
             predecessor_id: alice_account(),
@@ -2379,5 +2386,4 @@ mod tests {
         println!("{:?}", y);
         // println!(compiled_contract_cache.get())
     }
-
 }

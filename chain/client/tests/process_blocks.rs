@@ -34,6 +34,8 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+use near_primitives::contract::ContractCode;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
@@ -50,6 +52,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+use near_primitives::types::CompiledContractCache;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -57,20 +61,16 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use near_store::{get, Store};
 use near_store::test_utils::create_test_store;
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+use near_store::StoreCompiledContractCache;
+use near_store::{get, Store};
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+use near_vm_runner::{get_key, VMKind};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_store::StoreCompiledContractCache;
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_primitives::contract::ContractCode;
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_vm_runner::{get_key, VMKind};
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_primitives::types::CompiledContractCache;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -1504,12 +1504,13 @@ fn test_process_block_after_state_sync() {
 #[test]
 fn test_precompile_on_apply_state_part() {
     let num_clients = 2;
-    let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| {create_test_store()}).collect();
+    let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
     let genesis_config = genesis.config.clone();
-    let runtimes = stores.iter()
+    let runtimes = stores
+        .iter()
         .map(|store| {
             Arc::new(nearcore::NightshadeRuntime::new(
                 Path::new("."),
@@ -1519,10 +1520,10 @@ fn test_precompile_on_apply_state_part() {
                 vec![],
                 None,
             )) as Arc<dyn RuntimeAdapter>
-        }).collect();
+        })
+        .collect();
 
-    let mut env =
-        TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtimes);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
 
@@ -1533,14 +1534,12 @@ fn test_precompile_on_apply_state_part() {
         "test0".to_string(),
         "test0".to_string(),
         &signer,
-        vec![Action::DeployContract(DeployContractAction {
-            code: wasm_code.clone(),
-        })],
+        vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })],
         *genesis_block.hash(),
     );
     env.clients[0].process_tx(tx, false, false);
     let mut blocks = Vec::new();
-    for i in 1..=epoch_length+1 {
+    for i in 1..=epoch_length + 1 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -1593,7 +1592,8 @@ fn test_precompile_on_apply_state_part() {
     // }
     let compiled_contract_cache = Arc::new(StoreCompiledContractCache { store: stores[1].clone() });
     let contract_code = ContractCode::new(wasm_code, None);
-    let key = get_key(&contract_code, VMKind::default(), &genesis_config.runtime_config.wasm_config);
+    let key =
+        get_key(&contract_code, VMKind::default(), &genesis_config.runtime_config.wasm_config);
     println!("FINDING KEY {}", key);
     let y = compiled_contract_cache.get(&key.0).unwrap().unwrap();
     println!("{:?}", y);

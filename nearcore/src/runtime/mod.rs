@@ -33,7 +33,11 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode, CompiledContractCache};
+use near_primitives::types::{
+    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot,
+    StateRootNode,
+};
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
@@ -1419,15 +1423,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         println!("CODES: {:#?}", contract_codes);
         // add compiled contracts to cache
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config = RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
-        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> = Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
+            Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         for code in contract_codes.iter().cloned() {
             let contract_code = ContractCode::new(code.clone(), None);
             precompile_contract(
                 &contract_code,
                 &runtime_config.wasm_config,
                 compiled_contract_cache.as_deref(),
-            ).map_err(|e| {Error::from(e.to_string())})?;
+            )
+            .map_err(|e| Error::from(e.to_string()))?;
         }
         Ok(store_update.commit()?)
     }
@@ -2291,7 +2298,10 @@ mod test {
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
         let epoch_id = &new_env.head.epoch_id;
-        new_env.runtime.apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id).unwrap();
+        new_env
+            .runtime
+            .apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id)
+            .unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);
