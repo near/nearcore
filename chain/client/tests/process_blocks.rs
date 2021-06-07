@@ -3080,6 +3080,15 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                     env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
                 set_no_chunk_in_block(&mut block, &prev_block);
             }
+            let validator_signer = InMemoryValidatorSigner::from_seed(
+                &"test0".to_string(),
+                KeyType::ED25519,
+                &"test0".to_string(),
+            );
+            block.mut_header().get_mut().inner_rest.latest_protocol_version =
+                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version();
+            block.mut_header().resign(&validator_signer);
+
             env.process_block(0, block, Provenance::PRODUCED);
 
             let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
