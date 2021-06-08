@@ -3747,8 +3747,9 @@ name = "neard"
 version = "1.2.0"
 dependencies = [
  "actix",
- "clap 2.33.3",
+ "clap 3.0.0-beta.2",
  "git-version",
+ "lazy_static",
  "near-performance-metrics",
  "near-primitives",
  "near-rust-allocator-proxy",
