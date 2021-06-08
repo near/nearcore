@@ -39,8 +39,8 @@ use near_store::{
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ReturnData, VMConfig, VMContext, VMLogic};
 pub use near_vm_runner::with_ext_cost_counter;
-use perf_event::{Builder, Group};
 use perf_event::events::Hardware;
+use perf_event::{Builder, Group};
 
 use crate::actions::*;
 use crate::balance_checker::check_balance;
@@ -1172,7 +1172,7 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
         // }        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, migration_data, protocol_version);
-        Ok(gas_used, vec![])
+        Ok((gas_used, vec![]))
     }
 
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
@@ -1224,7 +1224,6 @@ impl Runtime {
                 &mut stats,
             )?;
         }
-
 
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
