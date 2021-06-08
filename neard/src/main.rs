@@ -118,7 +118,7 @@ enum NeardSubCommand {
     /// the network
     #[clap(name = "unsafe_reset_all")]
     UnsafeResetAll,
-    /// (unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and
+    /// (unsafe) Remove all the data, effectively resetting node to the genesis state (keeps genesis and
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
