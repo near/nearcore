@@ -1,26 +1,25 @@
+mod init;
+mod run;
+mod testnet;
+
 use std::env;
 use std::fs;
 use std::io;
-use std::net::SocketAddr;
 use std::path::Path;
 
 use clap::{crate_version, AppSettings, Clap};
-use near_primitives::types::{NumSeats, NumShards};
 #[cfg(feature = "adversarial")]
 use tracing::error;
 use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-use actix;
 use git_version::git_version;
 use near_performance_metrics;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
-use nearcore::config::{init_testnet_configs, load_config_without_genesis_records};
-use nearcore::genesis_validate::validate_genesis;
-use nearcore::{get_default_home, get_store_path, init_configs, start_with_config};
+use nearcore::{get_default_home, get_store_path};
 
 #[macro_use]
 extern crate lazy_static;
@@ -107,14 +106,14 @@ struct NeardOpts {
 enum NeardSubCommand {
     /// Initializes NEAR configuration
     #[clap(name = "init")]
-    Init(InitCmd),
+    Init(init::InitCmd),
     /// Runs NEAR node
     #[clap(name = "run")]
-    Run(RunCmd),
+    Run(run::RunCmd),
     /// Sets up testnet configuration with all necessary files (validator key, node key, genesis
     /// and config)
     #[clap(name = "testnet")]
-    Testnet(TestnetCmd),
+    Testnet(testnet::TestnetCmd),
     /// (unsafe) Remove all the config, keys, data and effectively removing all information about
     /// the network
     #[clap(name = "unsafe_reset_all")]
@@ -123,75 +122,6 @@ enum NeardSubCommand {
     /// config)
     #[clap(name = "unsafe_reset_data")]
     UnsafeResetData,
-}
-
-#[derive(Clap)]
-struct InitCmd {
-    /// Download the verified NEAR genesis file automatically.
-    #[clap(long)]
-    download_genesis: bool,
-    /// Makes block production fast (TESTING ONLY).
-    #[clap(long)]
-    fast: bool,
-    /// Account ID for the validator key.
-    #[clap(long)]
-    account_id: Option<String>,
-    /// Chain ID, by default creates new random.
-    #[clap(long)]
-    chain_id: Option<String>,
-    /// Specify a custom download URL for the genesis-file.
-    #[clap(long)]
-    download_genesis_url: Option<String>,
-    /// Genesis file to use when initializing testnet (including downloading).
-    #[clap(long)]
-    genesis: Option<String>,
-    /// Number of shards to initialize the chain with.
-    #[clap(long, default_value = "1")]
-    num_shards: NumShards,
-    /// Specify private key generated from seed (TESTING ONLY).
-    #[clap(long)]
-    test_seed: Option<String>,
-}
-
-#[derive(Clap)]
-struct RunCmd {
-    /// Keep old blocks in the storage (default false).
-    #[clap(long)]
-    archive: bool,
-    /// Set the boot nodes to bootstrap network from.
-    #[clap(long)]
-    boot_nodes: Option<String>,
-    /// Minimum number of peers to start syncing/producing blocks
-    #[clap(long)]
-    min_peers: Option<usize>,
-    /// Customize network listening address (useful for running multiple nodes on the same machine).
-    #[clap(long)]
-    network_addr: Option<SocketAddr>,
-    /// Set this to false to only produce blocks when there are txs or receipts (default true).
-    #[clap(long)]
-    produce_empty_blocks: Option<bool>,
-    /// Customize RPC listening address (useful for running multiple nodes on the same machine).
-    #[clap(long)]
-    rpc_addr: Option<String>,
-    /// Customize telemetry url.
-    #[clap(long)]
-    telemetry_url: Option<String>,
-}
-
-#[derive(Clap)]
-struct TestnetCmd {
-    /// Number of non-validators to initialize the testnet with.
-    #[clap(long = "n", default_value = "0")]
-    non_validators: NumSeats,
-    /// Prefix the directory name for each node with (node results in node0, node1, ...)
-    #[clap(long, default_value = "node")]
-    prefix: String,
-    /// Number of shards to initialize the testnet with.
-    #[clap(long, default_value = "4")]
-    shards: NumShards,
-    /// Number of validators to initialize the testnet with.
-    #[clap(long = "v", default_value = "4")]
-    validators: NumSeats,
 }
 
 fn main() {
@@ -220,81 +150,9 @@ fn main() {
     let home_dir = Path::new(&home_str);
 
     match opts.subcmd {
-        NeardSubCommand::Init(init) => {
-            // TODO: Check if `home` exists. If exists check what networks we already have there.
-
-            if (init.download_genesis || init.download_genesis_url.is_some())
-                && init.genesis.is_some()
-            {
-                panic!(
-                    "Please specify a local genesis file or download the NEAR genesis or specify your own."
-                );
-            }
-
-            init_configs(
-                home_dir,
-                init.chain_id.as_deref(),
-                init.account_id.as_deref(),
-                init.test_seed.as_deref(),
-                init.num_shards,
-                init.fast,
-                init.genesis.as_deref(),
-                init.download_genesis,
-                init.download_genesis_url.as_deref(),
-            );
-        }
-        NeardSubCommand::Testnet(tnet) => {
-            init_testnet_configs(
-                home_dir,
-                tnet.shards,
-                tnet.validators,
-                tnet.non_validators,
-                &tnet.prefix,
-                false,
-            );
-        }
-        NeardSubCommand::Run(run) => {
-            // Load configs from home.
-            let mut near_config = load_config_without_genesis_records(home_dir);
-            validate_genesis(&near_config.genesis);
-            // Set current version in client config.
-            near_config.client_config.version = NEARD_VERSION.clone();
-            // Override some parameters from command line.
-            if let Some(produce_empty_blocks) = run.produce_empty_blocks {
-                near_config.client_config.produce_empty_blocks = produce_empty_blocks;
-            }
-            if let Some(boot_nodes) = run.boot_nodes {
-                if !boot_nodes.is_empty() {
-                    near_config.network_config.boot_nodes = boot_nodes
-                        .split(',')
-                        .map(|chunk| chunk.parse().expect("Failed to parse PeerInfo"))
-                        .collect();
-                }
-            }
-            if let Some(min_peers) = run.min_peers {
-                near_config.client_config.min_num_peers = min_peers;
-            }
-            if let Some(network_addr) = run.network_addr {
-                near_config.network_config.addr = Some(network_addr);
-            }
-            if let Some(rpc_addr) = run.rpc_addr {
-                near_config.rpc_config.addr = rpc_addr;
-            }
-            if let Some(telemetry_url) = run.telemetry_url {
-                if !telemetry_url.is_empty() {
-                    near_config.telemetry_config.endpoints.push(telemetry_url);
-                }
-            }
-            if run.archive {
-                near_config.client_config.archive = true;
-            }
-
-            let sys = actix::System::new();
-            sys.block_on(async move {
-                start_with_config(home_dir, near_config);
-            });
-            sys.run().unwrap();
-        }
+        NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
+        NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
+        NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
         NeardSubCommand::UnsafeResetData => {
             let store_path = get_store_path(home_dir);
             info!(target: "near", "Removing all data from {}", store_path);
