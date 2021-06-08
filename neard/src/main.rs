@@ -26,11 +26,14 @@ extern crate lazy_static;
 
 lazy_static! {
     static ref NEARD_VERSION: String = {
-            let version = Version {
-                version: crate_version!().to_string(),
-                build: git_version!(fallback = "unknown").to_string(),
-            };
-            format!("{} (build {}) (protocol {}) (db {})", version.version, version.build, PROTOCOL_VERSION, DB_VERSION)
+        let version = Version {
+            version: crate_version!().to_string(),
+            build: git_version!(fallback = "unknown").to_string(),
+        };
+        format!(
+            "{} (build {}) (protocol {}) (db {})",
+            version.version, version.build, PROTOCOL_VERSION, DB_VERSION
+        )
     };
 }
 
@@ -89,10 +92,10 @@ fn init_logging(verbose: Option<&str>) {
 #[clap(version = NEARD_VERSION.as_str())]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
 struct NeardOpts {
-    /// Verbose logging
+    /// Verbose logging.
     #[clap(long)]
     verbose: Option<String>,
-    /// Directory for config and data
+    /// Directory for config and data (default "~/.near").
     #[clap(long, default_value = "get_default_home()")]
     home: String,
     #[clap(subcommand)]
@@ -123,16 +126,71 @@ enum NeardSubCommand {
 
 #[derive(Clap)]
 struct InitCmd {
+    /// Download the verified NEAR genesis file automatically.
+    #[clap(long)]
+    download_genesis: bool,
+    /// Makes block production fast (TESTING ONLY).
+    #[clap(long)]
+    fast: bool,
+    /// Account ID for the validator key.
+    #[clap(long)]
+    account_id: Option<String>,
+    /// Chain ID, by default creates new random.
     #[clap(long)]
     chain_id: Option<String>,
+    /// Specify a custom download URL for the genesis-file.
+    #[clap(long)]
+    download_genesis_url: Option<String>,
+    /// Genesis file to use when initializing testnet (including downloading).
+    #[clap(long)]
+    genesis: Option<String>,
+    /// Number of shards to initialize the chain with.
+    #[clap(long)]
+    num_shards: Option<String>,
+    /// Specify private key generated from seed (TESTING ONLY).
+    #[clap(long)]
+    test_seed: Option<String>,
 }
 
 #[derive(Clap)]
 struct RunCmd {
+    /// Keep old blocks in the storage (default false).
+    #[clap(long)]
+    archive: bool,
+    /// Set the boot nodes to bootstrap network from.
+    #[clap(long)]
+    boot_nodes: Option<String>,
+    /// Minimum number of peers to start syncing/producing blocks
+    #[clap(long)]
+    min_peers: Option<String>,
+    /// Customize network listening address (useful for running multiple nodes on the same machine).
+    #[clap(long)]
+    network_addr: Option<String>,
+    /// Set this to false to only produce blocks when there are txs or receipts (default true).
+    #[clap(long)]
+    produce_empty_blocks: Option<bool>,
+    /// Customize RPC listening address (useful for running multiple nodes on the same machine).
+    #[clap(long)]
+    rpc_addr: Option<String>,
+    /// Customize telemetry url.
+    #[clap(long)]
+    telemetry_url: Option<String>,
 }
 
 #[derive(Clap)]
 struct TestnetCmd {
+    /// Number of non-validators to initialize the testnet with.
+    #[clap(long = "n", default_value = "0")]
+    non_validators: u64,
+    /// Prefix the directory name for each node with (node results in node0, node1, ...)
+    #[clap(long, default_value = "node")]
+    prefix: String,
+    /// Number of shards to initialize the testnet with.
+    #[clap(long, default_value = "4")]
+    shards: u64,
+    /// Number of validators to initialize the testnet with.
+    #[clap(long = "v", default_value = "4")]
+    validators: u64,
 }
 
 fn main() {
@@ -149,8 +207,6 @@ fn main() {
 
     let opts = NeardOpts::parse();
 
-
-
     // let matches = App::new("NEAR Protocol Node")
     //     .setting(AppSettings::SubcommandRequiredElseHelp)
     //     .version(format!("{} (build {}) (protocol {}) (db {})", version.version, version.build, PROTOCOL_VERSION, DB_VERSION).as_str())
@@ -162,34 +218,34 @@ fn main() {
     //             .help("Directory for config and data (default \"~/.near\")")
     //             .takes_value(true),
     //     )
-        // .subcommand(NeardSubCommand::with_name("init").about("Initializes NEAR configuration")
-        //     .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
-        //     .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for the validator key"))
-        //     .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
-        //     .arg(Arg::with_name("num-shards").long("num-shards").takes_value(true).help("Number of shards to initialize the chain with"))
-        //     .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
-        //     .arg(Arg::with_name("genesis").long("genesis").takes_value(true).help("Genesis file to use when initialize testnet (including downloading)"))
-        //     .arg(Arg::with_name("download-genesis").long("download-genesis").takes_value(false).help("Download the verified NEAR genesis file automatically."))
-        //     .arg(Arg::with_name("download-genesis-url").long("download-genesis-url").takes_value(true).help("Specify a custom download URL for the genesis-file."))
-        // )
-        // .subcommand(NeardSubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
-        //     .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
-        //     .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
-        //     .arg(Arg::with_name("s").long("shards").takes_value(true).help("Number of shards to initialize the testnet with (default 4)"))
-        //     .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
-        // )
-        // .subcommand(NeardSubCommand::with_name("run").about("Runs NEAR node")
-        //     .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").takes_value(true))
-        //     .arg(Arg::with_name("boot-nodes").long("boot-nodes").help("Set the boot nodes to bootstrap network from").takes_value(true))
-        //     .arg(Arg::with_name("min-peers").long("min-peers").help("Minimum number of peers to start syncing / producing blocks").takes_value(true))
-        //     .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
-        //     .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
-        //     .arg(Arg::with_name("telemetry-url").long("telemetry-url").help("Customize telemetry url").takes_value(true))
-        //     .arg(Arg::with_name("archive").long("archive").help("Keep old blocks in the storage (default false)").takes_value(false))
-        // )
-        // .subcommand(NeardSubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
-        // .subcommand(NeardSubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
-        // .get_matches();
+    // .subcommand(NeardSubCommand::with_name("init").about("Initializes NEAR configuration")
+    //     .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
+    //     .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for the validator key"))
+    //     .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
+    //     .arg(Arg::with_name("num-shards").long("num-shards").takes_value(true).help("Number of shards to initialize the chain with"))
+    //     .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
+    //     .arg(Arg::with_name("genesis").long("genesis").takes_value(true).help("Genesis file to use when initialize testnet (including downloading)"))
+    //     .arg(Arg::with_name("download-genesis").long("download-genesis").takes_value(false).help("Download the verified NEAR genesis file automatically."))
+    //     .arg(Arg::with_name("download-genesis-url").long("download-genesis-url").takes_value(true).help("Specify a custom download URL for the genesis-file."))
+    // )
+    // .subcommand(NeardSubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
+    //     .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
+    //     .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
+    //     .arg(Arg::with_name("s").long("shards").takes_value(true).help("Number of shards to initialize the testnet with (default 4)"))
+    //     .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
+    // )
+    // .subcommand(NeardSubCommand::with_name("run").about("Runs NEAR node")
+    //     .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").takes_value(true))
+    //     .arg(Arg::with_name("boot-nodes").long("boot-nodes").help("Set the boot nodes to bootstrap network from").takes_value(true))
+    //     .arg(Arg::with_name("min-peers").long("min-peers").help("Minimum number of peers to start syncing / producing blocks").takes_value(true))
+    //     .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
+    //     .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
+    //     .arg(Arg::with_name("telemetry-url").long("telemetry-url").help("Customize telemetry url").takes_value(true))
+    //     .arg(Arg::with_name("archive").long("archive").help("Keep old blocks in the storage (default false)").takes_value(false))
+    // )
+    // .subcommand(NeardSubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
+    // .subcommand(NeardSubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
+    // .get_matches();
 
     // init_logging(matches.value_of("verbose"));
     // info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", version.version, version.build, PROTOCOL_VERSION);
