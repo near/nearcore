@@ -10,7 +10,7 @@ use rand::Rng;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
-use neard::config::NearConfig;
+use nearcore::config::NearConfig;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;

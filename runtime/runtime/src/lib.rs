@@ -55,7 +55,7 @@ pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -1085,8 +1085,9 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         migration_data: &Arc<MigrationData>,
+        migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
-    ) -> Result<Gas, StorageError> {
+    ) -> Result<(Gas, Vec<Receipt>), StorageError> {
         // #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut rd: u64;
         unsafe {
@@ -1171,7 +1172,7 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
         // }        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
         (state_update, migration_data, protocol_version);
-        Ok(gas_used)
+        Ok(gas_used, vec![])
     }
 
     /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
@@ -1199,17 +1200,31 @@ impl Runtime {
 
         let mut stats = ApplyStats::default();
 
-        let gas_used_for_migrations = match &apply_state.migration_data {
-            Some(migration_data) => self
-                .apply_migrations(
-                    &mut state_update,
-                    migration_data,
-                    apply_state.current_protocol_version,
-                )
-                .map_err(|e| RuntimeError::StorageError(e))?,
-            None => 0 as Gas,
+        let (gas_used_for_migrations, mut receipts_to_restore) = self
+            .apply_migrations(
+                &mut state_update,
+                &apply_state.migration_data,
+                &apply_state.migration_flags,
+                apply_state.current_protocol_version,
+            )
+            .map_err(|e| RuntimeError::StorageError(e))?;
+        // If we have receipts that need to be restored, prepend them to the list of incoming receipts
+        let incoming_receipts = if receipts_to_restore.is_empty() {
+            incoming_receipts
+        } else {
+            receipts_to_restore.extend_from_slice(incoming_receipts);
+            receipts_to_restore.as_slice()
         };
         state_update = TrieUpdate::new(trie.clone(), root);
+
+        if let Some(validator_accounts_update) = validator_accounts_update {
+            self.update_validator_accounts(
+                &mut state_update,
+                validator_accounts_update,
+                &mut stats,
+            )?;
+        }
+
 
         if let Some(validator_accounts_update) = validator_accounts_update {
             self.update_validator_accounts(
@@ -1544,7 +1559,8 @@ mod tests {
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new(),
-            migration_data: None,
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
 
         (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())

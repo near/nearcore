@@ -1,10 +1,13 @@
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
+use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -45,11 +48,16 @@ fn apply_block_at_height(
         block_hash,
         prev_block.chunks()[shard_id as usize].height_included(),
     )?;
+    let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+        &mut chain_store_update,
+        runtime_adapter,
+        prev_block.hash(),
+        shard_id,
+    )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
     let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
     let chunk = get_chunk(&chain_store, chunk_hash);
     let chunk_header = ShardChunkHeader::V1(chunk.header);
-
     let apply_result = runtime_adapter
         .apply_transactions(
             shard_id,
@@ -66,6 +74,7 @@ fn apply_block_at_height(
             &block.header().challenges_result(),
             *block.header().random_value(),
             true,
+            is_first_block_with_chunk_of_version,
         )
         .unwrap();
     let (_, outcome_paths) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -242,6 +251,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             *block.header().random_value(),
                             // doesn't really matter here since the old blocks are on the old version
                             false,
+                            false,
                         )
                         .unwrap();
                     if !apply_result.outcomes.is_empty() {
@@ -259,8 +269,79 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
             }
         }
     }
-
     set_store_version(&store, 20);
+}
+
+/// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
+pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
+    let store = create_store(path);
+    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let runtime = NightshadeRuntime::new(
+            &Path::new(path),
+            store.clone(),
+            &near_config.genesis,
+            near_config.client_config.tracked_accounts.clone(),
+            near_config.client_config.tracked_shards.clone(),
+            None,
+        );
+        let shard_id = 0;
+        // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
+        let block_heights = vec![22633807];
+        for height in block_heights {
+            let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+            let block = chain_store.get_block(&block_hash).unwrap().clone();
+            if block.chunks()[shard_id as usize].height_included() == block.header().height() {
+                let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+                let chunk = chain_store.get_chunk(&chunk_hash).unwrap().clone();
+                let chunk_header = chunk.cloned_header();
+                let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+                let prev_block =
+                    chain_store_update.get_block(block.header().prev_hash()).unwrap().clone();
+                let receipt_proof_response = chain_store_update
+                    .get_incoming_receipts_for_shard(
+                        shard_id,
+                        block_hash,
+                        prev_block.chunks()[shard_id as usize].height_included(),
+                    )
+                    .unwrap();
+                let receipts = collect_receipts_from_response(&receipt_proof_response);
+
+                let apply_result = runtime
+                    .apply_transactions(
+                        shard_id,
+                        &chunk_header.prev_state_root(),
+                        block.header().height(),
+                        block.header().raw_timestamp(),
+                        block.header().prev_hash(),
+                        &block.hash(),
+                        &receipts,
+                        chunk.transactions(),
+                        chunk_header.validator_proposals(),
+                        block.header().gas_price(),
+                        chunk_header.gas_limit(),
+                        &block.header().challenges_result(),
+                        *block.header().random_value(),
+                        true,
+                        false,
+                    )
+                    .unwrap();
+                if !apply_result.outcomes.is_empty() {
+                    let (_, outcome_paths) =
+                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    chain_store_update.save_outcomes_with_proofs(
+                        &block.hash(),
+                        shard_id,
+                        apply_result.outcomes,
+                        outcome_paths,
+                    );
+                    chain_store_update.commit().unwrap();
+                }
+            }
+        }
+    }
+    set_store_version(&store, 23);
 }
 
 // #[cfg(feature = "protocol_feature_fix_storage_usage")]
@@ -276,6 +357,14 @@ lazy_static_include::lazy_static_include_bytes! {
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 // #[cfg(feature = "protocol_feature_fix_storage_usage")]
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
+
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+lazy_static_include::lazy_static_include_bytes! {
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+}
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     // #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
@@ -295,16 +384,32 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         } else {
             0
         },
+        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+        restored_receipts: if is_mainnet {
+            serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+                .expect("File with receipts restored after apply_chunks fix have to be correct")
+        } else {
+            ReceiptResult::default()
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use super::*;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use near_primitives::hash::hash;
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
+    #[cfg(any(
+        feature = "protocol_feature_fix_storage_usage",
+        feature = "protocol_feature_restore_receipts_after_fix"
+    ))]
     use near_primitives::serialize::to_base;
 
     #[test]
@@ -318,5 +423,18 @@ mod tests {
         assert_eq!(mainnet_migration_data.storage_usage_delta.len(), 3112);
         let testnet_migration_data = load_migration_data(&"testnet".to_string());
         assert_eq!(testnet_migration_data.storage_usage_delta.len(), 0);
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    fn test_restored_receipts_data() {
+        assert_eq!(
+            to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
+            "3ZHK51a2zVnLnG8Pq1y7fLaEhP9SGU1CGCmspcBUi5vT"
+        );
+        let mainnet_migration_data = load_migration_data(&"mainnet".to_string());
+        assert_eq!(mainnet_migration_data.restored_receipts.get(&0u64).unwrap().len(), 383);
+        let testnet_migration_data = load_migration_data(&"testnet".to_string());
+        assert!(testnet_migration_data.restored_receipts.is_empty());
     }
 }

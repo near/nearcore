@@ -60,13 +60,16 @@ impl IntoVMError for wasmer_runtime::error::CallError {
 impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
         match self {
-            wasmer_runtime::error::CompileError::InternalError { .. } => {
-                // An internal Wasmer error the most probably is a result of a node malfunction
-                panic!("Internal Wasmer error on Wasm compilation: {}", self);
+            wasmer_runtime::error::CompileError::ValidationError { .. } => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::WasmerCompileError { msg: self.to_string() },
+                ))
             }
-            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::WasmerCompileError { msg: self.to_string() },
-            )),
+            wasmer_runtime::error::CompileError::InternalError { .. } => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::WasmerCompileError { msg: self.to_string() },
+                ))
+            }
         }
     }
 }

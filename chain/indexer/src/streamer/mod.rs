@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use actix::Addr;
+use async_recursion::async_recursion;
 use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -12,8 +13,8 @@ use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 
 use self::errors::FailedToFetchData;
 use self::fetchers::{
-    fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes, fetch_state_changes,
-    fetch_status,
+    fetch_block_by_hash, fetch_block_by_height, fetch_chunks, fetch_latest_block, fetch_outcomes,
+    fetch_state_changes, fetch_status,
 };
 pub use self::types::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
@@ -34,6 +35,7 @@ const INTERVAL: Duration = Duration::from_millis(500);
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
+#[async_recursion]
 async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
@@ -116,15 +118,53 @@ async fn build_streamer_message(
 
         let shard_id = header.shard_id.clone() as usize;
 
-        indexer_shards[shard_id].receipt_execution_outcomes = receipt_outcomes
-            .into_iter()
-            .map(|IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt }| {
-                IndexerExecutionOutcomeWithReceipt {
-                    execution_outcome,
-                    receipt: receipt.expect("`receipt` must be present at this moment"),
+        let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
+        for outcome in receipt_outcomes {
+            let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
+            let receipt = if let Some(receipt) = receipt {
+                receipt
+            } else {
+                // TODO(#4317): optimize it https://github.com/near/nearcore/issues/4317
+                // Receipt might be missing only in case of delayed local receipt
+                // that appeared in some of the previous blocks
+                // we will be iterating over previous blocks until we found the receipt
+                let mut prev_block_tried = 0u16;
+                let mut prev_block_hash = block.header.prev_hash;
+                'find_local_receipt: loop {
+                    if prev_block_tried > 1000 {
+                        panic!("Failed to find local receipt in 1000 prev blocks");
+                    }
+                    let prev_block = match fetch_block_by_hash(&client, prev_block_hash).await {
+                        Ok(block) => block,
+                        Err(err) => panic!("Unable to get previous block: {:?}", err),
+                    };
+
+                    prev_block_hash = prev_block.header.prev_hash;
+
+                    let streamer_message = match build_streamer_message(&client, prev_block).await {
+                        Ok(response) => response,
+                        Err(err) => {
+                            panic!("Unable to build streamer message for previous block: {:?}", err)
+                        }
+                    };
+                    for shard in streamer_message.shards {
+                        if let Some(chunk) = shard.chunk {
+                            if let Some(receipt) = chunk
+                                .receipts
+                                .into_iter()
+                                .find(|rec| rec.receipt_id == execution_outcome.id)
+                            {
+                                break 'find_local_receipt receipt;
+                            }
+                        }
+                    }
+                    prev_block_tried += 1;
                 }
-            })
-            .collect();
+            };
+            receipt_execution_outcomes
+                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
+        }
+        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes;
 
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_id].chunk = Some(IndexerChunkView {
@@ -163,7 +203,7 @@ pub(crate) async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let mut indexer_db_path = neard::get_store_path(&indexer_config.home_dir);
+    let mut indexer_db_path = nearcore::get_store_path(&indexer_config.home_dir);
     indexer_db_path.push_str("/indexer");
 
     // TODO: implement proper error handling
