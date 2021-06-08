@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::env;
 use std::fs;
 use std::io;
@@ -6,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use clap::{crate_version, AppSettings, Clap};
-use near_primitives::types::NumShards;
+use near_primitives::types::{NumSeats, NumShards};
 #[cfg(feature = "adversarial")]
 use tracing::error;
 use tracing::info;
@@ -147,8 +146,8 @@ struct InitCmd {
     #[clap(long)]
     genesis: Option<String>,
     /// Number of shards to initialize the chain with.
-    #[clap(long)]
-    num_shards: Option<NumShards>,
+    #[clap(long, default_value = "1")]
+    num_shards: NumShards,
     /// Specify private key generated from seed (TESTING ONLY).
     #[clap(long)]
     test_seed: Option<String>,
@@ -183,16 +182,16 @@ struct RunCmd {
 struct TestnetCmd {
     /// Number of non-validators to initialize the testnet with.
     #[clap(long = "n", default_value = "0")]
-    non_validators: u64,
+    non_validators: NumSeats,
     /// Prefix the directory name for each node with (node results in node0, node1, ...)
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the testnet with.
     #[clap(long, default_value = "4")]
-    shards: u64,
+    shards: NumShards,
     /// Number of validators to initialize the testnet with.
     #[clap(long = "v", default_value = "4")]
-    validators: u64,
+    validators: NumSeats,
 }
 
 fn main() {
@@ -203,7 +202,7 @@ fn main() {
 
     let opts = NeardOpts::parse();
 
-    init_logging(opts.verbose.as_ref().map(|s| s.as_str()));
+    init_logging(opts.verbose.as_deref());
     info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
     #[cfg(feature = "adversarial")]
@@ -223,12 +222,6 @@ fn main() {
     match opts.subcmd {
         NeardSubCommand::Init(init) => {
             // TODO: Check if `home` exists. If exists check what networks we already have there.
-            let chain_id = init.chain_id.as_ref().map(|s| s.as_str());
-            let account_id = init.account_id.as_ref().map(|s| s.as_str());
-            let test_seed = init.test_seed.as_ref().map(|s| s.as_str());
-            let genesis = init.genesis.as_ref().map(|s| s.as_str());
-            let download_genesis_url = init.download_genesis_url.as_ref().map(|s| s.as_str());
-            let num_shards = init.num_shards.unwrap_or(1);
 
             if (init.download_genesis || init.download_genesis_url.is_some())
                 && init.genesis.is_some()
@@ -240,14 +233,14 @@ fn main() {
 
             init_configs(
                 home_dir,
-                chain_id,
-                account_id,
-                test_seed,
-                num_shards,
+                init.chain_id.as_deref(),
+                init.account_id.as_deref(),
+                init.test_seed.as_deref(),
+                init.num_shards,
                 init.fast,
-                genesis,
+                init.genesis.as_deref(),
                 init.download_genesis,
-                download_genesis_url,
+                init.download_genesis_url.as_deref(),
             );
         }
         NeardSubCommand::Testnet(tnet) => {
@@ -273,9 +266,8 @@ fn main() {
             if let Some(boot_nodes) = run.boot_nodes {
                 if !boot_nodes.is_empty() {
                     near_config.network_config.boot_nodes = boot_nodes
-                        .to_string()
                         .split(',')
-                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
+                        .map(|chunk| chunk.parse().expect("Failed to parse PeerInfo"))
                         .collect();
                 }
             }
