@@ -70,7 +70,7 @@ use near_vm_runner::{get_key, VMKind};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
-use nearcore::NEAR_BASE;
+use nearcore::{NightshadeRuntime, NEAR_BASE};
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -1509,7 +1509,7 @@ fn test_precompile_on_apply_state_part() {
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
     let genesis_config = genesis.config.clone();
-    let runtimes = stores
+    let runtimes: Vec<Arc<NightshadeRuntime>> = stores
         .iter()
         .map(|store| {
             Arc::new(nearcore::NightshadeRuntime::new(
@@ -1519,11 +1519,12 @@ fn test_precompile_on_apply_state_part() {
                 vec![],
                 vec![],
                 None,
-            )) as Arc<dyn RuntimeAdapter>
+            ))
         })
         .collect();
+    let runtime_adapters = runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
 
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtimes);
+    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
 
@@ -1546,55 +1547,52 @@ fn test_precompile_on_apply_state_part() {
         env.process_block(1, block, Provenance::NONE);
     }
 
-    // Simulate state sync
-    let sync_hash = *blocks.last().unwrap().hash();
-    assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = match &state_sync_header {
-        ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
-        ShardStateSyncResponseHeader::V2(header) => {
-            *header.chunk.cloned_header().take_inner().prev_state_root()
-        }
-    };
-    //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
-    let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &state_root).unwrap();
-    let num_parts = get_num_state_parts(state_root_node.memory_usage);
-    let state_sync_parts = (0..num_parts)
-        .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
-        .collect::<Vec<_>>();
-
-    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
-    for i in 0..num_parts {
+    for i in 1..5 {
+        let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+        let sync_hash = *sync_block.hash();
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+        // let state_root_node =
+        //     env.clients[0].runtime_adapter.get_state_root_node(0, &chunk_extra.state_root()).unwrap();
+        // let num_parts = get_num_state_parts(state_root_node.memory_usage);
+        // println!("{}", num_parts);
+        let epoch_id =
+            env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+        let state_part = env.clients[0]
+            .runtime_adapter
+            .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+            .unwrap();
+        println!("APPLY {}", i);
         env.clients[1]
-            .chain
-            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
+            .runtime_adapter
+            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
             .unwrap();
     }
-    env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
-    // for i in 1..5 {
-    //     let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-    //     let sync_hash = *sync_block.hash();
-    //     let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
-    //     // let state_root_node =
-    //     //     env.clients[0].runtime_adapter.get_state_root_node(0, &chunk_extra.state_root()).unwrap();
-    //     // let num_parts = get_num_state_parts(state_root_node.memory_usage);
-    //     // println!("{}", num_parts);
-    //     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
-    //     let state_part = env.clients[0]
-    //         .runtime_adapter
-    //         .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
-    //         .unwrap();
-    //     env.clients[1]
-    //         .runtime_adapter
-    //         .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
-    //         .unwrap();
-    // }
     let compiled_contract_cache = Arc::new(StoreCompiledContractCache { store: stores[1].clone() });
     let contract_code = ContractCode::new(wasm_code, None);
     let key =
         get_key(&contract_code, VMKind::default(), &genesis_config.runtime_config.wasm_config);
     println!("FINDING KEY {}", key);
+    let sync_block = env.clients[1].chain.get_block_by_height(4).unwrap().clone();
+    let state_root = sync_block.chunks()[0].prev_state_root();
+    // let sync_hash = *sync_block.hash();
+    // let chunk_extra = env.clients[1].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+    let trie_key = TrieKey::ContractCode { account_id: "test0".to_string() };
+    let trie_key_vec = trie_key.to_vec();
+    println!("{:?}", trie_key_vec);
+    let z_ref = runtimes[1]
+        .get_view_trie_for_shard(0)
+        .get_ref(&state_root, trie_key_vec.as_slice())
+        .unwrap()
+        .unwrap()
+        .1;
+    println!("REF = {}", z_ref);
+    let z = runtimes[1]
+        .get_view_trie_for_shard(0)
+        .get(&state_root, trie_key_vec.as_slice())
+        .unwrap()
+        .unwrap();
+    let x: Vec<u8> = z.iter().cloned().take(5).collect();
+    println!("{:?} ...", x);
     let y = compiled_contract_cache.get(&key.0).unwrap().unwrap();
     println!("{:?}", y);
 }

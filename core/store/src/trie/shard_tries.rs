@@ -3,12 +3,14 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_record::is_contract_code_key;
+use near_primitives::state_record::{is_contract_code_key, StateRecord};
+use near_primitives::trie_key::col;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::get_block_shard_id;
+use std::collections::hash_map::DefaultHasher;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -20,6 +22,9 @@ pub struct ShardTries {
     /// Cache for readers.
     pub(crate) view_caches: Arc<Vec<TrieCache>>,
 }
+
+use crate::trie::{RawTrieNode, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
+use std::hash::{Hash, Hasher};
 
 impl ShardTries {
     fn get_new_cache(num_shards: NumShards) -> Arc<Vec<TrieCache>> {
@@ -104,23 +109,18 @@ impl ShardTries {
         Ok(())
     }
 
-    fn apply_insertions_inner<'a>(
-        insertions: &'a Vec<(CryptoHash, Vec<u8>, u32)>,
+    fn apply_insertions_inner(
+        insertions: &Vec<(CryptoHash, Vec<u8>, u32)>,
         tries: ShardTries,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
-    ) -> Result<Vec<&'a Vec<u8>>, StorageError> {
+    ) -> Result<(), StorageError> {
         store_update.tries = Some(tries);
-        let mut contract_codes = Vec::new();
         for (hash, value, rc) in insertions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
             store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, *rc as i64);
-
-            if is_contract_code_key(&key) {
-                contract_codes.push(value);
-            }
         }
-        Ok(contract_codes)
+        Ok(())
     }
 
     fn apply_all_inner(
@@ -128,9 +128,9 @@ impl ShardTries {
         tries: ShardTries,
         shard_id: ShardId,
         apply_deletions: bool,
-    ) -> Result<(StoreUpdate, StateRoot, Vec<&Vec<u8>>), StorageError> {
+    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
         let mut store_update = StoreUpdate::new_with_tries(tries.clone());
-        let contract_codes = ShardTries::apply_insertions_inner(
+        ShardTries::apply_insertions_inner(
             &trie_changes.insertions,
             tries.clone(),
             shard_id,
@@ -144,7 +144,7 @@ impl ShardTries {
                 &mut store_update,
             )?;
         }
-        Ok((store_update, trie_changes.new_root, contract_codes))
+        Ok((store_update, trie_changes.new_root))
     }
 
     pub fn apply_insertions(
@@ -190,11 +190,11 @@ impl ShardTries {
         )
     }
 
-    pub fn apply_all<'a>(
+    pub fn apply_all(
         &self,
-        trie_changes: &'a TrieChanges,
+        trie_changes: &TrieChanges,
         shard_id: ShardId,
-    ) -> Result<(StoreUpdate, StateRoot, Vec<&'a Vec<u8>>), StorageError> {
+    ) -> Result<(StoreUpdate, StateRoot), StorageError> {
         ShardTries::apply_all_inner(trie_changes, self.clone(), shard_id, true)
     }
 

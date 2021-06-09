@@ -7,6 +7,7 @@ use near_primitives::types::StateRoot;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
+use near_primitives::borsh::BorshDeserialize;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
@@ -183,9 +184,9 @@ impl Trie {
         part_id: u64,
         num_parts: u64,
         part: Vec<Vec<u8>>,
-    ) -> Result<TrieChanges, StorageError> {
+    ) -> Result<(TrieChanges, Vec<Vec<u8>>), StorageError> {
         if state_root == &CryptoHash::default() {
-            return Ok(TrieChanges::empty(CryptoHash::default()));
+            return Ok((TrieChanges::empty(CryptoHash::default()), vec![]));
         }
         let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
         let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
@@ -193,17 +194,25 @@ impl Trie {
         let mut iterator = TrieIterator::new(&trie, state_root)?;
         let hashes = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
-        for hash in hashes {
+        let mut contract_codes = Vec::new();
+        for (hash, is_contract_code_node) in hashes {
+            println!("found hash = {}, key = {:?}", hash, is_contract_code_node);
             let value = trie.retrieve_raw_bytes(&hash)?;
-            map.entry(hash).or_insert_with(|| (value, 0)).1 += 1;
+            map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
+            if is_contract_code_node {
+                contract_codes.push(value);
+            }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
-        Ok(TrieChanges {
-            old_root: CryptoHash::default(),
-            new_root: *state_root,
-            insertions,
-            deletions,
-        })
+        Ok((
+            TrieChanges {
+                old_root: CryptoHash::default(),
+                new_root: *state_root,
+                insertions,
+                deletions,
+            },
+            contract_codes,
+        ))
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {

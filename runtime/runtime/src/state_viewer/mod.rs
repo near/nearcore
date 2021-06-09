@@ -450,7 +450,7 @@ mod tests {
         );
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize().unwrap().0;
-        let (db_changes, new_root, _) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (db_changes, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
         db_changes.commit().unwrap();
 
         let state_update = tries.new_trie_update(0, new_root);

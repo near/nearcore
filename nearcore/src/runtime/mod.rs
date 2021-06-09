@@ -1415,12 +1415,13 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let trie_changes = Trie::apply_state_part(&state_root, part_id, num_parts, part)
-            .expect("combine_state_parts is guaranteed to succeed when each part is valid");
+        let (trie_changes, contract_codes) =
+            Trie::apply_state_part(&state_root, part_id, num_parts, part)
+                .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         let tries = self.get_tries();
-        let (store_update, _, contract_codes) =
+        let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
-        println!("CODES: {:#?}", contract_codes);
+        println!("CODES: {:#?}", contract_codes.len());
         // add compiled contracts to cache
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config =

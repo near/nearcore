@@ -7,7 +7,7 @@ use std::mem::size_of;
 pub(crate) const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
-pub(crate) mod col {
+pub mod col {
     /// This column id is used when storing `primitives::account::Account` type about a given
     /// `account_id`.
     pub const ACCOUNT: &[u8] = &[0];

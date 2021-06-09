@@ -3,6 +3,7 @@ use near_primitives::hash::CryptoHash;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
+use near_primitives::state_record::is_contract_code_key;
 
 #[derive(Debug)]
 struct Crumb {
@@ -130,8 +131,7 @@ impl<'a> TrieIterator<'a> {
         result
     }
 
-    fn iter_step(&mut self) -> Option<IterStep> {
-        self.trail.last_mut()?.increment();
+    fn current_iter_step(&mut self) -> Option<IterStep> {
         let b = self.trail.last().expect("Trail finished.");
         match (b.status.clone(), &b.node.node) {
             (CrumbStatus::Exiting, n) => {
@@ -185,7 +185,15 @@ impl<'a> TrieIterator<'a> {
                 }
                 Some(IterStep::Continue)
             }
-            _ => panic!("Should never see Entering or AtChild without a Branch here."),
+            _ => None,
+        }
+    }
+
+    fn iter_step(&mut self) -> Option<IterStep> {
+        self.trail.last_mut()?.increment();
+        match self.current_iter_step() {
+            Some(iter_step) => Some(iter_step),
+            None => panic!("Should never see Entering or AtChild without a Branch here."),
         }
     }
 
@@ -202,7 +210,7 @@ impl<'a> TrieIterator<'a> {
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],
-    ) -> Result<Vec<CryptoHash>, StorageError> {
+    ) -> Result<Vec<(CryptoHash, bool)>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash = self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
@@ -212,7 +220,11 @@ impl<'a> TrieIterator<'a> {
         let mut nodes_list = Vec::new();
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
-            nodes_list.push(last_hash);
+            let is_contract_code_node = match self.current_iter_step() {
+                Some(IterStep::Value(_)) => is_contract_code_key(&self.key()),
+                _ => false,
+            };
+            nodes_list.push((last_hash, is_contract_code_node));
         }
 
         loop {
@@ -232,12 +244,12 @@ impl<'a> TrieIterator<'a> {
                     }
                     let node = self.trie.retrieve_node(&hash)?;
                     self.descend_into_node(node);
-                    nodes_list.push(hash);
+                    nodes_list.push((hash, false));
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
                     self.trie.retrieve_raw_bytes(&hash)?;
-                    nodes_list.push(hash);
+                    nodes_list.push((hash, is_contract_code_key(&self.key())));
                 }
             }
         }
