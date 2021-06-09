@@ -290,3 +290,32 @@ fn init_logging(verbose: Option<&str>) {
         .with_writer(io::stderr)
         .init();
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_values() {
+        let cmd = NeardCmd::parse_from(&["test", "init", "--chain-id=testid", "--fast"]);
+        if let NeardSubCommand::Init(scmd) = cmd.subcmd {
+            assert_eq!(scmd.chain_id, Some("testid".to_string()));
+            assert!(scmd.fast);
+        } else {
+            panic!("incorrect subcommand");
+        }
+    }
+
+    #[test]
+    fn equal_no_value_syntax() {
+        assert!(NeardCmd::try_parse_from(&[
+            "test",
+            "init",
+            // * This line currently fails to be parsed (= without a value)
+            "--chain-id=",
+            "--test-seed=alice.near",
+            "--account-id=test.near",
+            "--fast"
+        ])
+        .is_err());
+    }
+}
