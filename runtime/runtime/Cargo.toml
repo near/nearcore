@@ -31,6 +31,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 perf-event = "0.4.7"
+perfcnt = "0.7.1"
 
 [features]
 default = []

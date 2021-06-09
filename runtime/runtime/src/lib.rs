@@ -65,6 +65,7 @@ use std::convert::TryInto;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
+use perfcnt::PerfCounter;
 
 mod actions;
 pub mod adapter;
@@ -1088,15 +1089,24 @@ impl Runtime {
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
     ) -> Result<(Gas, Vec<Receipt>), StorageError> {
+        use perfcnt::{AbstractPerfCounter, PerfCounter};
+        use perfcnt::linux::{PerfCounterBuilderLinux, HardwareEventType};
+
         // #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut rd: u64;
         unsafe {
             rd = core::arch::x86_64::_rdtsc();
         }
-        let mut group = Group::new().unwrap();
-        let insns = Builder::new().group(&mut group).kind(Hardware::INSTRUCTIONS).build().unwrap();
-        let cycles = Builder::new().group(&mut group).kind(Hardware::CPU_CYCLES).build().unwrap();
+        let mut insns: PerfCounter =
+            PerfCounterBuilderLinux::from_hardware_event(HardwareEventType::Instructions)
+                .finish().expect("Could not create the counter");
+        let mut cycles: PerfCounter =
+            PerfCounterBuilderLinux::from_hardware_event(HardwareEventType::CPUCycles)
+                .finish().expect("Could not create the counter");
+
         let instant = Instant::now();
+        insns.start().unwrap();
+        cycles.start().unwrap();
         let mut gas_used: Gas = 0;
 
         // #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
@@ -1159,15 +1169,21 @@ impl Runtime {
         unsafe {
             rd = core::arch::x86_64::_rdtsc() - rd;
         }
-        let counts = group.read().unwrap();
+        let time = instant.elapsed().as_nanos();
+        cycles.stop().unwrap();
+        insns.stop().unwrap();
+
+        let insns_count = insns.read().unwrap();
+        let cycles_count = cycles.read().unwrap();
         log::error!(
-            "Gas used {}, rd {}, insn {} cycles {} insn per cycle {:.2} elapsed {}",
+            "Gas used {}, rd {}, insn {} cycles {} insn per cycle {:.2} insn per ns {:2} elapsed {}",
             logic.used_gas().unwrap(),
             rd,
-            counts[&insns],
-            counts[&cycles],
-            (counts[&insns] as f64 / counts[&cycles] as f64),
-            instant.elapsed().as_nanos()
+            insns_count,
+            cycles_count,
+            (insns_count as f64 / cycles_count as f64),
+            (insns_count as f64 / time as f64),
+            time,
         );
         state_update.commit(StateChangeCause::Migration);
         // }        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
