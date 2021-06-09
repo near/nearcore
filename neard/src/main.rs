@@ -5,7 +5,7 @@ mod testnet;
 use std::env;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 
 use clap::{crate_version, AppSettings, Clap};
 #[cfg(feature = "adversarial")]
@@ -15,14 +15,12 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use git_version::git_version;
+use lazy_static::lazy_static;
 use near_performance_metrics;
 use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
 use nearcore::{get_default_home, get_store_path};
-
-#[macro_use]
-extern crate lazy_static;
 
 lazy_static! {
     static ref NEARD_VERSION: Version = Version {
@@ -35,6 +33,7 @@ lazy_static! {
             NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION, DB_VERSION
         )
     };
+    static ref DEFAULT_HOME: String = get_default_home();
 }
 
 #[cfg(feature = "memory_stats")]
@@ -91,15 +90,27 @@ fn init_logging(verbose: Option<&str>) {
 #[derive(Clap)]
 #[clap(version = NEARD_VERSION_STRING.as_str())]
 #[clap(setting = AppSettings::SubcommandRequiredElseHelp)]
+struct NeardCmd {
+    #[clap(flatten)]
+    opts: NeardOpts,
+    #[clap(subcommand)]
+    subcmd: NeardSubCommand,
+}
+
+#[derive(Clap, Debug)]
 struct NeardOpts {
     /// Verbose logging.
     #[clap(long)]
-    verbose: Option<String>,
+    verbose: Option<Option<String>>,
     /// Directory for config and data (default "~/.near").
-    #[clap(long)]
-    home: Option<String>,
-    #[clap(subcommand)]
-    subcmd: NeardSubCommand,
+    #[clap(long, parse(from_os_str), default_value = &DEFAULT_HOME)]
+    home: PathBuf,
+}
+
+impl NeardOpts {
+    fn init(&self) {
+        init_logging(self.verbose.as_ref().map(Option::as_deref).flatten());
+    }
 }
 
 #[derive(Clap)]
@@ -130,9 +141,8 @@ fn main() {
     openssl_probe::init_ssl_cert_env_vars();
     near_performance_metrics::process::schedule_printing_performance_stats(60);
 
-    let opts = NeardOpts::parse();
-
-    init_logging(opts.verbose.as_deref());
+    let neard_cmd = NeardCmd::parse();
+    neard_cmd.opts.init();
     info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
     #[cfg(feature = "adversarial")]
@@ -146,20 +156,20 @@ fn main() {
         }
     }
 
-    let home_str = opts.home.unwrap_or_else(|| get_default_home());
-    let home_dir = Path::new(&home_str);
+    let home_dir = neard_cmd.opts.home;
 
-    match opts.subcmd {
+    match neard_cmd.subcmd {
         NeardSubCommand::Init(cmd) => cmd.run(&home_dir),
         NeardSubCommand::Testnet(cmd) => cmd.run(&home_dir),
         NeardSubCommand::Run(cmd) => cmd.run(&home_dir),
+
         NeardSubCommand::UnsafeResetData => {
-            let store_path = get_store_path(home_dir);
+            let store_path = get_store_path(&home_dir);
             info!(target: "near", "Removing all data from {}", store_path);
             fs::remove_dir_all(store_path).expect("Removing data failed");
         }
         NeardSubCommand::UnsafeResetAll => {
-            info!(target: "near", "Removing all data and config from {}", home_dir.to_str().unwrap());
+            info!(target: "near", "Removing all data and config from {}", home_dir.to_string_lossy());
             fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
         }
     }
