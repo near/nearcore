@@ -8,6 +8,7 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::borsh::BorshDeserialize;
+use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
@@ -32,7 +33,6 @@ impl Trie {
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
-        println!("LEN: {}", trie_nodes.0.len());
         Ok(trie_nodes)
     }
 
@@ -52,7 +52,7 @@ impl Trie {
         let path_begin = self.find_path_for_part_boundary(root_hash, part_id, num_parts)?;
         let path_end = self.find_path_for_part_boundary(root_hash, part_id + 1, num_parts)?;
         let mut iterator = self.iter(&root_hash)?;
-        iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        iterator.visit_nodes_interval(&path_begin, &path_end, None)?;
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id + 1 != num_parts {
@@ -192,11 +192,11 @@ impl Trie {
         let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
         let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
         let mut iterator = TrieIterator::new(&trie, state_root)?;
-        let hashes = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let hashes =
+            iterator.visit_nodes_interval(&path_begin, &path_end, Some(&is_contract_code_key))?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
         for (hash, is_contract_code_node) in hashes {
-            println!("found hash = {}, key = {:?}", hash, is_contract_code_node);
             let value = trie.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
             if is_contract_code_node {

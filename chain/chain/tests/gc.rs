@@ -207,7 +207,7 @@ mod tests {
                     assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                     store_update2.merge(trie_store_update2);
                 } else {
-                    let (trie_store_update2, new_root2, _) =
+                    let (trie_store_update2, new_root2) =
                         tries2.apply_all(&trie_changes2, shard_to_check_trie).unwrap();
                     state_root2 = new_root2;
                     store_update2.merge(trie_store_update2);

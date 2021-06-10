@@ -3,14 +3,11 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
-use near_primitives::state_record::{is_contract_code_key, StateRecord};
-use near_primitives::trie_key::col;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::get_block_shard_id;
-use std::collections::hash_map::DefaultHasher;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -22,9 +19,6 @@ pub struct ShardTries {
     /// Cache for readers.
     pub(crate) view_caches: Arc<Vec<TrieCache>>,
 }
-
-use crate::trie::{RawTrieNode, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
-use std::hash::{Hash, Hasher};
 
 impl ShardTries {
     fn get_new_cache(num_shards: NumShards) -> Arc<Vec<TrieCache>> {
@@ -158,8 +152,7 @@ impl ShardTries {
             self.clone(),
             shard_id,
             store_update,
-        )?;
-        Ok(())
+        )
     }
 
     pub fn apply_deletions(

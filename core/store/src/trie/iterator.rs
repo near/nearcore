@@ -131,7 +131,9 @@ impl<'a> TrieIterator<'a> {
         result
     }
 
-    fn current_iter_step(&mut self) -> Option<IterStep> {
+    /// Gets IterStep for the current position of iterator in Trie.
+    /// Returns None if there is no applicable IterStep.
+    fn get_current_iter_step(&mut self) -> Option<IterStep> {
         let b = self.trail.last().expect("Trail finished.");
         match (b.status.clone(), &b.node.node) {
             (CrumbStatus::Exiting, n) => {
@@ -189,9 +191,11 @@ impl<'a> TrieIterator<'a> {
         }
     }
 
+    /// Get next IterStep for the current position of iterator in Trie.
+    /// Panics if it does not exist.
     fn iter_step(&mut self) -> Option<IterStep> {
         self.trail.last_mut()?.increment();
-        match self.current_iter_step() {
+        match self.get_current_iter_step() {
             Some(iter_step) => Some(iter_step),
             None => panic!("Should never see Entering or AtChild without a Branch here."),
         }
@@ -205,11 +209,21 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
-    /// Returns hashes of nodes with paths in [path_begin, path_end). Used by state parts
+    fn eval_predicate(&self, predicate: Option<&dyn Fn(&[u8]) -> bool>) -> bool {
+        match predicate {
+            Some(f) => f(&self.key()),
+            None => false,
+        }
+    }
+
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search order.
+    /// Returns vector of pairs with node hash and evaluation of predicate on node key for all nodes found.
+    /// Used to generate and apply state parts for state sync.
     pub(crate) fn visit_nodes_interval(
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],
+        predicate: Option<&dyn Fn(&[u8]) -> bool>,
     ) -> Result<Vec<(CryptoHash, bool)>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash = self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
@@ -218,13 +232,14 @@ impl<'a> TrieIterator<'a> {
             return Ok(vec![]);
         }
         let mut nodes_list = Vec::new();
+
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
-            let is_contract_code_node = match self.current_iter_step() {
-                Some(IterStep::Value(_)) => is_contract_code_key(&self.key()),
+            let last_predicate_result = match self.get_current_iter_step() {
+                Some(IterStep::Value(_)) => self.eval_predicate(predicate),
                 _ => false,
             };
-            nodes_list.push((last_hash, is_contract_code_node));
+            nodes_list.push((last_hash, last_predicate_result));
         }
 
         loop {
@@ -249,7 +264,7 @@ impl<'a> TrieIterator<'a> {
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
                     self.trie.retrieve_raw_bytes(&hash)?;
-                    nodes_list.push((hash, is_contract_code_key(&self.key())));
+                    nodes_list.push((hash, self.eval_predicate(predicate)));
                 }
             }
         }
