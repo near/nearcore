@@ -290,6 +290,7 @@ fn init_logging(verbose: Option<&str>) {
         .with_writer(io::stderr)
         .init();
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
