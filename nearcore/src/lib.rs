@@ -221,11 +221,10 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
 
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        {
-            if db_version <= 18 {
-                migrate_18_to_new_validator_stake(&store);
-            }
+        if db_version <= 18 {
+            migrate_18_to_new_validator_stake(&store);
         }
+
         // set some dummy value to avoid conflict with other migrations from nightly features
         set_store_version(&store, 10000);
     }

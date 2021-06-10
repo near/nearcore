@@ -59,18 +59,17 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
+    BlockHeaderView, FinalExecutionStatus, NightshadeRuntime, QueryRequest, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_store::StoreCompiledContractCache;
-use near_store::{get, Store};
+use near_store::{Store, StoreCompiledContractCache};
 #[cfg(feature = "protocol_feature_precompile_contracts")]
 use near_vm_runner::{get_key, VMKind};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
-use nearcore::{NightshadeRuntime, NEAR_BASE};
+use nearcore::NEAR_BASE;
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
@@ -1509,7 +1508,7 @@ fn test_precompile_on_apply_state_part() {
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
     let genesis_config = genesis.config.clone();
-    let runtimes: Vec<Arc<NightshadeRuntime>> = stores
+    let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
         .iter()
         .map(|store| {
             Arc::new(nearcore::NightshadeRuntime::new(
