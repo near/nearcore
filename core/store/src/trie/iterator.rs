@@ -130,9 +130,17 @@ impl<'a> TrieIterator<'a> {
         result
     }
 
-    /// Gets IterStep for the current position of iterator in Trie.
-    /// Returns None if there is no applicable IterStep.
-    fn get_current_iter_step(&mut self) -> Option<IterStep> {
+    fn has_value(&self) -> bool {
+        let b = self.trail.last().expect("Trail finished.");
+        match (b.status.clone(), &b.node.node) {
+            (CrumbStatus::At, TrieNode::Branch(_, Some(_))) => true,
+            (CrumbStatus::At, TrieNode::Leaf(_, _)) => true,
+            _ => false,
+        }
+    }
+
+    fn iter_step(&mut self) -> Option<IterStep> {
+        self.trail.last_mut()?.increment();
         let b = self.trail.last().expect("Trail finished.");
         match (b.status.clone(), &b.node.node) {
             (CrumbStatus::Exiting, n) => {
@@ -186,17 +194,7 @@ impl<'a> TrieIterator<'a> {
                 }
                 Some(IterStep::Continue)
             }
-            _ => None,
-        }
-    }
-
-    /// Get next IterStep for the current position of iterator in Trie.
-    /// Panics if it does not exist.
-    fn iter_step(&mut self) -> Option<IterStep> {
-        self.trail.last_mut()?.increment();
-        match self.get_current_iter_step() {
-            Some(iter_step) => Some(iter_step),
-            None => panic!("Should never see Entering or AtChild without a Branch here."),
+            _ => panic!("Should never see Entering or AtChild without a Branch here."),
         }
     }
 
@@ -234,11 +232,7 @@ impl<'a> TrieIterator<'a> {
 
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
-            let last_predicate_result = match self.get_current_iter_step() {
-                Some(IterStep::Value(_)) => self.eval_predicate(predicate),
-                _ => false,
-            };
-            nodes_list.push((last_hash, last_predicate_result));
+            nodes_list.push((last_hash, self.has_value() && self.eval_predicate(predicate)));
         }
 
         loop {
@@ -314,6 +308,7 @@ mod tests {
 
     use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
     use crate::Trie;
+    use crate::trie::iterator::IterStep;
 
     #[test]
     fn test_iterator() {
@@ -365,5 +360,38 @@ mod tests {
         let result2: Vec<_> =
             map.range(seek_key.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).take(5).collect();
         assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_has_value() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let tries = create_tries();
+            let trie = tries.get_trie_for_shard(0);
+            let trie_changes = gen_changes(&mut rng, 10);
+            let trie_changes = simplify_changes(&trie_changes);
+            let state_root = test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let mut iterator = trie.iter(&state_root).unwrap();
+            loop {
+                let iter_step = match iterator.iter_step() {
+                    Some(iter_step) => iter_step,
+                    None => break,
+                };
+                match iter_step {
+                    IterStep::Value(_) => assert!(iterator.has_value()),
+                    _ => assert!(!iterator.has_value()),
+                }
+                match iter_step {
+                    IterStep::PopTrail => {
+                        iterator.trail.pop();
+                    }
+                    IterStep::Descend(hash) => match iterator.trie.retrieve_node(&hash) {
+                        Ok(node) => iterator.descend_into_node(node),
+                        Err(e) => panic!("Unexpected error: {}", e),
+                    },
+                    _ => {}
+                }
+            }
+        }
     }
 }

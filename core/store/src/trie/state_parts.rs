@@ -632,7 +632,7 @@ mod tests {
                         num_parts,
                         parts[part_id as usize].clone(),
                     )
-                    .unwrap()
+                    .unwrap().0
                 })
                 .collect::<Vec<_>>();
             merge_trie_changes(changes)
