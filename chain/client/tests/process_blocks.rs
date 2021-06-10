@@ -1547,21 +1547,16 @@ fn test_precompile_on_apply_state_part() {
         env.process_block(1, block, Provenance::NONE);
     }
 
-    for i in 1..5 {
+    for i in 1..epoch_length + 1 {
         let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let sync_hash = *sync_block.hash();
         let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
-        // let state_root_node =
-        //     env.clients[0].runtime_adapter.get_state_root_node(0, &chunk_extra.state_root()).unwrap();
-        // let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        // println!("{}", num_parts);
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
             .runtime_adapter
             .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
             .unwrap();
-        println!("APPLY {}", i);
         env.clients[1]
             .runtime_adapter
             .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
@@ -1571,30 +1566,7 @@ fn test_precompile_on_apply_state_part() {
     let contract_code = ContractCode::new(wasm_code, None);
     let key =
         get_key(&contract_code, VMKind::default(), &genesis_config.runtime_config.wasm_config);
-    println!("FINDING KEY {}", key);
-    let sync_block = env.clients[1].chain.get_block_by_height(4).unwrap().clone();
-    let state_root = sync_block.chunks()[0].prev_state_root();
-    // let sync_hash = *sync_block.hash();
-    // let chunk_extra = env.clients[1].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
-    let trie_key = TrieKey::ContractCode { account_id: "test0".to_string() };
-    let trie_key_vec = trie_key.to_vec();
-    println!("{:?}", trie_key_vec);
-    let z_ref = runtimes[1]
-        .get_view_trie_for_shard(0)
-        .get_ref(&state_root, trie_key_vec.as_slice())
-        .unwrap()
-        .unwrap()
-        .1;
-    println!("REF = {}", z_ref);
-    let z = runtimes[1]
-        .get_view_trie_for_shard(0)
-        .get(&state_root, trie_key_vec.as_slice())
-        .unwrap()
-        .unwrap();
-    let x: Vec<u8> = z.iter().cloned().take(5).collect();
-    println!("{:?} ...", x);
-    let y = compiled_contract_cache.get(&key.0).unwrap().unwrap();
-    println!("{:?}", y);
+    compiled_contract_cache.get(&key.0).expect("Compiled contract should be cached").expect("Compilation result should be non-empty");
 }
 
 #[test]
