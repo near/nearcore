@@ -502,6 +502,27 @@ impl NightshadeRuntime {
 
         Ok(result)
     }
+
+    fn precompile_contracts(
+        &self,
+        protocol_version: ProtocolVersion,
+        contract_codes: Vec<Vec<u8>>,
+    ) -> Result<(), Error> {
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
+            Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
+        for code in contract_codes.iter().cloned() {
+            let contract_code = ContractCode::new(code.clone(), None);
+            precompile_contract(
+                &contract_code,
+                &runtime_config.wasm_config,
+                compiled_contract_cache.as_deref(),
+            )
+            .map_err(|e| Error::from(e.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShards) -> ShardId {
@@ -1422,21 +1443,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let tries = self.get_tries();
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
-        // add compiled contracts to cache
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
-        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
-            Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
-        for code in contract_codes.iter().cloned() {
-            let contract_code = ContractCode::new(code.clone(), None);
-            precompile_contract(
-                &contract_code,
-                &runtime_config.wasm_config,
-                compiled_contract_cache.as_deref(),
-            )
-            .map_err(|e| Error::from(e.to_string()))?;
-        }
+        self.precompile_contracts(protocol_version, contract_codes)?;
         Ok(store_update.commit()?)
     }
 
