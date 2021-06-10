@@ -1566,7 +1566,10 @@ fn test_precompile_on_apply_state_part() {
     let contract_code = ContractCode::new(wasm_code, None);
     let key =
         get_key(&contract_code, VMKind::default(), &genesis_config.runtime_config.wasm_config);
-    compiled_contract_cache.get(&key.0).expect("Compiled contract should be cached").expect("Compilation result should be non-empty");
+    compiled_contract_cache
+        .get(&key.0)
+        .expect("Compiled contract should be cached")
+        .expect("Compilation result should be non-empty");
 }
 
 #[test]

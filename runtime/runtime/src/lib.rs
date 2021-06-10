@@ -1341,8 +1341,6 @@ impl Runtime {
                 _ => {}
             }
         }
-        println!("TO INSERT:");
-        println!("{:?}", contract_codes.len());
         for code in contract_codes.iter().cloned() {
             let contract_code = ContractCode::new(code.clone(), None);
             precompile_contract(
@@ -1350,7 +1348,7 @@ impl Runtime {
                 &apply_state.config.wasm_config,
                 apply_state.cache.as_deref(),
             )
-            .map_err(|e| RuntimeError::UnexpectedIntegerOverflow)?;
+            .map_err(|e| RuntimeError::ContractPrecompilationError(e.to_string()))?;
         }
 
         // Dedup proposals from the same account.

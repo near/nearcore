@@ -3,7 +3,6 @@ use near_primitives::hash::CryptoHash;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
 use crate::{StorageError, Trie};
-use near_primitives::state_record::is_contract_code_key;
 
 #[derive(Debug)]
 struct Crumb {

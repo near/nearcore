@@ -58,6 +58,8 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// Error when precompiling contract and putting result to the contract cache.
+    ContractPrecompilationError(String),
 }
 
 /// Error used by `RuntimeExt`. This error has to be serializable, because it's transferred through

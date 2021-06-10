@@ -7,7 +7,6 @@ use near_primitives::types::StateRoot;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
-use near_primitives::borsh::BorshDeserialize;
 use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
