@@ -63,7 +63,7 @@ impl NeardCmd {
 struct NeardOpts {
     /// Verbose logging.
     #[clap(long)]
-    verbose: Option<Option<String>>,
+    verbose: Option<String>,
     /// Directory for config and data (default "~/.near").
     #[clap(long, parse(from_os_str), default_value = &DEFAULT_HOME)]
     home: PathBuf,
@@ -71,7 +71,7 @@ struct NeardOpts {
 
 impl NeardOpts {
     fn init(&self) {
-        init_logging(self.verbose.as_ref().map(Option::as_deref).flatten());
+        init_logging(self.verbose.as_deref());
     }
 }
 
