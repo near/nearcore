@@ -59,13 +59,13 @@ use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
-    BlockHeaderView, FinalExecutionStatus, NightshadeRuntime, QueryRequest, QueryResponseKind,
+    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_store::{Store, StoreCompiledContractCache};
+use near_store::{get, Store, StoreCompiledContractCache};
 #[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_vm_runner::{get_key, VMKind};
+use near_vm_runner::{get_contract_cache_key, VMKind};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
@@ -1561,14 +1561,20 @@ fn test_precompile_on_apply_state_part() {
             .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
             .unwrap();
     }
-    let compiled_contract_cache = Arc::new(StoreCompiledContractCache { store: stores[1].clone() });
-    let contract_code = ContractCode::new(wasm_code, None);
-    let key =
-        get_key(&contract_code, VMKind::default(), &genesis_config.runtime_config.wasm_config);
-    compiled_contract_cache
-        .get(&key.0)
-        .expect("Compiled contract should be cached")
-        .expect("Compilation result should be non-empty");
+    for i in 0..num_clients {
+        let compiled_contract_cache =
+            Arc::new(StoreCompiledContractCache { store: stores[i].clone() });
+        let contract_code = ContractCode::new(wasm_code.clone(), None);
+        let key = get_contract_cache_key(
+            &contract_code,
+            VMKind::default(),
+            &genesis_config.runtime_config.wasm_config,
+        );
+        compiled_contract_cache
+            .get(&key.0)
+            .expect("Compiled contract should be cached")
+            .expect("Compilation result should be non-empty");
+    }
 }
 
 #[test]

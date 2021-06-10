@@ -49,6 +49,7 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+#[cfg(feature = "protocol_feature_precompile_contracts")]
 use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -56,6 +57,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
+#[cfg(feature = "protocol_feature_precompile_contracts")]
 use near_vm_runner::precompile_contract;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1324,31 +1326,29 @@ impl Runtime {
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
         let (trie_changes, state_changes) = state_update.finalize()?;
-        let mut contract_codes = Vec::new();
+
+        // Precompile contracts just inserted into state.
+        #[cfg(feature = "protocol_feature_precompile_contracts")]
         for state_change in state_changes.iter() {
             match state_change.trie_key {
                 TrieKey::ContractCode { .. } => {
-                    contract_codes.push(
-                        state_change
-                            .changes
-                            .last()
-                            .expect("Committed entry should have at least one change")
-                            .data
-                            .as_ref()
-                            .expect("Contract code key should have non-empty data"),
-                    );
+                    let code = state_change
+                        .changes
+                        .last()
+                        .expect("Committed entry should have at least one change")
+                        .data
+                        .as_ref()
+                        .expect("Contract code key should have non-empty data");
+                    let contract_code = ContractCode::new(code.clone(), None);
+                    precompile_contract(
+                        &contract_code,
+                        &apply_state.config.wasm_config,
+                        apply_state.cache.as_deref(),
+                    )
+                    .map_err(|e| RuntimeError::ContractPrecompilationError(e.to_string()))?;
                 }
                 _ => {}
             }
-        }
-        for code in contract_codes.iter().cloned() {
-            let contract_code = ContractCode::new(code.clone(), None);
-            precompile_contract(
-                &contract_code,
-                &apply_state.config.wasm_config,
-                apply_state.cache.as_deref(),
-            )
-            .map_err(|e| RuntimeError::ContractPrecompilationError(e.to_string()))?;
         }
 
         // Dedup proposals from the same account.
@@ -1434,24 +1434,45 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
+    #[cfg(feature = "protocol_feature_precompile_contracts")]
+    use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
         AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    use near_store::{get_code, set_access_key};
+    #[cfg(feature = "protocol_feature_precompile_contracts")]
+    use near_vm_runner::{get_contract_cache_key, VMKind};
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
-    // cfg[()]
-    use near_primitives::transaction::DeployContractAction;
-    use near_vm_runner::{get_key, precompile_contract, VMKind};
 
     const GAS_PRICE: Balance = 5000;
 
     fn to_yocto(near: Balance) -> Balance {
         near * 10u128.pow(24)
+    }
+
+    fn create_receipts_with_actions(
+        account_id: AccountId,
+        signer: Arc<InMemorySigner>,
+        actions: Vec<Action>,
+    ) -> Vec<Receipt> {
+        vec![Receipt {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: account_id,
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }]
     }
 
     #[test]
@@ -2244,19 +2265,7 @@ mod tests {
             }),
         ];
 
-        let receipts = vec![Receipt {
-            predecessor_id: alice_account(),
-            receiver_id: alice_account(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: alice_account(),
-                signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
-        }];
+        let receipts = create_receipts_with_actions(alice_account(), signer, actions);
 
         let apply_result = runtime
             .apply(
@@ -2296,19 +2305,7 @@ mod tests {
 
         let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
 
-        let receipts = vec![Receipt {
-            predecessor_id: alice_account(),
-            receiver_id: alice_account(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: alice_account(),
-                signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
-        }];
+        let receipts = create_receipts_with_actions(alice_account(), signer, actions);
 
         let apply_result = runtime
             .apply(
@@ -2330,33 +2327,20 @@ mod tests {
         assert_eq!(final_account_state.storage_usage(), 0);
     }
 
+    #[cfg(feature = "protocol_feature_precompile_contracts")]
     #[test]
-    fn test_compiled_contract() {
+    fn test_contract_precompilation() {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let gas_limit = 10u64.pow(15);
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
-        // let gas = 1_000_000;
-        // let gas_price = GAS_PRICE / 10;
         let wasm_code = near_test_contracts::rs_contract().to_vec();
         let actions =
             vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
 
-        let receipts = vec![Receipt {
-            predecessor_id: alice_account(),
-            receiver_id: alice_account(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: alice_account(),
-                signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
-        }];
+        let receipts = create_receipts_with_actions(alice_account(), signer, actions);
 
         let apply_result = runtime
             .apply(
@@ -2369,16 +2353,20 @@ mod tests {
                 &epoch_info_provider,
             )
             .unwrap();
-        let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
         store_update.commit().unwrap();
 
         let contract_code = ContractCode::new(wasm_code, None);
-        let key = get_key(&contract_code, VMKind::default(), &apply_state.config.wasm_config);
-        println!("{}", key);
-
-        let y = apply_state.cache.unwrap().get(&key.0).unwrap().unwrap();
-
-        println!("{:?}", y);
-        // println!(compiled_contract_cache.get())
+        let key = get_contract_cache_key(
+            &contract_code,
+            VMKind::default(),
+            &apply_state.config.wasm_config,
+        );
+        apply_state
+            .cache
+            .unwrap()
+            .get(&key.0)
+            .expect("Compiled contract should be cached")
+            .expect("Compilation result should be non-empty");
     }
 }
