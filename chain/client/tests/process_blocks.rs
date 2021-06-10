@@ -61,9 +61,10 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_store::get;
 use near_store::test_utils::create_test_store;
 #[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_store::{get, Store, StoreCompiledContractCache};
+use near_store::{Store, StoreCompiledContractCache};
 #[cfg(feature = "protocol_feature_precompile_contracts")]
 use near_vm_runner::{get_contract_cache_key, VMKind};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
