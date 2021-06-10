@@ -307,8 +307,8 @@ mod tests {
     use near_primitives::hash::CryptoHash;
 
     use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
-    use crate::Trie;
     use crate::trie::iterator::IterStep;
+    use crate::Trie;
 
     #[test]
     fn test_iterator() {
@@ -370,7 +370,8 @@ mod tests {
             let trie = tries.get_trie_for_shard(0);
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
-            let state_root = test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root =
+                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
             let mut iterator = trie.iter(&state_root).unwrap();
             loop {
                 let iter_step = match iterator.iter_step() {
