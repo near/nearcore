@@ -205,7 +205,6 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
-    #[cfg(feature = "sandbox")]
     pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
@@ -243,7 +242,6 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            #[cfg(feature = "sandbox")]
             pending_states_to_patch: None,
         })
     }
@@ -359,7 +357,6 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            #[cfg(feature = "sandbox")]
             pending_states_to_patch: None,
         })
     }
@@ -1062,11 +1059,9 @@ impl Chain {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.chain_store_update.save_block_height_processed(block_height);
                 chain_update.commit()?;
-                #[cfg(feature = "sandbox")]
-                {
-                    self.pending_states_to_patch = None;
-                }
-
+            
+                self.pending_states_to_patch = None;
+                
                 if needs_to_start_fetching_state {
                     debug!(target: "chain", "Downloading state for block {}", block.hash());
                     self.start_downloading_state(me, &block)?;
@@ -2967,10 +2962,7 @@ impl<'a> ChainUpdate<'a> {
                             *block.header().random_value(),
                             false,
                             false,
-                            #[cfg(feature = "sandbox")]
                             self.states_to_patch.take(),
-                            #[cfg(not(feature = "sandbox"))]
-                            None,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
