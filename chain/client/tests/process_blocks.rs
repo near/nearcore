@@ -2329,7 +2329,11 @@ fn test_epoch_protocol_version_change() {
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
-            set_block_protocol_version(block, block_producer.to_string(), PROTOCOL_VERSION + 1);
+            set_block_protocol_version(
+                &mut block,
+                &block_producer.to_string(),
+                PROTOCOL_VERSION + 1,
+            );
         }
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
@@ -3071,13 +3075,11 @@ mod storage_usage_fix_tests {
         genesis.config.chain_id = chain_id;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
-        let genesis_height = genesis.config.genesis_height;
         let chain_genesis = ChainGenesis::from(&genesis);
         let mut env =
             TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
         for i in 1..=16 {
             // We cannot just use TestEnv::produce_block as we are updating protocol version
-
             let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
             set_block_protocol_version(
                 &mut block,
