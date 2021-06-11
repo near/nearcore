@@ -1337,15 +1337,16 @@ impl Runtime {
                         .last()
                         .expect("Committed entry should have at least one change")
                         .data
-                        .as_ref()
-                        .expect("Contract code key should have non-empty data");
-                    let contract_code = ContractCode::new(code.clone(), None);
-                    precompile_contract(
-                        &contract_code,
-                        &apply_state.config.wasm_config,
-                        apply_state.cache.as_deref(),
-                    )
-                    .map_err(|e| RuntimeError::ContractPrecompilationError(e.to_string()))?;
+                        .as_ref();
+                    if let Some(code) = code {
+                        let contract_code = ContractCode::new(code.clone(), None);
+                        precompile_contract(
+                            &contract_code,
+                            &apply_state.config.wasm_config,
+                            apply_state.cache.as_deref(),
+                        )
+                        .map_err(|e| RuntimeError::ContractPrecompilationError(e.to_string()))?;
+                    }
                 }
                 _ => {}
             }
