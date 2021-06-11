@@ -63,6 +63,7 @@ use near_primitives::runtime::config::RuntimeConfig;
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
 
@@ -512,15 +513,20 @@ impl NightshadeRuntime {
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
-        for code in contract_codes.iter().cloned() {
-            let contract_code = ContractCode::new(code.clone(), None);
-            precompile_contract(
-                &contract_code,
-                &runtime_config.wasm_config,
-                compiled_contract_cache.as_deref(),
-            )
-            .map_err(|e| Error::from(e.to_string()))?;
-        }
+        contract_codes
+            .par_iter()
+            .cloned()
+            .map(|code| -> Result<(), Error> {
+                let contract_code = ContractCode::new(code.clone(), None);
+                precompile_contract(
+                    &contract_code,
+                    &runtime_config.wasm_config,
+                    compiled_contract_cache.as_deref(),
+                )
+                .map_err(|e| Error::from(e.to_string()))?;
+                Ok(())
+            })
+            .collect::<Result<(), Error>>()?;
         Ok(())
     }
 }

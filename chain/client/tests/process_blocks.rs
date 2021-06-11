@@ -1502,7 +1502,7 @@ fn test_process_block_after_state_sync() {
 
 #[cfg(feature = "protocol_feature_precompile_contracts")]
 #[test]
-fn test_precompile_on_apply_state_part() {
+fn test_state_sync_contract_precompilation() {
     let num_clients = 2;
     let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -1573,8 +1573,8 @@ fn test_precompile_on_apply_state_part() {
         );
         compiled_contract_cache
             .get(&key.0)
-            .expect("Compiled contract should be cached")
-            .expect("Compilation result should be non-empty");
+            .unwrap_or_else(|_| panic!("Compiled contract should be cached for client {}", i))
+            .unwrap_or_else(|| panic!("Compilation result should be non-empty for client {}", i));
     }
 }
 

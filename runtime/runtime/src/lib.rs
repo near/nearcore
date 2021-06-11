@@ -59,6 +59,8 @@ use near_primitives::version::{
 };
 #[cfg(feature = "protocol_feature_precompile_contracts")]
 use near_vm_runner::precompile_contract;
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -1329,27 +1331,32 @@ impl Runtime {
 
         // Precompile contracts just inserted into state.
         #[cfg(feature = "protocol_feature_precompile_contracts")]
-        for state_change in state_changes.iter() {
-            match state_change.trie_key {
-                TrieKey::ContractCode { .. } => {
-                    let code = state_change
-                        .changes
-                        .last()
-                        .expect("Committed entry should have at least one change")
-                        .data
-                        .as_ref();
-                    if let Some(code) = code {
-                        let contract_code = ContractCode::new(code.clone(), None);
-                        precompile_contract(
-                            &contract_code,
-                            &apply_state.config.wasm_config,
-                            apply_state.cache.as_deref(),
-                        )
-                        .map_err(|e| RuntimeError::ContractPrecompilationError(e.to_string()))?;
-                    }
-                }
-                _ => {}
-            }
+        {
+            let wasm_config = apply_state.config.wasm_config.clone();
+            let cache = apply_state.cache.as_deref();
+            state_changes
+                .par_iter()
+                .map(|state_change| -> Result<(), RuntimeError> {
+                    match state_change.trie_key {
+                        TrieKey::ContractCode { .. } => {
+                            let code = state_change
+                                .changes
+                                .last()
+                                .expect("Committed entry should have at least one change")
+                                .data
+                                .as_ref();
+                            if let Some(code) = code {
+                                let contract_code = ContractCode::new(code.clone(), None);
+                                precompile_contract(&contract_code, &wasm_config, cache).map_err(
+                                    |e| RuntimeError::ContractPrecompilationError(e.to_string()),
+                                )?;
+                            }
+                        }
+                        _ => {}
+                    };
+                    Ok(())
+                })
+                .collect::<Result<(), RuntimeError>>()?;
         }
 
         // Dedup proposals from the same account.
