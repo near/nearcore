@@ -15,6 +15,26 @@
       "subtypes": [],
       "props": {}
     },
+    "Blake2HashDataOverflow": {
+      "name": "Blake2HashDataOverflow",
+      "subtypes": [],
+      "props": {}
+    },
+    "Blake2InvalidStateLength": {
+      "name": "Blake2InvalidStateLength",
+      "subtypes": [],
+      "props": {
+        "length": ""
+      }
+    },
+    "Blake2TooManyRounds": {
+      "name": "Blake2TooManyRounds",
+      "subtypes": [],
+      "props": {
+        "max": "",
+        "actual": ""
+      }
+    },
     "BreakpointTrap": {
       "name": "BreakpointTrap",
       "subtypes": [],
@@ -163,7 +183,10 @@
         "NumberInputDataDependenciesExceeded",
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
-        "Deprecated"
+        "Deprecated",
+        "Blake2InvalidStateLength",
+        "Blake2HashDataOverflow",
+        "Blake2TooManyRounds"
       ],
       "props": {}
     },

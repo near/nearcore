@@ -1131,7 +1131,7 @@ impl<'a> VMLogic<'a> {
                 let result = sha3::Keccak256::digest(&public_key.serialize()[1..]);
                 let mut address = [0u8; 20];
                 address.copy_from_slice(&result[12..]);
-                self.internal_write_register(register_id, address.to_vec())
+                self.internal_write_register(register_id, address.to_vec())?;
                 return Ok(true);
             }
         }
