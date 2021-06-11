@@ -1060,7 +1060,7 @@ impl<'a> VMLogic<'a> {
         f1: u32,
         register_id: u64,
     ) -> Result<()> {
-        use blake2::VarBlake2b;
+        use blake2::VarBlake2s;
         use std::convert::TryFrom;
 
         if state_len != 8 {
@@ -1100,12 +1100,12 @@ impl<'a> VMLogic<'a> {
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
     ///
+    /// Returns a bool indicating success or failure.
+    ///
     /// # Errors
     ///
     /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
     ///   memory than the limit, then returns `MemoryAccessViolation`.
-    /// * If `v` is invalid (not 27 or 28), then returns  `InvalidECDSASignature`.
-    /// * If the ECDSA recovery fails for any reason, then returns `InvalidECDSASignature`.
     ///
     /// # Cost
     ///

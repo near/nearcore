@@ -76,11 +76,6 @@
         "method_name": ""
       }
     },
-    "InvalidECDSASignature": {
-      "name": "InvalidECDSASignature",
-      "subtypes": [],
-      "props": {}
-    },
     "Deserialization": {
       "name": "Deserialization",
       "subtypes": [],
