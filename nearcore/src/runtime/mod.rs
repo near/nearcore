@@ -515,7 +515,6 @@ impl NightshadeRuntime {
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         contract_codes
             .par_iter()
-            .cloned()
             .map(|code| -> Result<(), Error> {
                 let contract_code = ContractCode::new(code.clone(), None);
                 precompile_contract(

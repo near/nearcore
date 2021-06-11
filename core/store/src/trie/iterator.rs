@@ -131,11 +131,13 @@ impl<'a> TrieIterator<'a> {
     }
 
     fn has_value(&self) -> bool {
-        let b = self.trail.last().expect("Trail finished.");
-        match (b.status.clone(), &b.node.node) {
-            (CrumbStatus::At, TrieNode::Branch(_, Some(_))) => true,
-            (CrumbStatus::At, TrieNode::Leaf(_, _)) => true,
-            _ => false,
+        match self.trail.last() {
+            Some(b) => match (&b.status, &b.node.node) {
+                (CrumbStatus::At, TrieNode::Branch(_, Some(_))) => true,
+                (CrumbStatus::At, TrieNode::Leaf(_, _)) => true,
+                _ => false,
+            },
+            None => false, // Trail finished
         }
     }
 
