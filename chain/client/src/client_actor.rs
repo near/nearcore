@@ -305,7 +305,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkSandboxMessage::SandboxPatchStateStatus => {
                         NetworkClientResponses::SandboxResult(
                             SandboxResponse::SandboxPatchStateFinished(
-                                self.client.chain.patch_state_finished(),
+                                !self.client.chain.patch_state_in_progress(),
                             ),
                         )
                     }

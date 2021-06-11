@@ -48,7 +48,6 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
-#[cfg(feature = "sandbox")]
 use near_primitives::state_record::StateRecord;
 
 use crate::lightclient::get_epoch_block_producers_view;
@@ -207,7 +206,7 @@ pub struct Chain {
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
     #[cfg(feature = "sandbox")]
-    pub pending_states_to_patch: Option<Vec<StateRecord>>,
+    pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl Chain {
@@ -2492,8 +2491,8 @@ impl Chain {
         }
     }
 
-    pub fn patch_state_finished(&self) -> bool {
-        self.pending_states_to_patch.is_none()
+    pub fn patch_state_in_progress(&self) -> bool {
+        self.pending_states_to_patch.is_some()
     }
 }
 
@@ -2512,7 +2511,6 @@ pub struct ChainUpdate<'a> {
     genesis: &'a Block,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
-    #[cfg(feature = "sandbox")]
     states_to_patch: Option<Vec<StateRecord>>,
 }
 
@@ -2527,7 +2525,7 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
         transaction_validity_period: BlockHeightDelta,
-        #[cfg(feature = "sandbox")] states_to_patch: Option<Vec<StateRecord>>,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2540,7 +2538,6 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             genesis,
             transaction_validity_period,
-            #[cfg(feature = "sandbox")]
             states_to_patch,
         }
     }
