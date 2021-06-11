@@ -2090,7 +2090,7 @@ impl Chain {
             &self.genesis,
             self.transaction_validity_period,
             #[cfg(feature = "sandbox")]
-            self.pending_states_to_patch.clone(),
+            self.pending_states_to_patch.take(),
         )
     }
 
