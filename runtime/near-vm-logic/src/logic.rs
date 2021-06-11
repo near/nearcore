@@ -1111,7 +1111,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
     #[cfg(feature = "protocol_feature_evm")]
-    pub fn ecrecover(&mut self, hash_ptr: u64, sig_ptr: u64, register_id: u64) -> Result<()> {
+    pub fn ecrecover(&mut self, hash_ptr: u64, sig_ptr: u64, register_id: u64) -> Result<bool> {
         use sha3::Digest;
         self.gas_counter.pay_base(ecrecover_base)?;
 
@@ -1131,10 +1131,11 @@ impl<'a> VMLogic<'a> {
                 let result = sha3::Keccak256::digest(&public_key.serialize()[1..]);
                 let mut address = [0u8; 20];
                 address.copy_from_slice(&result[12..]);
-                return self.internal_write_register(register_id, address.to_vec());
+                self.internal_write_register(register_id, address.to_vec())
+                return Ok(true);
             }
         }
-        return Err(HostError::InvalidECDSASignature.into());
+        return Ok(false);
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.

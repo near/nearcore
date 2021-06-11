@@ -206,8 +206,6 @@ pub enum HostError {
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
-    /// Invalid ECDSA signature.
-    InvalidECDSASignature,
     /// The length of the state is not 64.
     #[cfg(feature = "protocol_feature_evm")]
     Blake2InvalidStateLength { length: u64 },
