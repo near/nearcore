@@ -394,7 +394,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             DoomslugThresholdMode::NoApprovals,
             &genesis_block,
             transaction_validity_period,
-            #[cfg(feature = "sandbox")]
             None,
         );
 

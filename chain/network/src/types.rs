@@ -1472,6 +1472,10 @@ pub enum NetworkClientResponses {
     #[cfg(feature = "adversarial")]
     AdvResult(u64),
 
+    /// Sandbox controls
+    #[cfg(feature = "sandbox")]
+    SandboxResult(SandboxResponse),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1485,10 +1489,6 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
-
-    /// Sandbox controls
-    #[cfg(feature = "sandbox")]
-    SandboxResult(SandboxResponse),
 }
 
 #[cfg(feature = "sandbox")]

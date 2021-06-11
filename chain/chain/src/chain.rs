@@ -2089,7 +2089,6 @@ impl Chain {
             self.doomslug_threshold_mode,
             &self.genesis,
             self.transaction_validity_period,
-            #[cfg(feature = "sandbox")]
             self.pending_states_to_patch.take(),
         )
     }
