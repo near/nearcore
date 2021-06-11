@@ -18,6 +18,7 @@ use near_metrics;
 use near_performance_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
@@ -739,7 +740,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         },
                     ));
                 } else {
-                    info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
+                    info!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
                 }
                 return;
             }
