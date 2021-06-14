@@ -556,7 +556,7 @@ fn test_ripemd160() {
         ExtCosts::write_register_base: 1,
         ExtCosts::write_register_byte: 20,
         ExtCosts::ripemd160_base: 1,
-        ExtCosts::ripemd160_byte: len,
+        ExtCosts::ripemd160_block: 1,
     });
 }
 
@@ -578,7 +578,8 @@ fn test_blake2b() {
         0x5be0cd19137e2179,
     ];
     let m = b"abc";
-    let t = 0;
+    let t0 = 0;
+    let t1 = 0;
     let f0 = !0;
     let f1 = 0;
 
@@ -589,7 +590,8 @@ fn test_blake2b() {
             h.as_ptr() as _,
             m.len() as u64,
             m.as_ptr() as _,
-            t,
+            t0,
+            t1,
             f0,
             f1,
             0,
@@ -638,8 +640,7 @@ fn test_blake2s() {
         0x5be0cd19,
     ];
     let m: &[u8; 3] = b"abc";
-    let t0: u32 = 0;
-    let t1: u32 = 0;
+    let t: u64 = 0;
     let f0: u32 = !0;
     let f1: u32 = 0;
 
@@ -650,8 +651,7 @@ fn test_blake2s() {
             h.as_ptr() as _,
             m.len() as u64,
             m.as_ptr() as _,
-            t0,
-            t1,
+            t,
             f0,
             f1,
             0,

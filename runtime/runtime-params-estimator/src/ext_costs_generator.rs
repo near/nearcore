@@ -68,7 +68,7 @@ impl ExtCostsGenerator {
         #[cfg(feature = "protocol_feature_evm")]
         {
             self.extract(ripemd160_10b_10k, ripemd160_base);
-            self.extract(ripemd160_10kib_10k, ripemd160_byte);
+            self.extract(ripemd160_10kib_10k, ripemd160_block);
 
             self.extract(blake2b_128b_0r_10k, blake2b_base);
             self.extract(blake2b_128kb_0r_10k, blake2b_block);

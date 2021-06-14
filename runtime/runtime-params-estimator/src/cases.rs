@@ -790,7 +790,7 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         #[cfg(feature = "protocol_feature_evm")]
         ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
         #[cfg(feature = "protocol_feature_evm")]
-        ripemd160_byte: measured_to_gas(metric, &measured, ripemd160_byte),
+        ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
         #[cfg(feature = "protocol_feature_evm")]
         blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
         #[cfg(feature = "protocol_feature_evm")]

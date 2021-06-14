@@ -960,12 +960,17 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_byte * num_bytes`
+    ///  Where `message_blocks` is `max(message_len / 8, 1)`.
+    ///
+    /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
     #[cfg(feature = "protocol_feature_evm")]
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ripemd160_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
-        self.gas_counter.pay_per(ripemd160_byte, value.len() as u64)?;
+
+        let message_blocks = std::cmp::max(value_len / 8, 1);
+
+        self.gas_counter.pay_per(ripemd160_block, message_blocks)?;
 
         use ripemd160::Digest;
 
@@ -985,7 +990,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// Where `message_blocks` is `(message_len / 128 + 1)`.
+    /// Where `message_blocks` is `max(message_len / 128, 1)`.
     ///
     /// `base + write_register_base + write_register_byte * num_bytes +
     /// message_blocks * blake2b_block + rounds * message_blocks`
@@ -1011,7 +1016,7 @@ impl<'a> VMLogic<'a> {
         }
 
         // Change to per block for gas.
-        let message_blocks = message_len / 128 + 1;
+        let message_blocks = std::cmp::max(message_len / 128, 1);
 
         self.gas_counter.pay_base(blake2b_base)?;
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
@@ -1047,7 +1052,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// Where `message_blocks` is `(message_len / 128 + 1)`.
+    /// Where `message_blocks` is `max(message_len / 128, 1)`.
     ///
     /// `base + write_register_base + write_register_byte * num_bytes +
     /// message_blocks * blake2s_block + rounds * message_blocks`
@@ -1072,7 +1077,7 @@ impl<'a> VMLogic<'a> {
         }
 
         // Change to per block for gas.
-        let message_blocks = message_len / 128 + 1;
+        let message_blocks = std::cmp::max(message_len / 64, 1);
 
         self.gas_counter.pay_base(blake2b_base)?;
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;

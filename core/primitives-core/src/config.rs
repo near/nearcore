@@ -226,9 +226,9 @@ pub struct ExtCostsConfig {
     /// Cost of getting ripemd160 base
     #[cfg(feature = "protocol_feature_evm")]
     pub ripemd160_base: Gas,
-    /// Cost of getting ripemd160 per byte
+    /// Cost of getting ripemd160 per message block
     #[cfg(feature = "protocol_feature_evm")]
-    pub ripemd160_byte: Gas,
+    pub ripemd160_block: Gas,
 
     /// Cost of getting blake2b base
     #[cfg(feature = "protocol_feature_evm")]
@@ -386,7 +386,7 @@ impl Default for ExtCostsConfig {
             #[cfg(feature = "protocol_feature_evm")]
             ripemd160_base: SAFETY_MULTIPLIER * 15136567500, // 10 x sha256_base
             #[cfg(feature = "protocol_feature_evm")]
-            ripemd160_byte: SAFETY_MULTIPLIER * 80391170, // 10 x sha256_byte
+            ripemd160_block: SAFETY_MULTIPLIER * 80391170 * 8, // 10 x sha256_byte x 8 bytes
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_base: SAFETY_MULTIPLIER * 88256037, // same as base.
             #[cfg(feature = "protocol_feature_evm")]
@@ -474,7 +474,7 @@ impl ExtCostsConfig {
             #[cfg(feature = "protocol_feature_evm")]
             ripemd160_base: 0,
             #[cfg(feature = "protocol_feature_evm")]
-            ripemd160_byte: 0,
+            ripemd160_block: 0,
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_base: 0,
             #[cfg(feature = "protocol_feature_evm")]
@@ -563,7 +563,7 @@ pub enum ExtCosts {
     #[cfg(feature = "protocol_feature_evm")]
     ripemd160_base,
     #[cfg(feature = "protocol_feature_evm")]
-    ripemd160_byte,
+    ripemd160_block,
     #[cfg(feature = "protocol_feature_evm")]
     blake2b_base,
     #[cfg(feature = "protocol_feature_evm")]
@@ -705,7 +705,7 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_evm")]
             ripemd160_base => config.ripemd160_base,
             #[cfg(feature = "protocol_feature_evm")]
-            ripemd160_byte => config.ripemd160_byte,
+            ripemd160_block => config.ripemd160_block,
             #[cfg(feature = "protocol_feature_evm")]
             blake2b_base => config.blake2b_base,
             #[cfg(feature = "protocol_feature_evm")]
@@ -795,7 +795,7 @@ impl ExtCosts {
             "keccak512_base",
             "keccak512_byte",
             "ripemd160_base",
-            "ripemd160_byte",
+            "ripemd160_block",
             "blake2b_base",
             "blake2b_byte",
             "ecrecover_base",

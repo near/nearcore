@@ -432,7 +432,7 @@ pub unsafe fn keccak512_10kib_10k() {
     }
 }
 
-// Function to measure `ripemd160_base` and `ripemd160_byte`. Also measures `base`, `write_register_base`,
+// Function to measure `ripemd160_base` and `ripemd160_block`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10b 10k times.
@@ -444,7 +444,7 @@ pub unsafe fn ripemd160_10b_10k() {
         ripemd160(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
     }
 }
-// Function to measure `ripemd160_base` and `ripemd160_byte`. Also measures `base`, `write_register_base`,
+// Function to measure `ripemd160_base` and `ripemd160_block`. Also measures `base`, `write_register_base`,
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10kib 10k times.
