@@ -11,8 +11,6 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use tracing::{debug, error, info, warn};
 
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
 use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
@@ -50,6 +48,8 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
+use near_primitives::state_record::StateRecord;
+
 use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::{BlockLike, MissingChunksPool};
@@ -64,6 +64,8 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -203,6 +205,7 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
+    pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl Chain {
@@ -239,6 +242,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            pending_states_to_patch: None,
         })
     }
 
@@ -353,6 +357,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            pending_states_to_patch: None,
         })
     }
 
@@ -1054,7 +1059,9 @@ impl Chain {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.chain_store_update.save_block_height_processed(block_height);
                 chain_update.commit()?;
-
+            
+                self.pending_states_to_patch = None;
+                
                 if needs_to_start_fetching_state {
                     debug!(target: "chain", "Downloading state for block {}", block.hash());
                     self.start_downloading_state(me, &block)?;
@@ -2077,6 +2084,7 @@ impl Chain {
             self.doomslug_threshold_mode,
             &self.genesis,
             self.transaction_validity_period,
+            self.pending_states_to_patch.take(),
         )
     }
 
@@ -2466,6 +2474,24 @@ impl Chain {
     }
 }
 
+/// Sandbox node specific operations
+#[cfg(feature = "sandbox")]
+impl Chain {
+    pub fn patch_state(&mut self, records: Vec<StateRecord>) {
+        match self.pending_states_to_patch.take() {
+            None => self.pending_states_to_patch = Some(records),
+            Some(mut pending) => {
+                pending.extend_from_slice(&records);
+                self.pending_states_to_patch = Some(pending);
+            }
+        }
+    }
+
+    pub fn patch_state_in_progress(&self) -> bool {
+        self.pending_states_to_patch.is_some()
+    }
+}
+
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
@@ -2481,6 +2507,7 @@ pub struct ChainUpdate<'a> {
     genesis: &'a Block,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
+    states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2494,6 +2521,7 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
         transaction_validity_period: BlockHeightDelta,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2506,6 +2534,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             genesis,
             transaction_validity_period,
+            states_to_patch,
         }
     }
 
@@ -2713,6 +2742,7 @@ impl<'a> ChainUpdate<'a> {
                 true,
                 true,
                 is_first_block_with_chunk_of_version,
+                None,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2872,6 +2902,10 @@ impl<'a> ChainUpdate<'a> {
                             *block.header().random_value(),
                             true,
                             is_first_block_with_chunk_of_version,
+                            #[cfg(feature = "sandbox")]
+                            self.states_to_patch.take(),
+                            #[cfg(not(feature = "sandbox"))]
+                            None,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2928,6 +2962,7 @@ impl<'a> ChainUpdate<'a> {
                             *block.header().random_value(),
                             false,
                             false,
+                            self.states_to_patch.take(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -3631,6 +3666,7 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             true,
             is_first_block_with_chunk_of_version,
+            None,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3711,6 +3747,7 @@ impl<'a> ChainUpdate<'a> {
             *block_header.random_value(),
             false,
             false,
+            None,
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

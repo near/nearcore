@@ -48,6 +48,8 @@ nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["nearcore/protocol_feature_cap_max_gas_price"]
 
+sandbox = ["nearcore/sandbox"]
+
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
 wasmer1_default = ["nearcore/wasmer1_default"]
