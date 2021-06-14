@@ -247,7 +247,9 @@ fn test_tx_status_with_light_client() {
                         .tx(tx_hash.to_string(), signer_account_id)
                         .map_err(|_| ())
                         .map_ok(move |result| {
-                            if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
+                            if result.final_outcome.status
+                                == FinalExecutionStatus::SuccessValue("".to_string())
+                            {
                                 System::current().stop();
                             }
                         })
@@ -317,7 +319,9 @@ fn test_tx_status_with_light_client1() {
                         .tx(tx_hash.to_string(), signer_account_id)
                         .map_err(|_| ())
                         .map_ok(move |result| {
-                            if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
+                            if result.final_outcome.status
+                                == FinalExecutionStatus::SuccessValue("".to_string())
+                            {
                                 System::current().stop();
                             }
                         })
@@ -974,7 +978,7 @@ fn test_check_unknown_tx_must_return_error() {
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
                         let _ = client
-                            .EXPERIMENTAL_tx_status(to_base64(&bytes))
+                            .tx_status_by_signed_transaction(to_base64(&bytes))
                             .map_err(|err| {
                                 assert_eq!(
                                     err.data.unwrap(),

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+* Stabilized `EXPERIMENTAL_tx_status` into the existing `tx` endpoint where all the previous fields
+  are left as is, and the response was extended with an extra `receipts` field exposing all the
+  non-local receipts where we previously only exposed `receipts_outcome` (results without the
+  inputs).
+
 ## 0.2.1
 
 * Refactored methods:

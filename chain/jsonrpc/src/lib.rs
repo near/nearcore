@@ -311,11 +311,10 @@ impl JsonRpcHandler {
                 serde_json::to_value(status_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
-            "tx" => {
-                let rpc_transaction_status_common_request =
-                    near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
+            "tx" | "EXPERIMENTAL_tx_status" => {
+                let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
                 let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, false).await?;
+                    self.tx_status(rpc_transaction_status_common_request).await?;
                 serde_json::to_value(rpc_transaction_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
@@ -394,13 +393,6 @@ impl JsonRpcHandler {
                     )?;
                 let receipt = self.receipt(rpc_receipt_request).await?;
                 serde_json::to_value(receipt)
-                    .map_err(|err| RpcError::serialization_error(err.to_string()))
-            }
-            "EXPERIMENTAL_tx_status" => {
-                let rpc_transaction_status_common_request = near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest::parse(request.params)?;
-                let rpc_transaction_response =
-                    self.tx_status_common(rpc_transaction_status_common_request, true).await?;
-                serde_json::to_value(rpc_transaction_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             "EXPERIMENTAL_validators_ordered" => {
@@ -768,15 +760,14 @@ impl JsonRpcHandler {
         Ok(self.view_client_addr.send(query).await??.into())
     }
 
-    async fn tx_status_common(
+    async fn tx_status(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcTransactionStatusCommonRequest,
-        fetch_receipt: bool,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        Ok(self.tx_status_fetch(request_data.transaction_info, fetch_receipt).await?.into())
+        Ok(self.tx_status_fetch(request_data.transaction_info, true).await?.into())
     }
 
     async fn block(

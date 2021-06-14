@@ -62,7 +62,9 @@ fn test_send_tx_async() {
                             .tx(tx_hash.to_string(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
                             .map_ok(|result| {
-                                if let FinalExecutionStatus::SuccessValue(_) = result.status {
+                                if let FinalExecutionStatus::SuccessValue(_) =
+                                    result.final_outcome.status
+                                {
                                     System::current().stop();
                                 }
                             })
