@@ -27,6 +27,10 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Max size of payload for JsonRpcClient. Set to max usize since the server was already 
+/// fine sending it at whatever size it chose. The client just cares about receiving it.
+const PAYLOAD_LIMIT: usize = usize::MAX;
+
 type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 
@@ -45,7 +49,7 @@ where
         .send_json(&request)
         .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
         .and_then(|mut response| {
-            response.body().map(|body| match body {
+            response.body().limit(PAYLOAD_LIMIT).map(|body| match body {
                 Ok(bytes) => from_slice(&bytes).map_err(|err| {
                     RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
                 }),
