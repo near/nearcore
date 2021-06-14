@@ -3137,6 +3137,7 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "nearcore",
+ "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",

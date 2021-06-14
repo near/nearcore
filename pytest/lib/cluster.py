@@ -245,7 +245,8 @@ class LocalNode(BaseNode):
                  near_root,
                  node_dir,
                  blacklist,
-                 binary_name='neard'):
+                 binary_name='neard',
+                 single_node=False):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
@@ -264,7 +265,10 @@ class LocalNode(BaseNode):
         config_json['network']['blacklist'] = blacklist
         config_json['rpc']['addr'] = '0.0.0.0:%s' % rpc_port
         config_json['rpc']['metrics_addr'] = '0.0.0.0:%s' % (rpc_port + 1000)
-        config_json['consensus']['min_num_peers'] = 1
+        if single_node:
+            config_json['consensus']['min_num_peers'] = 0
+        else:
+            config_json['consensus']['min_num_peers'] = 1
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
             f.write(json.dumps(config_json, indent=2))
 
@@ -686,7 +690,8 @@ def spin_up_node(config,
                  boot_addr,
                  blacklist=[],
                  proxy=None,
-                 skip_starting_proxy=False):
+                 skip_starting_proxy=False,
+                 single_node=False):
     is_local = config['local']
 
     print("Starting node %s %s" % (ordinal,
@@ -699,7 +704,7 @@ def spin_up_node(config,
             for bl_ordinal in blacklist
         ]
         node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal, near_root,
-                         node_dir, blacklist, config.get('binary_name', 'near'))
+                         node_dir, blacklist, config.get('binary_name', 'near'), single_node)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(
@@ -846,7 +851,7 @@ def start_cluster(num_nodes,
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
         node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr, [], proxy, skip_starting_proxy=True)
+                            boot_addr, [], proxy, skip_starting_proxy=True, single_node = (num_nodes == 1) and (num_observers == 0))
         while len(ret) < i:
             time.sleep(0.01)
         ret.append(node)
