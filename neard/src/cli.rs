@@ -211,7 +211,6 @@ impl RunCmd {
             near_config.client_config.archive = true;
         }
 
-
         #[cfg(feature = "sandbox")]
         {
             if near_config.client_config.chain_id == "mainnet"
