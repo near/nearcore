@@ -27,9 +27,9 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Max size of payload for JsonRpcClient. Set to max usize since the server was already 
-/// fine sending it at whatever size it chose. The client just cares about receiving it.
-const PAYLOAD_LIMIT: usize = usize::MAX;
+/// Max size of the payload JsonRpcClient can receive. Be careful adjusting this value since
+/// smaller values can raise overflow messages.
+const PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
 
 type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
