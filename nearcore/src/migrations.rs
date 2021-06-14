@@ -327,6 +327,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
                         *block.header().random_value(),
                         true,
                         false,
+                        None,
                     )
                     .unwrap();
                 if !apply_result.outcomes.is_empty() {
