@@ -985,9 +985,6 @@ impl<'a> VMLogic<'a> {
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
     ///
-    /// If the message is too long and overflows, an error is returned with
-    /// `Blake2HashDataOverflow`.
-    ///
     /// # Cost
     ///
     /// Where `message_blocks` is `max(message_len / 128, 1)`.
@@ -1041,9 +1038,6 @@ impl<'a> VMLogic<'a> {
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
     ///
-    /// If the message is too long and overflows, an error is returned with
-    /// `Blake2HashDataOverflow`.
-    ///
     /// # Cost
     ///
     /// Where `message_blocks` is `max(message_len / 128, 1)`.
@@ -1081,7 +1075,7 @@ impl<'a> VMLogic<'a> {
             let mut buf = [0u32; 8];
             let values = self.memory_get_vec_u64(state_ptr, 8)?;
             for (x, y) in buf.iter_mut().zip(values.into_iter()) {
-                *x = <u32>::try_from(y).map_err(|_| HostError::Blake2HashDataOverflow)?;
+                *x = <u32>::try_from(y).map_err(|_| HostError::IntegerOverflow)?;
             }
             buf
         };

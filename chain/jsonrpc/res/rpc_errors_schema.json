@@ -15,11 +15,6 @@
       "subtypes": [],
       "props": {}
     },
-    "Blake2HashDataOverflow": {
-      "name": "Blake2HashDataOverflow",
-      "subtypes": [],
-      "props": {}
-    },
     "Blake2InvalidStateLength": {
       "name": "Blake2InvalidStateLength",
       "subtypes": [],
@@ -176,8 +171,7 @@
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
         "Deprecated",
-        "Blake2InvalidStateLength",
-        "Blake2HashDataOverflow"
+        "Blake2InvalidStateLength"
       ],
       "props": {}
     },
