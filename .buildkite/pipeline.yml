@@ -29,7 +29,7 @@ steps:
       fi
       RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
       RUSTFLAGS='-D warnings' cargo check -p neard
-      RUSTFLAGS='-D warnings' cargo check -p neard --features
+      RUSTFLAGS='-D warnings' cargo check -p neard --features nightly_protocol,nightly_protocol_features
       # build a sandbox node should succeed
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
       python3 scripts/state/update_res.py check
