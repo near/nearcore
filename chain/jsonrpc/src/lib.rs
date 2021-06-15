@@ -26,6 +26,8 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
+#[cfg(feature = "sandbox")]
+use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
@@ -408,6 +410,17 @@ impl JsonRpcHandler {
                     )?;
                 let validators = self.validators_ordered(rpc_validators_ordered_request).await?;
                 serde_json::to_value(validators)
+                    .map_err(|err| RpcError::serialization_error(err.to_string()))
+            }
+            #[cfg(feature = "sandbox")]
+            "sandbox_patch_state" => {
+                let sandbox_patch_state_request =
+                    near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest::parse(
+                        request.params,
+                    )?;
+                let sandbox_patch_state_response =
+                    self.sandbox_patch_state(sandbox_patch_state_request).await?;
+                serde_json::to_value(sandbox_patch_state_response)
                     .map_err(|err| RpcError::serialization_error(err.to_string()))
             }
             _ => Err(RpcError::method_not_found(request.method.clone())),
@@ -955,6 +968,45 @@ impl JsonRpcHandler {
         let near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest { block_id } =
             request;
         Ok(self.view_client_addr.send(GetValidatorOrdered { block_id }).await??.into())
+    }
+}
+
+#[cfg(feature = "sandbox")]
+impl JsonRpcHandler {
+    async fn sandbox_patch_state(
+        &self,
+        patch_state_request: near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse,
+        near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateError,
+    > {
+        self.client_addr
+            .send(NetworkClientMessages::Sandbox(NetworkSandboxMessage::SandboxPatchState(
+                patch_state_request.records,
+            )))
+            .await?;
+
+        timeout(self.polling_config.polling_timeout, async {
+            loop {
+                let patch_state_finished = self
+                    .client_addr
+                    .send(NetworkClientMessages::Sandbox(
+                        NetworkSandboxMessage::SandboxPatchStateStatus {},
+                    ))
+                    .await;
+                if let Ok(NetworkClientResponses::SandboxResult(
+                    SandboxResponse::SandboxPatchStateFinished(true),
+                )) = patch_state_finished
+                {
+                    break;
+                }
+                let _ = sleep(self.polling_config.polling_interval).await;
+            }
+        })
+        .await
+        .expect("patch state should happen at next block, never timeout");
+
+        Ok(near_jsonrpc_primitives::types::sandbox::RpcSandboxPatchStateResponse {})
     }
 }
 

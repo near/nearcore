@@ -18,8 +18,11 @@ near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
-neard = { path = "../../neard" }
+nearcore = { path = "../../nearcore" }
 
 [dev-dependencies]
 serde_json = "1"
 near-client = { path = "../../chain/client" }
+
+[features]
+sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-network/sandbox", "near-client/sandbox"]

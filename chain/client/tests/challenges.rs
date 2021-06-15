@@ -31,8 +31,8 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, FISHERMEN_THRESHOLD};
-use neard::NightshadeRuntime;
+use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use nearcore::NightshadeRuntime;
 use num_rational::Rational;
 
 #[test]
@@ -270,7 +270,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0", "test1"], 1);
     let transaction_validity_period = genesis.config.transaction_validity_period;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(neard::NightshadeRuntime::new(
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
         store1,
         &genesis,
@@ -394,6 +394,7 @@ fn test_verify_chunk_invalid_state_challenge() {
             DoomslugThresholdMode::NoApprovals,
             &genesis_block,
             transaction_validity_period,
+            None,
         );
 
         chain_update.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap()
@@ -562,7 +563,7 @@ fn test_fishermen_challenge() {
     let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
     genesis.config.epoch_length = 5;
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(neard::NightshadeRuntime::new(
+        Arc::new(nearcore::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             &genesis.clone(),
@@ -624,7 +625,7 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 2;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(neard::NightshadeRuntime::new(
+    let runtime1 = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),
@@ -632,7 +633,7 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
     ));
-    let runtime2 = Arc::new(neard::NightshadeRuntime::new(
+    let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),

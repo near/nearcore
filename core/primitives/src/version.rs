@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 22;
+pub const DB_VERSION: DbVersion = 23;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -117,7 +117,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 112;
+pub const PROTOCOL_VERSION: ProtocolVersion = 113;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {

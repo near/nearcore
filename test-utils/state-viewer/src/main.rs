@@ -25,7 +25,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use neard::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
+use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
 
@@ -264,6 +264,7 @@ fn apply_block_at_height(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
+                None,
             )
             .unwrap()
     } else {
@@ -287,6 +288,7 @@ fn apply_block_at_height(
                 *block.header().random_value(),
                 false,
                 false,
+                None,
             )
             .unwrap()
     };

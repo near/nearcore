@@ -276,9 +276,9 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            // We only check the terminating condition once every 20 heights, thus extra 20 to
+            // We only check the terminating condition once every 20 heights, thus extra 80 to
             // account for possibly going beyond the HEIGHT_GOAL.
-            near_network::test_utils::wait_or_panic(3000 * (20 + HEIGHT_GOAL));
+            near_network::test_utils::wait_or_panic(3000 * (80 + HEIGHT_GOAL));
         });
     }
 }

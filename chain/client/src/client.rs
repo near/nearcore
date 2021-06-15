@@ -1685,7 +1685,7 @@ mod test {
     use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
-    use neard::config::GenesisExt;
+    use nearcore::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;
@@ -1700,7 +1700,7 @@ mod test {
     pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         (0..n)
             .map(|_| {
-                Arc::new(neard::NightshadeRuntime::new(
+                Arc::new(nearcore::NightshadeRuntime::new(
                     Path::new("."),
                     create_test_store(),
                     &genesis,

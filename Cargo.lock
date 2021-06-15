@@ -2050,7 +2050,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-runtime-utils",
- "neard",
+ "nearcore",
  "node-runtime",
  "serde",
  "serde_json",
@@ -2077,7 +2077,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
- "neard",
+ "nearcore",
  "tempfile",
 ]
 
@@ -2517,6 +2517,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "1.2.0"
+dependencies = [
+ "funty",
+ "near-chain-configs",
+ "near-crypto",
+ "near-logger-utils",
+ "near-network",
+ "near-primitives",
+ "nearcore",
+ "rand 0.7.3",
+ "testlib",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2629,7 +2644,7 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "near-crypto",
- "neard",
+ "nearcore",
 ]
 
 [[package]]
@@ -2769,7 +2784,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "neard",
+ "nearcore",
  "node-runtime",
  "rand 0.7.3",
  "reqwest",
@@ -3121,7 +3136,8 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
- "neard",
+ "nearcore",
+ "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -3247,7 +3263,7 @@ dependencies = [
  "near-client",
  "near-crypto",
  "near-primitives",
- "neard",
+ "nearcore",
  "node-runtime",
  "rocksdb",
  "serde",
@@ -3682,41 +3698,19 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "0.1.0"
-dependencies = [
- "funty",
- "near-chain",
- "near-chain-configs",
- "near-crypto",
- "near-jsonrpc",
- "near-logger-utils",
- "near-network",
- "near-primitives",
- "near-store",
- "neard",
- "node-runtime",
- "rand 0.7.3",
- "restored-receipts-verifier",
- "runtime-params-estimator",
- "testlib",
-]
-
-[[package]]
-name = "neard"
 version = "1.2.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "actix_derive",
  "awc",
  "borsh",
  "byteorder",
  "chrono",
- "clap 2.33.3",
  "delay-detector",
  "dirs",
  "easy-ext",
  "futures",
- "git-version",
  "jemallocator",
  "lazy-static-include",
  "near-actix-test-utils",
@@ -3739,7 +3733,6 @@ dependencies = [
  "near-telemetry",
  "node-runtime",
  "num-rational",
- "openssl-probe",
  "primitive-types",
  "rand 0.7.3",
  "serde",
@@ -3747,6 +3740,22 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "neard"
+version = "1.2.0"
+dependencies = [
+ "actix",
+ "clap 3.0.0-beta.2",
+ "git-version",
+ "lazy_static",
+ "near-performance-metrics",
+ "near-primitives",
+ "near-rust-allocator-proxy",
+ "nearcore",
+ "openssl-probe",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4777,7 +4786,7 @@ dependencies = [
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
- "neard",
+ "nearcore",
  "testlib",
 ]
 
@@ -4790,7 +4799,7 @@ dependencies = [
  "near-jsonrpc",
  "near-primitives",
  "near-store",
- "neard",
+ "nearcore",
  "serde_json",
 ]
 
@@ -4864,7 +4873,7 @@ dependencies = [
  "near-store",
  "near-vm-logic",
  "near-vm-runner",
- "neard",
+ "nearcore",
  "node-runtime",
  "num-rational",
  "num-traits",
@@ -5290,7 +5299,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-store",
- "neard",
+ "nearcore",
  "node-runtime",
  "serde_json",
 ]
@@ -5374,7 +5383,7 @@ dependencies = [
  "near-logger-utils",
  "near-primitives",
  "near-store",
- "neard",
+ "nearcore",
  "serde_json",
  "testlib",
 ]
@@ -5563,7 +5572,7 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "neard",
+ "nearcore",
  "node-runtime",
  "num-rational",
  "rand 0.7.3",

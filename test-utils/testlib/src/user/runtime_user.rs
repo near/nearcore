@@ -19,9 +19,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
-use neard::config::MIN_GAS_PRICE;
+use nearcore::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
-use neard::config::TESTNET_EVM_CHAIN_ID;
+use nearcore::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -95,6 +95,7 @@ impl RuntimeUser {
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
+                    None,
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {

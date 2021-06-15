@@ -36,7 +36,7 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
+use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind, StateItem};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -1138,6 +1138,29 @@ impl TestEnv {
             .unwrap();
         match response.kind {
             QueryResponseKind::ViewAccount(account_view) => account_view,
+            _ => panic!("Wrong return value"),
+        }
+    }
+
+    pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {
+        let head = self.clients[0].chain.head().unwrap();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_chunk_header = &last_block.chunks()[0];
+        let response = self.clients[0]
+            .runtime_adapter
+            .query(
+                0,
+                &last_chunk_header.prev_state_root(),
+                last_block.header().height(),
+                last_block.header().raw_timestamp(),
+                last_block.header().prev_hash(),
+                last_block.header().hash(),
+                last_block.header().epoch_id(),
+                &QueryRequest::ViewState { account_id, prefix: vec![].into() },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewState(view_state_result) => view_state_result.values,
             _ => panic!("Wrong return value"),
         }
     }

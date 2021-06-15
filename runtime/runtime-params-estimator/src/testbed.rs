@@ -14,7 +14,7 @@ use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
-use neard::get_store_path;
+use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
 
@@ -126,6 +126,7 @@ impl RuntimeTestbed {
                 &self.prev_receipts,
                 transactions,
                 &self.epoch_info_provider,
+                None,
             )
             .unwrap();
 

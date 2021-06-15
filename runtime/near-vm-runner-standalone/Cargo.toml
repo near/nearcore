@@ -23,8 +23,8 @@ serde_json = "1"
 clap = "2.33.0"
 base64 = "0.13"
 strum = "0.20"
-num-rational = { version = "0.3" }
-tracing = { version = "0.1"}
+num-rational = "0.3"
+tracing = "0.1"
 tracing-subscriber = "0.2"
 
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", features = ["costs_counting"]}
@@ -39,7 +39,16 @@ near-test-contracts = { path = "../near-test-contracts" }
 [features]
 default = []
 no_cache = ["near-vm-runner/no_cache"]
-protocol_feature_alt_bn128 = ["near-vm-logic/protocol_feature_alt_bn128", "near-vm-runner/protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "near-vm-logic/protocol_feature_alt_bn128", "near-vm-runner/protocol_feature_alt_bn128"]
+protocol_feature_evm = ["near-primitives/protocol_feature_evm"]
+protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3"]
+protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
+protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit"]
+protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
+protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix"]
+protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price"]
+nightly_protocol = ["near-primitives/nightly_protocol"]
 
 [package.metadata.workspaces]
 independent = true

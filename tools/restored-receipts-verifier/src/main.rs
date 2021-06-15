@@ -12,8 +12,8 @@ use near_primitives::receipt::Receipt;
 use near_primitives::receipt::ReceiptResult;
 use near_store::create_store;
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use neard::migrations::load_migration_data;
-use neard::{get_default_home, get_store_path, load_config, NightshadeRuntime};
+use nearcore::migrations::load_migration_data;
+use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
@@ -108,6 +108,7 @@ fn main() -> Result<()> {
                 *block.header().random_value(),
                 false,
                 false, // because fix was not applied in for the blocks analyzed here
+                None,
             )
             .unwrap();
 

@@ -31,8 +31,8 @@ near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
 state-viewer = { path = "../../test-utils/state-viewer" }
-neard = { path = "../../neard" }
-rocksdb = { version = "0.15.0"}
+nearcore = { path = "../../nearcore" }
+rocksdb = "0.15.0"
 glob = "0.3.0"
 walrus = "0.18.0"
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
@@ -62,7 +62,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "node-runtime/protocol_feature_alt_bn128",
     "testlib/protocol_feature_alt_bn128",
-    "neard/protocol_feature_alt_bn128",
+    "nearcore/protocol_feature_alt_bn128",
 ]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "near-vm-runner/protocol_feature_evm",
@@ -70,3 +70,4 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "node-runtime/protocol_feature_evm",
                         "near-primitives/protocol_feature_evm",
                         "testlib/protocol_feature_evm"]
+sandbox = ["node-runtime/sandbox", "state-viewer/sandbox"]

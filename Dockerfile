@@ -29,16 +29,12 @@ COPY . .
 ENV CARGO_TARGET_DIR=/tmp/target
 ENV RUSTC_FLAGS='-C target-cpu=x86-64'
 ENV PORTABLE=ON
-RUN --mount=type=cache,target=/tmp/target \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo +"$(cat /tmp/rust-toolchain)" build -p neard --release && \
+RUN cargo +"$(cat /tmp/rust-toolchain)" build -p neard --release && \
     mkdir /tmp/build && \
     cd /tmp/target/release && \
     mv ./neard /tmp/build
 
 COPY scripts/run_docker.sh /tmp/build/run.sh
-
 
 # Actual image
 FROM ubuntu:18.04
