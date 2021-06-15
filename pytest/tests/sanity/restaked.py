@@ -29,9 +29,10 @@ def start_restaked(node_dir, rpc_port, config):
     near_root = config['near_root']
     command = [
         near_root + 'restaked',
-        '--home=%s' % node_dir,
         '--rpc-url=127.0.0.1:%d' % rpc_port, '--wait-period=1'
     ]
+    if node_dir:
+        command.extend(['--home', node_dir])
     pid = subprocess.Popen(command).pid
     print("Starting restaked for %s, rpc = 0.0.0.0:%d" % (node_dir, rpc_port))
     atexit.register(atexit_stop_restaked, pid)

@@ -14,7 +14,7 @@ benchmarking, loadtesting, and estimating system parameters.
 
 To start node with 20k accounts first create configs:
 ```bash
-cargo run --package neard --bin neard -- init --chain-id= --test-seed=alice.near --account-id=test.near --fast
+cargo run --package neard --bin neard -- init --test-seed=alice.near --account-id=test.near --fast
 ```
 
 Then create state dump with home many accounts you want:
