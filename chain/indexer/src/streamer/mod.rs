@@ -124,7 +124,6 @@ async fn build_streamer_message(
             let receipt = if let Some(receipt) = receipt {
                 receipt
             } else {
-                // TODO(#4317): optimize it https://github.com/near/nearcore/issues/4317
                 // Receipt might be missing only in case of delayed local receipt
                 // that appeared in some of the previous blocks
                 // we will be iterating over previous blocks until we found the receipt
@@ -141,23 +140,13 @@ async fn build_streamer_message(
 
                     prev_block_hash = prev_block.header.prev_hash;
 
-                    let streamer_message = match build_streamer_message(&client, prev_block).await {
-                        Ok(response) => response,
-                        Err(err) => {
-                            panic!("Unable to build streamer message for previous block: {:?}", err)
-                        }
-                    };
-                    for shard in streamer_message.shards {
-                        if let Some(chunk) = shard.chunk {
-                            if let Some(receipt) = chunk
-                                .receipts
-                                .into_iter()
-                                .find(|rec| rec.receipt_id == execution_outcome.id)
-                            {
-                                break 'find_local_receipt receipt;
-                            }
-                        }
+                    if let Some(receipt) =
+                        find_local_receipt_by_id_in_block(&client, prev_block, execution_outcome.id)
+                            .await?
+                    {
+                        break 'find_local_receipt receipt;
                     }
+
                     prev_block_tried += 1;
                 }
             };
@@ -190,6 +179,62 @@ async fn build_streamer_message(
     let state_changes = fetch_state_changes(&client, block.header.hash).await?;
 
     Ok(StreamerMessage { block, shards: indexer_shards, state_changes })
+}
+
+/// Function that tries to find specific local receipt by it's ID and returns it
+/// otherwise returns None
+async fn find_local_receipt_by_id_in_block(
+    client: &Addr<near_client::ViewClientActor>,
+    block: views::BlockView,
+    receipt_id: near_primitives::hash::CryptoHash,
+) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
+    let chunks_to_fetch = block
+        .chunks
+        .iter()
+        .filter_map(|c| {
+            if c.height_included == block.header.height {
+                Some(c.chunk_hash)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let chunks = fetch_chunks(&client, chunks_to_fetch).await?;
+    let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
+
+    let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
+
+    for chunk in chunks {
+        let views::ChunkView { header, transactions, .. } = chunk;
+
+        let outcomes = shards_outcomes
+            .remove(&header.shard_id)
+            .expect("Execution outcomes for given shard should be present");
+
+        if let Some((transaction, outcome)) =
+            transactions.into_iter().zip(outcomes.into_iter()).find(|(_, outcome)| {
+                outcome
+                    .execution_outcome
+                    .outcome
+                    .receipt_ids
+                    .first()
+                    .expect("The transaction ExecutionOutcome should have one receipt id in vec")
+                    == &receipt_id
+            })
+        {
+            let indexer_transaction = IndexerTransactionWithOutcome { transaction, outcome };
+            let local_receipts = convert_transactions_sir_into_local_receipts(
+                &client,
+                &protocol_config_view,
+                vec![&indexer_transaction],
+                &block,
+            )
+            .await?;
+
+            return Ok(local_receipts.into_iter().next());
+        }
+    }
+    Ok(None)
 }
 
 /// Function that starts Streamer's busy loop. Every half a seconds it fetches the status
