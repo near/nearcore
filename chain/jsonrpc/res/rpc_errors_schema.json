@@ -27,14 +27,6 @@
         "length": ""
       }
     },
-    "Blake2TooManyRounds": {
-      "name": "Blake2TooManyRounds",
-      "subtypes": [],
-      "props": {
-        "max": "",
-        "actual": ""
-      }
-    },
     "BreakpointTrap": {
       "name": "BreakpointTrap",
       "subtypes": [],
@@ -185,8 +177,7 @@
         "ContractSizeExceeded",
         "Deprecated",
         "Blake2InvalidStateLength",
-        "Blake2HashDataOverflow",
-        "Blake2TooManyRounds"
+        "Blake2HashDataOverflow"
       ],
       "props": {}
     },

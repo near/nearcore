@@ -212,9 +212,6 @@ pub enum HostError {
     /// Blake2 hash data overflow error.
     #[cfg(feature = "protocol_feature_evm")]
     Blake2HashDataOverflow,
-    /// Too many blake2 rounds.
-    #[cfg(feature = "protocol_feature_evm")]
-    Blake2TooManyRounds { max: u32, actual: u32 },
     /// Deserialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128DeserializationError { msg: String },
@@ -507,8 +504,6 @@ impl std::fmt::Display for HostError {
             Blake2InvalidStateLength { length } => write!(f, "Invalid Blake2 state length {}, must be 8 words of 8 bytes", length),
             #[cfg(feature = "protocol_feature_evm")]
             Blake2HashDataOverflow => write!(f, "Blake2 hash data length overflow."),
-            #[cfg(feature = "protocol_feature_evm")]
-            Blake2TooManyRounds { max, actual } => write!(f, "Too many blake2 rounds. Expected fewer than {}, got {}.", max, actual),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
