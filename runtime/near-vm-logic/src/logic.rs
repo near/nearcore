@@ -1027,9 +1027,7 @@ impl<'a> VMLogic<'a> {
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
         let mut hasher = VarBlake2b::with_state(rounds, state, [t0, t1]);
-        if hasher.update_inner(&m).is_err() {
-            return Err(HostError::Blake2HashDataOverflow.into());
-        }
+        hasher.update_inner(&m);
         hasher.compress(f0, f1);
         let res = hasher.output();
 
@@ -1092,9 +1090,7 @@ impl<'a> VMLogic<'a> {
         let t0 = t as u32;
         let t1 = (t >> 32) as u32;
         let mut hasher = VarBlake2s::with_state(rounds, state, [t0, t1]);
-        if hasher.update_inner(&m).is_err() {
-            return Err(HostError::Blake2HashDataOverflow.into());
-        }
+        hasher.update_inner(&m);
         hasher.compress(f0, f1);
         let res = hasher.output();
 
