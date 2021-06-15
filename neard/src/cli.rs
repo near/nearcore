@@ -26,7 +26,7 @@ impl NeardCmd {
     pub(super) fn parse_and_run() {
         let neard_cmd = Self::parse();
         neard_cmd.opts.init();
-        info!(target: "near", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
+        info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
         #[cfg(feature = "adversarial")]
         {
@@ -48,11 +48,11 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "near", "Removing all data from {}", store_path);
+                info!(target: "neard", "Removing all data from {}", store_path);
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
-                info!(target: "near", "Removing all data and config from {}", home_dir.to_string_lossy());
+                info!(target: "neard", "Removing all data and config from {}", home_dir.to_string_lossy());
                 fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
             }
         }
