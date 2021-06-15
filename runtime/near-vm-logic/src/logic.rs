@@ -1009,7 +1009,7 @@ impl<'a> VMLogic<'a> {
         use std::convert::TryFrom;
 
         if state_len != 8 {
-            return Err(HostError::Blake2InvalidStateLength { length: state_len }.into());
+            return Err(HostError::Blake2StateLengthExceeded { length: state_len }.into());
         }
 
         // Change to per block for gas.
@@ -1061,7 +1061,7 @@ impl<'a> VMLogic<'a> {
         use std::convert::TryFrom;
 
         if state_len != 8 {
-            return Err(HostError::Blake2InvalidStateLength { length: state_len }.into());
+            return Err(HostError::Blake2StateLengthExceeded { length: state_len }.into());
         }
 
         // Change to per block for gas.

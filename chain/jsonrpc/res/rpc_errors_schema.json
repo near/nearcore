@@ -15,8 +15,8 @@
       "subtypes": [],
       "props": {}
     },
-    "Blake2InvalidStateLength": {
-      "name": "Blake2InvalidStateLength",
+    "Blake2StateLengthExceeded": {
+      "name": "Blake2StateLengthExceeded",
       "subtypes": [],
       "props": {
         "length": ""
@@ -171,7 +171,7 @@
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
         "Deprecated",
-        "Blake2InvalidStateLength"
+        "Blake2StateLengthExceeded"
       ],
       "props": {}
     },

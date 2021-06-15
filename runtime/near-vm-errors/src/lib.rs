@@ -208,7 +208,7 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// The length of the state is not 64.
     #[cfg(feature = "protocol_feature_evm")]
-    Blake2InvalidStateLength { length: u64 },
+    Blake2StateLengthExceeded { length: u64 },
     /// Deserialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128DeserializationError { msg: String },
@@ -498,7 +498,7 @@ impl std::fmt::Display for HostError {
             ContractSizeExceeded { size, limit } => write!(f, "The size of a contract code in DeployContract action {} exceeds the limit {}", size, limit),
             Deprecated {method_name}=> write!(f, "Attempted to call deprecated host function {}", method_name),
             #[cfg(feature = "protocol_feature_evm")]
-            Blake2InvalidStateLength { length } => write!(f, "Invalid Blake2 state length {}, must be 8 words of 8 bytes", length),
+            Blake2StateLengthExceeded { length } => write!(f, "Invalid Blake2 state length {}, must be 8 words of 8 bytes", length),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
