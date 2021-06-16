@@ -1346,7 +1346,7 @@ impl Runtime {
             let cache = apply_state.cache.as_deref();
             state_changes
                 .par_iter()
-                .map(|state_change| -> Result<(), RuntimeError> {
+                .map(|state_change| {
                     match state_change.trie_key {
                         TrieKey::ContractCode { .. } => {
                             let code = state_change
@@ -1362,9 +1362,8 @@ impl Runtime {
                         }
                         _ => {}
                     };
-                    Ok(())
                 })
-                .collect::<Result<(), RuntimeError>>()?;
+                .collect::<()>();
         }
 
         // Dedup proposals from the same account.
