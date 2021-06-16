@@ -7,6 +7,7 @@ use near_primitives::types::StateRoot;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
+use near_primitives::contract::ContractCode;
 use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
@@ -176,23 +177,23 @@ impl Trie {
         Ok(())
     }
 
-    /// Returns the storage changes for the state part.
+    /// Returns the storage changes for the state part and all contract codes extracted from it.
     /// Writing all storage changes gives the complete trie.
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
         part: Vec<Vec<u8>>,
-    ) -> Result<(TrieChanges, Vec<Vec<u8>>), StorageError> {
+    ) -> Result<(TrieChanges, Vec<ContractCode>), StorageError> {
         if state_root == &CryptoHash::default() {
             return Ok((TrieChanges::empty(CryptoHash::default()), vec![]));
         }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part.clone()) });
+        let trie =
+            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part.clone()) });
         let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
         let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
         let mut iterator = TrieIterator::new(&trie, state_root)?;
-        let hashes_and_keys =
-            iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let hashes_and_keys = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
         for (hash, key) in hashes_and_keys {
@@ -200,7 +201,7 @@ impl Trie {
             map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 if is_contract_code_key(&trie_key) {
-                    contract_codes.push(value);
+                    contract_codes.push(ContractCode::new(value, None));
                 }
             }
         }

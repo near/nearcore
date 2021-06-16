@@ -34,8 +34,7 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_primitives::contract::ContractCode;
+
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
@@ -52,8 +51,6 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_primitives::types::CompiledContractCache;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -63,10 +60,6 @@ use near_primitives::views::{
 };
 use near_store::get;
 use near_store::test_utils::create_test_store;
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_store::{Store, StoreCompiledContractCache};
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-use near_vm_runner::{get_contract_cache_key, VMKind};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
@@ -1509,84 +1502,6 @@ fn test_process_block_after_state_sync() {
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
     assert!(res.is_ok());
-}
-
-#[cfg(feature = "protocol_feature_precompile_contracts")]
-#[test]
-fn test_state_sync_contract_precompilation() {
-    let num_clients = 2;
-    let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
-    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    let epoch_length = 5;
-    genesis.config.epoch_length = epoch_length;
-    let genesis_config = genesis.config.clone();
-    let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
-        .iter()
-        .map(|store| {
-            Arc::new(nearcore::NightshadeRuntime::new(
-                Path::new("."),
-                store.clone(),
-                &genesis,
-                vec![],
-                vec![],
-                None,
-            ))
-        })
-        .collect();
-    let runtime_adapters = runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
-
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
-
-    // Deploy contract to test0.
-    let wasm_code = near_test_contracts::rs_contract().to_vec();
-    let tx = SignedTransaction::from_actions(
-        1,
-        "test0".to_string(),
-        "test0".to_string(),
-        &signer,
-        vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })],
-        *genesis_block.hash(),
-    );
-    env.clients[0].process_tx(tx, false, false);
-    let mut blocks = Vec::new();
-    for i in 1..=epoch_length + 1 {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        blocks.push(block.clone());
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
-        env.process_block(1, block, Provenance::NONE);
-    }
-
-    for i in 1..epoch_length + 1 {
-        let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
-        let sync_hash = *sync_block.hash();
-        let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
-        let epoch_id =
-            env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
-        let state_part = env.clients[0]
-            .runtime_adapter
-            .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
-            .unwrap();
-        env.clients[1]
-            .runtime_adapter
-            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
-            .unwrap();
-    }
-    for i in 0..num_clients {
-        let compiled_contract_cache =
-            Arc::new(StoreCompiledContractCache { store: stores[i].clone() });
-        let contract_code = ContractCode::new(wasm_code.clone(), None);
-        let key = get_contract_cache_key(
-            &contract_code,
-            VMKind::default(),
-            &genesis_config.runtime_config.wasm_config,
-        );
-        compiled_contract_cache
-            .get(&key.0)
-            .unwrap_or_else(|_| panic!("Compiled contract should be cached for client {}", i))
-            .unwrap_or_else(|| panic!("Compilation result should be non-empty for client {}", i));
-    }
 }
 
 #[test]
@@ -3267,5 +3182,96 @@ mod cap_max_gas_price_tests {
     #[test]
     fn test_capped_gas_price() {
         assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+mod contract_precompilation_tests {
+    use super::*;
+    use near_primitives::contract::ContractCode;
+    use near_primitives::types::CompiledContractCache;
+    use near_store::{Store, StoreCompiledContractCache};
+    use near_vm_runner::{get_contract_cache_key, VMKind};
+
+    #[test]
+    fn test_state_sync_contract_precompilation() {
+        let num_clients = 2;
+        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let epoch_length = 5;
+        genesis.config.epoch_length = epoch_length;
+        let genesis_config = genesis.config.clone();
+        let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
+            .iter()
+            .map(|store| {
+                Arc::new(nearcore::NightshadeRuntime::new(
+                    Path::new("."),
+                    store.clone(),
+                    &genesis,
+                    vec![],
+                    vec![],
+                    None,
+                ))
+            })
+            .collect();
+        let runtime_adapters =
+            runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
+
+        let mut env =
+            TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+
+        // Deploy contract to test0.
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
+        let tx = SignedTransaction::from_actions(
+            1,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })],
+            *genesis_block.hash(),
+        );
+        env.clients[0].process_tx(tx, false, false);
+        let mut blocks = Vec::new();
+        for i in 1..=epoch_length + 1 {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            env.process_block(1, block, Provenance::NONE);
+        }
+
+        for i in 1..epoch_length + 1 {
+            let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+            let sync_hash = *sync_block.hash();
+            let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+            let epoch_id =
+                env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+            let state_part = env.clients[0]
+                .runtime_adapter
+                .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+                .unwrap();
+            env.clients[1]
+                .runtime_adapter
+                .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+                .unwrap();
+        }
+        for i in 0..num_clients {
+            let compiled_contract_cache =
+                Arc::new(StoreCompiledContractCache { store: stores[i].clone() });
+            let contract_code = ContractCode::new(wasm_code.clone(), None);
+            let key = get_contract_cache_key(
+                &contract_code,
+                VMKind::default(),
+                &genesis_config.runtime_config.wasm_config,
+            );
+            compiled_contract_cache
+                .get(&key.0)
+                .unwrap_or_else(|_| panic!("Compiled contract should be cached for client {}", i))
+                .unwrap_or_else(|| {
+                    panic!("Compilation result should be non-empty for client {}", i)
+                });
+        }
     }
 }

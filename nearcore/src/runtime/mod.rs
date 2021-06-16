@@ -507,9 +507,10 @@ impl NightshadeRuntime {
 
     fn precompile_contracts(
         &self,
-        protocol_version: ProtocolVersion,
-        contract_codes: Vec<Vec<u8>>,
-    ) {
+        epoch_id: &EpochId,
+        contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error> {
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config =
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
@@ -517,14 +518,15 @@ impl NightshadeRuntime {
         contract_codes
             .par_iter()
             .map(|code| {
-                let contract_code = ContractCode::new(code.clone(), None);
                 precompile_contract(
-                    &contract_code,
+                    &code,
                     &runtime_config.wasm_config,
                     compiled_contract_cache.as_deref(),
-                ).ok();
+                )
+                .ok();
             })
             .collect::<()>();
+        Ok(())
     }
 }
 
@@ -1449,8 +1451,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let tries = self.get_tries();
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
-        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        self.precompile_contracts(protocol_version, contract_codes);
+        self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
 

@@ -50,7 +50,6 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-#[cfg(feature = "protocol_feature_precompile_contracts")]
 use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -1346,22 +1345,20 @@ impl Runtime {
             let cache = apply_state.cache.as_deref();
             state_changes
                 .par_iter()
-                .map(|state_change| {
-                    match state_change.trie_key {
-                        TrieKey::ContractCode { .. } => {
-                            let code = state_change
-                                .changes
-                                .last()
-                                .expect("Committed entry should have at least one change")
-                                .data
-                                .as_ref();
-                            if let Some(code) = code {
-                                let contract_code = ContractCode::new(code.clone(), None);
-                                precompile_contract(&contract_code, &wasm_config, cache).ok();
-                            }
+                .map(|state_change| match state_change.trie_key {
+                    TrieKey::ContractCode { .. } => {
+                        let code = state_change
+                            .changes
+                            .last()
+                            .expect("Committed entry should have at least one change")
+                            .data
+                            .as_ref();
+                        if let Some(code) = code {
+                            let contract_code = ContractCode::new(code.clone(), None);
+                            precompile_contract(&contract_code, &wasm_config, cache).ok();
                         }
-                        _ => {}
                     }
+                    _ => {}
                 })
                 .collect::<()>();
         }
