@@ -8,7 +8,6 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::state_record::is_contract_code_key;
-use std::io::Write;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
