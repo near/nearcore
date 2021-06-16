@@ -2416,6 +2416,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
