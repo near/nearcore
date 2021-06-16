@@ -264,6 +264,7 @@ fn apply_block_at_height(
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
+                None,
             )
             .unwrap()
     } else {
@@ -287,6 +288,7 @@ fn apply_block_at_height(
                 *block.header().random_value(),
                 false,
                 false,
+                None,
             )
             .unwrap()
     };

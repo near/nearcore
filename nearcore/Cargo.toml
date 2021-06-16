@@ -86,6 +86,7 @@ wasmtime_default = ["node-runtime/wasmtime_default"]
 wasmer1_vm = ["node-runtime/wasmer1_vm"]
 wasmer0_vm = ["node-runtime/wasmer0_vm"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
+sandbox = ["near-client/sandbox", "node-runtime/sandbox", "near-jsonrpc/sandbox"]
 
 [package.metadata.workspaces]
 independent = true

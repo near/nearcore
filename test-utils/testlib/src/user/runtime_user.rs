@@ -95,6 +95,7 @@ impl RuntimeUser {
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
+                    None,
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {

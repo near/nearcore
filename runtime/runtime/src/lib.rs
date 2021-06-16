@@ -30,12 +30,13 @@ use near_primitives::{
         system_account,
     },
 };
-pub use near_store;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_postponed_receipt, set_received_data, PartialStorage, ShardTries,
     StorageError, Trie, TrieChanges, TrieUpdate,
 };
+#[cfg(feature = "sandbox")]
+use near_store::{set_access_key, set_code};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
@@ -1152,7 +1153,11 @@ impl Runtime {
         incoming_receipts: &[Receipt],
         transactions: &[SignedTransaction],
         epoch_info_provider: &dyn EpochInfoProvider,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
+        if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
+            panic!("Can only patch state in sandbox mode");
+        }
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
@@ -1327,6 +1332,11 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
 
+        #[cfg(feature = "sandbox")]
+        if let Some(patch) = states_to_patch {
+            self.apply_state_patches(&mut state_update, patch);
+        }
+
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Precompile contracts just inserted into state.
@@ -1404,6 +1414,36 @@ impl Runtime {
                 )
             })?;
         Ok(())
+    }
+
+    #[cfg(feature = "sandbox")]
+    fn apply_state_patches(
+        &self,
+        state_update: &mut TrieUpdate,
+        states_to_patch: Vec<StateRecord>,
+    ) {
+        for record in states_to_patch {
+            match record {
+                StateRecord::Account { account_id, account } => {
+                    set_account(state_update, account_id, &account);
+                }
+                StateRecord::Data { account_id, data_key, value } => {
+                    state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
+                }
+                StateRecord::Contract { account_id, code } => {
+                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    // Recompute contract code hash.
+                    let code = ContractCode::new(code, None);
+                    set_code(state_update, account_id, &code);
+                    assert_eq!(code.get_hash(), acc.code_hash());
+                }
+                StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    set_access_key(state_update, account_id, public_key, &access_key);
+                }
+                _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
+            }
+        }
+        state_update.commit(StateChangeCause::Migration);
     }
 
     /// It's okay to use unsafe math here, because this method should only be called on the trusted
@@ -1582,6 +1622,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
     }
@@ -1611,6 +1652,7 @@ mod tests {
                 &[Receipt::new_balance_refund(&alice_account(), small_refund)],
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
     }
@@ -1639,6 +1681,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1688,6 +1731,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1746,6 +1790,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1837,6 +1882,7 @@ mod tests {
                 &receipts[0..2],
                 &local_transactions[0..4],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1884,6 +1930,7 @@ mod tests {
                 &receipts[2..3],
                 &local_transactions[4..5],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1923,6 +1970,7 @@ mod tests {
                 &receipts[3..4],
                 &local_transactions[5..9],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -1970,6 +2018,7 @@ mod tests {
                 &receipts[4..5],
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -2002,6 +2051,7 @@ mod tests {
                 &receipts[5..6],
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
 
@@ -2039,6 +2089,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .err()
             .unwrap();
@@ -2084,6 +2135,7 @@ mod tests {
                 &[],
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .err()
             .unwrap();
@@ -2120,6 +2172,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         assert_eq!(result.stats.gas_deficit_amount, result.stats.tx_burnt_amount * 9)
@@ -2179,6 +2232,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         // We used part of the prepaid gas to paying extra fees.
@@ -2248,6 +2302,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         // Used full prepaid gas, but it still not enough to cover deficit.
@@ -2284,6 +2339,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
@@ -2324,6 +2380,7 @@ mod tests {
                 &receipts,
                 &[],
                 &epoch_info_provider,
+                None,
             )
             .unwrap();
         let (store_update, root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();

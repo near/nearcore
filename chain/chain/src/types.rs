@@ -36,6 +36,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -518,6 +519,7 @@ pub trait RuntimeAdapter: Send + Sync {
         random_seed: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -536,6 +538,7 @@ pub trait RuntimeAdapter: Send + Sync {
             false,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
+            states_to_patch,
         )
     }
 
@@ -557,6 +560,7 @@ pub trait RuntimeAdapter: Send + Sync {
         generate_storage_proof: bool,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
