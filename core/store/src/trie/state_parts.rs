@@ -8,6 +8,7 @@ use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::state_record::is_contract_code_key;
+use std::io::Write;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
@@ -51,7 +52,7 @@ impl Trie {
         let path_begin = self.find_path_for_part_boundary(root_hash, part_id, num_parts)?;
         let path_end = self.find_path_for_part_boundary(root_hash, part_id + 1, num_parts)?;
         let mut iterator = self.iter(&root_hash)?;
-        iterator.visit_nodes_interval(&path_begin, &path_end, None)?;
+        iterator.visit_nodes_interval(&path_begin, &path_end)?;
 
         // Extra nodes for compatibility with the previous version of computing state parts
         if part_id + 1 != num_parts {
@@ -187,19 +188,21 @@ impl Trie {
         if state_root == &CryptoHash::default() {
             return Ok((TrieChanges::empty(CryptoHash::default()), vec![]));
         }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part.clone()) });
         let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
         let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
         let mut iterator = TrieIterator::new(&trie, state_root)?;
-        let hashes =
-            iterator.visit_nodes_interval(&path_begin, &path_end, Some(&is_contract_code_key))?;
+        let hashes_and_keys =
+            iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
-        for (hash, is_contract_code_node) in hashes {
+        for (hash, key) in hashes_and_keys {
             let value = trie.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
-            if is_contract_code_node {
-                contract_codes.push(value);
+            if let Some(trie_key) = key {
+                if is_contract_code_key(&trie_key) {
+                    contract_codes.push(value);
+                }
             }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
