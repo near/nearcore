@@ -522,7 +522,7 @@ impl NightshadeRuntime {
                     &contract_code,
                     &runtime_config.wasm_config,
                     compiled_contract_cache.as_deref(),
-                );
+                ).ok();
             })
             .collect::<()>();
     }
@@ -1450,7 +1450,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        self.precompile_contracts(protocol_version, contract_codes)?;
+        self.precompile_contracts(protocol_version, contract_codes);
         Ok(store_update.commit()?)
     }
 
