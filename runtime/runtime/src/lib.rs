@@ -1357,9 +1357,7 @@ impl Runtime {
                                 .as_ref();
                             if let Some(code) = code {
                                 let contract_code = ContractCode::new(code.clone(), None);
-                                precompile_contract(&contract_code, &wasm_config, cache).map_err(
-                                    |e| RuntimeError::ContractPrecompilationError(e.to_string()),
-                                )?;
+                                precompile_contract(&contract_code, &wasm_config, cache);
                             }
                         }
                         _ => {}

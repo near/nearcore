@@ -463,7 +463,6 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
-                RuntimeError::ContractPrecompilationError(e) => panic!("{}", e),
             })?;
 
         let total_gas_burnt =
@@ -510,25 +509,22 @@ impl NightshadeRuntime {
         &self,
         protocol_version: ProtocolVersion,
         contract_codes: Vec<Vec<u8>>,
-    ) -> Result<(), Error> {
+    ) {
         let runtime_config =
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         contract_codes
             .par_iter()
-            .map(|code| -> Result<(), Error> {
+            .map(|code| {
                 let contract_code = ContractCode::new(code.clone(), None);
                 precompile_contract(
                     &contract_code,
                     &runtime_config.wasm_config,
                     compiled_contract_cache.as_deref(),
-                )
-                .map_err(|e| Error::from(e.to_string()))?;
-                Ok(())
+                );
             })
-            .collect::<Result<(), Error>>()?;
-        Ok(())
+            .collect();
     }
 }
 
@@ -1454,7 +1450,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        self.precompile_contracts(protocol_version, contract_codes)?;
+        self.precompile_contracts(protocol_version, contract_codes);
         Ok(store_update.commit()?)
     }
 
