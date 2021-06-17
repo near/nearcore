@@ -408,7 +408,8 @@ pub struct Config {
     pub genesis_records_file: Option<String>,
     pub validator_key_file: String,
     pub node_key_file: String,
-    pub rpc: RpcConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc: Option<RpcConfig>,
     #[cfg(feature = "rosetta_rpc")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
@@ -437,7 +438,7 @@ impl Default for Config {
             genesis_records_file: None,
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
-            rpc: RpcConfig::default(),
+            rpc: Some(RpcConfig::default()),
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
@@ -561,7 +562,7 @@ pub struct NearConfig {
     config: Config,
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
-    pub rpc_config: RpcConfig,
+    pub rpc_config: Option<RpcConfig>,
     #[cfg(feature = "rosetta_rpc")]
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
@@ -581,7 +582,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc.addr.clone(),
+                rpc_addr: config.rpc.as_ref().map(|rpc| rpc.addr.clone()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -948,7 +949,7 @@ pub fn create_testnet_configs_from_seeds(
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
-            config.rpc.addr = format!("127.0.0.1:{}", open_port());
+            config.rpc.get_or_insert(Default::default()).addr = format!("127.0.0.1:{}", open_port());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
@@ -1088,7 +1089,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
-    config.rpc.addr = format!("0.0.0.0:{}", open_port());
+    config.rpc.get_or_insert(Default::default()).addr = format!("0.0.0.0:{}", open_port());
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =

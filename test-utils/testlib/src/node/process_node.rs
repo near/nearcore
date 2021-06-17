@@ -51,7 +51,7 @@ impl Node for ProcessNode {
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
-                let addr = self.config.rpc_config.addr.clone();
+                let addr = self.config.rpc_config.as_ref().unwrap().addr.clone();
                 thread::sleep(Duration::from_secs(3));
                 near_actix_test_utils::run_actix_until_stop(async move {
                     WaitOrTimeout::new(
@@ -97,7 +97,11 @@ impl Node for ProcessNode {
 
     fn user(&self) -> Box<dyn User> {
         let account_id = self.signer.account_id.clone();
-        Box::new(RpcUser::new(&self.config.rpc_config.addr, account_id, self.signer.clone()))
+        Box::new(RpcUser::new(
+            &self.config.rpc_config.as_ref().unwrap().addr,
+            account_id,
+            self.signer.clone(),
+        ))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {

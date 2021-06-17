@@ -29,7 +29,7 @@ fn main() {
     print!("Connect via RPC to: ");
     for i in 0..num_nodes {
         match &nodes[i] {
-            NodeConfig::Thread(cfg) => print!("{}, ", cfg.rpc_config.addr),
+            NodeConfig::Thread(cfg) => print!("{}, ", cfg.rpc_config.as_ref().unwrap().addr),
             _ => (),
         }
     }
