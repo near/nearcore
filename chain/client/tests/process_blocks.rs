@@ -3191,15 +3191,18 @@ mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
     use near_primitives::types::CompiledContractCache;
+    use near_primitives::version::ProtocolFeature;
     use near_store::{Store, StoreCompiledContractCache};
     use near_vm_runner::{get_contract_cache_key, VMKind};
 
-    #[test]
-    fn test_state_sync_contract_precompilation() {
+    /// Deploys test contract to the first client, perform state sync for the second client and
+    /// check existence of contract in both caches.
+    fn run_test(protocol_version: ProtocolVersion, should_be_cached: bool) {
         let num_clients = 2;
         let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         let epoch_length = 5;
+        genesis.config.protocol_version = protocol_version;
         genesis.config.epoch_length = epoch_length;
         let genesis_config = genesis.config.clone();
         let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
@@ -3235,14 +3238,14 @@ mod contract_precompilation_tests {
         );
         env.clients[0].process_tx(tx, false, false);
         let mut blocks = Vec::new();
-        for i in 1..=epoch_length + 1 {
+        for i in 1..=epoch_length {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
             blocks.push(block.clone());
             env.process_block(0, block.clone(), Provenance::PRODUCED);
             env.process_block(1, block, Provenance::NONE);
         }
 
-        for i in 1..epoch_length + 1 {
+        for i in 1..epoch_length {
             let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
             let sync_hash = *sync_block.hash();
             let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
@@ -3257,6 +3260,7 @@ mod contract_precompilation_tests {
                 .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
                 .unwrap();
         }
+
         for i in 0..num_clients {
             let compiled_contract_cache =
                 Arc::new(StoreCompiledContractCache { store: stores[i].clone() });
@@ -3266,12 +3270,27 @@ mod contract_precompilation_tests {
                 VMKind::default(),
                 &genesis_config.runtime_config.wasm_config,
             );
-            compiled_contract_cache
+            let result = compiled_contract_cache
                 .get(&key.0)
-                .unwrap_or_else(|_| panic!("Compiled contract should be cached for client {}", i))
-                .unwrap_or_else(|| {
+                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i));
+
+            if should_be_cached {
+                result.unwrap_or_else(|| {
                     panic!("Compilation result should be non-empty for client {}", i)
                 });
+            } else {
+                assert!(result.is_none(), "Contract should not be cached for client {}", i);
+            }
         }
+    }
+
+    #[test]
+    fn test_disabled_caching() {
+        run_test(ProtocolFeature::PrecompileContracts.protocol_version() - 1, false);
+    }
+
+    #[test]
+    fn test_enabled_caching() {
+        run_test(ProtocolFeature::PrecompileContracts.protocol_version(), true);
     }
 }

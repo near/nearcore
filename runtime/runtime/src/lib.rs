@@ -50,6 +50,8 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+use near_primitives::checked_feature;
+#[cfg(any(feature = "sandbox", feature = "protocol_feature_precompile_contracts"))]
 use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -1339,8 +1341,11 @@ impl Runtime {
         let (trie_changes, state_changes) = state_update.finalize()?;
 
         // Precompile contracts just inserted into state.
-        #[cfg(feature = "protocol_feature_precompile_contracts")]
-        {
+        if checked_feature!(
+            "protocol_feature_precompile_contracts",
+            PrecompileContracts,
+            apply_state.current_protocol_version
+        ) {
             let wasm_config = apply_state.config.wasm_config.clone();
             let cache = apply_state.cache.as_deref();
             state_changes
