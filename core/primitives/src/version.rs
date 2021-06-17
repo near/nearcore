@@ -107,8 +107,6 @@ pub enum ProtocolFeature {
     RestoreReceiptsAfterFix,
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     CapMaxGasPrice,
-    #[cfg(feature = "protocol_feature_precompile_contracts")]
-    PrecompileContracts,
 }
 
 /// Current latest stable version of the protocol.
@@ -119,7 +117,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 114;
+pub const PROTOCOL_VERSION: ProtocolVersion = 113;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -151,8 +149,6 @@ impl ProtocolFeature {
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_cap_max_gas_price")]
             ProtocolFeature::CapMaxGasPrice => 113,
-            #[cfg(feature = "protocol_feature_precompile_contracts")]
-            ProtocolFeature::PrecompileContracts => 114,
         }
     }
 }

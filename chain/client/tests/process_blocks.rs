@@ -3186,23 +3186,21 @@ mod cap_max_gas_price_tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "protocol_feature_precompile_contracts")]
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
     use near_primitives::types::CompiledContractCache;
-    use near_primitives::version::ProtocolFeature;
     use near_store::{Store, StoreCompiledContractCache};
     use near_vm_runner::{get_contract_cache_key, VMKind};
 
     /// Deploys test contract to the first client, perform state sync for the second client and
     /// check existence of contract in both caches.
-    fn run_test(protocol_version: ProtocolVersion, should_be_cached: bool) {
+    #[test]
+    fn test_caching() {
         let num_clients = 2;
         let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         let epoch_length = 5;
-        genesis.config.protocol_version = protocol_version;
         genesis.config.epoch_length = epoch_length;
         let genesis_config = genesis.config.clone();
         let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
@@ -3270,27 +3268,12 @@ mod contract_precompilation_tests {
                 VMKind::default(),
                 &genesis_config.runtime_config.wasm_config,
             );
-            let result = compiled_contract_cache
+            compiled_contract_cache
                 .get(&key.0)
-                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i));
-
-            if should_be_cached {
-                result.unwrap_or_else(|| {
+                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
+                .unwrap_or_else(|| {
                     panic!("Compilation result should be non-empty for client {}", i)
                 });
-            } else {
-                assert!(result.is_none(), "Contract should not be cached for client {}", i);
-            }
         }
-    }
-
-    #[test]
-    fn test_disabled_caching() {
-        run_test(ProtocolFeature::PrecompileContracts.protocol_version() - 1, false);
-    }
-
-    #[test]
-    fn test_enabled_caching() {
-        run_test(ProtocolFeature::PrecompileContracts.protocol_version(), true);
     }
 }

@@ -22,7 +22,6 @@ use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
-use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -508,9 +507,10 @@ impl NightshadeRuntime {
 
     fn precompile_contracts(
         &self,
-        protocol_version: ProtocolVersion,
+        epoch_id: &EpochId,
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config =
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
@@ -1451,16 +1451,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let tries = self.get_tries();
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
-
-        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        if checked_feature!(
-            "protocol_feature_precompile_contracts",
-            PrecompileContracts,
-            protocol_version
-        ) {
-            self.precompile_contracts(protocol_version, contract_codes)?;
-        }
-
+        self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
 

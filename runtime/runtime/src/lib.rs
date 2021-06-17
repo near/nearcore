@@ -50,7 +50,6 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -1340,32 +1339,26 @@ impl Runtime {
         // in the database.
         // Note that contract compilation costs are already accounted in deploy cost using
         // special logic in estimator (see get_runtime_config() function).
-        if checked_feature!(
-            "protocol_feature_precompile_contracts",
-            PrecompileContracts,
-            apply_state.current_protocol_version
-        ) {
-            let wasm_config = apply_state.config.wasm_config.clone();
-            let cache = apply_state.cache.as_deref();
-            state_changes
-                .par_iter()
-                .map(|state_change| match state_change.trie_key {
-                    TrieKey::ContractCode { .. } => {
-                        let code = state_change
-                            .changes
-                            .last()
-                            .expect("Committed entry should have at least one change")
-                            .data
-                            .as_ref();
-                        if let Some(code) = code {
-                            let contract_code = ContractCode::new(code.clone(), None);
-                            precompile_contract(&contract_code, &wasm_config, cache).ok();
-                        }
+        let wasm_config = apply_state.config.wasm_config.clone();
+        let cache = apply_state.cache.as_deref();
+        state_changes
+            .par_iter()
+            .map(|state_change| match state_change.trie_key {
+                TrieKey::ContractCode { .. } => {
+                    let code = state_change
+                        .changes
+                        .last()
+                        .expect("Committed entry should have at least one change")
+                        .data
+                        .as_ref();
+                    if let Some(code) = code {
+                        let contract_code = ContractCode::new(code.clone(), None);
+                        precompile_contract(&contract_code, &wasm_config, cache).ok();
                     }
-                    _ => {}
-                })
-                .collect::<()>();
-        }
+                }
+                _ => {}
+            })
+            .collect::<()>();
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
@@ -1480,7 +1473,6 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
-    #[cfg(feature = "protocol_feature_precompile_contracts")]
     use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
         AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
@@ -1490,7 +1482,6 @@ mod tests {
     use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
-    #[cfg(feature = "protocol_feature_precompile_contracts")]
     use near_vm_runner::{get_contract_cache_key, VMKind};
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
@@ -2390,7 +2381,6 @@ mod tests {
         assert_eq!(final_account_state.storage_usage(), 0);
     }
 
-    #[cfg(feature = "protocol_feature_precompile_contracts")]
     #[test]
     fn test_contract_precompilation() {
         let initial_balance = to_yocto(1_000_000);
