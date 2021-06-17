@@ -168,10 +168,13 @@ pub(super) struct RunCmd {
     produce_empty_blocks: Option<bool>,
     /// Customize RPC listening address (useful for running multiple nodes on
     /// the same machine).  Ignored if ‘--disable-rpc’ is given.
+    #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
-    /// Disable the RPC endpoint.  If given, `--rpc-addr` option is ignored.
+    /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
+    /// RPC endpoint.
     #[clap(long)]
+    #[allow(dead_code)]
     disable_rpc: bool,
     /// Customize telemetry url.
     #[clap(long)]
@@ -203,6 +206,7 @@ impl RunCmd {
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.addr = Some(network_addr);
         }
+        #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
             near_config.rpc_config = None;
         } else if let Some(rpc_addr) = self.rpc_addr {

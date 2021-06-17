@@ -10,7 +10,6 @@ use near_chain::ChainGenesis;
 #[cfg(feature = "adversarial")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -292,8 +291,9 @@ pub fn start_with_config(
         #[cfg(feature = "adversarial")]
         adv.clone(),
     );
+    #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        start_http(
+        near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),

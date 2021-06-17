@@ -82,7 +82,7 @@ pub fn start_nodes(
             if i == 0 { first_node } else { open_port() },
             genesis.clone(),
         );
-        rpc_addrs.push(near_config.rpc_config.as_ref().unwrap().addr.clone());
+        rpc_addrs.push(near_config.rpc_addr().unwrap().clone());
         near_config.client_config.min_num_peers = num_nodes - 1;
         if i > 0 {
             near_config.network_config.boot_nodes =
