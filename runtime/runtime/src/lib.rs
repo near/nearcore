@@ -344,7 +344,6 @@ impl Runtime {
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
                     deploy_contract,
-                    &apply_state,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -1340,7 +1339,10 @@ impl Runtime {
 
         let (trie_changes, state_changes) = state_update.finalize()?;
 
-        // Precompile contracts just inserted into state.
+        // Precompile contracts just inserted into state and store result (compiled code or error)
+        // in the database.
+        // Note that contract compilation costs are already accounted in deploy cost using
+        // special logic in estimator (see get_runtime_config() function).
         if checked_feature!(
             "protocol_feature_precompile_contracts",
             PrecompileContracts,
