@@ -1,6 +1,7 @@
 pub use borsh;
 pub use num_rational;
 
+pub use near_account_id as account_id;
 pub mod account;
 pub mod config;
 pub mod contract;

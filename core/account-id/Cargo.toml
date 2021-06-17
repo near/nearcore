@@ -1,0 +1,17 @@
+[package]
+name = "near-account-id"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/near/nearcore"
+homepage = "https://github.com/near/nearcore"
+description = "This crate contains the account ID primitive and its validation facilities"
+
+[dependencies]
+borsh = "0.8.1"
+serde = { version = "1", features = [ "derive" ] }
+regex = "1"
+thiserror = "1"
+derive_more = "0.99.3"
+lazy_static = "1.4"

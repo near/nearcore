@@ -13,7 +13,6 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::system_account;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -102,7 +101,7 @@ pub(crate) fn check_balance(
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
-                if receipt.predecessor_id != system_account() {
+                if !AccountId::is_system(receipt.predecessor_id) {
                     let mut total_gas = safe_add_gas(
                         transaction_costs.action_receipt_creation_config.exec_fee(),
                         total_prepaid_exec_fees(

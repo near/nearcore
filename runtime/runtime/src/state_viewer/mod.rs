@@ -18,7 +18,6 @@ use near_primitives::{
     types::{AccountId, EpochInfoProvider},
     views::{StateItem, ViewApplyState, ViewStateResult},
 };
-use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
 use std::{str, sync::Arc, time::Instant};
@@ -40,12 +39,6 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Account, errors::ViewAccountError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccountError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
-
         get_account(state_update, &account_id)?.ok_or_else(|| {
             errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id: account_id.clone(),
@@ -72,12 +65,6 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccessKeyError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
-
         get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
         })
@@ -88,12 +75,6 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccessKeyError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
-
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys =
@@ -125,11 +106,6 @@ impl TrieViewer {
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, errors::ViewStateError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewStateError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
         match get_account(state_update, account_id)? {
             Some(account) => {
                 let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
@@ -181,11 +157,6 @@ impl TrieViewer {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
-        if !is_valid_account_id(contract_id) {
-            return Err(errors::CallFunctionError::InvalidAccountId {
-                requested_account_id: contract_id.clone(),
-            });
-        }
         let root = state_update.get_root();
         let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {

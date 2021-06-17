@@ -7,7 +7,6 @@ use vm::{ContractCreateResult, MessageCallResult};
 use near_primitives::config::{ActionCosts, VMConfig};
 use near_primitives::runtime::fees::{EvmCostConfig, RuntimeFeesConfig};
 use near_primitives::types::{AccountId, Balance, Gas, StorageUsage};
-use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::{
     EvmError, FunctionCallError, InconsistentStateError::StorageError, VMError, VMLogicError,
 };
@@ -517,7 +516,7 @@ impl<'a> EvmContext<'a> {
     }
 
     fn pay_gas_for_transfer(&mut self, account_id: &AccountId) -> Result<()> {
-        if is_account_id_64_len_hex(&account_id) {
+        if AccountId::is_64_len_hex(&account_id) {
             self.gas_counter.pay_action_base(
                 &self.fees_config.action_creation_config.create_account_cost,
                 false,
@@ -743,9 +742,9 @@ mod tests {
             vm_config,
             fees_config,
             0,
-            "evm".to_string(),
-            account_id.to_string(),
-            account_id.to_string(),
+            "evm".parse().unwrap(),
+            account_id.parse().unwrap(),
+            account_id.parse().unwrap(),
             0,
             0,
             0,

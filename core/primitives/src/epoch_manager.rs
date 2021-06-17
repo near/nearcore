@@ -637,7 +637,7 @@ pub mod epoch_info {
         }
 
         #[inline]
-        pub fn account_is_validator(&self, account_id: &str) -> bool {
+        pub fn account_is_validator(&self, account_id: &AccountId) -> bool {
             match self {
                 Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
@@ -843,7 +843,7 @@ pub mod epoch_info {
         }
 
         #[inline]
-        pub fn account_is_validator(&self, account_id: &str) -> bool {
+        pub fn account_is_validator(&self, account_id: &AccountId) -> bool {
             self.validator_to_index.contains_key(account_id)
         }
 

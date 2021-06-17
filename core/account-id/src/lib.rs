@@ -1,10 +1,9 @@
-//! Contains utility functions for runtime.
-#[macro_use]
-extern crate lazy_static;
+use std::{convert::TryFrom, io, str::FromStr};
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use lazy_static::lazy_static;
 use regex::Regex;
-
-type AccountId = String;
+use serde::{self, de};
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
@@ -19,101 +18,184 @@ lazy_static! {
     /// Represents a top level account ID.
     static ref VALID_TOP_LEVEL_ACCOUNT_ID: Regex =
         Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
+    pub static ref SYSTEM_ACCOUNT: AccountId = "system".parse().unwrap();
+    pub static ref TEST_ACCOUNT: AccountId = "test".parse().unwrap();
 }
 
-/// const does not allow function call, so have to resort to this
-pub fn system_account() -> AccountId {
-    "system".to_string()
+#[derive(Debug, thiserror::Error)]
+pub enum ParseAccountError {
+    #[error("the value is too long for account ID")]
+    TooLong,
+    #[error("the value is too short for account ID")]
+    TooShort,
+    #[error("the value has invalid characters for account ID")]
+    Invalid,
 }
 
-pub fn is_valid_account_id(account_id: &AccountId) -> bool {
-    account_id.len() >= MIN_ACCOUNT_ID_LEN
-        && account_id.len() <= MAX_ACCOUNT_ID_LEN
-        && VALID_ACCOUNT_ID.is_match(account_id)
-}
+/// Account identifier. Provides access to user's state.
+///
+/// *Note: Every owned Account ID has ensured its validity.*
+#[derive(
+    Eq,
+    Ord,
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    PartialOrd,
+    derive_more::Into,
+    derive_more::AsRef,
+    derive_more::Display,
+    serde::Serialize,
+    serde::Deserialize,
+    BorshSerialize,
+)]
+#[as_ref(forward)]
+pub struct AccountId(#[serde(deserialize_with = "serde_validate_account_id")] Box<str>);
 
-pub fn is_valid_top_level_account_id(account_id: &AccountId) -> bool {
-    account_id.len() >= MIN_ACCOUNT_ID_LEN
-        && account_id.len() <= MAX_ACCOUNT_ID_LEN
-        && account_id != &system_account()
-        && VALID_TOP_LEVEL_ACCOUNT_ID.is_match(account_id)
-}
-
-/// Returns true if the signer_id can create a direct sub-account with the given account Id.
-/// It assumes the signer_id is a valid account_id
-pub fn is_valid_sub_account_id(signer_id: &AccountId, sub_account_id: &AccountId) -> bool {
-    if !is_valid_account_id(sub_account_id) {
-        return false;
+impl AccountId {
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
-    if signer_id.len() >= sub_account_id.len() {
-        return false;
+
+    pub fn validate(account_id: impl AsRef<str>) -> Result<(), ParseAccountError> {
+        let account_id = account_id.as_ref();
+        if account_id.len() < MIN_ACCOUNT_ID_LEN {
+            Err(ParseAccountError::TooShort)
+        } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
+            Err(ParseAccountError::TooLong)
+        } else if !VALID_ACCOUNT_ID.is_match(account_id) {
+            Err(ParseAccountError::Invalid)
+        } else {
+            Ok(())
+        }
     }
-    // Will not panic, since valid account id is utf-8 only and the length is checked above.
-    // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
-    let (prefix, suffix) = sub_account_id.split_at(sub_account_id.len() - signer_id.len());
-    if suffix != signer_id {
-        return false;
+
+    pub fn is_top_level_account_id(&self) -> bool {
+        self.len() >= MIN_ACCOUNT_ID_LEN
+            && self.len() <= MAX_ACCOUNT_ID_LEN
+            && self != &*SYSTEM_ACCOUNT
+            && VALID_TOP_LEVEL_ACCOUNT_ID.is_match(self.as_ref())
     }
-    VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR.is_match(prefix)
+
+    /// Returns true if the signer_id can create a direct sub-account with the given account Id.
+    pub fn is_sub_account_of(&self, parent_account_id: &AccountId) -> bool {
+        if parent_account_id.len() >= self.len() {
+            return false;
+        }
+        // Will not panic, since valid account id is utf-8 only and the length is checked above.
+        // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
+        let (prefix, suffix) = self.0.split_at(self.len() - parent_account_id.len());
+        if suffix != parent_account_id.as_ref() {
+            return false;
+        }
+        VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR.is_match(prefix)
+    }
+
+    /// Returns true if the account ID length is 64 characters and it's a hex representation.
+    pub fn is_64_len_hex(account_id: impl AsRef<str>) -> bool {
+        let account_id = account_id.as_ref();
+        account_id.len() == 64
+            && account_id.as_bytes().iter().all(|&b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+    }
+
+    /// Returns true if the account ID is suppose to be EVM machine.
+    pub fn is_evm(account_id: impl AsRef<str>) -> bool {
+        account_id.as_ref() == "evm"
+    }
+
+    /// Returns true if the account ID is the system account.
+    pub fn is_system(account_id: impl AsRef<str>) -> bool {
+        account_id.as_ref() == "system"
+    }
 }
 
-/// Returns true if the account ID length is 64 characters and it's a hex representation.
-pub fn is_account_id_64_len_hex(account_id: &str) -> bool {
-    account_id.len() == 64
-        && account_id.as_bytes().iter().all(|&b| match b {
-            b'a'..=b'f' | b'0'..=b'9' => true,
-            _ => false,
-        })
+impl FromStr for AccountId {
+    type Err = ParseAccountError;
+
+    fn from_str(account_id: &str) -> Result<Self, Self::Err> {
+        Self::validate(account_id)?;
+        Ok(Self(account_id.into()))
+    }
 }
 
-/// Returns true if the account ID is suppose to be EVM machine.
-pub fn is_account_evm(account_id: &str) -> bool {
-    account_id == "evm"
+impl TryFrom<String> for AccountId {
+    type Error = ParseAccountError;
+
+    fn try_from(account_id: String) -> Result<Self, Self::Error> {
+        Self::validate(&account_id)?;
+        Ok(Self(account_id.into()))
+    }
+}
+
+impl TryFrom<&[u8]> for AccountId {
+    type Error = ParseAccountError;
+
+    fn try_from(account_id: &[u8]) -> Result<Self, Self::Error> {
+        std::str::from_utf8(account_id).map_err(|_| Self::Error::Invalid)?.parse()
+    }
+}
+
+fn serde_validate_account_id<'de, D>(d: D) -> Result<Box<str>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let account_id = de::Deserialize::deserialize(d)?;
+    AccountId::validate(&account_id).map_err(de::Error::custom)?;
+    Ok(account_id)
+}
+
+impl BorshDeserialize for AccountId {
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
+        let account_id = BorshDeserialize::deserialize(buf)?;
+        Self::validate(&account_id)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        Ok(Self(account_id))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const OK_ACCOUNT_IDS: &[&str] = &[
-        "aa",
-        "a-a",
-        "a-aa",
-        "100",
-        "0o",
-        "com",
-        "near",
-        "bowen",
-        "b-o_w_e-n",
-        "b.owen",
-        "bro.wen",
-        "a.ha",
-        "a.b-a.ra",
-        "system",
-        "over.9000",
-        "google.com",
-        "illia.cheapaccounts.near",
-        "0o0ooo00oo00o",
-        "alex-skidanov",
-        "10-4.8-2",
-        "b-o_w_e-n",
-        "no_lols",
-        "0123456789012345678901234567890123456789012345678901234567890123",
-        // Valid, but can't be created
-        "near.a",
-    ];
-
     #[test]
     fn test_is_valid_account_id() {
-        for account_id in OK_ACCOUNT_IDS {
+        let ok_account_ids = &[
+            "aa",
+            "a-a",
+            "a-aa",
+            "100",
+            "0o",
+            "com",
+            "near",
+            "bowen",
+            "b-o_w_e-n",
+            "b.owen",
+            "bro.wen",
+            "a.ha",
+            "a.b-a.ra",
+            "system",
+            "over.9000",
+            "google.com",
+            "illia.cheapaccounts.near",
+            "0o0ooo00oo00o",
+            "alex-skidanov",
+            "10-4.8-2",
+            "b-o_w_e-n",
+            "no_lols",
+            "0123456789012345678901234567890123456789012345678901234567890123",
+            // Valid, but can't be created
+            "near.a",
+        ];
+        for account_id in ok_account_ids {
             assert!(
-                is_valid_account_id(&account_id.to_string()),
+                AccountId::validate(account_id).is_ok(),
                 "Valid account id {:?} marked invalid",
                 account_id
             );
         }
 
-        let bad_account_ids = vec![
+        let bad_account_ids = &[
             "a",
             "A",
             "Abc",
@@ -142,7 +224,7 @@ mod tests {
         ];
         for account_id in bad_account_ids {
             assert!(
-                !is_valid_account_id(&account_id.to_string()),
+                AccountId::validate(account_id).is_err(),
                 "Invalid account id {:?} marked valid",
                 account_id
             );
@@ -151,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_is_valid_top_level_account_id() {
-        let ok_top_level_account_ids = vec![
+        let ok_top_level_account_ids = &[
             "aa",
             "a-a",
             "a-aa",
@@ -169,13 +251,15 @@ mod tests {
         ];
         for account_id in ok_top_level_account_ids {
             assert!(
-                is_valid_top_level_account_id(&account_id.to_string()),
+                account_id
+                    .parse::<AccountId>()
+                    .map_or(false, |account_id| account_id.is_top_level_account_id()),
                 "Valid top level account id {:?} marked invalid",
                 account_id
             );
         }
 
-        let bad_top_level_account_ids = vec![
+        let bad_top_level_account_ids = &[
             "near.a",
             "b.owen",
             "bro.wen",
@@ -214,7 +298,9 @@ mod tests {
         ];
         for account_id in bad_top_level_account_ids {
             assert!(
-                !is_valid_top_level_account_id(&account_id.to_string()),
+                !account_id
+                    .parse::<AccountId>()
+                    .map_or(false, |account_id| account_id.is_top_level_account_id()),
                 "Invalid top level account id {:?} marked valid",
                 account_id
             );
@@ -223,7 +309,7 @@ mod tests {
 
     #[test]
     fn test_is_valid_sub_account_id() {
-        let ok_pairs = vec![
+        let ok_pairs = &[
             ("test", "a.test"),
             ("test-me", "abc.test-me"),
             ("gmail.com", "abc.gmail.com"),
@@ -236,14 +322,17 @@ mod tests {
         ];
         for (signer_id, sub_account_id) in ok_pairs {
             assert!(
-                is_valid_sub_account_id(&signer_id.to_string(), &sub_account_id.to_string()),
+                matches!(
+                    (signer_id.parse::<AccountId>(), sub_account_id.parse::<AccountId>()),
+                    (Ok(signer_id), Ok(sub_account_id)) if sub_account_id.is_sub_account_of(&signer_id)
+                ),
                 "Failed to create sub-account {:?} by account {:?}",
                 sub_account_id,
                 signer_id
             );
         }
 
-        let bad_pairs = vec![
+        let bad_pairs = &[
             ("test", ".test"),
             ("test", "test"),
             ("test", "est"),
@@ -285,7 +374,10 @@ mod tests {
         ];
         for (signer_id, sub_account_id) in bad_pairs {
             assert!(
-                !is_valid_sub_account_id(&signer_id.to_string(), &sub_account_id.to_string()),
+                !matches!(
+                    (signer_id.parse::<AccountId>(), sub_account_id.parse::<AccountId>()),
+                    (Ok(signer_id), Ok(sub_account_id)) if sub_account_id.is_sub_account_of(&signer_id)
+                ),
                 "Invalid sub-account {:?} created by account {:?}",
                 sub_account_id,
                 signer_id
@@ -295,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_is_account_id_64_len_hex() {
-        let valid_64_len_hex_account_ids = vec![
+        let valid_64_len_hex_account_ids = &[
             "0000000000000000000000000000000000000000000000000000000000000000",
             "6174617461746174617461746174617461746174617461746174617461746174",
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -304,13 +396,21 @@ mod tests {
         ];
         for valid_account_id in valid_64_len_hex_account_ids {
             assert!(
-                is_account_id_64_len_hex(valid_account_id),
+                matches!(
+                    valid_account_id.parse::<AccountId>(),
+                    Ok(account_id) if AccountId::is_64_len_hex(&account_id)
+                ),
+                "Account ID {} should be valid 64-len hex",
+                valid_account_id
+            );
+            assert!(
+                AccountId::is_64_len_hex(valid_account_id),
                 "Account ID {} should be valid 64-len hex",
                 valid_account_id
             );
         }
 
-        let invalid_64_len_hex_account_ids = vec![
+        let invalid_64_len_hex_account_ids = &[
             "000000000000000000000000000000000000000000000000000000000000000",
             "6.74617461746174617461746174617461746174617461746174617461746174",
             "012-456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -320,7 +420,15 @@ mod tests {
         ];
         for invalid_account_id in invalid_64_len_hex_account_ids {
             assert!(
-                !is_account_id_64_len_hex(invalid_account_id),
+                !matches!(
+                    invalid_account_id.parse::<AccountId>(),
+                    Ok(account_id) if AccountId::is_64_len_hex(&account_id)
+                ),
+                "Account ID {} should be invalid 64-len hex",
+                invalid_account_id
+            );
+            assert!(
+                !AccountId::is_64_len_hex(invalid_account_id),
                 "Account ID {} should be invalid 64-len hex",
                 invalid_account_id
             );

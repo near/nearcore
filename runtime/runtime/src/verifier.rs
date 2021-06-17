@@ -9,13 +9,12 @@ use near_primitives::{
     },
     receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum},
     transaction::{
-        Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
-        SignedTransaction, StakeAction,
+        Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
+        StakeAction,
     },
     types::Balance,
     version::ProtocolVersion,
 };
-use near_runtime_utils::is_valid_account_id;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -37,15 +36,6 @@ pub fn validate_transaction(
 ) -> Result<TransactionCost, RuntimeError> {
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
-    if !is_valid_account_id(&signer_id) {
-        return Err(InvalidTxError::InvalidSignerId { signer_id: signer_id.clone() }.into());
-    }
-    if !is_valid_account_id(&transaction.receiver_id) {
-        return Err(InvalidTxError::InvalidReceiverId {
-            receiver_id: transaction.receiver_id.clone(),
-        }
-        .into());
-    }
 
     if verify_signature
         && !signed_transaction
@@ -234,22 +224,11 @@ pub fn verify_and_charge_transaction(
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
-/// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
-/// the validity of the Action or Data receipt.
+/// Validates a given receipt. Checks validity of the Action or Data receipt.
 pub(crate) fn validate_receipt(
     limit_config: &VMLimitConfig,
     receipt: &Receipt,
 ) -> Result<(), ReceiptValidationError> {
-    if !is_valid_account_id(&receipt.predecessor_id) {
-        return Err(ReceiptValidationError::InvalidPredecessorId {
-            account_id: receipt.predecessor_id.clone(),
-        });
-    }
-    if !is_valid_account_id(&receipt.receiver_id) {
-        return Err(ReceiptValidationError::InvalidReceiverId {
-            account_id: receipt.receiver_id.clone(),
-        });
-    }
     match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
             validate_action_receipt(limit_config, action_receipt)
@@ -258,24 +237,11 @@ pub(crate) fn validate_receipt(
     }
 }
 
-/// Validates given ActionReceipt. Checks validity of the signer account ID, validity of all
-/// data receiver account IDs, the number of input data dependencies and all actions.
+/// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
 fn validate_action_receipt(
     limit_config: &VMLimitConfig,
     receipt: &ActionReceipt,
 ) -> Result<(), ReceiptValidationError> {
-    if !is_valid_account_id(&receipt.signer_id) {
-        return Err(ReceiptValidationError::InvalidSignerId {
-            account_id: receipt.signer_id.clone(),
-        });
-    }
-    for data_receiver in &receipt.output_data_receivers {
-        if !is_valid_account_id(&data_receiver.receiver_id) {
-            return Err(ReceiptValidationError::InvalidDataReceiverId {
-                account_id: data_receiver.receiver_id.clone(),
-            });
-        }
-    }
     if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
             number_of_input_data_dependencies: receipt.input_data_ids.len() as u64,
@@ -301,10 +267,12 @@ fn validate_data_receipt(
     Ok(())
 }
 
-/// Validates given actions. Checks limits and validates `account_id` if applicable.
-/// Checks that the total number of actions doesn't exceed the limit.
-/// Validates each individual action.
-/// Checks that the total prepaid gas doesn't exceed the limit.
+/// Validates given actions:
+///
+/// - Checks limits if applicable.
+/// - Checks that the total number of actions doesn't exceed the limit.
+/// - Validates each individual action.
+/// - Checks that the total prepaid gas doesn't exceed the limit.
 pub(crate) fn validate_actions(
     limit_config: &VMLimitConfig,
     actions: &[Action],
@@ -338,7 +306,7 @@ pub(crate) fn validate_actions(
     Ok(())
 }
 
-/// Validates a single given action. Checks limits and validates `account_id` if applicable.
+/// Validates a single given action. Checks limits if applicable.
 pub fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
@@ -351,7 +319,7 @@ pub fn validate_action(
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteAccount(a) => validate_delete_account_action(a),
+        Action::DeleteAccount(a) => Ok(()),
     }
 }
 
@@ -408,19 +376,14 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
     Ok(())
 }
 
-/// Validates `AddKeyAction`. If the access key permission is `FunctionCall` checks that the
-/// `receiver_id` is a valid account ID, checks the total number of bytes of the method names
-/// doesn't exceed the limit and every method name length doesn't exceed the limit.
+/// Validates `AddKeyAction`. If the access key permission is `FunctionCall`, checks that the
+/// total number of bytes of the method names doesn't exceed the limit and
+/// every method name length doesn't exceed the limit.
 fn validate_add_key_action(
     limit_config: &VMLimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
     if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
-        if !is_valid_account_id(&fc.receiver_id) {
-            return Err(ActionsValidationError::InvalidAccountId {
-                account_id: fc.receiver_id.clone(),
-            });
-        }
         // Checking method name length limits
         let mut total_number_of_bytes = 0;
         for method_name in &fc.method_names {
@@ -440,19 +403,6 @@ fn validate_add_key_action(
                 limit: limit_config.max_number_bytes_method_names,
             });
         }
-    }
-
-    Ok(())
-}
-
-/// Validates `DeleteAccountAction`. Checks that the `beneficiary_id` is a valid account ID.
-fn validate_delete_account_action(
-    action: &DeleteAccountAction,
-) -> Result<(), ActionsValidationError> {
-    if !is_valid_account_id(&action.beneficiary_id) {
-        return Err(ActionsValidationError::InvalidAccountId {
-            account_id: action.beneficiary_id.clone(),
-        });
     }
 
     Ok(())

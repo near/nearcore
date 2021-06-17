@@ -464,7 +464,7 @@ pub fn prepare_meta_call_args(
     // method_def is used here for typeHash
     let types = "NearTx(string evmId,uint256 nonce,uint256 feeAmount,address feeAddress,address contractAddress,uint256 value,string contractMethod,Arguments arguments)".to_string() + &arguments;
     bytes.extend_from_slice(&keccak(types.as_bytes()).as_bytes());
-    bytes.extend_from_slice(&keccak(account_id.as_bytes()).as_bytes());
+    bytes.extend_from_slice(&keccak(account_id.as_ref().as_bytes()).as_bytes());
     bytes.extend_from_slice(&u256_to_arr(&nonce));
     bytes.extend_from_slice(&u256_to_arr(&fee_amount));
     bytes.extend_from_slice(&encode_address(fee_address));

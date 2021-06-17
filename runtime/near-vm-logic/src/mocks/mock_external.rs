@@ -76,7 +76,7 @@ impl External for MockedExternal {
         Ok(self.fake_trie.contains_key(key))
     }
 
-    fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
+    fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: AccountId) -> Result<u64> {
         if let Some(index) = receipt_indices.iter().find(|&&el| el >= self.receipts.len() as u64) {
             return Err(HostError::InvalidReceiptIndex { receipt_index: *index }.into());
         }
@@ -161,7 +161,7 @@ impl External for MockedExternal {
         public_key: Vec<u8>,
         nonce: u64,
         allowance: Option<u128>,
-        receiver_id: String,
+        receiver_id: AccountId,
         method_names: Vec<Vec<u8>>,
     ) -> Result<()> {
         self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(
@@ -188,7 +188,7 @@ impl External for MockedExternal {
     fn append_action_delete_account(
         &mut self,
         receipt_index: u64,
-        beneficiary_id: String,
+        beneficiary_id: AccountId,
     ) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
@@ -216,7 +216,7 @@ impl External for MockedExternal {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Receipt {
     receipt_indices: Vec<u64>,
-    receiver_id: String,
+    receiver_id: AccountId,
     actions: Vec<Action>,
 }
 

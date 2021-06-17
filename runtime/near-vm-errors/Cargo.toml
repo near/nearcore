@@ -18,6 +18,7 @@ serde = { version = "1", features = ["derive"] }
 
 borsh = "0.8.1"
 
+near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
 
 [features]

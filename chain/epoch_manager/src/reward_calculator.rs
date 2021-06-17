@@ -30,7 +30,7 @@ impl RewardCalculator {
             num_blocks_per_year: config.num_blocks_per_year,
             epoch_length: config.epoch_length,
             protocol_reward_rate: config.protocol_reward_rate,
-            protocol_treasury_account: config.protocol_treasury_account.to_string(),
+            protocol_treasury_account: config.protocol_treasury_account.parse().unwrap(),
             online_max_threshold: config.online_max_threshold,
             online_min_threshold: config.online_min_threshold,
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,

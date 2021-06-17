@@ -3020,6 +3020,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "derive_more",
+ "lazy_static",
+ "regex",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.1.0"
 dependencies = [
@@ -3181,6 +3193,7 @@ dependencies = [
  "hex-literal",
  "lazy_static",
  "libc",
+ "near-account-id",
  "parity-secp256k1",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -3331,7 +3344,6 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
- "near-runtime-utils",
  "serde",
  "serde_json",
  "thiserror",
@@ -3486,6 +3498,7 @@ dependencies = [
  "derive_more",
  "hex",
  "lazy_static",
+ "near-account-id",
  "num-rational",
  "serde",
  "serde_json",
@@ -3621,6 +3634,7 @@ version = "3.0.0"
 dependencies = [
  "borsh",
  "hex",
+ "near-account-id",
  "near-rpc-error-macro",
  "serde",
 ]
@@ -3791,7 +3805,6 @@ dependencies = [
  "near-evm-runner",
  "near-metrics",
  "near-primitives",
- "near-runtime-utils",
  "near-store",
  "near-test-contracts",
  "near-vm-errors",

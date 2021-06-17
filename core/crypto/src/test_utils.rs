@@ -5,6 +5,7 @@ use crate::signature::{
     ED25519PublicKey, ED25519SecretKey, KeyType, PublicKey, SecretKey, SECP256K1,
 };
 use crate::{InMemorySigner, Signature};
+use near_account_id::AccountId;
 
 fn ed25519_key_pair_from_seed(seed: &str) -> ed25519_dalek::Keypair {
     let seed_bytes = seed.as_bytes();
@@ -64,7 +65,7 @@ impl Signature {
 }
 
 impl InMemorySigner {
-    pub fn from_random(account_id: String, key_type: KeyType) -> Self {
+    pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
         let secret_key = SecretKey::from_random(key_type);
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }

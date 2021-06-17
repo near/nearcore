@@ -348,7 +348,7 @@ mod tests {
     use super::*;
 
     fn test_key(key: Vec<u8>) -> TrieKey {
-        TrieKey::ContractData { account_id: "alice".to_string(), key }
+        TrieKey::ContractData { account_id: "alice".parse().unwrap(), key }
     }
 
     #[test]

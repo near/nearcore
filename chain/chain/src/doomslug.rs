@@ -600,6 +600,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use near_crypto::{KeyType, SecretKey};
+    use near_primitives::account_id::TEST_ACCOUNT;
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::types::ApprovalStake;
@@ -618,7 +619,11 @@ mod tests {
             Duration::from_millis(1000),
             Duration::from_millis(100),
             Duration::from_millis(3000),
-            Some(Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"))),
+            Some(Arc::new(InMemoryValidatorSigner::from_seed(
+                TEST_ACCOUNT.clone(),
+                KeyType::ED25519,
+                "test",
+            ))),
             DoomslugThresholdMode::TwoThirds,
         );
 
@@ -745,7 +750,7 @@ mod tests {
         let stakes = accounts
             .iter()
             .map(|(account_id, stake_this_epoch, stake_next_epoch)| ApprovalStake {
-                account_id: account_id.to_string(),
+                account_id: account_id.parse().unwrap(),
                 stake_this_epoch: *stake_this_epoch,
                 stake_next_epoch: *stake_next_epoch,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
@@ -755,11 +760,19 @@ mod tests {
         let signers = accounts
             .iter()
             .map(|(account_id, _, _)| {
-                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+                InMemoryValidatorSigner::from_seed(
+                    account_id.parse().unwrap(),
+                    KeyType::ED25519,
+                    account_id,
+                )
             })
             .collect::<Vec<_>>();
 
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            TEST_ACCOUNT.clone(),
+            KeyType::ED25519,
+            "test",
+        ));
         let mut ds = Doomslug::new(
             0,
             Duration::from_millis(400),
@@ -875,13 +888,17 @@ mod tests {
         let signers = accounts
             .iter()
             .map(|(account_id, _, _)| {
-                InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id)
+                InMemoryValidatorSigner::from_seed(
+                    account_id.parse().unwrap(),
+                    KeyType::ED25519,
+                    account_id,
+                )
             })
             .collect::<Vec<_>>();
         let stakes = accounts
             .into_iter()
             .map(|(account_id, stake_this_epoch, stake_next_epoch)| ApprovalStake {
-                account_id: account_id.to_string(),
+                account_id: account_id.parse().unwrap(),
                 stake_this_epoch,
                 stake_next_epoch,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),

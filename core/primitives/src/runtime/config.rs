@@ -91,7 +91,7 @@ impl Default for AccountCreationConfig {
     fn default() -> Self {
         Self {
             min_allowed_top_level_account_length: 0,
-            registrar_account_id: AccountId::from("registrar"),
+            registrar_account_id: "registrar".parse().unwrap(),
         }
     }
 }

@@ -8,15 +8,15 @@ use near_evm_runner::utils::{near_erc712_domain, prepare_meta_call_args, u256_to
 use near_evm_runner::EvmContext;
 use near_primitives::config::VMConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::types::Balance;
+use near_primitives::types::{AccountId, Balance};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use rlp::RlpStream;
 
 /// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/1313161555.json
 pub const CHAIN_ID: u64 = 1313161555;
 
-pub fn accounts(num: usize) -> String {
-    ["evm", "alice", "bob", "chad"][num].to_string()
+pub fn accounts(num: usize) -> AccountId {
+    ["evm", "alice", "bob", "chad"][num].parse().unwrap()
 }
 
 pub fn setup() -> (MockedExternal, VMConfig, RuntimeFeesConfig) {
@@ -39,9 +39,9 @@ pub fn create_context<'a>(
         vm_config,
         fees_config,
         1000,
-        "evm".to_string(),
-        account_id.to_string(),
-        account_id.to_string(),
+        "evm".parse().unwrap(),
+        account_id.parse().unwrap(),
+        account_id.parse().unwrap(),
         attached_deposit,
         0,
         10u64.pow(14),
@@ -87,7 +87,7 @@ pub fn encode_meta_call_function_args(
     let domain_separator = near_erc712_domain(U256::from(chain_id));
     let (msg, _) = prepare_meta_call_args(
         &domain_separator,
-        &"evm".to_string(),
+        &"evm".parse().unwrap(),
         nonce,
         fee_amount,
         fee_token,

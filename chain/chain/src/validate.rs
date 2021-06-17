@@ -405,8 +405,8 @@ mod tests {
         let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, seed);
         SignedTransaction::send_money(
             nonce,
-            account_id.to_string(),
-            "bob".to_string(),
+            account_id.parse().unwrap(),
+            "bob".parse().unwrap(),
             &signer,
             10,
             CryptoHash::default(),

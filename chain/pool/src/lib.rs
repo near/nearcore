@@ -38,7 +38,7 @@ impl TransactionPool {
     fn key(&self, account_id: &AccountId, public_key: &PublicKey) -> PoolKey {
         let mut v = public_key.try_to_vec().unwrap();
         v.extend_from_slice(&self.key_seed);
-        v.extend_from_slice(account_id.as_bytes());
+        v.extend_from_slice(account_id.as_ref().as_bytes());
         hash(&v)
     }
 
@@ -219,14 +219,15 @@ mod tests {
         starting_nonce: u64,
         end_nonce: u64,
     ) -> Vec<SignedTransaction> {
+        let signer_id: AccountId = signer_id.parse().unwrap();
         let signer =
-            Arc::new(InMemorySigner::from_seed(signer_seed, KeyType::ED25519, signer_seed));
+            Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed));
         (starting_nonce..=end_nonce)
             .map(|i| {
                 SignedTransaction::send_money(
                     i,
-                    signer_id.to_string(),
-                    "bob.near".to_string(),
+                    signer_id.clone(),
+                    "bob.near".parse().unwrap(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),
@@ -332,17 +333,17 @@ mod tests {
         let n = 100;
         let mut transactions = (1..=n)
             .map(|i| {
+                let signer_id: AccountId = format!("user_{}", i % 5).parse().unwrap();
                 let signer_seed = format!("user_{}", i % 3);
                 let signer = Arc::new(InMemorySigner::from_seed(
-                    &signer_seed,
+                    signer_id.clone(),
                     KeyType::ED25519,
                     &signer_seed,
                 ));
-                let signer_id = format!("user_{}", i % 5);
                 SignedTransaction::send_money(
                     i,
-                    signer_id.to_string(),
-                    "bob.near".to_string(),
+                    signer_id,
+                    "bob.near".parse().unwrap(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),
@@ -419,16 +420,17 @@ mod tests {
     fn test_pool_iterator_remembers_the_last_key() {
         let transactions = (1..=10)
             .map(|i| {
-                let signer_seed = format!("user_{}", i);
+                let signer_id: AccountId = format!("user_{}", i).parse().unwrap();
+                let signer_seed = signer_id.as_ref();
                 let signer = Arc::new(InMemorySigner::from_seed(
-                    &signer_seed,
+                    signer_id.clone(),
                     KeyType::ED25519,
                     &signer_seed,
                 ));
                 SignedTransaction::send_money(
                     i,
-                    signer_seed.to_string(),
-                    "bob.near".to_string(),
+                    signer_id,
+                    "bob.near".parse().unwrap(),
                     &*signer,
                     i as Balance,
                     CryptoHash::default(),

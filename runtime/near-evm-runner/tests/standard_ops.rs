@@ -305,7 +305,7 @@ fn test_solidity_accurate_storage_on_selfdestruct() {
 #[test]
 fn test_meta_call_sig_and_recover() {
     let (mut _fake_external, test_addr, _vm_config, _fees_config) = setup_and_deploy_test();
-    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let signer = InMemorySigner::from_seed("doesnt".parse().unwrap(), KeyType::SECP256K1, "a");
     let signer_addr = public_key_to_address(signer.public_key.clone());
     let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
 
@@ -325,7 +325,7 @@ fn test_meta_call_sig_and_recover() {
     // meta_tx[0..65] is eth-sig-util format signature
     // assert signature same as eth-sig-util, which also implies msg before sign (constructed by prepare_meta_call_args, follow eip-712) same
     assert_eq!(hex::encode(&meta_tx[0..65]), "4d94263f09bfd6322a633eebbf087fbed32d1b964e2fdab9cc9931fff3b9cd683e0912697e26836007e6ba026acccd9bb6116713959936815b1f6d9496dc5d341c");
-    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx).unwrap();
+    let result = parse_meta_call(&domain_separator, &"evm".parse().unwrap(), meta_tx).unwrap();
     assert_eq!(result.sender, signer_addr);
 
     let meta_tx2 = encode_meta_call_function_args(
@@ -358,7 +358,7 @@ fn test_meta_call_sig_and_recover() {
         hex::decode("e009de88436170734c6f636b940123456789012345678901234567890123456789").unwrap(),
     );
     assert_eq!(hex::encode(&meta_tx3[0..65]), "9efee70f160fed244ef03ccfab3ebb1f24be4f41052a7b83d99d3bd9250fcf3a612c448133170b4968c73ec56cba65c6cae50a39aec922ed605aa04c0ddff8e11c");
-    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx3).unwrap();
+    let result = parse_meta_call(&domain_separator, &"evm".parse().unwrap(), meta_tx3).unwrap();
     assert_eq!(result.sender, signer_addr);
 }
 

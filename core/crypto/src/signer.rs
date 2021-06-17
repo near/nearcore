@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::key_conversion::convert_secret_key;
 use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
+use near_account_id::AccountId;
 
 /// Generic signer trait, that can sign with some subset of supported curves.
 pub trait Signer: Sync + Send {
@@ -42,18 +43,18 @@ impl Signer for EmptySigner {
 /// Signer that keeps secret key in memory.
 #[derive(Clone)]
 pub struct InMemorySigner {
-    pub account_id: String,
+    pub account_id: AccountId,
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
 }
 
 impl InMemorySigner {
-    pub fn from_seed(account_id: &str, key_type: KeyType, seed: &str) -> Self {
+    pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
         let secret_key = SecretKey::from_seed(key_type, seed);
-        Self { account_id: account_id.to_string(), public_key: secret_key.public_key(), secret_key }
+        Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
 
-    pub fn from_secret_key(account_id: String, secret_key: SecretKey) -> Self {
+    pub fn from_secret_key(account_id: AccountId, secret_key: SecretKey) -> Self {
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
 

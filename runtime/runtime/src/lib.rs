@@ -27,7 +27,6 @@ use near_primitives::{
     },
     utils::{
         create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
-        system_account,
     },
 };
 use near_store::{
@@ -301,7 +300,7 @@ impl Runtime {
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = receipt.predecessor_id == system_account();
+        let is_refund = AccountId::is_system(receipt.predecessor_id);
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -554,7 +553,7 @@ impl Runtime {
         }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_deficit_amount = if receipt.predecessor_id == system_account() {
+        let gas_deficit_amount = if AccountId::is_system(receipt.predecessor_id) {
             result.gas_burnt = 0;
             result.gas_used = 0;
             // If the refund fails tokens are burned.

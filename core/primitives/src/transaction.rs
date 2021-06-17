@@ -8,12 +8,13 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::AccessKey;
+use crate::account_id::{AccountId, TEST_ACCOUNT};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
-use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::types::{Balance, Gas, Nonce};
 
 pub type LogEntry = String;
 
@@ -329,7 +330,9 @@ impl From<ExecutionStatus> for PartialExecutionStatus {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default, Eq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, smart_default::SmartDefault, Eq,
+)]
 pub struct ExecutionOutcome {
     /// Logs from this transaction or receipt.
     pub logs: Vec<LogEntry>,
@@ -343,6 +346,7 @@ pub struct ExecutionOutcome {
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
+    #[default(TEST_ACCOUNT.clone())]
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     /// NOTE: Should be the latest field since it contains unparsable by light client
@@ -430,12 +434,12 @@ mod tests {
 
     #[test]
     fn test_verify_transaction() {
-        let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
+        let signer = InMemorySigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519);
         let transaction = Transaction {
-            signer_id: "".to_string(),
+            signer_id: TEST_ACCOUNT.clone(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: "".to_string(),
+            receiver_id: TEST_ACCOUNT.clone(),
             block_hash: Default::default(),
             actions: vec![],
         }
@@ -458,10 +462,10 @@ mod tests {
     fn test_serialize_transaction() {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
         let transaction = Transaction {
-            signer_id: "test.near".to_string(),
+            signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
             nonce: 1,
-            receiver_id: "123".to_string(),
+            receiver_id: "123".parse().unwrap(),
             block_hash: Default::default(),
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
@@ -480,13 +484,15 @@ mod tests {
                         nonce: 0,
                         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: None,
-                            receiver_id: "zzz".to_string(),
+                            receiver_id: "zzz".parse().unwrap(),
                             method_names: vec!["www".to_string()],
                         }),
                     },
                 }),
                 Action::DeleteKey(DeleteKeyAction { public_key }),
-                Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
+                Action::DeleteAccount(DeleteAccountAction {
+                    beneficiary_id: "123".parse().unwrap(),
+                }),
             ],
         };
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
@@ -507,7 +513,7 @@ mod tests {
             receipt_ids: vec![],
             gas_burnt: 123,
             tokens_burnt: 1234000,
-            executor_id: "alice".to_string(),
+            executor_id: "alice".parse().unwrap(),
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

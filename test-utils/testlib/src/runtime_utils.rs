@@ -13,20 +13,20 @@ use node_runtime::{state_viewer::TrieViewer, Runtime};
 use std::collections::HashSet;
 
 pub fn alice_account() -> AccountId {
-    "alice.near".to_string()
+    "alice.near".parse().unwrap()
 }
 pub fn bob_account() -> AccountId {
-    "bob.near".to_string()
+    "bob.near".parse().unwrap()
 }
 pub fn eve_dot_alice_account() -> AccountId {
-    "eve.alice.near".to_string()
+    "eve.alice.near".parse().unwrap()
 }
 pub fn evm_account() -> AccountId {
-    "evm".to_string()
+    "evm".parse().unwrap()
 }
 
 pub fn implicit_account() -> AccountId {
-    "3885505359911f2493f0c40a2bf042981936ec5dddd59708581b155a047864d8".to_string()
+    "3885505359911f2493f0c40a2bf042981936ec5dddd59708581b155a047864d8".parse().unwrap()
 }
 
 lazy_static::lazy_static! {

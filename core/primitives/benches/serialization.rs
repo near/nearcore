@@ -7,6 +7,7 @@ use chrono::Utc;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
+use near_primitives::account_id::TEST_ACCOUNT;
 use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::account_new;
@@ -24,10 +25,10 @@ fn create_transaction() -> SignedTransaction {
     SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: "123213123123".to_string(),
+            signer_id: "123213123123".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
-            receiver_id: "1231231232131".to_string(),
+            receiver_id: "1231231232131".parse().unwrap(),
             block_hash: Default::default(),
             actions,
         },
@@ -45,7 +46,7 @@ fn create_block() -> Block {
         1_000,
         CryptoHash::default(),
     );
-    let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
+    let signer = InMemoryValidatorSigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519);
     Block::produce(
         PROTOCOL_VERSION,
         genesis.header(),
