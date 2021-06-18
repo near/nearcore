@@ -180,9 +180,7 @@ impl Trie {
         Ok(())
     }
 
-    /// Applies state part and returns the storage changes for the state part and all contract codes extracted from it.
-    /// Writing all storage changes gives the complete trie.
-    pub fn apply_state_part(
+    fn apply_state_part_impl(
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -220,6 +218,18 @@ impl Trie {
             },
             contract_codes,
         })
+    }
+
+    /// Applies state part and returns the storage changes for the state part and all contract codes extracted from it.
+    /// Writing all storage changes gives the complete trie.
+    pub fn apply_state_part(
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+        part: Vec<Vec<u8>>,
+    ) -> ApplyStatePartResult {
+        Self::apply_state_part_impl(state_root, part_id, num_parts, part)
+            .expect("apply_state_part is guaranteed to succeed when each part is valid")
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
@@ -435,7 +445,7 @@ mod tests {
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
         let _ =
             Trie::validate_trie_nodes_for_part(&state_root, 0, 1, PartialState(vec![])).unwrap();
-        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]).unwrap();
+        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]);
     }
 
     fn construct_trie_for_big_parts_1(
@@ -640,7 +650,6 @@ mod tests {
                         num_parts,
                         parts[part_id as usize].clone(),
                     )
-                    .unwrap()
                     .trie_changes
                 })
                 .collect::<Vec<_>>();

@@ -50,6 +50,7 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
+#[cfg(feature = "sandbox")]
 use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -57,8 +58,6 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
-use near_vm_runner::precompile_contract;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -340,6 +339,7 @@ impl Runtime {
                     account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
                     &account_id,
                     deploy_contract,
+                    &apply_state,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -1335,30 +1335,6 @@ impl Runtime {
 
         let (trie_changes, state_changes) = state_update.finalize()?;
 
-        // Precompile contracts just inserted into state and store result (compiled code or error)
-        // in the database.
-        // Note that contract compilation costs are already accounted in deploy cost using
-        // special logic in estimator (see get_runtime_config() function).
-        let wasm_config = apply_state.config.wasm_config.clone();
-        let cache = apply_state.cache.as_deref();
-        state_changes.par_iter().for_each(|state_change| match state_change.trie_key {
-            TrieKey::ContractCode { .. } => {
-                let code = state_change
-                    .changes
-                    .last()
-                    .expect("Committed entry should have at least one change")
-                    .data
-                    .as_ref();
-                // If code is None, it means that it was just removed from the state, so there is
-                // nothing to precompile.
-                if let Some(code) = code {
-                    let contract_code = ContractCode::new(code.clone(), None);
-                    precompile_contract(&contract_code, &wasm_config, cache).ok();
-                }
-            }
-            _ => {}
-        });
-
         // Dedup proposals from the same account.
         // The order is deterministically changed.
         let mut unique_proposals = vec![];
@@ -1468,6 +1444,7 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
+    use near_primitives::contract::ContractCode;
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
