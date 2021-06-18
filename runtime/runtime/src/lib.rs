@@ -1349,6 +1349,8 @@ impl Runtime {
                     .expect("Committed entry should have at least one change")
                     .data
                     .as_ref();
+                // If code is None, it means that it was just removed from the state, so there is
+                // nothing to precompile.
                 if let Some(code) = code {
                     let contract_code = ContractCode::new(code.clone(), None);
                     precompile_contract(&contract_code, &wasm_config, cache).ok();

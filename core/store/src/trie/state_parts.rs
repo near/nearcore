@@ -180,7 +180,7 @@ impl Trie {
         Ok(())
     }
 
-    /// Returns the storage changes for the state part and all contract codes extracted from it.
+    /// Applies state part and returns the storage changes for the state part and all contract codes extracted from it.
     /// Writing all storage changes gives the complete trie.
     pub fn apply_state_part(
         state_root: &StateRoot,
@@ -642,7 +642,6 @@ mod tests {
                     )
                     .unwrap()
                     .trie_changes
-                    .0
                 })
                 .collect::<Vec<_>>();
             merge_trie_changes(changes)
