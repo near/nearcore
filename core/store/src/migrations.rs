@@ -718,7 +718,7 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
-        AccountId, BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
+        BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
         ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;
