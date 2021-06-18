@@ -1,5 +1,5 @@
 use crate::errors::IntoVMError;
-use crate::{cache, imports};
+use crate::{cache, imports, vm_logic_protocol_features};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{profile::ProfileData, types::CompiledContractCache};
@@ -231,7 +231,7 @@ pub fn run_wasmer1(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let mut logic = VMLogic::new_with_protocol_version(
+    let mut logic = VMLogic::new_with_protocol_features(
         ext,
         context,
         wasm_config,
@@ -239,7 +239,7 @@ pub fn run_wasmer1(
         promise_results,
         &mut memory,
         profile,
-        current_protocol_version,
+        vm_logic_protocol_features(current_protocol_version),
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
@@ -355,7 +355,7 @@ pub(crate) fn run_wasmer1_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let mut logic = VMLogic::new_with_protocol_version(
+    let mut logic = VMLogic::new_with_protocol_features(
         ext,
         context,
         wasm_config,
@@ -363,7 +363,7 @@ pub(crate) fn run_wasmer1_module<'a>(
         promise_results,
         memory,
         profile,
-        current_protocol_version,
+        vm_logic_protocol_features(current_protocol_version),
     );
 
     let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);

@@ -5,17 +5,13 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
-use near_primitives::checked_feature;
-use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
 };
-use near_primitives_core::types::{
-    AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
-};
+use near_primitives_core::types::{AccountId, Balance, EpochHeight, Gas, StorageUsage};
 use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
@@ -24,8 +20,6 @@ use std::collections::HashMap;
 use std::mem::size_of;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
-
-const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -68,8 +62,19 @@ pub struct VMLogic<'a> {
     /// Tracks the total log length. The sum of length of all logs.
     total_log_length: u64,
 
-    /// Current protocol version that is used for the function call.
-    current_protocol_version: ProtocolVersion,
+    /// Protocol features that are enabled for the function call.
+    protocol_features: VMLogicProtocolFeatures,
+}
+
+/// Some parts of VMLogic depend on the current protocol version. Rather than
+/// directly passing the protocol version in, we use [`VMLogicProtocolFeatures`],
+/// and let the caller decide which protocol features to activate. That way,
+/// [`VMLogic`] doesn't need to know anything about protocol versions, which
+/// helps with cutting crate dependencies.
+#[derive(Clone, Copy)]
+pub struct VMLogicProtocolFeatures {
+    pub implicit_account_creation: bool,
+    pub allow_create_account_on_delete: bool,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -103,7 +108,7 @@ macro_rules! memory_set {
 }
 
 impl<'a> VMLogic<'a> {
-    pub fn new_with_protocol_version(
+    pub fn new_with_protocol_features(
         ext: &'a mut dyn External,
         context: VMContext,
         config: &'a VMConfig,
@@ -111,7 +116,7 @@ impl<'a> VMLogic<'a> {
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
         profile: ProfileData,
-        current_protocol_version: ProtocolVersion,
+        protocol_features: VMLogicProtocolFeatures,
     ) -> Self {
         ext.reset_touched_nodes_counter();
         // Overflow should be checked before calling VMLogic.
@@ -147,12 +152,12 @@ impl<'a> VMLogic<'a> {
             promises: vec![],
             receipt_to_account: HashMap::new(),
             total_log_length: 0,
-            current_protocol_version,
+            protocol_features,
         }
     }
 
-    /// Legacy initialization method that doesn't pass the protocol version and uses the last
-    /// protocol version before the change was introduced.
+    /// Legacy initialization method that doesn't pass the protocol protocol features,
+    /// just disabling them to stay compatible with the old behavior.
     pub fn new(
         ext: &'a mut dyn External,
         context: VMContext,
@@ -162,7 +167,7 @@ impl<'a> VMLogic<'a> {
         memory: &'a mut dyn MemoryLike,
         profile: ProfileData,
     ) -> Self {
-        Self::new_with_protocol_version(
+        Self::new_with_protocol_features(
             ext,
             context,
             config,
@@ -170,7 +175,10 @@ impl<'a> VMLogic<'a> {
             promise_results,
             memory,
             profile,
-            LEGACY_DEFAULT_PROTOCOL_VERSION,
+            VMLogicProtocolFeatures {
+                implicit_account_creation: false,
+                allow_create_account_on_delete: false,
+            },
         )
     }
 
@@ -1484,9 +1492,8 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
-        let is_receiver_implicit =
-            is_implicit_account_creation_enabled(self.current_protocol_version)
-                && is_account_id_64_len_hex(receiver_id);
+        let is_receiver_implicit = self.protocol_features.implicit_account_creation
+            && is_account_id_64_len_hex(receiver_id);
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
@@ -1749,16 +1756,11 @@ impl<'a> VMLogic<'a> {
             ActionCosts::delete_account,
         )?;
 
-        if checked_feature!(
-            "protocol_feature_allow_create_account_on_delete",
-            AllowCreateAccountOnDelete,
-            self.current_protocol_version
-        ) {
+        if self.protocol_features.allow_create_account_on_delete {
             let receiver_id = self.get_account_by_receipt(&receipt_idx);
             let sir = receiver_id == &beneficiary_id;
-            let is_receiver_implicit =
-                is_implicit_account_creation_enabled(self.current_protocol_version)
-                    && is_account_id_64_len_hex(receiver_id);
+            let is_receiver_implicit = self.protocol_features.implicit_account_creation
+                && is_account_id_64_len_hex(receiver_id);
 
             let transfer_to_beneficiary_send_fee = transfer_send_fee(
                 &self.fees_config.action_creation_config,

@@ -4,7 +4,7 @@ use wasmtime::Module;
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
-    use crate::{imports, prepare};
+    use crate::{imports, prepare, vm_logic_protocol_features};
     use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
     use near_primitives::{
@@ -175,7 +175,7 @@ pub mod wasmtime_runner {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
-        let mut logic = VMLogic::new_with_protocol_version(
+        let mut logic = VMLogic::new_with_protocol_features(
             ext,
             context,
             wasm_config,
@@ -183,7 +183,7 @@ pub mod wasmtime_runner {
             promise_results,
             &mut memory,
             profile,
-            current_protocol_version,
+            vm_logic_protocol_features(current_protocol_version),
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
