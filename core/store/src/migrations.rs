@@ -9,7 +9,10 @@ use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
     ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
 };
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, LogEntry,
+};
 use near_primitives::version::DbVersion;
 
 use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
@@ -29,12 +32,13 @@ use near_primitives::block_header::BlockHeader;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::trie_key::TrieKey;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
@@ -565,7 +569,7 @@ pub fn migrate_17_to_18(path: &String) {
 
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
-    use near_primitives::types::{Balance, BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
 
     // Migrate from OldBlockInfo to NewBlockInfo - add hash
@@ -645,7 +649,7 @@ pub fn migrate_21_to_22(path: &String) {
     use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
@@ -789,4 +793,70 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
         }
     }
     store_update.finish().unwrap();
+}
+
+pub fn fill_col_outcomes_with_metadata(store: &Store) {
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq, Debug)]
+    pub struct OldExecutionOutcome {
+        pub logs: Vec<LogEntry>,
+        pub receipt_ids: Vec<CryptoHash>,
+        pub gas_burnt: Gas,
+        pub tokens_burnt: Balance,
+        pub executor_id: AccountId,
+        pub status: ExecutionStatus,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithId {
+        pub id: CryptoHash,
+        pub outcome: OldExecutionOutcome,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+        pub outcome_with_id: OldExecutionOutcomeWithId,
+    }
+
+    impl Into<ExecutionOutcomeWithIdAndProof> for OldExecutionOutcomeWithIdAndProof {
+        fn into(self) -> ExecutionOutcomeWithIdAndProof {
+            ExecutionOutcomeWithIdAndProof {
+                proof: self.proof,
+                block_hash: self.block_hash,
+                outcome_with_id: ExecutionOutcomeWithId {
+                    id: self.outcome_with_id.id,
+                    outcome: ExecutionOutcome {
+                        logs: self.outcome_with_id.outcome.logs,
+                        receipt_ids: self.outcome_with_id.outcome.receipt_ids,
+                        gas_burnt: self.outcome_with_id.outcome.gas_burnt,
+                        tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
+                        executor_id: self.outcome_with_id.outcome.executor_id,
+                        status: self.outcome_with_id.outcome.status,
+                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                    },
+                },
+            }
+        }
+    }
+
+    let mut store_update = store.store_update();
+    let outcomes: Vec<(_, OldExecutionOutcomeWithIdAndProof)> = store
+        .iter(DBCol::ColTransactionResult)
+        .map(|(key, value)| {
+            (
+                key,
+                OldExecutionOutcomeWithIdAndProof::try_from_slice(&value)
+                    .expect("BorshDeserialize should not fail"),
+            )
+        })
+        .collect();
+
+    for (key, outcome) in outcomes {
+        let outcome: ExecutionOutcomeWithIdAndProof = outcome.into();
+        store_update
+            .set_ser(DBCol::ColOutcomeIds, key.as_ref(), &outcome)
+            .expect("BorshSerialize should not fail");
+    }
+    store_update.commit().expect("Failed to migrate");
 }
