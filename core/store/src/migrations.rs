@@ -856,7 +856,7 @@ pub fn fill_col_outcomes_with_metadata(store: &Store) {
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
             outcomes.into_iter().map(|outcome| outcome.into()).collect();
         store_update
-            .set_ser(DBCol::ColOutcomeIds, key.as_ref(), &outcomes)
+            .set_ser(DBCol::ColTransactionResult, key.as_ref(), &outcomes)
             .expect("BorshSerialize should not fail");
     }
     store_update.commit().expect("Failed to migrate");
