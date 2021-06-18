@@ -46,9 +46,9 @@ use near_primitives::views::{
 use near_vm_runner::precompile_contract;
 
 use near_store::{
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState,
-    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie,
-    WrappedTrieChanges,
+    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
+    ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
+    StoreUpdate, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -515,17 +515,14 @@ impl NightshadeRuntime {
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
-        contract_codes
-            .par_iter()
-            .map(|code| {
-                precompile_contract(
-                    &code,
-                    &runtime_config.wasm_config,
-                    compiled_contract_cache.as_deref(),
-                )
-                .ok();
-            })
-            .collect::<()>();
+        contract_codes.par_iter().for_each(|code| {
+            precompile_contract(
+                &code,
+                &runtime_config.wasm_config,
+                compiled_contract_cache.as_deref(),
+            )
+            .ok();
+        });
         Ok(())
     }
 }
@@ -1445,7 +1442,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let (trie_changes, contract_codes) =
+        let ApplyStatePartResult { trie_changes, contract_codes } =
             Trie::apply_state_part(&state_root, part_id, num_parts, part)
                 .expect("combine_state_parts is guaranteed to succeed when each part is valid");
         let tries = self.get_tries();

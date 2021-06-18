@@ -4,8 +4,11 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
 
+use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
+use crate::trie::{
+    ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
+};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
 use near_primitives::contract::ContractCode;
 use near_primitives::state_record::is_contract_code_key;
@@ -184,19 +187,21 @@ impl Trie {
         part_id: u64,
         num_parts: u64,
         part: Vec<Vec<u8>>,
-    ) -> Result<(TrieChanges, Vec<ContractCode>), StorageError> {
+    ) -> Result<ApplyStatePartResult, StorageError> {
         if state_root == &CryptoHash::default() {
-            return Ok((TrieChanges::empty(CryptoHash::default()), vec![]));
+            return Ok(ApplyStatePartResult {
+                trie_changes: TrieChanges::empty(CryptoHash::default()),
+                contract_codes: vec![],
+            });
         }
-        let trie =
-            Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part.clone()) });
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
         let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
         let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
         let mut iterator = TrieIterator::new(&trie, state_root)?;
-        let hashes_and_keys = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
-        for (hash, key) in hashes_and_keys {
+        for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
             if let Some(trie_key) = key {
@@ -206,15 +211,15 @@ impl Trie {
             }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
-        Ok((
-            TrieChanges {
+        Ok(ApplyStatePartResult {
+            trie_changes: TrieChanges {
                 old_root: CryptoHash::default(),
                 new_root: *state_root,
                 insertions,
                 deletions,
             },
             contract_codes,
-        ))
+        })
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
@@ -636,6 +641,7 @@ mod tests {
                         parts[part_id as usize].clone(),
                     )
                     .unwrap()
+                    .trie_changes
                     .0
                 })
                 .collect::<Vec<_>>();

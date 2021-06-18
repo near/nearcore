@@ -41,6 +41,14 @@ pub struct TrieIterator<'a> {
 
 pub type TrieItem = Result<(Vec<u8>, Vec<u8>), StorageError>;
 
+/// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+pub struct TrieTraversalItem {
+    /// Hash of the node.
+    pub hash: CryptoHash,
+    /// Key of the node if it stores a value.
+    pub key: Option<Vec<u8>>,
+}
+
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
@@ -208,14 +216,14 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
-    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search order.
-    /// Returns vector of pairs with node hash and node key which is not None if node stores a value.
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
+    /// order and return TrieTraversalItem for each visited node.
     /// Used to generate and apply state parts for state sync.
     pub(crate) fn visit_nodes_interval(
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],
-    ) -> Result<Vec<(CryptoHash, Option<Vec<u8>>)>, StorageError> {
+    ) -> Result<Vec<TrieTraversalItem>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash = self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
@@ -226,7 +234,10 @@ impl<'a> TrieIterator<'a> {
 
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
-            nodes_list.push((last_hash, self.has_value().then(|| self.key())));
+            nodes_list.push(TrieTraversalItem {
+                hash: last_hash,
+                key: self.has_value().then(|| self.key()),
+            });
         }
 
         loop {
@@ -246,12 +257,15 @@ impl<'a> TrieIterator<'a> {
                     }
                     let node = self.trie.retrieve_node(&hash)?;
                     self.descend_into_node(node);
-                    nodes_list.push((hash, None));
+                    nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
                     self.trie.retrieve_raw_bytes(&hash)?;
-                    nodes_list.push((hash, self.has_value().then(|| self.key())));
+                    nodes_list.push(TrieTraversalItem {
+                        hash,
+                        key: self.has_value().then(|| self.key()),
+                    });
                 }
             }
         }
