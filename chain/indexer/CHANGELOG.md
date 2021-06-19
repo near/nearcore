@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+* Optimize the delayed receipts tracking process introduced in previous version to avoid indexer stuck.
+
 ## 0.9.1
 
 * Introduce a hot-fix. Execution outcome for local receipt might appear not in the same block as the receipt. Local receipts are not saved in database and unable to be fetched. To include a receipt in `IndexerExecutionOutcomeWithReceipt` and prevent NEAR Indexer Framework from panic we fetch previous blocks to find corresponding local receipt to include.
