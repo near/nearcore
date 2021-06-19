@@ -208,6 +208,17 @@ impl<'a> VMLogic<'a> {
     memory_get!(u16, memory_get_u16);
     memory_get!(u8, memory_get_u8);
 
+    /// Reads an arrow of `u32` elements.
+    fn memory_get_vec_u32(&mut self, offset: u64, num_elements: u64) -> Result<Vec<u32>> {
+        let memory_len = num_elements
+            .checked_mul(size_of::<u32>() as u64)
+            .ok_or(HostError::MemoryAccessViolation)?;
+        let data = self.memory_get_vec(offset, memory_len)?;
+        let mut res = vec![0u32; num_elements as usize];
+        byteorder::LittleEndian::read_u32_into(&data, &mut res);
+        Ok(res)
+    }
+
     /// Reads an array of `u64` elements.
     fn memory_get_vec_u64(&mut self, offset: u64, num_elements: u64) -> Result<Vec<u64>> {
         let memory_len = num_elements
@@ -1075,14 +1086,8 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
         self.gas_counter.pay_per(blake2b_round, (rounds as u64) * message_blocks)?;
 
-        let state = {
-            let mut buf = [0u32; 8];
-            let values = self.memory_get_vec_u64(state_ptr, 8)?;
-            for (x, y) in buf.iter_mut().zip(values.into_iter()) {
-                *x = <u32>::try_from(y).map_err(|_| HostError::IntegerOverflow)?;
-            }
-            buf
-        };
+        let state = <[u32; 8]>::try_from(self.memory_get_vec_u32(state_ptr, 8)?)
+            .expect("vec bytes conversion");
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
         let t0 = t as u32;

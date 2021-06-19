@@ -635,7 +635,7 @@ fn test_blake2s() {
 
     let rounds = 10;
     // These must be u64, even though they are actually u32.
-    let h: [u64; 8] = [
+    let h: [u32; 8] = [
         0x6b08e647, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
         0x5be0cd19,
     ];
@@ -668,7 +668,7 @@ fn test_blake2s() {
     ];
     assert_eq!(res, expected);
 
-    let len = m.len() as u64 + (h.len() as u64 * 8);
+    let len = m.len() as u64 + (h.len() as u64 * 4);
     assert_costs(map! {
         ExtCosts::base: 1,
         ExtCosts::read_memory_base: 2,
