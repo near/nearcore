@@ -584,17 +584,7 @@ fn test_blake2b() {
     let f1 = 0;
 
     logic
-        .blake2b(
-            rounds,
-            h.as_ptr() as _,
-            m.len() as u64,
-            m.as_ptr() as _,
-            t0,
-            t1,
-            f0,
-            f1,
-            0,
-        )
+        .blake2b(rounds, h.as_ptr() as _, m.len() as u64, m.as_ptr() as _, t0, t1, f0, f1, 0)
         .unwrap();
 
     let res = [0u8; 64];
@@ -643,18 +633,7 @@ fn test_blake2s() {
     let f0: u32 = !0;
     let f1: u32 = 0;
 
-    logic
-        .blake2s(
-            rounds,
-            h.as_ptr() as _,
-            m.len() as u64,
-            m.as_ptr() as _,
-            t,
-            f0,
-            f1,
-            0,
-        )
-        .unwrap();
+    logic.blake2s(rounds, h.as_ptr() as _, m.len() as u64, m.as_ptr() as _, t, f0, f1, 0).unwrap();
 
     let res = [0u8; 32];
     logic.read_register(0, res.as_ptr() as _).expect("OK");

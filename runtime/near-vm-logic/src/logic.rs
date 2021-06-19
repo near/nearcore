@@ -208,17 +208,6 @@ impl<'a> VMLogic<'a> {
     memory_get!(u16, memory_get_u16);
     memory_get!(u8, memory_get_u8);
 
-    /// Reads an arrow of `u32` elements.
-    fn memory_get_vec_u32(&mut self, offset: u64, num_elements: u64) -> Result<Vec<u32>> {
-        let memory_len = num_elements
-            .checked_mul(size_of::<u32>() as u64)
-            .ok_or(HostError::MemoryAccessViolation)?;
-        let data = self.memory_get_vec(offset, memory_len)?;
-        let mut res = vec![0u32; num_elements as usize];
-        byteorder::LittleEndian::read_u32_into(&data, &mut res);
-        Ok(res)
-    }
-
     /// Reads an array of `u64` elements.
     fn memory_get_vec_u64(&mut self, offset: u64, num_elements: u64) -> Result<Vec<u64>> {
         let memory_len = num_elements
@@ -1018,8 +1007,8 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         use blake2::VarBlake2b;
+        use byte_slice_cast::AsMutByteSlice;
         use num_integer::Integer;
-        use std::convert::TryFrom;
 
         // Change to per block for gas.
         let message_blocks = std::cmp::max(message_len.div_ceil(&128), 1);
@@ -1028,8 +1017,9 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
         self.gas_counter.pay_per(blake2b_round, (rounds as u64).saturating_mul(message_blocks))?;
 
-        let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
-            .expect("vec bytes conversion");
+        let mut state = [0u64; 8];
+        self.memory_get_into(state_ptr, state.as_mut_byte_slice())?;
+
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
         let mut hasher = VarBlake2b::with_state(rounds, state, [t0, t1]);
@@ -1066,6 +1056,7 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         use blake2::VarBlake2s;
+        use byte_slice_cast::AsMutByteSlice;
         use num_integer::Integer;
         use std::convert::TryFrom;
 
@@ -1076,8 +1067,8 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
         self.gas_counter.pay_per(blake2b_round, (rounds as u64).saturating_mul(message_blocks))?;
 
-        let state = <[u32; 8]>::try_from(self.memory_get_vec_u32(state_ptr, 8)?)
-            .expect("vec bytes conversion");
+        let mut state = [0u32; 8];
+        self.memory_get_into(state_ptr, state.as_mut_byte_slice())?;
         let m = self.memory_get_vec(message_ptr, message_len)?;
 
         let t0 = t as u32;
