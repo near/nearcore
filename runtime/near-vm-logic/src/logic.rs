@@ -1058,7 +1058,6 @@ impl<'a> VMLogic<'a> {
         use blake2::VarBlake2s;
         use byte_slice_cast::AsMutByteSlice;
         use num_integer::Integer;
-        use std::convert::TryFrom;
 
         // Change to per block for gas.
         let message_blocks = std::cmp::max(message_len.div_ceil(&64), 1);
