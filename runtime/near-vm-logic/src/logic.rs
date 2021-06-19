@@ -1051,8 +1051,7 @@ impl<'a> VMLogic<'a> {
         message_len: u64,
         message_ptr: u64,
         t: u64,
-        f0: u32,
-        f1: u32,
+        f: u64,
         register_id: u64,
     ) -> Result<()> {
         use blake2::VarBlake2s;
@@ -1074,6 +1073,9 @@ impl<'a> VMLogic<'a> {
         let t1 = (t >> 32) as u32;
         let mut hasher = VarBlake2s::with_state(rounds, state, [t0, t1]);
         hasher.update_inner(&m);
+
+        let f0 = f as u32;
+        let f1 = (f >> 32) as u32;
         hasher.compress(f0, f1);
         let res = hasher.output();
 
