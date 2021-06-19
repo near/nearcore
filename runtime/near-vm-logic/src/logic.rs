@@ -1093,7 +1093,7 @@ impl<'a> VMLogic<'a> {
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
     ///
-    /// Returns a bool indicating success or failure.
+    /// Returns a bool indicating success or failure as a `u64`.
     ///
     /// # Errors
     ///
@@ -1108,15 +1108,15 @@ impl<'a> VMLogic<'a> {
         use sha3::Digest;
         self.gas_counter.pay_base(ecrecover_base)?;
 
-        let signature = self.memory_get_vec(sig_ptr, 65)?;
-        let hash = self.memory_get_vec(hash_ptr, 32)?;
+        let r = self.memory_get_vec(hash_ptr, 32)?;
+        let s = self.memory_get_vec(sig_ptr, 65)?;
+        let v = s[64];
 
-        let hash = secp256k1::Message::parse_slice(&hash).unwrap();
-        let v = signature[64];
+        let hash = secp256k1::Message::parse_slice(&r).unwrap();
         let signature = secp256k1::Signature::parse_slice(&signature[0..64]).unwrap();
         let bit = match v {
-            0..=26 => v,
-            _ => v - 27,
+            27 | 28 => v - 27,
+            _ => return Ok(false as u64),
         };
         if let Ok(recovery_id) = secp256k1::RecoveryId::parse(bit) {
             if let Ok(public_key) = secp256k1::recover(&hash, &signature, &recovery_id) {
