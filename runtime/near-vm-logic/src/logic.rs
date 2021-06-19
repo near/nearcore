@@ -1026,7 +1026,7 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_base(blake2b_base)?;
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
-        self.gas_counter.pay_per(blake2b_round, (rounds as u64) * message_blocks)?;
+        self.gas_counter.pay_per(blake2b_round, (rounds as u64).saturating_mul(message_blocks))?;
 
         let state = <[u64; 8]>::try_from(self.memory_get_vec_u64(state_ptr, 8)?)
             .expect("vec bytes conversion");
@@ -1074,7 +1074,7 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_base(blake2b_base)?;
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
-        self.gas_counter.pay_per(blake2b_round, (rounds as u64) * message_blocks)?;
+        self.gas_counter.pay_per(blake2b_round, (rounds as u64).saturating_mul(message_blocks))?;
 
         let state = <[u32; 8]>::try_from(self.memory_get_vec_u32(state_ptr, 8)?)
             .expect("vec bytes conversion");
