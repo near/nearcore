@@ -630,10 +630,10 @@ fn test_blake2s() {
     ];
     let m: &[u8; 3] = b"abc";
     let t: u64 = 0;
-    let f0: u32 = !0;
-    let f1: u32 = 0;
+    // equivalent to !0 for u32.
+    let f = u32::MAX as u64;
 
-    logic.blake2s(rounds, h.as_ptr() as _, m.len() as u64, m.as_ptr() as _, t, f0, f1, 0).unwrap();
+    logic.blake2s(rounds, h.as_ptr() as _, m.len() as u64, m.as_ptr() as _, t, f, 0).unwrap();
 
     let res = [0u8; 32];
     logic.read_register(0, res.as_ptr() as _).expect("OK");
