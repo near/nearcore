@@ -1006,6 +1006,7 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         use blake2::VarBlake2b;
+        use num_integer::Integer;
         use std::convert::TryFrom;
 
         if state_len != 8 {
@@ -1013,7 +1014,7 @@ impl<'a> VMLogic<'a> {
         }
 
         // Change to per block for gas.
-        let message_blocks = std::cmp::max(message_len / 128, 1);
+        let message_blocks = std::cmp::max(message_len.div_ceil(&128), 1);
 
         self.gas_counter.pay_base(blake2b_base)?;
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
@@ -1058,6 +1059,7 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<()> {
         use blake2::VarBlake2s;
+        use num_integer::Integer;
         use std::convert::TryFrom;
 
         if state_len != 8 {
@@ -1065,7 +1067,7 @@ impl<'a> VMLogic<'a> {
         }
 
         // Change to per block for gas.
-        let message_blocks = std::cmp::max(message_len / 64, 1);
+        let message_blocks = std::cmp::max(message_len.div_ceil(&64), 1);
 
         self.gas_counter.pay_base(blake2b_base)?;
         self.gas_counter.pay_per(blake2b_block, message_blocks)?;
