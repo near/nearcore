@@ -586,7 +586,6 @@ fn test_blake2b() {
     logic
         .blake2b(
             rounds,
-            h.len() as u64,
             h.as_ptr() as _,
             m.len() as u64,
             m.as_ptr() as _,
@@ -647,7 +646,6 @@ fn test_blake2s() {
     logic
         .blake2s(
             rounds,
-            h.len() as u64,
             h.as_ptr() as _,
             m.len() as u64,
             m.as_ptr() as _,

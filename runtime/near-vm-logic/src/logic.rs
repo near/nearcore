@@ -1008,7 +1008,6 @@ impl<'a> VMLogic<'a> {
     pub fn blake2b(
         &mut self,
         rounds: u32,
-        state_len: u64,
         state_ptr: u64,
         message_len: u64,
         message_ptr: u64,
@@ -1021,10 +1020,6 @@ impl<'a> VMLogic<'a> {
         use blake2::VarBlake2b;
         use num_integer::Integer;
         use std::convert::TryFrom;
-
-        if state_len != 8 {
-            return Err(HostError::Blake2StateLengthExceeded { length: state_len }.into());
-        }
 
         // Change to per block for gas.
         let message_blocks = std::cmp::max(message_len.div_ceil(&128), 1);
@@ -1062,7 +1057,6 @@ impl<'a> VMLogic<'a> {
     pub fn blake2s(
         &mut self,
         rounds: u32,
-        state_len: u64,
         state_ptr: u64,
         message_len: u64,
         message_ptr: u64,
@@ -1074,10 +1068,6 @@ impl<'a> VMLogic<'a> {
         use blake2::VarBlake2s;
         use num_integer::Integer;
         use std::convert::TryFrom;
-
-        if state_len != 8 {
-            return Err(HostError::Blake2StateLengthExceeded { length: state_len }.into());
-        }
 
         // Change to per block for gas.
         let message_blocks = std::cmp::max(message_len.div_ceil(&64), 1);

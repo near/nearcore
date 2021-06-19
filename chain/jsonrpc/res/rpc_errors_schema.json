@@ -15,13 +15,6 @@
       "subtypes": [],
       "props": {}
     },
-    "Blake2StateLengthExceeded": {
-      "name": "Blake2StateLengthExceeded",
-      "subtypes": [],
-      "props": {
-        "length": ""
-      }
-    },
     "BreakpointTrap": {
       "name": "BreakpointTrap",
       "subtypes": [],
@@ -170,8 +163,7 @@
         "NumberInputDataDependenciesExceeded",
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
-        "Deprecated",
-        "Blake2StateLengthExceeded"
+        "Deprecated"
       ],
       "props": {}
     },
