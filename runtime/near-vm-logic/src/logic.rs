@@ -1105,7 +1105,6 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
     #[cfg(feature = "protocol_feature_evm")]
     pub fn ecrecover(&mut self, hash_ptr: u64, sig_ptr: u64, register_id: u64) -> Result<u64> {
-        use sha3::Digest;
         self.gas_counter.pay_base(ecrecover_base)?;
 
         let r = self.memory_get_vec(hash_ptr, 32)?;
@@ -1113,7 +1112,7 @@ impl<'a> VMLogic<'a> {
         let v = s[64];
 
         let hash = secp256k1::Message::parse_slice(&r).unwrap();
-        let signature = secp256k1::Signature::parse_slice(&signature[0..64]).unwrap();
+        let signature = secp256k1::Signature::parse_slice(&s[0..64]).unwrap();
         let bit = match v {
             27 | 28 => v - 27,
             _ => return Ok(false as u64),
@@ -1121,10 +1120,7 @@ impl<'a> VMLogic<'a> {
         if let Ok(recovery_id) = secp256k1::RecoveryId::parse(bit) {
             if let Ok(public_key) = secp256k1::recover(&hash, &signature, &recovery_id) {
                 // recover returns a 65-byte key, but addresses come from the raw 64-byte key
-                let result = sha3::Keccak256::digest(&public_key.serialize()[1..]);
-                let mut address = [0u8; 20];
-                address.copy_from_slice(&result[12..]);
-                self.internal_write_register(register_id, address.to_vec())?;
+                self.internal_write_register(register_id, public_key.serialize().to_vec())?;
                 return Ok(true as u64);
             }
         }
