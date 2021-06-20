@@ -11,6 +11,7 @@ use lazy_static::lazy_static;
 use rand_core::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
+use ethereum_types::U256;
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -568,39 +569,37 @@ impl Secp256K1Signature {
     }
 
     pub fn check_signature_values(&self) -> bool {
-        let r = &self.0[0..32];
-        let s = &self.0[32..64];
+        let mut r_bytes = [0u8; 32];
+        r_bytes.copy_from_slice(&self.0[0..32]);
+        let r = U256::from(r_bytes);
+
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&self.0[32..64]);
+        let s = U256::from(s_bytes);
+
         let v = match self.check_v() {
             Ok(v) => v,
             Err(_e) => return false,
         };
 
-        let big_one: [u8; 32] = [
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,
-        ];
-        if r < &big_one || s < &big_one {
+        let big_one = U256::one();
+        if r < big_one || s < big_one {
             return false;
         }
 
-        // 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141 / 2
-        let secp256k1_half_n: [u8; 32] = [
-            0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46,
-            0x68, 0x1b, 0x20, 0xa0,
-        ];
-        // Reject upper range of s values (ECDSA malleability)
-        if s > &secp256k1_half_n {
-            return false;
-        }
-
-        // 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
-        let secp256k1_n: [u8; 32] = [
+        let secp256k1_n = U256::from([
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
             0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
             0xd0, 0x36, 0x41, 0x41,
-        ];
-        r < &secp256k1_n && s < &secp256k1_n && (v == 0 || v == 1)
+        ]);
+
+        let secp256k1_half_n = secp256k1_n / U256::from(2);
+        // Reject upper range of s values (ECDSA malleability)
+        if s > secp256k1_half_n {
+            return false;
+        }
+
+        r < secp256k1_n && s < secp256k1_n && (v == 0 || v == 1)
     }
 
     pub fn recover(

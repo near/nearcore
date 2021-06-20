@@ -3178,6 +3178,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
+ "ethereum-types 0.11.0",
  "hex-literal",
  "lazy_static",
  "libc",
