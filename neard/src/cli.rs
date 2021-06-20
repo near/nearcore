@@ -1,6 +1,6 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
-use near_primitives::types::{NumSeats, NumShards};
+use near_primitives::types::{Gas, NumSeats, NumShards};
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -123,6 +123,10 @@ pub(super) struct InitCmd {
     /// Specify private key generated from seed (TESTING ONLY).
     #[clap(long)]
     test_seed: Option<String>,
+    /// Customize max_gas_burnt_view runtime limit.  If not specified, value
+    /// from genesis configuration will be taken.
+    #[clap(long)]
+    max_gas_burnt_view: Option<Gas>,
 }
 
 impl InitCmd {
@@ -145,6 +149,7 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.max_gas_burnt_view,
         );
     }
 }
@@ -179,6 +184,11 @@ pub(super) struct RunCmd {
     /// Customize telemetry url.
     #[clap(long)]
     telemetry_url: Option<String>,
+    /// Customize max_gas_burnt_view runtime limit.  If not specified, either
+    /// value given at ‘init’ (i.e. present in config.json) or one from genesis
+    /// configuration will be taken.
+    #[clap(long)]
+    max_gas_burnt_view: Option<Gas>,
 }
 
 impl RunCmd {
@@ -219,6 +229,9 @@ impl RunCmd {
         }
         if self.archive {
             near_config.client_config.archive = true;
+        }
+        if self.max_gas_burnt_view.is_some() {
+            near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
         }
 
         #[cfg(feature = "sandbox")]

@@ -431,6 +431,9 @@ pub struct Config {
     pub view_client_throttle_period: Duration,
     #[serde(default = "default_trie_viewer_state_size_limit")]
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// If set, overrides value in genesis configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_gas_burnt_view: Option<Gas>,
 }
 
 impl Default for Config {
@@ -456,6 +459,7 @@ impl Default for Config {
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
+            max_gas_burnt_view: None,
         }
     }
 }
@@ -642,6 +646,7 @@ impl NearConfig {
                 epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
+                max_gas_burnt_view: config.max_gas_burnt_view,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -787,6 +792,7 @@ pub fn init_configs(
     genesis: Option<&str>,
     download: bool,
     download_genesis_url: Option<&str>,
+    max_gas_burnt_view: Option<Gas>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -798,12 +804,15 @@ pub fn init_configs(
     let chain_id = chain_id
         .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
         .unwrap_or_else(random_chain_id);
+    let mut config = Config::default();
+    if max_gas_burnt_view.is_some() {
+        config.max_gas_burnt_view = max_gas_burnt_view;
+    }
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for MainNet");
             }
-            let mut config = Config::default();
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
@@ -824,7 +833,6 @@ pub fn init_configs(
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
-            let mut config = Config::default();
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
@@ -858,7 +866,6 @@ pub fn init_configs(
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
-            let mut config = Config::default();
             config.network.skip_sync_wait = true;
             if fast {
                 config.consensus.min_block_production_delay =

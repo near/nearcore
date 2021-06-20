@@ -18,6 +18,7 @@ pub use self::streamer::{
     StreamerMessage,
 };
 pub use near_primitives;
+use near_primitives::types::Gas;
 
 /// Config wrapper to simplify signature and usage of `nearcore::init_configs`
 /// function by making args more explicit via struct
@@ -39,6 +40,8 @@ pub struct InitConfigArgs {
     pub download: bool,
     /// Specify a custom download URL for the genesis-file.
     pub download_genesis_url: Option<String>,
+    /// Specify a custom max_gas_burnt_view limit.
+    pub max_gas_burnt_view: Option<Gas>,
 }
 
 /// Enum to define a mode of syncing for NEAR Indexer
@@ -135,5 +138,6 @@ pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
         params.genesis.as_deref(),
         params.download,
         params.download_genesis_url.as_deref(),
+        params.max_gas_burnt_view,
     )
 }
