@@ -5,6 +5,7 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
+use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
@@ -981,6 +982,9 @@ impl<'a> VMLogic<'a> {
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
     ///
+    /// Takes in an additional flag to check for malleability of the signature
+    /// which is generally only ideal for transactions.
+    ///
     /// Returns a bool indicating success or failure as a `u64`.
     ///
     /// # Errors
@@ -991,26 +995,32 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
-    pub fn ecrecover(&mut self, hash_ptr: u64, sig_ptr: u64, register_id: u64) -> Result<u64> {
+    pub fn ecrecover(
+        &mut self,
+        hash_ptr: u64,
+        sig_ptr: u64,
+        malleability_flag: u8,
+        register_id: u64,
+    ) -> Result<u64> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
-        let r = self.memory_get_vec(hash_ptr, 32)?;
-        let s = self.memory_get_vec(sig_ptr, 65)?;
-        let v = s[64];
+        let mut signature_bytes = [0u8; 65];
+        self.memory_get_into(sig_ptr, &mut signature_bytes)?;
+        let signature = Secp256K1Signature::from(signature_bytes);
 
-        let hash = secp256k1::Message::parse_slice(&r).unwrap();
-        let signature = secp256k1::Signature::parse_slice(&s[0..64]).unwrap();
-        let bit = match v {
-            27 | 28 => v - 27,
-            _ => return Ok(false as u64),
-        };
-        if let Ok(recovery_id) = secp256k1::RecoveryId::parse(bit) {
-            if let Ok(public_key) = secp256k1::recover(&hash, &signature, &recovery_id) {
-                // recover returns a 65-byte key, but addresses come from the raw 64-byte key
-                self.internal_write_register(register_id, public_key.serialize().to_vec())?;
-                return Ok(true as u64);
+        if malleability_flag == 1 {
+            if !signature.check_signature_values() {
+                return Ok(false as u64);
             }
         }
+
+        let mut hash_bytes = [0u8; 32];
+        self.memory_get_into(hash_ptr, &mut hash_bytes)?;
+        if let Ok(pk) = signature.recover(hash_bytes) {
+            self.internal_write_register(register_id, pk.as_ref().to_vec())?;
+            return Ok(true as u64);
+        };
+
         return Ok(false as u64);
     }
 

@@ -9,6 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
 use lazy_static::lazy_static;
 use rand_core::OsRng;
+use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
 lazy_static! {
@@ -555,6 +556,83 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
 
 #[derive(Clone)]
 pub struct Secp256K1Signature([u8; 65]);
+
+impl Secp256K1Signature {
+    fn check_v(&self) -> Result<u8, crate::errors::ParseSignatureError> {
+        match self.0[64] {
+            27 | 28 => Ok(self.0[64] - 27),
+            _ => Err(crate::errors::ParseSignatureError::InvalidData {
+                error_message: "invalid `v` value".to_string(),
+            }),
+        }
+    }
+
+    pub fn check_signature_values(&self) -> bool {
+        let r = &self.0[0..32];
+        let s = &self.0[32..64];
+        let v = match self.check_v() {
+            Ok(v) => v,
+            Err(_e) => return false,
+        };
+
+        let big_one: [u8; 32] = [
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+            0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1,
+        ];
+        if r < &big_one || s < &big_one {
+            return false;
+        }
+
+        // 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141 / 2
+        let secp256k1_half_n: [u8; 32] = [
+            0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46,
+            0x68, 0x1b, 0x20, 0xa0,
+        ];
+        // Reject upper range of s values (ECDSA malleability)
+        if s > &secp256k1_half_n {
+            return false;
+        }
+
+        // 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+        let secp256k1_n: [u8; 32] = [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
+            0xd0, 0x36, 0x41, 0x41,
+        ];
+        r < &secp256k1_n && s < &secp256k1_n && (v == 0 || v == 1)
+    }
+
+    pub fn recover(
+        &self,
+        msg: [u8; 32],
+    ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
+        let v = self.check_v()?;
+
+        // This can't fail because of the check above. It will fall in range.
+        let recover_id = secp256k1::RecoveryId::from_i32(i32::from(v)).unwrap();
+
+        let recoverable_sig =
+            secp256k1::RecoverableSignature::from_compact(&SECP256K1, &self.0[0..64], recover_id)
+                .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+                error_message: err.to_string(),
+            })?;
+        let msg = Message::from(msg);
+
+        let res = SECP256K1
+            .recover(&msg, &recoverable_sig)
+            .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+                error_message: err.to_string(),
+            })?
+            .serialize_vec(&SECP256K1, false);
+
+        let pk = Secp256K1PublicKey::try_from(&res[0..64]).map_err(|err| {
+            crate::errors::ParseSignatureError::InvalidData { error_message: err.to_string() }
+        })?;
+
+        Ok(pk)
+    }
+}
 
 impl From<[u8; 65]> for Secp256K1Signature {
     fn from(data: [u8; 65]) -> Self {
