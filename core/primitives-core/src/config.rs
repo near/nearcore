@@ -223,6 +223,36 @@ pub struct ExtCostsConfig {
     /// Cost of getting sha256 per byte
     pub keccak512_byte: Gas,
 
+    /// Cost of getting ripemd160 base
+    #[cfg(feature = "protocol_feature_evm")]
+    pub ripemd160_base: Gas,
+    /// Cost of getting ripemd160 per message block
+    #[cfg(feature = "protocol_feature_evm")]
+    pub ripemd160_block: Gas,
+
+    /// Cost of getting blake2b base
+    #[cfg(feature = "protocol_feature_evm")]
+    pub blake2b_base: Gas,
+    /// Cost of getting blake2b per 128 byte message block.
+    #[cfg(feature = "protocol_feature_evm")]
+    pub blake2b_block: Gas,
+    /// Cost of a single blake2b round.
+    #[cfg(feature = "protocol_feature_evm")]
+    pub blake2b_round: Gas,
+    /// Cost of getting blake2b base
+    #[cfg(feature = "protocol_feature_evm")]
+    pub blake2s_base: Gas,
+    /// Cost of getting blake2b per 128 byte message block.
+    #[cfg(feature = "protocol_feature_evm")]
+    pub blake2s_block: Gas,
+    /// Cost of a single blake2b round.
+    #[cfg(feature = "protocol_feature_evm")]
+    pub blake2s_round: Gas,
+
+    /// Cost of calling ecrecover
+    #[cfg(feature = "protocol_feature_evm")]
+    pub ecrecover_base: Gas,
+
     /// Cost for calling logging.
     pub log_base: Gas,
     /// Cost for logging per byte
@@ -353,6 +383,24 @@ impl Default for ExtCostsConfig {
             keccak256_byte: SAFETY_MULTIPLIER * 7157035,
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
+            #[cfg(feature = "protocol_feature_evm")]
+            ripemd160_base: SAFETY_MULTIPLIER * 15136567500, // 10 x sha256_base
+            #[cfg(feature = "protocol_feature_evm")]
+            ripemd160_block: SAFETY_MULTIPLIER * 80391170 * 8, // 10 x sha256_byte x 8 bytes
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_base: SAFETY_MULTIPLIER * 88256037, // same as base.
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_block: SAFETY_MULTIPLIER * 1029006976, // sha256 per byte x 128
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_round: SAFETY_MULTIPLIER * 25227612, // sha256 base / 60
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_base: SAFETY_MULTIPLIER * 58837358, // blake2b * (2/3)
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_block: SAFETY_MULTIPLIER * 686004650, // blake2b * (2/3)
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_round: SAFETY_MULTIPLIER * 16818408, // blake2b * (2/3)
+            #[cfg(feature = "protocol_feature_evm")]
+            ecrecover_base: SAFETY_MULTIPLIER * 75682837500, // 50 x sha256_base
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
             storage_write_base: SAFETY_MULTIPLIER * 21398912000,
@@ -423,6 +471,24 @@ impl ExtCostsConfig {
             keccak256_byte: 0,
             keccak512_base: 0,
             keccak512_byte: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            ripemd160_base: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            ripemd160_block: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_base: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_block: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_round: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_base: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_block: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_round: 0,
+            #[cfg(feature = "protocol_feature_evm")]
+            ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
             storage_write_base: 0,
@@ -494,6 +560,24 @@ pub enum ExtCosts {
     keccak256_byte,
     keccak512_base,
     keccak512_byte,
+    #[cfg(feature = "protocol_feature_evm")]
+    ripemd160_base,
+    #[cfg(feature = "protocol_feature_evm")]
+    ripemd160_block,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_base,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_block,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2b_round,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2s_base,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2s_block,
+    #[cfg(feature = "protocol_feature_evm")]
+    blake2s_round,
+    #[cfg(feature = "protocol_feature_evm")]
+    ecrecover_base,
     log_base,
     log_byte,
     storage_write_base,
@@ -618,6 +702,24 @@ impl ExtCosts {
             keccak256_byte => config.keccak256_byte,
             keccak512_base => config.keccak512_base,
             keccak512_byte => config.keccak512_byte,
+            #[cfg(feature = "protocol_feature_evm")]
+            ripemd160_base => config.ripemd160_base,
+            #[cfg(feature = "protocol_feature_evm")]
+            ripemd160_block => config.ripemd160_block,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_base => config.blake2b_base,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_block => config.blake2b_block,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2b_round => config.blake2b_round,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_base => config.blake2s_base,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_block => config.blake2s_block,
+            #[cfg(feature = "protocol_feature_evm")]
+            blake2s_round => config.blake2s_round,
+            #[cfg(feature = "protocol_feature_evm")]
+            ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,
             storage_write_base => config.storage_write_base,
@@ -692,6 +794,11 @@ impl ExtCosts {
             "keccak256_byte",
             "keccak512_base",
             "keccak512_byte",
+            "ripemd160_base",
+            "ripemd160_block",
+            "blake2b_base",
+            "blake2b_byte",
+            "ecrecover_base",
             "log_base",
             "log_byte",
             "storage_write_base",

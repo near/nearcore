@@ -541,17 +541,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a5720225ef5daecf08657f23791354e1685a8c91a4c60c7f3d3b2892f978f4"
-dependencies = [
- "crypto-mac 0.8.0",
- "digest 0.9.0",
- "opaque-debug 0.3.0",
-]
-
-[[package]]
 name = "blake2b_simd"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -757,9 +746,9 @@ dependencies = [
 
 [[package]]
 name = "c2-chacha"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb6b83fa00a7c53f420893670940c8fdfaa89f9dd9adb52062cca39482a31ab6"
+checksum = "7e6002dbb7c65a76e516625443949a8b7bb0d0845fe6a3dc39e2dd7ae39dcb9c"
 dependencies = [
  "cipher",
  "ppv-lite86",
@@ -3028,6 +3017,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-blake2"
+version = "0.9.1"
+source = "git+https://github.com/near/near-blake2.git?rev=29a15a#29a15a1ffa3bfb7baa54318c89ee6cfebaf4d590"
+dependencies = [
+ "crypto-mac 0.8.0",
+ "digest 0.9.0",
+ "opaque-debug 0.3.0",
+]
+
+[[package]]
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
@@ -3171,7 +3170,6 @@ name = "near-crypto"
 version = "0.1.0"
 dependencies = [
  "arrayref",
- "blake2",
  "borsh",
  "bs58",
  "c2-chacha",
@@ -3181,6 +3179,7 @@ dependencies = [
  "hex-literal",
  "lazy_static",
  "libc",
+ "near-blake2",
  "parity-secp256k1",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -3632,11 +3631,16 @@ dependencies = [
  "base64 0.13.0",
  "borsh",
  "bs58",
+ "byte-slice-cast",
  "byteorder",
+ "libsecp256k1",
+ "near-blake2",
  "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",
  "near-vm-errors",
+ "num-integer",
+ "ripemd160",
  "serde",
  "serde_json",
  "sha2 0.9.3",

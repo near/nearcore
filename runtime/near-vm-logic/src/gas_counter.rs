@@ -144,18 +144,18 @@ impl GasCounter {
         self.deduct_gas(value, value)
     }
 
-    /// A helper function to pay per byte gas
-    pub fn pay_per_byte(&mut self, cost: ExtCosts, num_bytes: u64) -> Result<()> {
-        let use_gas = num_bytes
+    /// A helper function to pay a multiple of a cost.
+    pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
+        let use_gas = num
             .checked_mul(cost.value(&self.ext_costs_config))
             .ok_or(HostError::IntegerOverflow)?;
 
-        self.inc_ext_costs_counter(cost, num_bytes);
+        self.inc_ext_costs_counter(cost, num);
         self.update_profile_host(cost, use_gas);
         self.deduct_gas(use_gas, use_gas)
     }
 
-    /// A helper function to pay base cost gas
+    /// A helper function to pay base cost gas.
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.value(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
