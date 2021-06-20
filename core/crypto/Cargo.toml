@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 arrayref = "0.3"
-blake2 = { package = "near-blake2", git = "https://github.com/near/near-blake2.git", rev = "29a15a" }
+blake2 = "0.9.1"
 borsh = "0.8.1"
 bs58 = "0.4"
 c2-chacha = "0.3"
