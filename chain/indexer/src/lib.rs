@@ -33,7 +33,7 @@ pub struct InitConfigArgs {
     pub num_shards: u64,
     /// Makes block production fast (TESTING ONLY)
     pub fast: bool,
-    /// Genesis file to use when initialize testnet (including downloading)
+    /// Genesis file to use when initializing testnet (including downloading)
     pub genesis: Option<String>,
     /// Download the verified NEAR genesis file automatically.
     pub download: bool,

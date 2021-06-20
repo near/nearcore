@@ -9,7 +9,6 @@ RUN rustup toolchain uninstall nightly
 # Must match nearcore/rust-toolchain.
 RUN rustup default nightly-2020-05-15
 RUN rustup target add wasm32-unknown-unknown
-RUN rustup component add rustfmt --toolchain 1.51.0-x86_64-unknown-linux-gnu
 
 # install build dependencies for QEMU
 RUN apt-get update && apt-get install -y  g++ rsync zip openssh-server \

@@ -10,6 +10,7 @@ For reference documentation of the protocol, please refer to [nomicon](https://n
 
 Since nearcore is an implementation of NEAR blockchain protocol, its goal is to produce a binary that runs as a blockchain client.
 More specifically, the neard binary can do the following:
+
 - generate files necessary to start a node
 - start a node with a given folder that contains required data
 
@@ -26,10 +27,10 @@ This also includes compilation of contracts (wasm binaries) and execution of con
 
 ## Entry Points
 
-`neard/src/main.rs` contains the main function that starts a blockchain node.
+`nearcore/src/main.rs` contains the main function that starts a blockchain node.
 However, this file mostly only contains the logic to parse arguments and dispatch different commands.
 
-`start_with_config` in `neard/src/lib.rs` is the actual entry point and it starts all the actors.
+`start_with_config` in `nearcore/src/lib.rs` is the actual entry point and it starts all the actors.
 
 ## Code Map
 

@@ -3,9 +3,11 @@ set -e
 
 export NEAR_HOME=/srv/near
 
+NEARD_FLAGS=${NEAR_HOME:+--home=$NEAR_HOME}
+
 if [[ -z {INIT} ]]
 then
-    neard --home=${NEAR_HOME} init --chain-id=${CHAIN_ID} --account-id=${ACCOUNT_ID}
+    neard $NEARD_FLAGS init ${CHAIN_ID:+--chain-id=$CHAIN_ID} ${ACCOUNT_ID:+--account-id=$ACCOUNT_ID}
 fi
 
 if [[ -z {NODE_KEY} ]]
@@ -22,4 +24,4 @@ ulimit -c unlimited
 echo "Telemetry: ${TELEMETRY_URL}"
 echo "Bootnodes: ${BOOT_NODES}"
 
-neard --home=${NEAR_HOME} run --telemetry-url=${TELEMETRY_URL} --boot-nodes=${BOOT_NODES}
+neard $NEARD_FLAGS run ${TELEMETRY_URL:+--telemetry-url=$TELEMETRY_URL} ${BOOT_NODES:+--boot-nodes=$BOOT_NODES}

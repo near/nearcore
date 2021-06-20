@@ -91,7 +91,7 @@ def main():
     wait_for_blocks_or_timeout(current_node, 20, 100)
 
     # New genesis can be deserialized by new near is verified above (new near can produce blocks)
-    # Also test new genesis protocol_version matches neard/res/genesis_config's
+    # Also test new genesis protocol_version matches nearcore/res/genesis_config's
     new_genesis = json.load(
         open(os.path.join(node_root, 'test0/genesis.json')))
     res_genesis = json.load(open('../nearcore/res/genesis_config.json'))

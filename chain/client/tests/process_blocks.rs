@@ -64,6 +64,17 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
 
+fn set_block_protocol_version(
+    block: &mut Block,
+    block_producer: &str,
+    protocol_version: ProtocolVersion,
+) {
+    let validator_signer =
+        InMemoryValidatorSigner::from_seed(block_producer, KeyType::ED25519, block_producer);
+    block.mut_header().get_mut().inner_rest.latest_protocol_version = protocol_version;
+    block.mut_header().resign(&validator_signer);
+}
+
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
@@ -2318,14 +2329,11 @@ fn test_epoch_protocol_version_change() {
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
-            let validator_signer = InMemoryValidatorSigner::from_seed(
-                &format!("test{}", index),
-                KeyType::ED25519,
-                &format!("test{}", index),
+            set_block_protocol_version(
+                &mut block,
+                &block_producer.to_string(),
+                PROTOCOL_VERSION + 1,
             );
-
-            block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;
-            block.mut_header().resign(&validator_signer);
         }
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
@@ -2972,6 +2980,12 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                     env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
                 set_no_chunk_in_block(&mut block, &prev_block);
             }
+            set_block_protocol_version(
+                &mut block,
+                "test0",
+                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+            );
+
             env.process_block(0, block, Provenance::PRODUCED);
 
             let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
@@ -3061,38 +3075,18 @@ mod storage_usage_fix_tests {
         genesis.config.chain_id = chain_id;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
-        let genesis_height = genesis.config.genesis_height;
         let chain_genesis = ChainGenesis::from(&genesis);
         let mut env =
             TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
         for i in 1..=16 {
             // We cannot just use TestEnv::produce_block as we are updating protocol version
-            let (encoded_chunk, merkle_paths, receipts) =
-                create_chunk_on_height(&mut env.clients[0], i);
-
-            let mut chain_store =
-                ChainStore::new(env.clients[0].chain.store().owned_store(), genesis_height);
-            env.clients[0]
-                .shards_mgr
-                .distribute_encoded_chunk(
-                    encoded_chunk.clone(),
-                    merkle_paths.clone(),
-                    receipts.clone(),
-                    &mut chain_store,
-                )
-                .unwrap();
-
             let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
-
-            let validator_signer = InMemoryValidatorSigner::from_seed(
-                &"test0".to_string(),
-                KeyType::ED25519,
-                &"test0".to_string(),
+            set_block_protocol_version(
+                &mut block,
+                "test0",
+                ProtocolFeature::FixStorageUsage.protocol_version(),
             );
 
-            block.mut_header().get_mut().inner_rest.latest_protocol_version =
-                ProtocolFeature::FixStorageUsage.protocol_version();
-            block.mut_header().resign(&validator_signer);
             let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
             env.clients[0].run_catchup(&vec![]).unwrap();

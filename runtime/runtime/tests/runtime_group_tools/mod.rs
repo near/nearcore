@@ -115,6 +115,7 @@ impl StandaloneRuntime {
                 receipts,
                 transactions,
                 &self.epoch_info_provider,
+                None,
             )
             .unwrap();
 

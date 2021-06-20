@@ -27,6 +27,8 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
+#[cfg(feature = "sandbox")]
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
@@ -1409,12 +1411,22 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum NetworkSandboxMessage {
+    SandboxPatchState(Vec<StateRecord>),
+    SandboxPatchStateStatus,
+}
+
 #[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
+
+    #[cfg(feature = "sandbox")]
+    Sandbox(NetworkSandboxMessage),
 
     /// Received transaction.
     Transaction {
@@ -1460,6 +1472,10 @@ pub enum NetworkClientResponses {
     #[cfg(feature = "adversarial")]
     AdvResult(u64),
 
+    /// Sandbox controls
+    #[cfg(feature = "sandbox")]
+    SandboxResult(SandboxResponse),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1473,6 +1489,12 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
