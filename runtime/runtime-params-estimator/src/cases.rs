@@ -198,23 +198,8 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
-    #[cfg(feature = "protocol_feature_evm")]
     ripemd160_10b_10k,
-    #[cfg(feature = "protocol_feature_evm")]
     ripemd160_10kib_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2b_128b_0r_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2b_128kb_0r_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2b_128b_12r_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2s_128b_0r_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2s_128kb_0r_10k,
-    #[cfg(feature = "protocol_feature_evm")]
-    blake2s_128b_10r_10k,
-    #[cfg(feature = "protocol_feature_evm")]
     ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
@@ -596,15 +581,9 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         keccak256_10kib_10k => keccak256_10kib_10k,
         keccak512_10b_10k => keccak512_10b_10k,
         keccak512_10kib_10k => keccak512_10kib_10k,
-        #["protocol_feature_evm"] ripemd160_10b_10k => ripemd160_10b_10k,
-        #["protocol_feature_evm"] ripemd160_10kib_10k => ripemd160_10kib_10k,
-        #["protocol_feature_evm"] blake2b_128b_0r_10k => blake2b_128b_0r_10k,
-        #["protocol_feature_evm"] blake2b_128kb_0r_10k => blake2b_128kb_0r_10k,
-        #["protocol_feature_evm"] blake2b_128b_12r_10k => blake2b_128b_12r_10k,
-        #["protocol_feature_evm"] blake2s_128b_0r_10k => blake2s_128b_0r_10k,
-        #["protocol_feature_evm"] blake2s_128kb_0r_10k => blake2s_128kb_0r_10k,
-        #["protocol_feature_evm"] blake2s_128b_10r_10k => blake2s_128b_10r_10k,
-        #["protocol_feature_evm"] ecrecover_10k => ecrecover_10k,
+        ripemd160_10b_10k => ripemd160_10b_10k,
+        ripemd160_10kib_10k => ripemd160_10kib_10k,
+        ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -787,23 +766,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        #[cfg(feature = "protocol_feature_evm")]
         ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
-        #[cfg(feature = "protocol_feature_evm")]
         ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
-        #[cfg(feature = "protocol_feature_evm")]
-        blake2b_base: measured_to_gas(metric, &measured, blake2b_base),
-        #[cfg(feature = "protocol_feature_evm")]
-        blake2b_block: measured_to_gas(metric, &measured, blake2b_block),
-        #[cfg(feature = "protocol_feature_evm")]
-        blake2b_round: measured_to_gas(metric, &measured, blake2b_round),
-        #[cfg(feature = "protocol_feature_evm")]
-        blake2s_base: measured_to_gas(metric, &measured, blake2s_base),
-        #[cfg(feature = "protocol_feature_evm")]
-        blake2s_block: measured_to_gas(metric, &measured, blake2s_block),
-        #[cfg(feature = "protocol_feature_evm")]
-        blake2s_round: measured_to_gas(metric, &measured, blake2s_round),
-        #[cfg(feature = "protocol_feature_evm")]
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),

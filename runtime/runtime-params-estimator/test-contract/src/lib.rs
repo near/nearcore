@@ -47,13 +47,7 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_evm")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_evm")]
-    fn blake2b(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f0: u64, f1: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_evm")]
-    fn blake2s(rounds: u32, state_len: u64, state_ptr: u64, message_len: u64, message_ptr: u64, t0: u32, t1: u32, f0: u32, f1: u32, register_id: u64);
-    #[cfg(feature = "protocol_feature_evm")]
     fn ecrecover(hash_ptr: u64, v: u32, r_ptr: u64, s_ptr: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
@@ -437,7 +431,6 @@ pub unsafe fn keccak512_10kib_10k() {
 // so we are okay overcharging it.
 // Compute ripemd160 on 10b 10k times.
 #[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
 pub unsafe fn ripemd160_10b_10k() {
     let buffer = [65u8; 10];
     for _ in 0..10_000 {
@@ -449,164 +442,10 @@ pub unsafe fn ripemd160_10b_10k() {
 // so we are okay overcharging it.
 // Compute ripemd160 on 10kib 10k times.
 #[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
 pub unsafe fn ripemd160_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         ripemd160(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
-    }
-}
-
-// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
-// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
-// so we are okay overcharging it.
-// Compute blake2b on 10b 10k times.
-#[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2b_128b_0r_10k() {
-    let rounds = 0;
-    let state = [65u8; 64];
-    let buffer = [65u8; 128];
-    for _ in 0..10_000 {
-        blake2b(
-            rounds,
-            state.len() as u64,
-            state.as_ptr() as *const u64 as u64,
-            buffer.len() as u64,
-            buffer.as_ptr() as *const u64 as u64,
-            0,
-            !0,
-            0,
-            0
-        );
-    }
-}
-
-// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
-// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
-// so we are okay overcharging it.
-// Compute blake2b on 10kib 10k times.
-#[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2b_128kb_0r_10k() {
-    let rounds = 0;
-    let state = [65u8; 64];
-    let buffer = [65u8; 12800];
-    for _ in 0..10_000 {
-        blake2b(
-            rounds,
-            state.len() as u64,
-            state.as_ptr() as *const u64 as u64,
-            buffer.len() as u64,
-            buffer.as_ptr() as *const u64 as u64,
-            0,
-            !0,
-            0,
-            0
-        );
-    }
-}
-
-// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
-// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
-// so we are okay overcharging it.
-// Compute blake2b on 10kib 10k times.
-#[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2b_128b_12r_10k() {
-    let rounds = 12;
-    let state = [65u8; 64];
-    let buffer = [65u8; 128];
-    for _ in 0..10_000 {
-        blake2b(
-            rounds,
-            state.len() as u64,
-            state.as_ptr() as *const u64 as u64,
-            buffer.len() as u64,
-            buffer.as_ptr() as *const u64 as u64,
-            0,
-            !0,
-            0,
-            0
-        );
-    }
-}
-
-// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
-// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
-// so we are okay overcharging it.
-// Compute blake2b on 10b 10k times.
-#[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2s_128b_0r_10k() {
-    let rounds = 0;
-    let state = [65u8; 64];
-    let buffer = [65u8; 128];
-    for _ in 0..10_000 {
-        blake2s(
-            rounds,
-            state.len() as u64,
-            state.as_ptr() as *const u64 as u64,
-            buffer.len() as u64,
-            buffer.as_ptr() as *const u64 as u64,
-            0,
-            0,
-            !0,
-            0,
-            0
-        );
-    }
-}
-
-// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
-// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
-// so we are okay overcharging it.
-// Compute blake2b on 10kib 10k times.
-#[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2s_128kb_0r_10k() {
-    let rounds = 0;
-    let state = [65u8; 64];
-    let buffer = [65u8; 12800];
-    for _ in 0..10_000 {
-        blake2s(
-            rounds,
-            state.len() as u64,
-            state.as_ptr() as *const u64 as u64,
-            buffer.len() as u64,
-            buffer.as_ptr() as *const u64 as u64,
-            0,
-            0,
-            !0,
-            0,
-            0
-        );
-    }
-}
-
-// Function to measure `blake2b_base` and `blake2b_byte`. Also measures `base`, `write_register_base`,
-// and `write_register_byte`. However `blake2b` computation is more expensive than register writing
-// so we are okay overcharging it.
-// Compute blake2b on 10kib 10k times.
-#[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
-pub unsafe fn blake2s_128b_10r_10k() {
-    let rounds = 10;
-    let state = [65u8; 64];
-    let buffer = [65u8; 128];
-    for _ in 0..10_000 {
-        blake2s(
-            rounds,
-            state.len() as u64,
-            state.as_ptr() as *const u64 as u64,
-            buffer.len() as u64,
-            buffer.as_ptr() as *const u64 as u64,
-            0,
-            0,
-            !0,
-            0,
-            0
-        );
     }
 }
 
@@ -615,7 +454,6 @@ pub unsafe fn blake2s_128b_10r_10k() {
 // so we are okay overcharging it.
 // Compute ecrecover 10k times.
 #[no_mangle]
-#[cfg(feature = "protocol_feature_evm")]
 pub unsafe fn ecrecover_10k() {
     let hash = [0u8; 32];
     let signature = [0u8; 65];

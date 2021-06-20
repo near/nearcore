@@ -3631,7 +3631,6 @@ dependencies = [
  "base64 0.13.0",
  "borsh",
  "bs58",
- "byte-slice-cast",
  "byteorder",
  "libsecp256k1",
  "near-blake2",

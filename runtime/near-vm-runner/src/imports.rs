@@ -221,10 +221,8 @@ wrapped_imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #["protocol_feature_evm", EVM] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    #["protocol_feature_evm", EVM] blake2b<[rounds: u32, state_ptr: u64, message_len: u64, message_ptr: u64, t0: u64, t1: u64, f0: u64, f1: u64, register_id: u64] -> []>,
-    #["protocol_feature_evm", EVM] blake2s<[rounds: u32, state_ptr: u64, message_len: u64, message_ptr: u64, t: u64, f: u64, register_id: u64] -> []>,
-    #["protocol_feature_evm", EVM] ecrecover<[hash_ptr: u64, sig_ptr: u64, register_id: u64] -> [u64]>,
+    ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    ecrecover<[hash_ptr: u64, sig_ptr: u64, register_id: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################

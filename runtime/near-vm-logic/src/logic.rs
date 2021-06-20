@@ -963,7 +963,6 @@ impl<'a> VMLogic<'a> {
     ///  Where `message_blocks` is `max(message_len / 8, 1)`.
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
-    #[cfg(feature = "protocol_feature_evm")]
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         use num_integer::Integer;
 
@@ -980,108 +979,6 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
-    /// Hashes the given message using BLAKE2b and returns it into `register_id`.
-    ///
-    /// # Errors
-    ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
-    ///
-    /// # Cost
-    ///
-    /// Where `message_blocks` is `max(message_len / 128, 1)`.
-    ///
-    /// `base + write_register_base + write_register_byte * num_bytes +
-    /// message_blocks * blake2b_block + rounds * message_blocks`
-    #[cfg(feature = "protocol_feature_evm")]
-    pub fn blake2b(
-        &mut self,
-        rounds: u32,
-        state_ptr: u64,
-        message_len: u64,
-        message_ptr: u64,
-        t0: u64,
-        t1: u64,
-        f0: u64,
-        f1: u64,
-        register_id: u64,
-    ) -> Result<()> {
-        use blake2::VarBlake2b;
-        use byte_slice_cast::AsMutByteSlice;
-        use num_integer::Integer;
-
-        // Change to per block for gas.
-        let message_blocks = std::cmp::max(message_len.div_ceil(&128), 1);
-
-        self.gas_counter.pay_base(blake2b_base)?;
-        self.gas_counter.pay_per(blake2b_block, message_blocks)?;
-        self.gas_counter.pay_per(blake2b_round, (rounds as u64).saturating_mul(message_blocks))?;
-
-        let mut state = [0u64; 8];
-        self.memory_get_into(state_ptr, state.as_mut_byte_slice())?;
-
-        let m = self.memory_get_vec(message_ptr, message_len)?;
-
-        let mut hasher = VarBlake2b::with_state(rounds, state, [t0, t1]);
-        hasher.update_inner(&m);
-        hasher.compress(f0, f1);
-        let res = hasher.output();
-
-        self.internal_write_register(register_id, res.as_slice().to_vec())
-    }
-
-    /// Hashes the given message using BLAKE2s and returns it into `register_id`.
-    ///
-    /// # Errors
-    ///
-    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
-    /// the limit with `MemoryAccessViolation`.
-    ///
-    /// # Cost
-    ///
-    /// Where `message_blocks` is `max(message_len / 128, 1)`.
-    ///
-    /// `base + write_register_base + write_register_byte * num_bytes +
-    /// message_blocks * blake2s_block + rounds * message_blocks`
-    #[cfg(feature = "protocol_feature_evm")]
-    pub fn blake2s(
-        &mut self,
-        rounds: u32,
-        state_ptr: u64,
-        message_len: u64,
-        message_ptr: u64,
-        t: u64,
-        f: u64,
-        register_id: u64,
-    ) -> Result<()> {
-        use blake2::VarBlake2s;
-        use byte_slice_cast::AsMutByteSlice;
-        use num_integer::Integer;
-
-        // Change to per block for gas.
-        let message_blocks = std::cmp::max(message_len.div_ceil(&64), 1);
-
-        self.gas_counter.pay_base(blake2b_base)?;
-        self.gas_counter.pay_per(blake2b_block, message_blocks)?;
-        self.gas_counter.pay_per(blake2b_round, (rounds as u64).saturating_mul(message_blocks))?;
-
-        let mut state = [0u32; 8];
-        self.memory_get_into(state_ptr, state.as_mut_byte_slice())?;
-        let m = self.memory_get_vec(message_ptr, message_len)?;
-
-        let t0 = t as u32;
-        let t1 = (t >> 32) as u32;
-        let mut hasher = VarBlake2s::with_state(rounds, state, [t0, t1]);
-        hasher.update_inner(&m);
-
-        let f0 = f as u32;
-        let f1 = (f >> 32) as u32;
-        hasher.compress(f0, f1);
-        let res = hasher.output();
-
-        self.internal_write_register(register_id, res.as_slice().to_vec())
-    }
-
     /// Recovers an ECDSA signer address and returns it into `register_id`.
     ///
     /// Returns a bool indicating success or failure as a `u64`.
@@ -1094,7 +991,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
-    #[cfg(feature = "protocol_feature_evm")]
     pub fn ecrecover(&mut self, hash_ptr: u64, sig_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
