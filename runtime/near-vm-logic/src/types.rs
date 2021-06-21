@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub use near_primitives_core::types::*;
+pub use near_primitives::types::*;
 
 pub type PublicKey = Vec<u8>;
 pub type PromiseIndex = u64;

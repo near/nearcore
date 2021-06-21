@@ -7,13 +7,13 @@ use crate::ValuePtr;
 use byteorder::ByteOrder;
 use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
-use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
-use near_primitives_core::profile::ProfileData;
-use near_primitives_core::runtime::fees::{
+use near_primitives::config::ExtCosts::*;
+use near_primitives::config::{ActionCosts, ExtCosts, VMConfig};
+use near_primitives::profile::ProfileData;
+use near_primitives::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
 };
-use near_primitives_core::types::{
+use near_primitives::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
 use near_runtime_utils::is_account_id_64_len_hex;

@@ -1,8 +1,8 @@
 use crate::{HostError, VMLogicError};
 #[cfg(feature = "protocol_feature_evm")]
-use near_primitives_core::runtime::fees::EvmGas;
-use near_primitives_core::runtime::fees::Fee;
-use near_primitives_core::{
+use near_primitives::runtime::fees::EvmGas;
+use near_primitives::runtime::fees::Fee;
+use near_primitives::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
     profile::ProfileData,
     types::Gas,
@@ -235,7 +235,7 @@ impl GasCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use near_primitives_core::config::ExtCostsConfig;
+    use near_primitives::config::ExtCostsConfig;
 
     #[test]
     fn test_deduct_gas() {
