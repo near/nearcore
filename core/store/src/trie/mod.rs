@@ -409,6 +409,17 @@ pub struct Trie {
     pub counter: TouchedNodesCounter,
 }
 
+/// Stores reference count increase for the given key and value.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct TrieRefcountChange {
+    /// Hash of TrieKey.
+    key_hash: CryptoHash,
+    /// Value corresponding to the TrieKey stored in Trie.
+    value: Vec<u8>,
+    /// Reference count increase.
+    rc: u32,
+}
+
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -436,8 +447,8 @@ pub struct Trie {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
-    deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
+    insertions: Vec<TrieRefcountChange>,
+    deletions: Vec<TrieRefcountChange>,
 }
 
 impl TrieChanges {
@@ -683,13 +694,17 @@ impl Trie {
 
     pub(crate) fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
+    ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
             match rc.cmp(&0) {
-                Ordering::Greater => insertions.push((key, value, rc as u32)),
-                Ordering::Less => deletions.push((key, value, (-rc) as u32)),
+                Ordering::Greater => {
+                    insertions.push(TrieRefcountChange { key_hash: key, value, rc: rc as u32 })
+                }
+                Ordering::Less => {
+                    deletions.push(TrieRefcountChange { key_hash: key, value, rc: (-rc) as u32 })
+                }
                 Ordering::Equal => {}
             }
         }
