@@ -1008,14 +1008,15 @@ impl<'a> VMLogic<'a> {
         self.memory_get_into(sig_ptr, &mut signature_bytes)?;
         let signature = Secp256K1Signature::from(signature_bytes);
 
+        let mut hash_bytes = [0u8; 32];
+        self.memory_get_into(hash_ptr, &mut hash_bytes)?;
+
         if malleability_flag == 1 {
             if !signature.check_signature_values() {
                 return Ok(false as u64);
             }
         }
 
-        let mut hash_bytes = [0u8; 32];
-        self.memory_get_into(hash_ptr, &mut hash_bytes)?;
         if let Ok(pk) = signature.recover(hash_bytes) {
             self.internal_write_register(register_id, pk.as_ref().to_vec())?;
             return Ok(true as u64);
