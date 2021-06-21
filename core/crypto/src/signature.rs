@@ -598,7 +598,7 @@ impl Secp256K1Signature {
             return false;
         }
 
-        r < secp256k1_n && s < secp256k1_n && (v == 0 || v == 1)
+        r < secp256k1_n && s < secp256k1_n
     }
 
     pub fn recover(
