@@ -14,7 +14,7 @@ impl RpcSandboxPatchStateRequest {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct RpcSandboxPatchStateResponse;
+pub struct RpcSandboxPatchStateResponse {}
 
 #[derive(thiserror::Error, Debug)]
 pub enum RpcSandboxPatchStateError {
