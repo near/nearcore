@@ -577,7 +577,7 @@ impl Secp256K1Signature {
         s_bytes.copy_from_slice(&self.0[32..64]);
         let s = U256::from(s_bytes);
 
-        let v = match self.check_v() {
+        let _v = match self.check_v() {
             Ok(v) => v,
             Err(_e) => return false,
         };
