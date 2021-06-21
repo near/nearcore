@@ -961,7 +961,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    ///  Where `message_blocks` is `max(message_len / 8, 1)`.
+    ///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
