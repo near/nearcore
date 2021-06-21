@@ -409,14 +409,15 @@ pub struct Trie {
     pub counter: TouchedNodesCounter,
 }
 
-/// Stores reference count increase for the given key and value.
+/// Stores reference count change for some Trie key and value.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
     /// Hash of TrieKey.
     key_hash: CryptoHash,
     /// Value corresponding to the TrieKey stored in Trie.
     value: Vec<u8>,
-    /// Reference count increase.
+    /// Reference count difference which will be added to the total refcount if it corresponds to
+    /// insertion and subtracted from it in the case of deletion.
     rc: u32,
 }
 
