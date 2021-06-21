@@ -7,11 +7,11 @@ use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
-use ethereum_types::U256;
 use lazy_static::lazy_static;
 use rand_core::OsRng;
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
+use ethereum_types::U256;
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -604,7 +604,7 @@ impl Secp256K1Signature {
 
     pub fn recover(
         &self,
-        msg: impl AsRef<[u8]>,
+        msg: [u8; 32],
     ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
         let v = self.check_v()?;
 
@@ -616,12 +616,10 @@ impl Secp256K1Signature {
                 .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
                 error_message: err.to_string(),
             })?;
+        let msg = Message::from(msg);
 
-        let msg = &Message::from_slice(msg.as_ref()).map_err(|err| {
-            crate::errors::ParseSignatureError::InvalidData { error_message: err.to_string() }
-        })?;
         let res = SECP256K1
-            .recover(msg, &recoverable_sig)
+            .recover(&msg, &recoverable_sig)
             .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
                 error_message: err.to_string(),
             })?
