@@ -582,8 +582,7 @@ impl Secp256K1Signature {
             Err(_e) => return false,
         };
 
-        let big_one = U256::one();
-        if r < big_one || s < big_one {
+        if r.is_zero() || s.is_zero() {
             return false;
         }
 
