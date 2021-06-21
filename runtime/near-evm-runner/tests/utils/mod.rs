@@ -30,7 +30,7 @@ pub fn create_context<'a>(
     external: &'a mut MockedExternal,
     vm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
-    account_id: String,
+    account_id: AccountId,
     attached_deposit: Balance,
 ) -> EvmContext<'a> {
     EvmContext::new(
@@ -40,8 +40,8 @@ pub fn create_context<'a>(
         fees_config,
         1000,
         "evm".parse().unwrap(),
-        account_id.parse().unwrap(),
-        account_id.parse().unwrap(),
+        account_id.clone(),
+        account_id,
         attached_deposit,
         0,
         10u64.pow(14),

@@ -35,11 +35,12 @@ fn test_send_tx_async() {
 
         actix::spawn(client.block(BlockReference::latest()).then(move |res| {
             let block_hash = res.unwrap().header.hash;
-            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+            let signer =
+                InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
                 1,
-                signer_account_id,
-                "test2".to_string(),
+                signer_account_id.parse().unwrap(),
+                "test2".parse().unwrap(),
                 &signer,
                 100,
                 block_hash,
@@ -82,11 +83,11 @@ fn test_send_tx_async() {
 fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test2".to_string(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
             &signer,
             100,
             block_hash,
@@ -123,12 +124,15 @@ fn test_expired_tx() {
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
-                                let signer =
-                                    InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+                                let signer = InMemorySigner::from_seed(
+                                    "test1".parse().unwrap(),
+                                    KeyType::ED25519,
+                                    "test1",
+                                );
                                 let tx = SignedTransaction::send_money(
                                     1,
-                                    "test1".to_string(),
-                                    "test2".to_string(),
+                                    "test1".parse().unwrap(),
+                                    "test2".parse().unwrap(),
                                     &signer,
                                     100,
                                     block_hash,
@@ -168,11 +172,11 @@ fn test_expired_tx() {
 #[test]
 fn test_replay_protection() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test2".to_string(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
             &signer,
             100,
             hash(&[1]),
@@ -213,12 +217,12 @@ fn test_tx_status_missing_tx() {
 #[test]
 fn test_check_invalid_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         // invalid base hash
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test2".to_string(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
             &signer,
             100,
             hash(&[1]),

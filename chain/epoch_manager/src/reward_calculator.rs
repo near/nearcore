@@ -30,7 +30,7 @@ impl RewardCalculator {
             num_blocks_per_year: config.num_blocks_per_year,
             epoch_length: config.epoch_length,
             protocol_reward_rate: config.protocol_reward_rate,
-            protocol_treasury_account: config.protocol_treasury_account.parse().unwrap(),
+            protocol_treasury_account: config.protocol_treasury_account.clone(),
             online_max_threshold: config.online_max_threshold,
             online_min_threshold: config.online_min_threshold,
             num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
@@ -146,21 +146,21 @@ mod tests {
             num_blocks_per_year: 1000000,
             epoch_length,
             protocol_reward_rate: Rational::new(0, 1),
-            protocol_treasury_account: "near".to_string(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Rational::new(9, 10),
             online_max_threshold: Rational::new(1, 1),
             num_seconds_per_year: 1000000,
         };
         let validator_block_chunk_stats = vec![
             (
-                "test1".to_string(),
+                "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
                     chunk_stats: ValidatorStats { produced: 0, expected: 0 },
                 },
             ),
             (
-                "test2".to_string(),
+                "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 1 },
                     chunk_stats: ValidatorStats { produced: 0, expected: 1 },
@@ -169,9 +169,10 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<_, _>>();
-        let validator_stake = vec![("test1".to_string(), 100), ("test2".to_string(), 100)]
-            .into_iter()
-            .collect::<HashMap<_, _>>();
+        let validator_stake =
+            vec![("test1".parse().unwrap(), 100), ("test2".parse().unwrap(), 100)]
+                .into_iter()
+                .collect::<HashMap<_, _>>();
         let total_supply = 1_000_000_000_000;
         let result = reward_calculator.calculate_reward(
             validator_block_chunk_stats,
@@ -184,9 +185,9 @@ mod tests {
         assert_eq!(
             result.0,
             vec![
-                ("near".to_string(), 0u128),
-                ("test1".to_string(), 0u128),
-                ("test2".to_string(), 0u128)
+                ("near".parse().unwrap(), 0u128),
+                ("test1".parse().unwrap(), 0u128),
+                ("test2".parse().unwrap(), 0u128)
             ]
             .into_iter()
             .collect::<HashMap<_, _>>()
@@ -202,28 +203,28 @@ mod tests {
             num_blocks_per_year: 1000,
             epoch_length,
             protocol_reward_rate: Rational::new(0, 10),
-            protocol_treasury_account: "near".to_string(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Rational::new(9, 10),
             online_max_threshold: Rational::new(99, 100),
             num_seconds_per_year: 1000,
         };
         let validator_block_chunk_stats = vec![
             (
-                "test1".to_string(),
+                "test1".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 945, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 945, expected: 1000 },
                 },
             ),
             (
-                "test2".to_string(),
+                "test2".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 999, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 999, expected: 1000 },
                 },
             ),
             (
-                "test3".to_string(),
+                "test3".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 850, expected: 1000 },
                     chunk_stats: ValidatorStats { produced: 850, expected: 1000 },
@@ -233,9 +234,9 @@ mod tests {
         .into_iter()
         .collect::<HashMap<_, _>>();
         let validator_stake = vec![
-            ("test1".to_string(), 500_000),
-            ("test2".to_string(), 500_000),
-            ("test3".to_string(), 500_000),
+            ("test1".parse().unwrap(), 500_000),
+            ("test2".parse().unwrap(), 500_000),
+            ("test3".parse().unwrap(), 500_000),
         ]
         .into_iter()
         .collect::<HashMap<_, _>>();
@@ -253,10 +254,10 @@ mod tests {
         assert_eq!(
             result.0,
             vec![
-                ("near".to_string(), 0),
-                ("test1".to_string(), 1_666_666u128),
-                ("test2".to_string(), 3_333_333u128),
-                ("test3".to_string(), 0u128)
+                ("near".parse().unwrap(), 0),
+                ("test1".parse().unwrap(), 1_666_666u128),
+                ("test2".parse().unwrap(), 3_333_333u128),
+                ("test3".parse().unwrap(), 0u128)
             ]
             .into_iter()
             .collect()
@@ -275,13 +276,13 @@ mod tests {
             // half a day
             epoch_length,
             protocol_reward_rate: Rational::new(1, 10),
-            protocol_treasury_account: "near".to_string(),
+            protocol_treasury_account: "near".parse().unwrap(),
             online_min_threshold: Rational::new(9, 10),
             online_max_threshold: Rational::new(1, 1),
             num_seconds_per_year: 60 * 60 * 24 * 365,
         };
         let validator_block_chunk_stats = vec![(
-            "test".to_string(),
+            "test".parse().unwrap(),
             BlockChunkValidatorStats {
                 block_stats: ValidatorStats { produced: 43200, expected: 43200 },
                 chunk_stats: ValidatorStats { produced: 345600, expected: 345600 },
@@ -289,7 +290,7 @@ mod tests {
         )]
         .into_iter()
         .collect::<HashMap<_, _>>();
-        let validator_stake = vec![("test".to_string(), 500_000 * 10_u128.pow(24))]
+        let validator_stake = vec![("test".parse().unwrap(), 500_000 * 10_u128.pow(24))]
             .into_iter()
             .collect::<HashMap<_, _>>();
         // some hypothetical large total supply (100b)

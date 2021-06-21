@@ -128,7 +128,7 @@ pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
     init_configs(
         dir,
         params.chain_id.as_deref(),
-        params.account_id.as_deref(),
+        params.account_id.and_then(|account_id| account_id.parse().ok()),
         params.test_seed.as_deref(),
         params.num_shards,
         params.fast,

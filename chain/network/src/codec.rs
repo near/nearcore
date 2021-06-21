@@ -228,7 +228,13 @@ mod test {
 
             SignedTransaction::new(
                 signature,
-                Transaction::new("x".to_string(), public_key, "y".to_string(), 7, tx_hash),
+                Transaction::new(
+                    "x".parse().unwrap(),
+                    public_key,
+                    "y".parse().unwrap(),
+                    7,
+                    tx_hash,
+                ),
             )
         };
 
@@ -358,7 +364,7 @@ mod test {
         let msg = PeerMessage::RoutingTableSync(SyncData {
             edges: Vec::new(),
             accounts: vec![AnnounceAccount {
-                account_id: "test1".to_string(),
+                account_id: "test1".parse().unwrap(),
                 peer_id: network_sk.public_key().into(),
                 epoch_id: EpochId::default(),
                 signature,
@@ -379,7 +385,7 @@ mod test {
             signature: signature.clone(),
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
-                account_id: "test2".to_string(),
+                account_id: "test2".parse().unwrap(),
                 inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
                 signature,
@@ -390,9 +396,10 @@ mod test {
 
     #[test]
     fn test_account_id_bytes() {
-        let account_id = "near0".to_string();
-        let enc = account_id.as_bytes();
-        let dec_account_id = String::from_utf8_lossy(enc).to_string();
+        use near_primitives::types::AccountId;
+        let account_id = "near0".parse::<AccountId>().unwrap();
+        let enc = account_id.as_ref().as_bytes();
+        let dec_account_id = String::from_utf8_lossy(enc).parse().unwrap();
         assert_eq!(account_id, dec_account_id);
     }
 

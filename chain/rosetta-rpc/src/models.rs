@@ -46,7 +46,7 @@ pub(crate) struct AccountBalanceResponse {
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
-    pub address: String,
+    pub address: near_primitives::types::AccountId,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_account: Option<SubAccountIdentifier>,
@@ -65,9 +65,11 @@ impl From<near_primitives::types::AccountId> for AccountIdentifier {
     }
 }
 
-impl From<&str> for AccountIdentifier {
-    fn from(account_id: &str) -> Self {
-        Self::from(near_primitives::types::AccountId::from(account_id))
+impl std::str::FromStr for AccountIdentifier {
+    type Err = near_primitives::account_id::ParseAccountError;
+
+    fn from_str(account_id: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(account_id.parse::<near_primitives::account_id::AccountId>()?))
     }
 }
 
@@ -287,7 +289,7 @@ pub(crate) struct ConstructionPreprocessRequest {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadataOptions {
-    pub signer_account_id: String,
+    pub signer_account_id: near_primitives::types::AccountId,
 }
 
 /// ConstructionPreprocessResponse contains `options` that will

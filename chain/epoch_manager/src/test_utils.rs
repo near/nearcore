@@ -84,17 +84,17 @@ pub fn epoch_info_with_num_seats(
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
-        acc.insert(x.0, i as u64);
+        acc.insert(x.0.clone(), i as u64);
         acc
     });
     let fishermen_to_index =
-        fishermen.iter().enumerate().map(|(i, (s, _))| (*s, i as ValidatorId)).collect();
+        fishermen.iter().enumerate().map(|(i, (s, _))| (s.clone(), i as ValidatorId)).collect();
     let account_to_validators = |accounts: Vec<(AccountId, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
             .map(|(account_id, stake)| {
                 ValidatorStake::new(
-                    account_id,
+                    account_id.clone(),
                     SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
                     stake,
                 )
@@ -199,7 +199,10 @@ pub fn setup_epoch_manager(
         config,
         PROTOCOL_VERSION,
         reward_calculator,
-        validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
+        validators
+            .iter()
+            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
+            .collect(),
     )
     .unwrap()
 }

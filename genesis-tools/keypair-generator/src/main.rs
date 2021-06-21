@@ -7,7 +7,7 @@ use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use nearcore::get_default_home;
 
 fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
-    let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
+    let signer = InMemorySigner::from_secret_key(account_id.parse().unwrap(), key);
     signer.write_to_file(path.as_path());
 }
 

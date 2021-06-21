@@ -300,7 +300,7 @@ impl Runtime {
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = AccountId::is_system(receipt.predecessor_id);
+        let is_refund = AccountId::is_system(&receipt.predecessor_id);
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -553,7 +553,7 @@ impl Runtime {
         }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_deficit_amount = if AccountId::is_system(receipt.predecessor_id) {
+        let gas_deficit_amount = if AccountId::is_system(&receipt.predecessor_id) {
             result.gas_burnt = 0;
             result.gas_used = 0;
             // If the refund fails tokens are burned.

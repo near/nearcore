@@ -119,9 +119,9 @@ impl ProcessNode {
             rng.gen::<u64>()
         );
         let signer = Arc::new(InMemorySigner::from_seed(
-            &config.validator_signer.as_ref().unwrap().validator_id(),
+            config.validator_signer.as_ref().unwrap().validator_id().clone(),
             KeyType::ED25519,
-            &config.validator_signer.as_ref().unwrap().validator_id(),
+            *config.validator_signer.as_ref().unwrap().validator_id(),
         ));
         let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer };
         result.reset_storage();

@@ -16,7 +16,6 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
 near-network = { path = "../../chain/network" }
-near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 
 [dev-dependencies]
 tempfile = "3"

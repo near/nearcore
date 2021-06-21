@@ -204,7 +204,7 @@ fn check_connection_with_new_identity() {
     runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
 
     runner.push(Action::Stop(1));
-    runner.push_action(change_account_id(1, "far".to_string()));
+    runner.push_action(change_account_id(1, "far".parse().unwrap()));
     runner.push(Action::CheckRoutingTable(0, vec![]));
     runner.push_action(restart(1));
 

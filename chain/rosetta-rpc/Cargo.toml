@@ -26,6 +26,7 @@ validator = "0.12"
 paperclip = { git = "https://github.com/near/paperclip", branch = "actix-web-4-beta.6", features = ["actix"] }
 
 near-primitives = { path = "../../core/primitives" }
+near-account-id = { path = "../../core/account-id", features = ["paperclip"] }
 near-crypto = { path = "../../core/crypto" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../client" }

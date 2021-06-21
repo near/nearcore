@@ -10,6 +10,7 @@ use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, Sy
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_metrics::set_gauge;
 use near_network::types::NetworkInfo;
+use near_primitives::account_id::TEST_ACCOUNT;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
 use near_primitives::serialize::to_base;
@@ -178,9 +179,9 @@ impl InfoHelper {
                 node_id: node_id.to_string(),
                 account_id: self
                     .validator_signer
-                    .clone()
+                    .as_ref()
                     .map(|bp| bp.validator_id().clone())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_else(|| TEST_ACCOUNT.clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),

@@ -107,10 +107,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".to_string(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -129,7 +129,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
@@ -147,10 +147,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".to_string(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -175,7 +175,7 @@ mod test {
                 .into_iter()
                 .map(|r| r.account_id)
                 .collect::<Vec<_>>(),
-            vec!["test0".to_string()]
+            vec!["test0".parse().unwrap()]
         );
         validate_genesis(&new_genesis);
     }
@@ -203,11 +203,11 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test0".to_string(),
+            "test1".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             1,
             genesis_hash,
@@ -247,10 +247,10 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".to_string(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -269,7 +269,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();

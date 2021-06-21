@@ -25,7 +25,7 @@ fn main() -> Result<(), Error> {
     let mut result = Vec::new();
     for record in genesis.records.0 {
         if let StateRecord::Account { account_id, account } = record {
-            let actual_storage_usage = storage_usage.get(account_id.as_str()).unwrap();
+            let actual_storage_usage = storage_usage.get(&account_id).unwrap();
             let saved_storage_usage = account.storage_usage();
             let delta = actual_storage_usage - saved_storage_usage;
             if delta != 0 {

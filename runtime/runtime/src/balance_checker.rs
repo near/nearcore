@@ -101,7 +101,7 @@ pub(crate) fn check_balance(
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
-                if !AccountId::is_system(receipt.predecessor_id) {
+                if !AccountId::is_system(&receipt.predecessor_id) {
                     let mut total_gas = safe_add_gas(
                         transaction_costs.action_receipt_creation_config.exec_fee(),
                         total_prepaid_exec_fees(

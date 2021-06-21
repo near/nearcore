@@ -54,7 +54,7 @@ impl NetworkConfig {
         NetworkConfig {
             public_key,
             secret_key,
-            account_id: Some(seed.to_string()),
+            account_id: Some(seed.parse().unwrap()),
             addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
             boot_nodes: vec![],
             handshake_timeout: Duration::from_secs(60),

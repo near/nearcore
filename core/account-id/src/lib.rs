@@ -1,26 +1,10 @@
 use std::{convert::TryFrom, io, str::FromStr};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use lazy_static::lazy_static;
-use regex::Regex;
 use serde::{self, de};
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
-
-lazy_static! {
-    /// See NEP#0006
-    static ref VALID_ACCOUNT_ID: Regex =
-        Regex::new(r"^(([a-z\d]+[\-_])*[a-z\d]+\.)*([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
-    /// Represents a part of an account ID with a suffix of as a separator `.`.
-    static ref VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR: Regex =
-        Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+\.$").unwrap();
-    /// Represents a top level account ID.
-    static ref VALID_TOP_LEVEL_ACCOUNT_ID: Regex =
-        Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+$").unwrap();
-    pub static ref SYSTEM_ACCOUNT: AccountId = "system".parse().unwrap();
-    pub static ref TEST_ACCOUNT: AccountId = "test".parse().unwrap();
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ParseAccountError {
@@ -60,22 +44,40 @@ impl AccountId {
 
     pub fn validate(account_id: impl AsRef<str>) -> Result<(), ParseAccountError> {
         let account_id = account_id.as_ref();
+
         if account_id.len() < MIN_ACCOUNT_ID_LEN {
             Err(ParseAccountError::TooShort)
         } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
             Err(ParseAccountError::TooLong)
-        } else if !VALID_ACCOUNT_ID.is_match(account_id) {
-            Err(ParseAccountError::Invalid)
         } else {
-            Ok(())
+            // NOTE: We don't want to use Regex here, because it requires extra time to compile it.
+            // The valid account ID regex is /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/
+            // Instead the implementation is based on the previous character checks.
+
+            // We can safely assume that last char was a separator.
+            let mut last_char_is_separator = true;
+
+            for c in account_id.bytes() {
+                let current_char_is_separator = match c {
+                    b'a'..=b'z' | b'0'..=b'9' => false,
+                    b'-' | b'_' | b'.' => true,
+                    _ => return Err(ParseAccountError::Invalid),
+                };
+                if current_char_is_separator && last_char_is_separator {
+                    return Err(ParseAccountError::Invalid);
+                }
+                last_char_is_separator = current_char_is_separator;
+            }
+
+            (!last_char_is_separator).then(|| ()).ok_or(ParseAccountError::Invalid)
         }
     }
 
     pub fn is_top_level_account_id(&self) -> bool {
         self.len() >= MIN_ACCOUNT_ID_LEN
             && self.len() <= MAX_ACCOUNT_ID_LEN
-            && self != &*SYSTEM_ACCOUNT
-            && VALID_TOP_LEVEL_ACCOUNT_ID.is_match(self.as_ref())
+            && self.as_ref() != "system"
+            && !self.as_ref().contains(".")
     }
 
     /// Returns true if the signer_id can create a direct sub-account with the given account Id.
@@ -86,17 +88,15 @@ impl AccountId {
         // Will not panic, since valid account id is utf-8 only and the length is checked above.
         // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
         let (prefix, suffix) = self.0.split_at(self.len() - parent_account_id.len());
-        if suffix != parent_account_id.as_ref() {
-            return false;
-        }
-        VALID_ACCOUNT_PART_ID_WITH_TAIL_SEPARATOR.is_match(prefix)
+
+        prefix.ends_with('.') && &suffix[..suffix.len()] == parent_account_id.as_ref()
     }
 
     /// Returns true if the account ID length is 64 characters and it's a hex representation.
     pub fn is_64_len_hex(account_id: impl AsRef<str>) -> bool {
         let account_id = account_id.as_ref();
         account_id.len() == 64
-            && account_id.as_bytes().iter().all(|&b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+            && account_id.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
     }
 
     /// Returns true if the account ID is suppose to be EVM machine.
@@ -107,6 +107,14 @@ impl AccountId {
     /// Returns true if the account ID is the system account.
     pub fn is_system(account_id: impl AsRef<str>) -> bool {
         account_id.as_ref() == "system"
+    }
+
+    pub fn system_account() -> Self {
+        "system".parse().unwrap()
+    }
+
+    pub fn test_account() -> Self {
+        "test".parse().unwrap()
     }
 }
 
@@ -151,6 +159,17 @@ impl BorshDeserialize for AccountId {
         Self::validate(&account_id)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
         Ok(Self(account_id))
+    }
+}
+
+#[cfg(feature = "paperclip")]
+mod paperclip {
+    use super::AccountId;
+    use paperclip::v2::{models::DataType, schema::TypedData};
+    impl TypedData for AccountId {
+        fn data_type() -> DataType {
+            DataType::String
+        }
     }
 }
 

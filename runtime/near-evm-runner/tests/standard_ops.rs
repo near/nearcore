@@ -168,7 +168,7 @@ fn test_deploy_and_transfer() {
 #[test]
 fn test_meta_call() {
     let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
-    let signer = InMemorySigner::from_seed(&accounts(1), KeyType::SECP256K1, "a");
+    let signer = InMemorySigner::from_seed(accounts(1), KeyType::SECP256K1, "a");
     let signer_addr = public_key_to_address(signer.public_key.clone());
 
     let mut context =
@@ -342,7 +342,7 @@ fn test_meta_call_sig_and_recover() {
         hex::decode("ca0988436170734c6f636b").unwrap(),
     );
     assert_eq!(hex::encode(&meta_tx2[0..65]), "ff7c5eedd0684ef685c82c518900cbdc30471555a93770119bbff307be5c22411e3d4f47e2ce8389aae8f4ad38c923d8dac922bb4ee83d2477116a54fed02b311b");
-    let result = parse_meta_call(&domain_separator, &"evm".to_string(), meta_tx2).unwrap();
+    let result = parse_meta_call(&domain_separator, &"evm".parse().unwrap(), meta_tx2).unwrap();
     assert_eq!(result.sender, signer_addr);
 
     let meta_tx3 = encode_meta_call_function_args(
@@ -385,7 +385,7 @@ fn test_ecrecover() {
 fn test_send_eth_tx() {
     let (mut fake_external, test_addr, vm_config, fees_config) = setup_and_deploy_test();
 
-    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let signer = InMemorySigner::from_seed("doesnt".parse().unwrap(), KeyType::SECP256K1, "a");
     let signer_addr = public_key_to_address(signer.public_key.clone());
 
     let mut context =

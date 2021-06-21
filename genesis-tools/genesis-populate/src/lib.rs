@@ -25,8 +25,8 @@ use near_store::{
 };
 use nearcore::{get_store_path, NightshadeRuntime};
 
-fn get_account_id(account_index: u64) -> String {
-    format!("near_{}_{}", account_index, account_index)
+fn get_account_id(account_index: u64) -> AccountId {
+    format!("near_{}_{}", account_index, account_index).parse().unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -246,7 +246,8 @@ impl GenesisBuilder {
         let mut state_update =
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,

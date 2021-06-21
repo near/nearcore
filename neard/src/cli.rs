@@ -138,7 +138,7 @@ impl InitCmd {
         nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
-            self.account_id.as_deref(),
+            self.account_id.and_then(|account_id| account_id.parse().ok()),
             self.test_seed.as_deref(),
             self.num_shards,
             self.fast,

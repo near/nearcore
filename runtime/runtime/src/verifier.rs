@@ -319,7 +319,7 @@ pub fn validate_action(
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteAccount(a) => Ok(()),
+        Action::DeleteAccount(_) => Ok(()),
     }
 }
 

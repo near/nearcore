@@ -11,7 +11,11 @@ description = "This crate contains the account ID primitive and its validation f
 [dependencies]
 borsh = "0.8.1"
 serde = { version = "1", features = [ "derive" ] }
-regex = "1"
 thiserror = "1"
 derive_more = "0.99.3"
-lazy_static = "1.4"
+
+[dependencies.paperclip]
+git = "https://github.com/near/paperclip"
+branch = "actix-web-4-beta.6"
+optional = true
+features = ["actix"]

@@ -402,10 +402,11 @@ mod tests {
     use super::*;
 
     fn make_tx(account_id: &str, seed: &str, nonce: Nonce) -> SignedTransaction {
-        let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, seed);
+        let account_id: AccountId = account_id.parse().unwrap();
+        let signer = InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, seed);
         SignedTransaction::send_money(
             nonce,
-            account_id.parse().unwrap(),
+            account_id,
             "bob".parse().unwrap(),
             &signer,
             10,

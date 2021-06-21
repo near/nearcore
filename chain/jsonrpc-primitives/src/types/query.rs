@@ -110,8 +110,11 @@ impl RpcQueryRequest {
             let make_err =
                 || crate::errors::RpcParseError("Not enough query parameters provided".to_string());
             let query_command = path_parts.next().ok_or_else(make_err)?;
-            let account_id =
-                near_primitives::types::AccountId::from(path_parts.next().ok_or_else(make_err)?);
+            let account_id = path_parts
+                .next()
+                .ok_or_else(make_err)?
+                .parse()
+                .map_err(|err| crate::errors::RpcParseError(format!("{}", err)))?;
             let maybe_extra_arg = path_parts.next();
 
             let request = match query_command {
