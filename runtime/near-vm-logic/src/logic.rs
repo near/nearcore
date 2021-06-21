@@ -1016,7 +1016,7 @@ impl<'a> VMLogic<'a> {
 
         let mut hash_bytes = [0u8; 32];
         self.memory_get_into(hash_ptr, &mut hash_bytes)?;
-        if let Ok(pk) = signature.recover(hash_bytes) {
+        if let Ok(pk) = signature.recover(&hash_bytes) {
             self.internal_write_register(register_id, pk.as_ref().to_vec())?;
             return Ok(true as u64);
         };
