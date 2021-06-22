@@ -9,13 +9,13 @@ pub enum VMKind {
     /// Wasmtime VM.
     Wasmtime,
     /// Wasmer 1.x VM.
-    Wasmer1,
+    Wasmer2,
 }
 
 impl Default for VMKind {
     #[cfg(all(
         feature = "wasmer0_default",
-        not(feature = "wasmer1_default"),
+        not(feature = "wasmer2_default"),
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
@@ -24,16 +24,16 @@ impl Default for VMKind {
 
     #[cfg(all(
         not(feature = "wasmer0_default"),
-        feature = "wasmer1_default",
+        feature = "wasmer2_default",
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
-        VMKind::Wasmer1
+        VMKind::Wasmer2
     }
 
     #[cfg(all(
         not(feature = "wasmer0_default"),
-        not(feature = "wasmer1_default"),
+        not(feature = "wasmer2_default"),
         feature = "wasmtime_default"
     ))]
     fn default() -> Self {
@@ -42,7 +42,7 @@ impl Default for VMKind {
 
     #[cfg(all(
         not(feature = "wasmer0_default"),
-        not(feature = "wasmer1_default"),
+        not(feature = "wasmer2_default"),
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
@@ -52,7 +52,7 @@ impl Default for VMKind {
     // These features should be mutually exclusive, but implement this to work around CI cargo check --all-features
     #[cfg(all(
         feature = "wasmer0_default",
-        feature = "wasmer1_default",
+        feature = "wasmer2_default",
         feature = "wasmtime_default"
     ))]
     fn default() -> Self {

@@ -183,16 +183,16 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 pub fn test_run_sequential() {
     #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(false, VMKind::Wasmer0, 100);
-    #[cfg(feature = "wasmer1_vm")]
-    test_vm_runner(false, VMKind::Wasmer1, 100);
+    #[cfg(feature = "wasmer2_vm")]
+    test_vm_runner(false, VMKind::Wasmer2, 100);
 }
 
 #[test]
 pub fn test_run_preloaded() {
     #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(true, VMKind::Wasmer0, 100);
-    #[cfg(feature = "wasmer1_vm")]
-    test_vm_runner(true, VMKind::Wasmer1, 100);
+    #[cfg(feature = "wasmer2_vm")]
+    test_vm_runner(true, VMKind::Wasmer2, 100);
 }
 
 fn test_precompile_vm(vm_kind: VMKind) {
@@ -223,6 +223,6 @@ fn test_precompile_vm(vm_kind: VMKind) {
 pub fn test_precompile() {
     #[cfg(feature = "wasmer0_vm")]
     test_precompile_vm(VMKind::Wasmer0);
-    #[cfg(feature = "wasmer1_vm")]
-    test_precompile_vm(VMKind::Wasmer1);
+    #[cfg(feature = "wasmer2_vm")]
+    test_precompile_vm(VMKind::Wasmer2);
 }

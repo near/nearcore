@@ -285,7 +285,7 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.1,
             match vm_kind {
-                VMKind::Wasmer0 | VMKind::Wasmer1 => Some(VMError::FunctionCallError(
+                VMKind::Wasmer0 | VMKind::Wasmer2 => Some(VMError::FunctionCallError(
                     FunctionCallError::WasmTrap(WasmTrap::Unreachable)
                 )),
                 VMKind::Wasmtime => unreachable!(),

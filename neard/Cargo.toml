@@ -55,12 +55,12 @@ protocol_feature_cap_max_gas_price = ["nearcore/protocol_feature_cap_max_gas_pri
 sandbox = ["nearcore/sandbox"]
 
 # enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer1_default = ["nearcore/wasmer1_default"]
+# now if none of wasmer0_default, wasmer2_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer2_default = ["nearcore/wasmer2_default"]
 wasmer0_default = ["nearcore/wasmer0_default"]
 wasmtime_default = ["nearcore/wasmtime_default"]
 # enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
 # but would not change default runner used by neard
-wasmer1_vm = ["nearcore/wasmer1_vm"]
+wasmer2_vm = ["nearcore/wasmer2_vm"]
 wasmer0_vm = ["nearcore/wasmer0_vm"]
 wasmtime_vm = ["nearcore/wasmtime_vm"]

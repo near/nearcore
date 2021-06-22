@@ -105,7 +105,7 @@ fn test_multiple_memories() {
             Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                 CompilationError::WasmerCompileError { .. },
             ))) => match vm_kind {
-                VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+                VMKind::Wasmer0 | VMKind::Wasmer2 => {}
                 VMKind::Wasmtime => {
                     panic!("Unexpected")
                 }
@@ -113,7 +113,7 @@ fn test_multiple_memories() {
             Some(VMError::FunctionCallError(FunctionCallError::LinkError { .. })) => {
                 // Wasmtime classifies this error as link error at the moment.
                 match vm_kind {
-                    VMKind::Wasmer0 | VMKind::Wasmer1 => {
+                    VMKind::Wasmer0 | VMKind::Wasmer2 => {
                         panic!("Unexpected")
                     }
                     VMKind::Wasmtime => {}
@@ -172,7 +172,7 @@ fn trap_contract() -> Vec<u8> {
 fn test_trap_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
             // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
             // Restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
@@ -207,7 +207,7 @@ fn test_trap_initializer() {
     // See the comment is test_stack_overflow.
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
             // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
@@ -245,7 +245,7 @@ fn div_by_zero_contract() -> Vec<u8> {
 fn test_div_by_zero_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
             // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
@@ -284,7 +284,7 @@ fn float_to_int_contract(index: usize) -> Vec<u8> {
 fn test_float_to_int_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
             // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
@@ -324,7 +324,7 @@ fn indirect_call_to_null_contract() -> Vec<u8> {
 fn test_indirect_call_to_null_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer1 => {}
+            VMKind::Wasmer2 => {}
             // Wasmer 0.x cannot distinguish indirect calls to null and calls with incorrect signature.
             VMKind::Wasmer0 => return,
             // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
@@ -370,7 +370,7 @@ fn indirect_call_to_wrong_signature_contract() -> Vec<u8> {
 fn test_indirect_call_to_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
             // All contracts leading to hardware traps can not run concurrently on Wasmtime and Wasmer,
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
@@ -490,7 +490,7 @@ fn test_stack_overflow() {
         // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
         // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => assert_eq!(
+            VMKind::Wasmer0 | VMKind::Wasmer2 => assert_eq!(
                 make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
                 (
                     Some(vm_outcome_with_gas(63226248177)),
@@ -605,7 +605,7 @@ fn test_bad_import_3() {
         let msg = match vm_kind {
             VMKind::Wasmer0 => "link error: Incorrect import type, namespace: env, name: input, expected type: global, found type: function",
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { sig: WasmFuncType { params: [I64], returns: [] } })\\n\"",
-            VMKind::Wasmer1 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })",
+            VMKind::Wasmer2 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })",
         }.to_string();
         assert_eq!(
             make_simple_contract_call_vm(&bad_import_global("env"), "hello", vm_kind),
@@ -623,7 +623,7 @@ fn test_bad_import_4() {
         let msg = match vm_kind {
             VMKind::Wasmer0 => "link error: Import not found, namespace: env, name: wtf",
             VMKind::Wasmtime => "\"unknown import: `env::wtf` has not been defined\"",
-            VMKind::Wasmer1 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })",
+            VMKind::Wasmer2 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })",
         }
         .to_string();
         assert_eq!(
@@ -768,7 +768,7 @@ fn test_external_call_indirect() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
             // Upstream bug: https://github.com/wasmerio/wasmer/issues/2329.
-            VMKind::Wasmer1 => return,
+            VMKind::Wasmer2 => return,
             _ => (),
         }
 
@@ -783,7 +783,7 @@ fn test_external_call_indirect() {
 fn test_contract_error_caching() {
     with_vm_variants(|vm_kind: VMKind| {
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
             VMKind::Wasmtime => return,
         }
         let mut cache = MockCompiledContractCache::default();

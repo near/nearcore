@@ -28,7 +28,7 @@ tracing = "0.1"
 tracing-subscriber = "0.2"
 
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", features = ["costs_counting"]}
-near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer1_vm"] }
+near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer2_vm"] }
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 

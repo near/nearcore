@@ -158,7 +158,7 @@ fn main() {
                 .value_name("VM_KIND")
                 .help("Select VM kind to run.")
                 .takes_value(true)
-                .possible_values(&["wasmer", "wasmer1", "wasmtime"]),
+                .possible_values(&["wasmer", "wasmer2", "wasmtime"]),
         )
         .arg(
             Arg::with_name("timings")
@@ -182,7 +182,7 @@ fn main() {
     match matches.value_of("vm-kind") {
         Some("wasmtime") => script.vm_kind(VMKind::Wasmtime),
         Some("wasmer") => script.vm_kind(VMKind::Wasmer0),
-        Some("wasmer1") => script.vm_kind(VMKind::Wasmer1),
+        Some("wasmer2") => script.vm_kind(VMKind::Wasmer2),
         _ => (),
     };
     if let Some(config) = matches.value_of("config") {

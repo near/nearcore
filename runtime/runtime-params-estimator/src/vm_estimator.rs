@@ -306,7 +306,7 @@ pub(crate) fn compute_compile_cost_vm(
 #[allow(dead_code)]
 fn test_compile_cost(metric: GasMetric) {
     compute_compile_cost_vm(metric, VMKind::Wasmer0, true);
-    compute_compile_cost_vm(metric, VMKind::Wasmer1, true);
+    compute_compile_cost_vm(metric, VMKind::Wasmer2, true);
 }
 
 #[test]

@@ -75,13 +75,13 @@ protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
 
 # enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer1_default = ["node-runtime/wasmer1_default"]
+# now if none of wasmer0_default, wasmer2_default or wasmtime_default is enabled, wasmer0 would be default
+wasmer2_default = ["node-runtime/wasmer2_default"]
 wasmer0_default = ["node-runtime/wasmer0_default"]
 wasmtime_default = ["node-runtime/wasmtime_default"]
 # enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
 # but would not change default runner used by neard
-wasmer1_vm = ["node-runtime/wasmer1_vm"]
+wasmer2_vm = ["node-runtime/wasmer2_vm"]
 wasmer0_vm = ["node-runtime/wasmer0_vm"]
 wasmtime_vm = ["node-runtime/wasmtime_vm"]
 sandbox = ["near-client/sandbox", "node-runtime/sandbox", "near-jsonrpc/sandbox"]
