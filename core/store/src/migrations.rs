@@ -840,15 +840,15 @@ pub fn fill_col_outcomes_with_metadata(store: &Store) {
         }
     }
 
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for (key, value) in store.iter(DBCol::ColTransactionResult) {
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value)
             .expect("BorshDeserialize should not fail");
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
             old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
-        let mut store_update = store.store_update();
         store_update
             .set_ser(DBCol::ColTransactionResult, key.as_ref(), &outcomes)
             .expect("BorshSerialize should not fail");
-        store_update.commit().expect("Failed to migrate");
     }
+    store_update.finish().expect("Failed to migrate");
 }
