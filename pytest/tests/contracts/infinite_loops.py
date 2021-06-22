@@ -11,8 +11,8 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_binary_file, compile_rust_contract
 
 nodes = start_cluster(
-    4, 0, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+    4, 0, 1, None,
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 80], ["transaction_validity_period", 10000]], {})
 
 wasm_file = compile_rust_contract(''' metadata! {
   #[near_bindgen]
