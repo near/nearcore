@@ -24,12 +24,8 @@ wasm_file = compile_rust_contract(''' metadata! {
 impl InifiniteLoop {
   pub fn start_loop(&self) {
     loop {
-      env::log(b"hello world")
+      env::log(b"hello world");
     }
-  }
-  
-  pub fn hello(&self) {
-    env::log(b"hello world")
   }
 }
 ''')
@@ -53,16 +49,16 @@ def send_transactions(i, num_tx):
     nonce = 20
     for _ in range(num_tx):
         tx = sign_function_call_tx(nodes[i].signer_key, nodes[0].signer_key.account_id,
-                                    'hello', [], 300000000000, 0, nonce,
+                                    'start_loop', [], 300000000000, 0, nonce,
                                     hash_2)
         nonce += 1
         res = nodes[i].send_tx_and_wait(tx, 20)
         assert 'result' in res, res
-        #assert res['result']['status']['Failure']['ActionError']['kind']['FunctionCallError']['ExecutionError'] == 'Exceeded the prepaid gas.', "result: {}".format(res)
+        assert res['result']['status']['Failure']['ActionError']['kind']['FunctionCallError']['ExecutionError'] == 'Exceeded the prepaid gas.', "result: {}".format(res)
 
 with concurrent.futures.ThreadPoolExecutor() as executor:
     futures = []
     for i in range(len(nodes)):
-        futures.append(executor.submit(send_transactions, i, 10))
+        futures.append(executor.submit(send_transactions, i, 20))
     for future in concurrent.futures.as_completed(futures):
         future.result()
