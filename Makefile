@@ -43,3 +43,11 @@ nightly-debug:
 	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
 	cargo $(RUST_OPTIONS) build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo $(RUST_OPTIONS) build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+
+sandbox:
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --features sandbox
+	mv target/debug/neard target/debug/near-sandbox
+
+sandbox-release:
+	cargo $(RUST_OPTIONS) build -p neard --features sandbox
+	mv target/release/neard target/release/near-sandbox

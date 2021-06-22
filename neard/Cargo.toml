@@ -14,19 +14,22 @@ path = "src/../src/main.rs"
 name = "near"
 
 [dependencies]
-clap = "2.32"
+clap = "=3.0.0-beta.2"
 actix = "=0.11.0-beta.2"
 tracing = "0.1.13"
 git-version = "0.3.1"
 tracing-subscriber = "0.2.4"
 openssl-probe = "0.1.2"
 near-rust-allocator-proxy = { version = "0.2.8", optional = true }
+lazy_static = "1.4"
 
 nearcore = { path = "../nearcore" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [features]
+default = ["json_rpc"]
+
 performance_stats = ["nearcore/performance_stats"]
 memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
@@ -36,6 +39,7 @@ metric_recorder = ["nearcore/metric_recorder"]
 no_cache = ["nearcore/no_cache"]
 delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
+json_rpc = ["nearcore/json_rpc"]
 protocol_feature_evm = ["nearcore/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["nearcore/protocol_feature_block_header_v3"]
@@ -47,6 +51,8 @@ nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["nearcore/protocol_feature_cap_max_gas_price"]
+
+sandbox = ["nearcore/sandbox"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default

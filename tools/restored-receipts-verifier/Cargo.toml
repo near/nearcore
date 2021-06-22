@@ -20,4 +20,3 @@ near-jsonrpc = { path = "../../chain/jsonrpc" }
 protocol_feature_restore_receipts_after_fix = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_restore_receipts_after_fix"]
 nightly_protocol = []
-

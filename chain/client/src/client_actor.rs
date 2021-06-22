@@ -30,6 +30,8 @@ use near_network::recorder::MetricRecorder;
 #[cfg(feature = "adversarial")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan};
+#[cfg(feature = "sandbox")]
+use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 use near_network::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
 };
@@ -292,6 +294,22 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                     _ => panic!("invalid adversary message"),
                 };
+            }
+            #[cfg(feature = "sandbox")]
+            NetworkClientMessages::Sandbox(sandbox_msg) => {
+                return match sandbox_msg {
+                    NetworkSandboxMessage::SandboxPatchState(state) => {
+                        self.client.chain.patch_state(state);
+                        NetworkClientResponses::NoResponse
+                    }
+                    NetworkSandboxMessage::SandboxPatchStateStatus => {
+                        NetworkClientResponses::SandboxResult(
+                            SandboxResponse::SandboxPatchStateFinished(
+                                !self.client.chain.patch_state_in_progress(),
+                            ),
+                        )
+                    }
+                }
             }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
                 self.client.process_tx(transaction, is_forwarded, check_only)
@@ -582,7 +600,12 @@ impl Handler<Status> for ClientActor {
             protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
-            rpc_addr: self.client.config.rpc_addr.clone(),
+            rpc_addr: self
+                .client
+                .config
+                .rpc_addr
+                .as_ref()
+                .map(|addr| addr.clone()),
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),

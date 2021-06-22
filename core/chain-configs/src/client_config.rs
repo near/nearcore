@@ -24,7 +24,7 @@ pub struct ClientConfig {
     /// Chain id for status.
     pub chain_id: String,
     /// Listening rpc port for status.
-    pub rpc_addr: String,
+    pub rpc_addr: Option<String>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
@@ -111,7 +111,7 @@ impl ClientConfig {
         ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
-            rpc_addr: "0.0.0.0:3030".to_string(),
+            rpc_addr: Some("0.0.0.0:3030".to_string()),
             block_production_tracking_delay: Duration::from_millis(std::cmp::max(
                 10,
                 min_block_prod_time / 5,

@@ -75,6 +75,7 @@ fn apply_block_at_height(
             *block.header().random_value(),
             true,
             is_first_block_with_chunk_of_version,
+            None,
         )
         .unwrap();
     let (_, outcome_paths) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -252,6 +253,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             // doesn't really matter here since the old blocks are on the old version
                             false,
                             false,
+                            None,
                         )
                         .unwrap();
                     if !apply_result.outcomes.is_empty() {
@@ -325,6 +327,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
                         *block.header().random_value(),
                         true,
                         false,
+                        None,
                     )
                     .unwrap();
                 if !apply_result.outcomes.is_empty() {
