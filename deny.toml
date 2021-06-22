@@ -80,15 +80,9 @@ skip = [
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
-    # wasmer 1.0 use some older version of crates than wasmtime
-    { name = "cranelift-bforest", version = "=0.68.0" },
-    { name = "cranelift-codegen", version = "=0.68.0" },
-    { name = "cranelift-codegen-meta", version = "=0.68.0" },
-    { name = "cranelift-codegen-shared", version = "=0.68.0" },
-    { name = "cranelift-entity", version = "=0.68.0" },
-    { name = "cranelift-frontend", version = "=0.68.0" },
-    { name = "wasmparser", version = "=0.65.0" },
-    { name = "object", version = "=0.22.0" },
+    # wasmer 2 use a newer version of `which` and `libloading` than rocksdb
+    { name = "which", version = "=3.1.1" },
+    { name = "libloading", version = "=0.5.2" },
 
     # cached uses an older version
     { name = "strsim", version = "=0.9.3" },
