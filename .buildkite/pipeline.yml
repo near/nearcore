@@ -138,3 +138,31 @@ steps:
     timeout: 30
     agents:
     - "distro=amazonlinux"
+
+  - label: "wasm build test"
+    command: |
+      . ~/.cargo/env
+      rustup target add wasm32-unknown-unknown
+      # Disable LTO to speed up builds
+      CARGO_PROFILE_RELEASE_LTO=false; export CARGO_PROFILE_RELEASE_LTO
+      for pkg in \
+          test-utils/logger \
+          integration-tests \
+          pytest/empty-contract-rs \
+          core/metrics \
+          core/primitives-core \
+          tools/rpctypegen/macro \
+          tools/rpctypegen/core \
+          create-near-app/common/contracts/rust \
+          runtime/runtime-params-estimator/small-test-contract \
+          runtime/runtime-params-estimator/test-contract \
+          runtime/near-vm-errors \
+          runtime/near-runtime-utils \
+          runtime/near-test-contracts/tiny-contract-rs \
+          runtime/near-test-contracts/test-contract-rs
+      do
+          ( set -x; cd "$$pkg" && cargo build --target wasm32-unknown-unknown || exit $$? )
+      done
+    timeout: 60
+    agents:
+    - "distro=amazonlinux"
