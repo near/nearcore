@@ -35,7 +35,7 @@ fn main() {
     }
     println!();
 
-    let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+    let nodes: Vec<_> = nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
 
     // Start nodes.
     for i in 0..num_nodes {
