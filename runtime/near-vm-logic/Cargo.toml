@@ -17,7 +17,6 @@ base64 = "0.13"
 borsh = "0.8.1"
 bs58 = "0.4"
 byteorder = "1.2"
-num-integer = "0.1"
 ripemd160 = "0.9.0"
 serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
