@@ -985,19 +985,6 @@ impl<'a> VMLogic<'a> {
         self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
-    /// Returns x / y rounding up to the nearest integer. If the computation overflows
-    /// or the denominator is 0 then `None` is returned.
-    fn div_ceil(x: usize, y: usize) -> Option<usize> {
-        let d = x.checked_div(y)?;
-        let m = x.checked_rem(y)?;
-
-        if m == 0 {
-            Some(d)
-        } else {
-            d.checked_add(1)
-        }
-    }
-
     /// Recovers an ECDSA signer address and returns it into `register_id`.
     ///
     /// Takes in an additional flag to check for malleability of the signature
