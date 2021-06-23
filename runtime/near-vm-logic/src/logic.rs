@@ -972,9 +972,10 @@ impl<'a> VMLogic<'a> {
 
         let message_blocks = value
             .len()
-            .checked_add(9)
-            .and_then(|x| Self::div_ceil(x, 64))
-            .ok_or(VMLogicError::HostError(HostError::IntegerOverflow))?;
+            .checked_add(8)
+            .ok_or(VMLogicError::HostError(HostError::IntegerOverflow))?
+            / 64
+            + 1;
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
