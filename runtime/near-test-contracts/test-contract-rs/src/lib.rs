@@ -335,6 +335,11 @@ pub unsafe fn log_something() {
 }
 
 #[no_mangle]
+pub unsafe fn loop_forever() {
+    loop {}
+}
+
+#[no_mangle]
 pub unsafe fn abort_with_zero() {
     // Tries to abort with 0 ptr to check underflow handling.
     abort(0, 0, 0, 0);

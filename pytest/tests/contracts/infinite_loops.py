@@ -14,28 +14,12 @@ nodes = start_cluster(
     4, 0, 1, None,
     [["epoch_length", 10], ["block_producer_kickout_threshold", 80], ["transaction_validity_period", 10000]], {})
 
-wasm_file = compile_rust_contract(''' metadata! {
-  #[near_bindgen]
-  #[derive(Default, BorshDeserialize, BorshSerialize)]
-  pub struct InifiniteLoop {}
-}
-
-#[near_bindgen]
-impl InifiniteLoop {
-  pub fn start_loop(&self) {
-    loop {
-      env::log(b"hello world");
-    }
-  }
-}
-''')
-
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
 tx = sign_deploy_contract_tx(
     nodes[0].signer_key,
-    load_binary_file(wasm_file), 10, hash_)
+    load_binary_file('../runtime/near-test-contracts/res/test_contract_rs.wasm'), 10, hash_)
 nodes[0].send_tx(tx)
 
 time.sleep(3)
@@ -49,7 +33,7 @@ def send_transactions(i, num_tx):
     nonce = 20
     for _ in range(num_tx):
         tx = sign_function_call_tx(nodes[i].signer_key, nodes[0].signer_key.account_id,
-                                    'start_loop', [], 300000000000, 0, nonce,
+                                    'loop_forever', [], 300000000000, 0, nonce,
                                     hash_2)
         nonce += 1
         res = nodes[i].send_tx_and_wait(tx, 20)
