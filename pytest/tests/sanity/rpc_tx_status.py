@@ -4,6 +4,7 @@ import json
 
 sys.path.append('lib')
 from cluster import start_cluster, Key
+from configured_logger import logger
 from utils import load_binary_file
 import transaction
 
@@ -29,16 +30,16 @@ nodes = start_cluster(
 
 status = nodes[0].get_status()
 block_hash = status['sync_info']['latest_block_hash']
-print("1")
+logger.info("1")
 payment_tx = transaction.sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                                          base58.b58decode(block_hash.encode('utf8')))
 submit_tx_and_check(nodes[0], payment_tx)
 
-print("2")
+logger.info("2")
 deploy_contract_tx = transaction.sign_deploy_contract_tx(nodes[0].signer_key, load_binary_file('../tests/hello.wasm'), 2, base58.b58decode(block_hash.encode('utf8')))
 submit_tx_and_check(nodes[0], deploy_contract_tx)
 
-print("3")
+logger.info("3")
 function_call_tx = transaction.sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id, 'setKeyValue', json.dumps({
     "key": "my_key",
     "value": "my_value_1"

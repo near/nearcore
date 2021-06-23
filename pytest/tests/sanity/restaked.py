@@ -12,6 +12,7 @@ import atexit
 sys.path.append('lib')
 
 from cluster import start_cluster, load_config
+from configured_logger import logger
 
 TIMEOUT = 150
 BLOCKS = 50
@@ -19,7 +20,7 @@ EPOCH_LENGTH = 10
 
 
 def atexit_stop_restaked(pid):
-    print("Cleaning up restaked on script exit")
+    logger.info("Cleaning up restaked on script exit")
     os.kill(pid, signal.SIGKILL)
 
 
@@ -33,7 +34,7 @@ def start_restaked(node_dir, rpc_port, config):
         '--rpc-url=127.0.0.1:%d' % rpc_port, '--wait-period=1'
     ]
     pid = subprocess.Popen(command).pid
-    print("Starting restaked for %s, rpc = 0.0.0.0:%d" % (node_dir, rpc_port))
+    logger.info("Starting restaked for %s, rpc = 0.0.0.0:%d" % (node_dir, rpc_port))
     atexit.register(atexit_stop_restaked, pid)
 
 

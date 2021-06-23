@@ -4,9 +4,10 @@
 # If `no_txs_in_parallel`, no txs will be executed in parallel.
 
 import sys, time
+from configured_logger import logger
 
 if len(sys.argv) < 3:
-    print("python end2end.py <eth2near_tx_number> <near2eth_tx_number> [...]")
+    logger.info("python end2end.py <eth2near_tx_number> <near2eth_tx_number> [...]")
     exit(1)
 
 no_txs_in_same_block = False
@@ -59,4 +60,4 @@ assert exit_codes == [0 for _ in txs]
 bridge.check_balances(alice)
 
 
-print('EPIC')
+logger.info('EPIC')

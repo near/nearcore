@@ -1,0 +1,7 @@
+
+[extra loggers]
+/Users/tensor/space/nearcore/pytest/lib/proxy.py
+
+
+[ctrl + find]
+import logging
