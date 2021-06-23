@@ -1641,6 +1641,7 @@ mod tests {
                     prev_receipts,
                     &[],
                     &epoch_info_provider,
+                    None,
                 )
                 .unwrap();
             let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
