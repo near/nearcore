@@ -999,7 +999,7 @@ impl<'a> VMLogic<'a> {
         &mut self,
         hash_ptr: u64,
         sig_ptr: u64,
-        malleability_flag: u8,
+        malleability_flag: u32,
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(ecrecover_base)?;
