@@ -11,6 +11,7 @@ use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
     account::Account,
     errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
+    checked_feature,
     hash::CryptoHash,
     receipt::{
         ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
@@ -555,10 +556,15 @@ impl Runtime {
             }
         }
 
-        // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_deficit_amount = if receipt.predecessor_id == system_account() {
-            result.gas_burnt = 0;
-            result.gas_used = 0;
+            // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
+            // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
+            // enabled because we want it to be counted in gas limit calculation later
+            if !checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
+                CountRefundReceiptsInGasLimit, apply_state.current_protocol_version) {
+                result.gas_burnt = 0;
+                result.gas_used = 0;
+            }
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.other_burnt_amount = safe_add_balance(
@@ -595,9 +601,15 @@ impl Runtime {
             }
         };
 
+        // If the receipt is a refund, then we consider it free without burnt gas.
+        let gas_burnt: Gas = if receipt.predecessor_id == system_account() {
+            0
+        } else {
+            result.gas_burnt
+        };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
-            safe_gas_to_balance(apply_state.gas_price, result.gas_burnt)? - gas_deficit_amount;
+            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -1209,7 +1221,10 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
-        let mut total_gas_burnt = gas_used_for_migrations;
+        // This contains the gas "burnt" for refund receipts. Even though we don't actually
+        // charge any gas for refund receipts, we still count the gas use towards the block gas
+        // limit
+        let mut total_gas_limit_used = gas_used_for_migrations;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1224,7 +1239,7 @@ impl Runtime {
                 outgoing_receipts.push(receipt);
             }
 
-            total_gas_burnt += outcome_with_id.outcome.gas_burnt;
+            total_gas_limit_used += outcome_with_id.outcome.gas_burnt;
 
             outcomes.push(outcome_with_id);
         }
@@ -1235,7 +1250,7 @@ impl Runtime {
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
-                                   total_gas_burnt: &mut Gas|
+                                   gas_limit_used: &mut Gas|
          -> Result<_, RuntimeError> {
             self.process_receipt(
                 state_update,
@@ -1249,8 +1264,8 @@ impl Runtime {
             .into_iter()
             .try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-                    *total_gas_burnt =
-                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                    *gas_limit_used =
+                        safe_add_gas(*gas_limit_used, outcome_with_id.outcome.gas_burnt)?;
                     outcomes.push(outcome_with_id);
                     Ok(())
                 },
@@ -1262,10 +1277,10 @@ impl Runtime {
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
-            if total_gas_burnt < gas_limit {
+            if total_gas_limit_used < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+                process_receipt(&receipt, &mut state_update, &mut total_gas_limit_used)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1273,7 +1288,7 @@ impl Runtime {
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_gas_burnt >= gas_limit {
+            if total_gas_limit_used >= gas_limit {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
@@ -1297,7 +1312,7 @@ impl Runtime {
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
-            process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            process_receipt(&receipt, &mut state_update, &mut total_gas_limit_used)?;
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
@@ -1306,8 +1321,8 @@ impl Runtime {
             // want to store invalid receipts in state as delayed.
             validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_gas_burnt < gas_limit {
-                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            if total_gas_limit_used < gas_limit {
+                process_receipt(&receipt, &mut state_update, &mut total_gas_limit_used)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1603,6 +1618,54 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_refund_receipts() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let small_transfer = to_yocto(10_000);
+        let gas_limit = 1;
+        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 10;
+        let receipts = generate_refund_receipts(small_transfer, n);
+
+        // Checking n receipts delayed
+        for i in 1..=n + 3 {
+            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let apply_result = runtime
+                .apply(
+                    tries.get_trie_for_shard(0),
+                    root,
+                    &None,
+                    &apply_state,
+                    prev_receipts,
+                    &[],
+                    &epoch_info_provider,
+                )
+                .unwrap();
+            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = tries.new_trie_update(0, root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            // Check that refund receipts are processed relayed if CountRefundReceiptsInGasLimit is enabled,
+            // and otherwise processed all at once
+            let capped_i = if checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
+                CountRefundReceiptsInGasLimit, apply_state.current_protocol_version) {
+                std::cmp::min(i, n)
+            } else {
+                n
+            };
+            assert_eq!(
+                account.amount(),
+                initial_balance
+                    + small_transfer * Balance::from(capped_i)
+                    + Balance::from(capped_i * (capped_i - 1) / 2)
+            );
+        }
+    }
+
+    #[test]
     fn test_apply_delayed_receipts_feed_all_at_once() {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
@@ -1777,6 +1840,19 @@ mod tests {
                         })],
                     }),
                 }
+            })
+            .collect()
+    }
+
+    fn generate_refund_receipts(small_transfer: u128, n:u64) -> Vec<Receipt> {
+        let mut receipt_id = CryptoHash::default();
+        (0..n)
+            .map(|i| {
+                receipt_id = hash(receipt_id.as_ref());
+                Receipt::new_balance_refund(
+                        &alice_account(),
+                        small_transfer + Balance::from(i)
+                    )
             })
             .collect()
     }
