@@ -330,7 +330,7 @@ def test_key_value_changes():
     """
 
     contract_key = nodes[0].signer_key
-    hello_smart_contract = load_binary_file('../tests/hello.wasm')
+    hello_smart_contract = load_binary_file('testdata/hello.wasm')
 
     # Step 1
     status = nodes[0].get_status()
