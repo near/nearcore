@@ -47,7 +47,9 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_math_extension")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_math_extension")]
     fn ecrecover(hash_ptr: u64, sig_ptr: u64, malleability_flag: u8, register_id: u64);
     // #####################
     // # Miscellaneous API #
@@ -430,6 +432,7 @@ pub unsafe fn keccak512_10kib_10k() {
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10b 10k times.
+#[cfg(feature = "protocol_feature_math_extension")]
 #[no_mangle]
 pub unsafe fn ripemd160_10b_10k() {
     let buffer = [65u8; 10];
@@ -441,6 +444,7 @@ pub unsafe fn ripemd160_10b_10k() {
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10kib 10k times.
+#[cfg(feature = "protocol_feature_math_extension")]
 #[no_mangle]
 pub unsafe fn ripemd160_10kib_10k() {
     let buffer = [65u8; 10240];
@@ -453,6 +457,7 @@ pub unsafe fn ripemd160_10kib_10k() {
 // `write_register_byte`. However `ecrecover` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ecrecover 10k times.
+#[cfg(feature = "protocol_feature_math_extension")]
 #[no_mangle]
 pub unsafe fn ecrecover_10k() {
     let hash = [0u8; 32];

@@ -530,6 +530,7 @@ fn test_keccak512() {
     });
 }
 
+#[cfg(feature = "protocol_feature_math_extension")]
 #[test]
 fn test_ripemd160() {
     let mut logic_builder = VMLogicBuilder::default();
@@ -559,6 +560,7 @@ fn test_ripemd160() {
     });
 }
 
+#[cfg(feature = "protocol_feature_math_extension")]
 #[test]
 fn test_ecrecover() {
     let mut logic_builder = VMLogicBuilder::default();

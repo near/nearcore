@@ -107,6 +107,8 @@ pub enum ProtocolFeature {
     RestoreReceiptsAfterFix,
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     CapMaxGasPrice,
+    #[cfg(feature = "protocol_feature_math_extension")]
+    MathExtension,
 }
 
 /// Current latest stable version of the protocol.
@@ -149,6 +151,8 @@ impl ProtocolFeature {
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_cap_max_gas_price")]
             ProtocolFeature::CapMaxGasPrice => 113,
+            #[cfg(feature = "protocol_feature_math_extension")]
+            ProtocolFeature::MathExtension => 114,
         }
     }
 }
