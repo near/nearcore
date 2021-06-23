@@ -25,12 +25,16 @@ pub struct RpcChunkResponse {
     pub chunk_view: near_primitives::views::ChunkView,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcChunkError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("Shard id {shard_id} does not exist")]
     InvalidShardId { shard_id: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
@@ -112,7 +116,7 @@ impl From<actix::MailboxError> for RpcChunkError {
 
 impl From<RpcChunkError> for crate::errors::RpcError {
     fn from(error: RpcChunkError) -> Self {
-        let error_data = match error {
+        let error_data = match error.clone() {
             RpcChunkError::InternalError { .. } => Some(Value::String(error.to_string())),
             RpcChunkError::UnknownBlock { error_message } => Some(Value::String(format!(
                 "DB Not Found Error: {} \n Cause: Unknown",
@@ -126,6 +130,6 @@ impl From<RpcChunkError> for crate::errors::RpcError {
             RpcChunkError::Unreachable { error_message } => Some(Value::String(error_message)),
         };
 
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
     }
 }

@@ -15,9 +15,26 @@ pub struct RpcParseError(pub String);
 #[serde(deny_unknown_fields)]
 pub struct RpcError {
     pub code: i64,
+    #[serde(flatten)]
+    pub error_struct: Option<RpcErrorKind>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(tag = "name", content = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RpcErrorKind {
+    ValidationError(ValidationErrorKind),
+    HandlerError(Value),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ValidationErrorKind {
+    MethodNotFound { method_name: String },
+    InvalidRequest,
+    ParseError { error_message: String },
 }
 
 /// A general Server Error
@@ -34,7 +51,7 @@ impl RpcError {
     ///
     /// Mostly for completeness, doesn't do anything but filling in the corresponding fields.
     pub fn new(code: i64, message: String, data: Option<Value>) -> Self {
-        RpcError { code, message, data }
+        RpcError { code, message, data, error_struct: None }
     }
     /// Create an Invalid Param error.
     pub fn invalid_params(data: impl Serialize) -> Self {
@@ -59,18 +76,67 @@ impl RpcError {
     }
     /// Create an invalid request error.
     pub fn invalid_request() -> Self {
-        RpcError::new(-32_600, "Invalid request".to_owned(), None)
+        RpcError {
+            code: -32_600,
+            message: "Invalid request".to_owned(),
+            data: None,
+            error_struct: Some(RpcErrorKind::ValidationError(ValidationErrorKind::InvalidRequest)),
+        }
     }
     /// Create a parse error.
     pub fn parse_error(e: String) -> Self {
-        RpcError::new(-32_700, "Parse error".to_owned(), Some(Value::String(e)))
+        RpcError {
+            code: -32_700,
+            message: "Parse error".to_owned(),
+            data: Some(Value::String(e.clone())),
+            error_struct: Some(RpcErrorKind::ValidationError(ValidationErrorKind::ParseError {
+                error_message: e,
+            })),
+        }
     }
     pub fn serialization_error(e: String) -> Self {
-        RpcError::new(-32_000, "Server error".to_owned(), Some(Value::String(e)))
+        // handler error
+        RpcError {
+            code: -32_000,
+            message: "Server error".to_owned(),
+            data: Some(Value::String(e.clone())),
+            error_struct: Some(RpcErrorKind::HandlerError(serde_json::json!({
+                "name": "SERIALIZATION_ERROR",
+                "info": serde_json::json!({
+                    "error_message": e
+                })
+            }))),
+        }
+    }
+    pub fn new_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
+        RpcError {
+            code: -32_000,
+            message: "Server error".to_owned(),
+            data: error_data,
+            error_struct: Some(RpcErrorKind::HandlerError(error_struct)),
+        }
+    }
+    pub fn new_validation_error(
+        error_data: Option<Value>,
+        validatation_error_kind: ValidationErrorKind,
+    ) -> Self {
+        RpcError {
+            code: -32_000,
+            message: "Server error".to_owned(),
+            data: error_data,
+            error_struct: Some(RpcErrorKind::ValidationError(validatation_error_kind)),
+        }
     }
     /// Create a method not found error.
     pub fn method_not_found(method: String) -> Self {
-        RpcError::new(-32_601, "Method not found".to_owned(), Some(Value::String(method)))
+        RpcError {
+            code: -32_601,
+            message: "Method not found".to_owned(),
+            data: Some(Value::String(method.clone())),
+            error_struct: Some(RpcErrorKind::ValidationError(
+                ValidationErrorKind::MethodNotFound { method_name: method },
+            )),
+        }
     }
 }
 

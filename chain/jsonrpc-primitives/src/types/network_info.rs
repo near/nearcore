@@ -7,7 +7,8 @@ pub struct RpcNetworkInfoResponse {
     pub network_info_response: near_client_primitives::types::NetworkInfoResponse,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcNetworkInfoError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
@@ -33,8 +34,9 @@ impl From<String> for RpcNetworkInfoError {
 
 impl From<RpcNetworkInfoError> for crate::errors::RpcError {
     fn from(error: RpcNetworkInfoError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(
+            Some(Value::String(error.to_string())),
+            serde_json::to_value(error).unwrap(),
+        )
     }
 }

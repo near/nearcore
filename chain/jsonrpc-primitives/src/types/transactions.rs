@@ -20,7 +20,8 @@ pub enum TransactionInfo {
     },
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
     InvalidTransaction { context: near_primitives::errors::InvalidTxError },
@@ -119,7 +120,8 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
             }
             _ => Value::String(error.to_string()),
         };
-        Self::new(-32_000, "Server error".to_string(), Some(error_data))
+
+        Self::new_handler_error(Some(error_data), serde_json::to_value(error).unwrap())
     }
 }
 

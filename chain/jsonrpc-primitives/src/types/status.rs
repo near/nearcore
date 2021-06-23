@@ -10,7 +10,8 @@ pub struct RpcStatusResponse {
 #[derive(Debug, Serialize)]
 pub struct RpcHealthResponse;
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]
     NodeIsSyncing,
@@ -73,8 +74,9 @@ impl From<actix::MailboxError> for RpcStatusError {
 
 impl From<RpcStatusError> for crate::errors::RpcError {
     fn from(error: RpcStatusError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(
+            Some(Value::String(error.to_string())),
+            serde_json::to_value(error).unwrap(),
+        )
     }
 }

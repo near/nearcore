@@ -27,10 +27,14 @@ pub struct RpcStateChangesInBlockResponse {
     pub changes: near_primitives::views::StateChangesKindsView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -101,9 +105,10 @@ impl From<near_client_primitives::types::GetStateChangesError> for RpcStateChang
 
 impl From<RpcStateChangesError> for crate::errors::RpcError {
     fn from(error: RpcStateChangesError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(
+            Some(Value::String(error.to_string())),
+            serde_json::to_value(error).unwrap(),
+        )
     }
 }
 

@@ -9,10 +9,17 @@ pub enum BlockReference {
     SyncCheckpoint(near_primitives::types::SyncCheckpoint),
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcBlockError {
     #[error("Block not found: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        // We are skipping this field for now
+        // until we can provide useful struct like block_height or block_hash
+        // that was requested
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -81,7 +88,7 @@ impl From<actix::MailboxError> for RpcBlockError {
 
 impl From<RpcBlockError> for crate::errors::RpcError {
     fn from(error: RpcBlockError) -> Self {
-        let error_data = match error {
+        let error_data = match error.clone() {
             RpcBlockError::UnknownBlock { error_message } => Some(Value::String(format!(
                 "DB Not Found Error: {} \n Cause: Unknown",
                 error_message
@@ -92,7 +99,7 @@ impl From<RpcBlockError> for crate::errors::RpcError {
             }
         };
 
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
     }
 }
 

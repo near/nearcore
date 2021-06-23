@@ -818,9 +818,11 @@ impl JsonRpcHandler {
             Some(receipt_view) => {
                 Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
             }
-            None => Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt(
-                request_data.receipt_reference.receipt_id,
-            )),
+            None => {
+                Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt {
+                    receipt_id: request_data.receipt_reference.receipt_id,
+                })
+            }
         }
     }
 

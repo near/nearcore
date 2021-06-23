@@ -15,12 +15,16 @@ pub struct RpcGasPriceResponse {
     pub gas_price_view: near_primitives::views::GasPriceView,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcGasPriceError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
     // expected cases, we cannot statically guarantee that no other errors will be returned
     // in the future.
@@ -58,7 +62,7 @@ impl From<actix::MailboxError> for RpcGasPriceError {
 
 impl From<RpcGasPriceError> for crate::errors::RpcError {
     fn from(error: RpcGasPriceError) -> Self {
-        let error_data = match error {
+        let error_data = match error.clone() {
             RpcGasPriceError::UnknownBlock { error_message } => Some(Value::String(format!(
                 "DB Not Found Error: {} \n Cause: Unknown",
                 error_message
@@ -67,7 +71,7 @@ impl From<RpcGasPriceError> for crate::errors::RpcError {
             RpcGasPriceError::Unreachable { error_message } => Some(Value::String(error_message)),
         };
 
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
     }
 }
 

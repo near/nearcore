@@ -27,10 +27,14 @@ pub struct RpcLightClientNextBlockResponse {
     pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
     InconsistentState {
         number_or_shards: usize,
@@ -55,12 +59,16 @@ pub enum RpcLightClientProofError {
     Unreachable { error_message: String },
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -194,21 +202,22 @@ impl From<actix::MailboxError> for RpcLightClientNextBlockError {
 
 impl From<RpcLightClientProofError> for crate::errors::RpcError {
     fn from(error: RpcLightClientProofError) -> Self {
-        let error_data = match error {
+        let error_data = match error.clone() {
             RpcLightClientProofError::UnknownBlock { error_message } => {
                 Some(Value::String(format!("DB Not Found Error: {}", error_message)))
             }
             _ => Some(Value::String(error.to_string())),
         };
 
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
     }
 }
 
 impl From<RpcLightClientNextBlockError> for crate::errors::RpcError {
     fn from(error: RpcLightClientNextBlockError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        Self::new_handler_error(
+            Some(Value::String(error.to_string())),
+            serde_json::to_value(error).unwrap(),
+        )
     }
 }
