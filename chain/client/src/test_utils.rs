@@ -965,6 +965,7 @@ pub fn setup_client_with_runtime(
     });
     let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
     config.epoch_length = chain_genesis.epoch_length;
+    config.tracked_shards = vec![0];
     let mut client = Client::new(
         config,
         chain_genesis,

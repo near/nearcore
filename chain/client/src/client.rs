@@ -694,6 +694,7 @@ impl Client {
                 Err(e) => return (vec![], Err(e)),
             }
         }
+        println!("not dropped!");
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));

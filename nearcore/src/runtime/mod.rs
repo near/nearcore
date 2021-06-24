@@ -147,6 +147,7 @@ impl NightshadeRuntime {
         initial_tracking_shards: Vec<ShardId>,
         trie_viewer_state_size_limit: Option<u64>,
     ) -> Self {
+        println!("ITH: {:?}", initial_tracking_shards);
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new_with_state_size_limit(trie_viewer_state_size_limit);
         let genesis_config = genesis.config.clone();

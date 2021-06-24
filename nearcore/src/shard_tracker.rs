@@ -54,11 +54,13 @@ impl ShardTracker {
             acc.entry(shard_id).or_insert_with(HashSet::new).insert(x);
             acc
         });
+        println!("SHARDS: {:?}", shards);
         let tracked_shards: HashSet<_> = shards.into_iter().collect();
         let mut actual_tracked_shards = tracked_shards.clone();
         for (shard_id, _) in tracked_accounts.iter() {
             actual_tracked_shards.insert(*shard_id);
         }
+        println!("TRACKING: {:?}", actual_tracked_shards);
         info!(target: "runtime", "Tracking shards: {:?}", actual_tracked_shards);
         ShardTracker {
             tracked_accounts,
@@ -183,7 +185,9 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
+        println!("ACTUAL: {:?}", self.actual_tracked_shards);
         if let Some(account_id) = account_id {
+            println!("!");
             let account_cares_about_shard = {
                 let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
                 epoch_manager

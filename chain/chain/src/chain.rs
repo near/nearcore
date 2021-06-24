@@ -2783,12 +2783,15 @@ impl<'a> ChainUpdate<'a> {
         {
             let shard_id = shard_id as ShardId;
             let care_about_shard = match mode {
-                ApplyChunksMode::ThisEpoch => self.runtime_adapter.cares_about_shard(
-                    me.as_ref(),
-                    &block.header().prev_hash(),
-                    shard_id,
-                    true,
-                ),
+                ApplyChunksMode::ThisEpoch => {
+                    println!("THIS EPOCH");
+                    self.runtime_adapter.cares_about_shard(
+                        me.as_ref(),
+                        &block.header().prev_hash(),
+                        shard_id,
+                        true,
+                    )
+                },
                 ApplyChunksMode::NextEpoch => {
                     self.runtime_adapter.will_care_about_shard(
                         me.as_ref(),
@@ -2803,6 +2806,7 @@ impl<'a> ChainUpdate<'a> {
                     )
                 }
             };
+            println!("care_about_shard = {}", care_about_shard);
             if care_about_shard {
                 if chunk_header.height_included() == block.header().height() {
                     // Validate state root.

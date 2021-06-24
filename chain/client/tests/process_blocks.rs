@@ -3211,7 +3211,7 @@ mod contract_precompilation_tests {
                     store.clone(),
                     &genesis,
                     vec![],
-                    vec![],
+                    vec![0],
                     None,
                 ))
             })
@@ -3221,7 +3221,11 @@ mod contract_precompilation_tests {
 
         let mut env =
             TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
-        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+        for j in 0..num_clients {
+            println!("{:?}", env.clients[j].config.tracked_shards);
+            env.clients[j].config.tracked_shards = vec![0];
+        }
+        let genesis_block_hash = env.clients[0].chain.get_block_by_height(0).unwrap().hash().clone();
         let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
 
         // Deploy contract to test0.
@@ -3232,13 +3236,14 @@ mod contract_precompilation_tests {
             "test0".to_string(),
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })],
-            *genesis_block.hash(),
+            genesis_block_hash.clone(),
         );
         env.clients[0].process_tx(tx, false, false);
         let mut blocks = Vec::new();
         for i in 1..=epoch_length {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
             blocks.push(block.clone());
+
             env.process_block(0, block.clone(), Provenance::PRODUCED);
             env.process_block(1, block, Provenance::NONE);
         }
@@ -3275,5 +3280,56 @@ mod contract_precompilation_tests {
                     panic!("Compilation result should be non-empty for client {}", i)
                 });
         }
+
+        let gas_1 = 9_000_000_000_000;
+        let gas_2 = gas_1 / 3;
+        let data = serde_json::json!([
+            {"create": {
+            "account_id": "test0",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": gas_2,
+            }, "id": 0 }
+        ]);
+
+        println!("111111");
+
+        let signed_transaction = SignedTransaction::from_actions(
+            2,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&data).unwrap(),
+                gas: gas_1,
+                deposit: 0,
+            })],
+            genesis_block_hash,
+        );
+
+        let tx_hash = signed_transaction.get_hash();
+        env.clients[0].process_tx(signed_transaction, false, false);
+
+        for j in 0..num_clients {
+            println!("{:?}", env.clients[j].config.tracked_shards);
+            env.clients[j].config.tracked_shards = vec![0];
+        }
+
+        for i in epoch_length..5*epoch_length {
+            let block = env.clients[0].produce_block(i).unwrap();
+            println!("{} {}", i, block.is_some());
+            if let Some(block) = block {
+                println!("CLIENT 0");
+                env.process_block(0, block.clone(), Provenance::PRODUCED);
+                println!("CLIENT 1");
+                env.process_block(1, block, Provenance::NONE);
+            }
+        }
+
+        let final_outcome = env.clients[1].chain.get_final_transaction_result(&tx_hash).unwrap();
+        assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+        println!("{:?}", final_outcome);
     }
 }

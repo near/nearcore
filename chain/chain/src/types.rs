@@ -521,6 +521,7 @@ pub trait RuntimeAdapter: Send + Sync {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
+        println!("apply: {:?}", transactions);
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
