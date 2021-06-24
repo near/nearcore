@@ -1,5 +1,5 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
+use borsh::BorshSerialize;
+use serde::Serialize;
 use std::hash::Hash;
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
