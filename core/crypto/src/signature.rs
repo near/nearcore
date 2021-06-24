@@ -592,7 +592,7 @@ impl Secp256K1Signature {
         let recoverable_sig = secp256k1::RecoverableSignature::from_compact(
             &SECP256K1,
             &self.0[0..64],
-            secp256k1::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
+            secp256k1::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
         )
         .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
             error_message: err.to_string(),
