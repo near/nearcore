@@ -120,7 +120,7 @@ nodes = start_cluster(
 
 # deploy a smart contract for testing
 contract_key = nodes[0].signer_key
-hello_smart_contract = load_binary_file('../tests/hello.wasm')
+hello_smart_contract = load_binary_file('testdata/hello.wasm')
 
 status = nodes[0].get_status()
 latest_block_hash = status['sync_info']['latest_block_hash']
