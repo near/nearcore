@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
-#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
 pub enum VMKind {
     /// Wasmer 0.17.x VM.
     Wasmer0 = 0,
