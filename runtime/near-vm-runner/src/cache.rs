@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
     Version1 {
         code_hash: CryptoHash,
