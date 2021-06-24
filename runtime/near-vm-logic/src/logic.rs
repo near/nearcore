@@ -1028,7 +1028,7 @@ impl<'a> VMLogic<'a> {
             return Ok(true as u64);
         };
 
-        return Ok(false as u64);
+        Ok(false as u64)
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
