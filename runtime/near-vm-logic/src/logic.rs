@@ -1024,7 +1024,7 @@ impl<'a> VMLogic<'a> {
 
             match v {
                 0 | 1 | 2 | 3 => {
-                    bytes[65] = v as u8;
+                    bytes[64] = v as u8;
                     Secp256K1Signature::from(bytes)
                 }
                 _ => {
