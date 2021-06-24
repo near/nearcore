@@ -1005,7 +1005,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// `base + write_register_base + write_register_byte * 20 + ecrecover_base`
+    /// `base + write_register_base + write_register_byte * 64 + ecrecover_base`
     #[cfg(feature = "protocol_feature_math_extension")]
     pub fn ecrecover(
         &mut self,
