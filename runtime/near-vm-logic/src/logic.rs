@@ -1011,16 +1011,28 @@ impl<'a> VMLogic<'a> {
         &mut self,
         hash_ptr: u64,
         sig_ptr: u64,
-        malleability_flag: u32,
+        v: u64,
+        malleability_flag: u64,
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
         let signature = {
-            let vec = self.get_vec_from_memory_or_register(sig_ptr, 65)?;
+            let vec = self.get_vec_from_memory_or_register(sig_ptr, 64)?;
             let mut bytes = [0u8; 65];
-            bytes.copy_from_slice(&vec);
-            Secp256K1Signature::from(bytes)
+            bytes[0..64].copy_from_slice(&vec);
+
+            match v {
+                0 | 1 | 2 | 3 => {
+                    bytes[65] = v as u8;
+                    Secp256K1Signature::from(bytes)
+                }
+                _ => {
+                    return Err(VMLogicError::HostError(HostError::InvalidECRecoverVByte {
+                        value: v as u64,
+                    }))
+                }
+            }
         };
 
         let hash = {

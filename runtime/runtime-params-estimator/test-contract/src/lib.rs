@@ -50,7 +50,7 @@ extern "C" {
     #[cfg(feature = "protocol_feature_math_extension")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
     #[cfg(feature = "protocol_feature_math_extension")]
-    fn ecrecover(hash_ptr: u64, sig_ptr: u64, malleability_flag: u8, register_id: u64);
+    fn ecrecover(hash_ptr: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64);
     // #####################
     // # Miscellaneous API #
     // #####################
