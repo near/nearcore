@@ -992,6 +992,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// Returns a bool indicating success or failure as a `u64`.
     ///
+    /// # Malleability Flags
+    ///
+    /// 0 - No malleability check.
+    /// 1 - Check malleability.
+    /// 2 - Rejecting upper range.
+    ///
     /// # Errors
     ///
     /// * If `hash_ptr`, `r_ptr`, or `s_ptr` point outside the memory or the registers use more
@@ -1017,8 +1023,8 @@ impl<'a> VMLogic<'a> {
         let mut hash_bytes = [0u8; 32];
         self.memory_get_into(hash_ptr, &mut hash_bytes)?;
 
-        if malleability_flag == 1 {
-            if !signature.check_signature_values() {
+        if (malleability_flag & 1) == 1 {
+            if !signature.check_signature_values((malleability_flag & 2) == 2) {
                 return Ok(false as u64);
             }
         }

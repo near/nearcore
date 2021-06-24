@@ -559,16 +559,7 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
 pub struct Secp256K1Signature([u8; 65]);
 
 impl Secp256K1Signature {
-    fn check_v(&self) -> Result<u8, crate::errors::ParseSignatureError> {
-        match self.0[64] {
-            27 | 28 => Ok(self.0[64] - 27),
-            _ => Err(crate::errors::ParseSignatureError::InvalidData {
-                error_message: "invalid `v` value".to_string(),
-            }),
-        }
-    }
-
-    pub fn check_signature_values(&self) -> bool {
+    pub fn check_signature_values(&self, reject_upper: bool) -> bool {
         let mut r_bytes = [0u8; 32];
         r_bytes.copy_from_slice(&self.0[0..32]);
         let r = U256::from(r_bytes);
@@ -576,11 +567,6 @@ impl Secp256K1Signature {
         let mut s_bytes = [0u8; 32];
         s_bytes.copy_from_slice(&self.0[32..64]);
         let s = U256::from(s_bytes);
-
-        let _v = match self.check_v() {
-            Ok(v) => v,
-            Err(_e) => return false,
-        };
 
         if r.is_zero() || s.is_zero() {
             return false;
@@ -592,10 +578,12 @@ impl Secp256K1Signature {
             0xd0, 0x36, 0x41, 0x41,
         ]);
 
-        let secp256k1_half_n = secp256k1_n / U256::from(2);
-        // Reject upper range of s values (ECDSA malleability)
-        if s > secp256k1_half_n {
-            return false;
+        if reject_upper {
+            let secp256k1_half_n = secp256k1_n / U256::from(2);
+            // Reject upper range of s values (ECDSA malleability)
+            if s > secp256k1_half_n {
+                return false;
+            }
         }
 
         r < secp256k1_n && s < secp256k1_n
@@ -605,16 +593,14 @@ impl Secp256K1Signature {
         &self,
         msg: [u8; 32],
     ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
-        let v = self.check_v()?;
-
-        // This can't fail because of the check above. It will fall in range.
-        let recover_id = secp256k1::RecoveryId::from_i32(i32::from(v)).unwrap();
-
-        let recoverable_sig =
-            secp256k1::RecoverableSignature::from_compact(&SECP256K1, &self.0[0..64], recover_id)
-                .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
-                error_message: err.to_string(),
-            })?;
+        let recoverable_sig = secp256k1::RecoverableSignature::from_compact(
+            &SECP256K1,
+            &self.0[0..64],
+            secp256k1::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
+        )
+        .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+            error_message: err.to_string(),
+        })?;
         let msg = Message::from(msg);
 
         let res = SECP256K1
