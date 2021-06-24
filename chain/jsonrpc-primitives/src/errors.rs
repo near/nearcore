@@ -43,7 +43,6 @@ pub enum RpcRequestValidationErrorKind {
 
 /// A general Server Error
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
-#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,

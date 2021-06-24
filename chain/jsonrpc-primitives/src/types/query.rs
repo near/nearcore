@@ -248,7 +248,8 @@ impl From<near_primitives::views::QueryResponseKind> for QueryResponseKind {
 
 impl From<RpcQueryError> for crate::errors::RpcError {
     fn from(error: RpcQueryError) -> Self {
-        let error_data = match serde_json::to_value(error) {
+        let error_data = Some(serde_json::Value::String(error.to_string()));
+        let error_data_value = match serde_json::to_value(error) {
             Ok(value) => value,
             Err(_err) => {
                 return Self::new_internal_error(
@@ -257,7 +258,7 @@ impl From<RpcQueryError> for crate::errors::RpcError {
                 )
             }
         };
-        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
+        Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }
 
