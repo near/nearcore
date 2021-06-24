@@ -166,9 +166,16 @@ pub(super) struct RunCmd {
     /// Set this to false to only produce blocks when there are txs or receipts (default true).
     #[clap(long)]
     produce_empty_blocks: Option<bool>,
-    /// Customize RPC listening address (useful for running multiple nodes on the same machine).
+    /// Customize RPC listening address (useful for running multiple nodes on
+    /// the same machine).  Ignored if ‘--disable-rpc’ is given.
+    #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
+    /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
+    /// RPC endpoint.
+    #[clap(long)]
+    #[allow(dead_code)]
+    disable_rpc: bool,
     /// Customize telemetry url.
     #[clap(long)]
     telemetry_url: Option<String>,
@@ -199,8 +206,11 @@ impl RunCmd {
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.addr = Some(network_addr);
         }
-        if let Some(rpc_addr) = self.rpc_addr {
-            near_config.rpc_config.addr = rpc_addr;
+        #[cfg(feature = "json_rpc")]
+        if self.disable_rpc {
+            near_config.rpc_config = None;
+        } else if let Some(rpc_addr) = self.rpc_addr {
+            near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
         }
         if let Some(telemetry_url) = self.telemetry_url {
             if !telemetry_url.is_empty() {
