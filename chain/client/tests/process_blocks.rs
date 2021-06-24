@@ -3192,6 +3192,11 @@ mod contract_precompilation_tests {
     use near_primitives::types::CompiledContractCache;
     use near_store::{Store, StoreCompiledContractCache};
     use near_vm_runner::{get_contract_cache_key, VMKind};
+    use testlib::runtime_utils::get_test_trie_viewer;
+    use near_primitives::views::ViewApplyState;
+    #[cfg(feature = "protocol_feature_evm")]
+    use nearcore::config::TESTNET_EVM_CHAIN_ID;
+    use near_primitives::test_utils::MockEpochInfoProvider;
 
     /// Deploys test contract to the first client, perform state sync for the second client and
     /// check existence of contract in both caches.
@@ -3243,7 +3248,7 @@ mod contract_precompilation_tests {
             env.process_block(1, block, Provenance::NONE);
         }
 
-        for i in 1..epoch_length {
+        for i in 1..=epoch_length {
             let sync_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
             let sync_hash = *sync_block.hash();
             let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
@@ -3259,21 +3264,51 @@ mod contract_precompilation_tests {
                 .unwrap();
         }
 
+        let caches: Vec<Arc<StoreCompiledContractCache>> =
+            stores.iter().map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() })).collect();
+
         for i in 0..num_clients {
-            let compiled_contract_cache =
-                Arc::new(StoreCompiledContractCache { store: stores[i].clone() });
+            // let compiled_contract_cache =
+            //     Arc::new(StoreCompiledContractCache { store: stores[i].clone() });
             let contract_code = ContractCode::new(wasm_code.clone(), None);
             let key = get_contract_cache_key(
                 &contract_code,
                 VMKind::default(),
                 &genesis_config.runtime_config.wasm_config,
             );
-            compiled_contract_cache
+            caches[i]
                 .get(&key.0)
                 .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
                 .unwrap_or_else(|| {
                     panic!("Compilation result should be non-empty for client {}", i)
                 });
         }
+
+        let (viewer, root) = get_test_trie_viewer();
+
+        let mut logs = vec![];
+        let last_block = blocks.last().unwrap();
+        let view_state = ViewApplyState {
+            block_height: epoch_length,
+            prev_block_hash: last_block.header().prev_hash().clone(),
+            block_hash: last_block.hash().clone(),
+            epoch_id: last_block.header().epoch_id().clone(),
+            epoch_height: 1,
+            block_timestamp: last_block.header().raw_timestamp(),
+            current_protocol_version: PROTOCOL_VERSION,
+            cache: Some(caches[1].clone()),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
+        };
+        let result = viewer.call_function(
+            root,
+            view_state,
+            &AccountId::from("test0"),
+            "call_promise",
+            &[],
+            &mut logs,
+            &MockEpochInfoProvider::default(),
+        ).unwrap();
+        println!("{:?}", result);
     }
 }
