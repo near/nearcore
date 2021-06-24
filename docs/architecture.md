@@ -105,6 +105,8 @@ In `VMLogic`, interaction with NEAR blockchain happens in the following two ways
 This function essentially spins up the vm and executes some function in a contract.
 It supports different wasm compilers includeing wasmer0, wasmer1, and wasmtime through compile-time feature flags.
 However, currently we only use wasmer0 in production.
+The `imports` module exposes host functions defined in `near-vm-logic` to WASM code. 
+In other words, it defines the ABI of the contracts on NEAR.
 
 ### `neard`
 
