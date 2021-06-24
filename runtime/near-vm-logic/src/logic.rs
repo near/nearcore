@@ -1016,9 +1016,6 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
-        let mut signature_bytes = [0u8; 65];
-        self.memory_get_into(sig_ptr, &mut signature_bytes)?;
-
         let signature = {
             let vec = self.get_vec_from_memory_or_register(sig_ptr, 65)?;
             let mut bytes = [0u8; 65];
