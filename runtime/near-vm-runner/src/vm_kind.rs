@@ -5,11 +5,13 @@ use std::hash::Hash;
 #[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum VMKind {
     /// Wasmer 0.17.x VM.
-    Wasmer0,
+    Wasmer0 = 0,
     /// Wasmtime VM.
-    Wasmtime,
+    Wasmtime = 1,
     /// Wasmer 1.x VM.
-    Wasmer2,
+    // Wasmer1 = 2,
+    //  Wasmer 2.x VM,
+    Wasmer2 = 3,
 }
 
 impl Default for VMKind {

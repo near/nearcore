@@ -295,7 +295,7 @@ impl Wasmer2Config {
 }
 
 const WASMER2_CONFIG: Wasmer2Config =
-    Wasmer2Config { seed: 53, use_cranelift: false, use_native_engine: false };
+    Wasmer2Config { seed: 54, use_cranelift: false, use_native_engine: false };
 
 pub(crate) fn wasmer2_vm_hash() -> u64 {
     WASMER2_CONFIG.config_hash()
