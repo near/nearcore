@@ -61,12 +61,6 @@ pub enum RpcQueryError {
     },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -200,13 +194,13 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
                 block_height,
                 block_hash,
             } => Self::ContractExecutionError { vm_error, block_height, block_hash },
-            near_client_primitives::types::QueryError::Unreachable { error_message } => {
+            near_client_primitives::types::QueryError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcQueryError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
             near_client_primitives::types::QueryError::TooLargeContractState {
                 contract_account_id,
@@ -254,11 +248,16 @@ impl From<near_primitives::views::QueryResponseKind> for QueryResponseKind {
 
 impl From<RpcQueryError> for crate::errors::RpcError {
     fn from(error: RpcQueryError) -> Self {
-        Self::new_handler_error(
-            Some(Value::String(error.to_string())),
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcQueryError".to_string(),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }
 

@@ -13,12 +13,6 @@ pub enum RpcValidatorError {
     ValidatorInfoUnavailable,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -50,13 +44,15 @@ impl From<near_client_primitives::types::GetValidatorInfoError> for RpcValidator
             near_client_primitives::types::GetValidatorInfoError::IOError(error_message) => {
                 Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetValidatorInfoError::Unreachable(error_message) => {
+            near_client_primitives::types::GetValidatorInfoError::Unreachable(
+                ref error_message,
+            ) => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcValidatorError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -97,16 +93,19 @@ impl From<RpcValidatorError> for crate::errors::RpcError {
             RpcValidatorError::ValidatorInfoUnavailable => {
                 Some(Value::String(format!("Validator info unavailable")))
             }
-            RpcValidatorError::Unreachable { error_message } => {
-                Some(Value::String(error_message.clone()))
-            }
             RpcValidatorError::InternalError { .. } => Some(Value::String(error.to_string())),
         };
 
-        Self::new_handler_error(
-            error_data,
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        let error_data_value = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcValidatorError".to_string(),
+                )
+            }
+        };
+
+        Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }

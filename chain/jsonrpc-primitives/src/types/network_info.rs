@@ -1,5 +1,4 @@
 use serde::Serialize;
-use serde_json::Value;
 
 #[derive(Serialize, Debug)]
 pub struct RpcNetworkInfoResponse {
@@ -34,10 +33,15 @@ impl From<String> for RpcNetworkInfoError {
 
 impl From<RpcNetworkInfoError> for crate::errors::RpcError {
     fn from(error: RpcNetworkInfoError) -> Self {
-        Self::new_handler_error(
-            Some(Value::String(error.to_string())),
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcNetworkInfoError".to_string(),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }

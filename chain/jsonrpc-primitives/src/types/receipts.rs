@@ -25,12 +25,6 @@ pub enum RpcReceiptError {
     InternalError { error_message: String },
     #[error("Receipt with id {receipt_id} has never been observed on this node")]
     UnknownReceipt { receipt_id: near_primitives::hash::CryptoHash },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 impl From<ReceiptReference> for near_client_primitives::types::GetReceipt {
@@ -55,13 +49,13 @@ impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
             near_client_primitives::types::GetReceiptError::UnknownReceipt(hash) => {
                 Self::UnknownReceipt { receipt_id: hash }
             }
-            near_client_primitives::types::GetReceiptError::Unreachable(error_message) => {
+            near_client_primitives::types::GetReceiptError::Unreachable(ref error_message) => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcReceiptError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -75,10 +69,15 @@ impl From<actix::MailboxError> for RpcReceiptError {
 
 impl From<RpcReceiptError> for crate::errors::RpcError {
     fn from(error: RpcReceiptError) -> Self {
-        Self::new_handler_error(
-            Some(Value::String(error.to_string())),
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcReceiptError".to_string(),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }

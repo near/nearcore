@@ -62,13 +62,13 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
             near_client_primitives::types::GetBlockError::IOError { error_message } => {
                 Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetBlockError::Unreachable { error_message } => {
+            near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcBlockError"],
                 );
-                Self::InternalError { error_message: error_message.to_string() }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -92,11 +92,17 @@ impl From<RpcBlockError> for crate::errors::RpcError {
             }
         };
 
-        Self::new_internal_or_handler_error(
-            error_data,
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        let error_data_value = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcBlockError".to_string(),
+                )
+            }
+        };
+
+        Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }
 

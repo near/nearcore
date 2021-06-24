@@ -28,14 +28,14 @@ pub struct RpcError {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(tag = "name", content = "cause", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcErrorKind {
-    ValidationError(ValidationErrorKind),
+    RequestValidationError(RpcRequestValidationErrorKind),
     HandlerError(Value),
     InternalError(Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ValidationErrorKind {
+pub enum RpcRequestValidationErrorKind {
     MethodNotFound { method_name: String },
     InvalidRequest,
     ParseError { error_message: String },
@@ -43,6 +43,7 @@ pub enum ValidationErrorKind {
 
 /// A general Server Error
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, near_rpc_error_macro::RpcError)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
@@ -57,7 +58,9 @@ impl RpcError {
     pub fn new(code: i64, message: String, data: Option<Value>) -> Self {
         RpcError { code, message, data, error_struct: None }
     }
+
     /// Create an Invalid Param error.
+    #[cfg(feature = "adversarial")]
     pub fn invalid_params(data: impl Serialize) -> Self {
         let value = match to_value(data) {
             Ok(value) => value,
@@ -70,7 +73,9 @@ impl RpcError {
         };
         RpcError::new(-32_602, "Invalid params".to_owned(), Some(value))
     }
+
     /// Create a server error.
+    #[cfg(feature = "adversarial")]
     pub fn server_error<E: Serialize>(e: Option<E>) -> Self {
         RpcError::new(
             -32_000,
@@ -78,58 +83,46 @@ impl RpcError {
             e.map(|v| to_value(v).expect("Must be representable in JSON")),
         )
     }
-    /// Create an invalid request error.
-    pub fn invalid_request() -> Self {
-        RpcError {
-            code: -32_600,
-            message: "Invalid request".to_owned(),
-            data: None,
-            error_struct: Some(RpcErrorKind::ValidationError(ValidationErrorKind::InvalidRequest)),
-        }
-    }
+
     /// Create a parse error.
     pub fn parse_error(e: String) -> Self {
         RpcError {
             code: -32_700,
             message: "Parse error".to_owned(),
             data: Some(Value::String(e.clone())),
-            error_struct: Some(RpcErrorKind::ValidationError(ValidationErrorKind::ParseError {
-                error_message: e,
-            })),
+            error_struct: Some(RpcErrorKind::RequestValidationError(
+                RpcRequestValidationErrorKind::ParseError { error_message: e },
+            )),
         }
     }
+
     pub fn serialization_error(e: String) -> Self {
-        RpcError {
-            code: -32_000,
-            message: "Server error".to_owned(),
-            data: Some(Value::String(e.clone())),
-            error_struct: Some(RpcErrorKind::InternalError(serde_json::json!({
-                "name": "SERIALIZATION_ERROR",
-                "info": serde_json::json!({
-                    "error_message": e
-                })
-            }))),
-        }
+        RpcError::new_internal_error(Some(Value::String(e.clone())), e)
     }
 
     /// Helper method to define extract INTERNAL_ERROR in separate RpcErrorKind
     /// Returns HANDLER_ERROR if the error is not internal one
     pub fn new_internal_or_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
         if error_struct["name"] == "INTERNAL_ERROR" {
-            Self::new_internal_error(error_data, error_struct["info"].clone())
+            Self::new_internal_error(error_data, error_struct["info"]["error_message"].to_string())
         } else {
             Self::new_handler_error(error_data, error_struct)
         }
     }
-    pub fn new_internal_error(error_data: Option<Value>, info: Value) -> Self {
+
+    pub fn new_internal_error(error_data: Option<Value>, info: String) -> Self {
         RpcError {
             code: -32_000,
             message: "Server error".to_owned(),
             data: error_data,
-            error_struct: Some(RpcErrorKind::InternalError(info)),
+            error_struct: Some(RpcErrorKind::InternalError(serde_json::json!({
+                "name": "INTERNAL_ERROR",
+                "info": serde_json::json!({"error_message": info})
+            }))),
         }
     }
-    pub fn new_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
+
+    fn new_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
         RpcError {
             code: -32_000,
             message: "Server error".to_owned(),
@@ -137,25 +130,27 @@ impl RpcError {
             error_struct: Some(RpcErrorKind::HandlerError(error_struct)),
         }
     }
+
     pub fn new_validation_error(
         error_data: Option<Value>,
-        validatation_error_kind: ValidationErrorKind,
+        validatation_error_kind: RpcRequestValidationErrorKind,
     ) -> Self {
         RpcError {
             code: -32_000,
             message: "Server error".to_owned(),
             data: error_data,
-            error_struct: Some(RpcErrorKind::ValidationError(validatation_error_kind)),
+            error_struct: Some(RpcErrorKind::RequestValidationError(validatation_error_kind)),
         }
     }
+
     /// Create a method not found error.
     pub fn method_not_found(method: String) -> Self {
         RpcError {
             code: -32_601,
             message: "Method not found".to_owned(),
             data: Some(Value::String(method.clone())),
-            error_struct: Some(RpcErrorKind::ValidationError(
-                ValidationErrorKind::MethodNotFound { method_name: method },
+            error_struct: Some(RpcErrorKind::RequestValidationError(
+                RpcRequestValidationErrorKind::MethodNotFound { method_name: method },
             )),
         }
     }
@@ -175,7 +170,7 @@ impl From<actix::MailboxError> for RpcError {
 
 impl From<crate::errors::RpcParseError> for RpcError {
     fn from(parse_error: crate::errors::RpcParseError) -> Self {
-        Self::invalid_params(parse_error.0)
+        Self::parse_error(parse_error.0)
     }
 }
 
@@ -207,6 +202,15 @@ impl From<actix::MailboxError> for ServerError {
 
 impl From<ServerError> for RpcError {
     fn from(e: ServerError) -> RpcError {
-        RpcError::server_error(Some(e))
+        let error_data = match to_value(e) {
+            Ok(value) => value,
+            Err(_err) => {
+                return RpcError::new_internal_error(
+                    None,
+                    "Failed to serialize ServerError".to_string(),
+                )
+            }
+        };
+        RpcError::new_handler_error(Some(error_data.clone()), error_data)
     }
 }

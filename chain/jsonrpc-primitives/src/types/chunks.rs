@@ -39,12 +39,6 @@ pub enum RpcChunkError {
     InvalidShardId { shard_id: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 impl From<ChunkReference> for near_client_primitives::types::GetChunk {
@@ -96,13 +90,13 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
             near_client_primitives::types::GetChunkError::UnknownChunk { chunk_hash } => {
                 Self::UnknownChunk { chunk_hash }
             }
-            near_client_primitives::types::GetChunkError::Unreachable { error_message } => {
+            near_client_primitives::types::GetChunkError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcChunkError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -127,15 +121,18 @@ impl From<RpcChunkError> for crate::errors::RpcError {
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
                 chunk_hash.0.to_string()
             ))),
-            RpcChunkError::Unreachable { error_message } => {
-                Some(Value::String(error_message.clone()))
+        };
+
+        let error_data_value = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcStateChangesError".to_string(),
+                )
             }
         };
 
-        Self::new_handler_error(
-            error_data,
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }

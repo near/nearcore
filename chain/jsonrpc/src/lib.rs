@@ -200,7 +200,9 @@ impl JsonRpcHandler {
             Message::Request(request) => {
                 Ok(Message::response(id, self.process_request(request).await))
             }
-            _ => Ok(Message::error(RpcError::invalid_request())),
+            _ => Ok(Message::error(RpcError::parse_error(
+                "JSON RPC Request format was expected".to_owned(),
+            ))),
         }
     }
 

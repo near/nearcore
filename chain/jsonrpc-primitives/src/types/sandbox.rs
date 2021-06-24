@@ -31,10 +31,15 @@ impl From<actix::MailboxError> for RpcSandboxPatchStateError {
 
 impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
     fn from(error: RpcSandboxPatchStateError) -> Self {
-        Self::new_handler_error(
-            Some(Value::String(error.to_string())),
-            serde_json::to_value(error)
-                .expect("Not expected serialization error while serializing struct"),
-        )
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(_err) => {
+                return Self::new_internal_error(
+                    None,
+                    "Failed to serialize RpcSandboxPatchStateError".to_string(),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }

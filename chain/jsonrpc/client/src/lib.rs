@@ -47,7 +47,7 @@ where
         .post(server_addr)
         .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
-        .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
+        .map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)))
         .and_then(|mut response| {
             response.body().limit(PAYLOAD_LIMIT).map(|body| match body {
                 Ok(bytes) => from_slice(&bytes).map_err(|err| {
@@ -64,7 +64,7 @@ where
                     serde_json::from_value(x)
                         .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
                 }),
-                _ => Err(RpcError::invalid_request()),
+                _ => Err(RpcError::parse_error(format!("Failed to parse JSON RPC response"))),
             })
         })
         .boxed_local()
