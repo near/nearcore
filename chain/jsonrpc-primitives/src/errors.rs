@@ -14,10 +14,13 @@ pub struct RpcParseError(pub String);
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct RpcError {
-    pub code: i64,
     #[serde(flatten)]
     pub error_struct: Option<RpcErrorKind>,
+    /// Deprecated please use the `error_struct` instead
+    pub code: i64,
+    /// Deprecated please use the `error_struct` instead
     pub message: String,
+    /// Deprecated please use the `error_struct` instead
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
@@ -27,6 +30,7 @@ pub struct RpcError {
 pub enum RpcErrorKind {
     ValidationError(ValidationErrorKind),
     HandlerError(Value),
+    InternalError(Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -95,17 +99,34 @@ impl RpcError {
         }
     }
     pub fn serialization_error(e: String) -> Self {
-        // handler error
         RpcError {
             code: -32_000,
             message: "Server error".to_owned(),
             data: Some(Value::String(e.clone())),
-            error_struct: Some(RpcErrorKind::HandlerError(serde_json::json!({
+            error_struct: Some(RpcErrorKind::InternalError(serde_json::json!({
                 "name": "SERIALIZATION_ERROR",
                 "info": serde_json::json!({
                     "error_message": e
                 })
             }))),
+        }
+    }
+
+    /// Helper method to define extract INTERNAL_ERROR in separate RpcErrorKind
+    /// Returns HANDLER_ERROR if the error is not internal one
+    pub fn new_internal_or_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
+        if error_struct["name"] == "INTERNAL_ERROR" {
+            Self::new_internal_error(error_data, error_struct["info"].clone())
+        } else {
+            Self::new_handler_error(error_data, error_struct)
+        }
+    }
+    pub fn new_internal_error(error_data: Option<Value>, info: Value) -> Self {
+        RpcError {
+            code: -32_000,
+            message: "Server error".to_owned(),
+            data: error_data,
+            error_struct: Some(RpcErrorKind::InternalError(info)),
         }
     }
     pub fn new_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {

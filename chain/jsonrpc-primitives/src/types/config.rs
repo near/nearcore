@@ -23,7 +23,7 @@ pub struct RpcProtocolConfigResponse {
     pub config_view: near_chain_configs::ProtocolConfigView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcProtocolConfigError {
     #[error("Block has never been observed: {error_message}")]
@@ -70,16 +70,20 @@ impl From<actix::MailboxError> for RpcProtocolConfigError {
 
 impl From<RpcProtocolConfigError> for crate::errors::RpcError {
     fn from(error: RpcProtocolConfigError) -> Self {
-        let error_data = match error.clone() {
+        let error_data = match &error {
             RpcProtocolConfigError::UnknownBlock { error_message } => {
                 Some(Value::String(format!("Block Not Found: {}", error_message)))
             }
             RpcProtocolConfigError::Unreachable { error_message } => {
-                Some(Value::String(error_message))
+                Some(Value::String(error_message.clone()))
             }
             RpcProtocolConfigError::InternalError { .. } => Some(Value::String(error.to_string())),
         };
 
-        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
+        Self::new_handler_error(
+            error_data,
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
+        )
     }
 }

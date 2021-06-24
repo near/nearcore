@@ -25,7 +25,7 @@ pub struct RpcChunkResponse {
     pub chunk_view: near_primitives::views::ChunkView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcChunkError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
@@ -116,7 +116,7 @@ impl From<actix::MailboxError> for RpcChunkError {
 
 impl From<RpcChunkError> for crate::errors::RpcError {
     fn from(error: RpcChunkError) -> Self {
-        let error_data = match error.clone() {
+        let error_data = match &error {
             RpcChunkError::InternalError { .. } => Some(Value::String(error.to_string())),
             RpcChunkError::UnknownBlock { error_message } => Some(Value::String(format!(
                 "DB Not Found Error: {} \n Cause: Unknown",
@@ -127,9 +127,15 @@ impl From<RpcChunkError> for crate::errors::RpcError {
                 "Chunk Missing (unavailable on the node): ChunkHash(`{}`) \n Cause: Unknown",
                 chunk_hash.0.to_string()
             ))),
-            RpcChunkError::Unreachable { error_message } => Some(Value::String(error_message)),
+            RpcChunkError::Unreachable { error_message } => {
+                Some(Value::String(error_message.clone()))
+            }
         };
 
-        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
+        Self::new_handler_error(
+            error_data,
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
+        )
     }
 }

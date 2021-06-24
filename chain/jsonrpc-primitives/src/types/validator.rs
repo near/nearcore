@@ -4,7 +4,7 @@ use serde_json::Value;
 pub type RpcValidatorsOrderedResponse =
     Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcValidatorError {
     #[error("Epoch not found")]
@@ -92,15 +92,21 @@ impl RpcValidatorsOrderedRequest {
 
 impl From<RpcValidatorError> for crate::errors::RpcError {
     fn from(error: RpcValidatorError) -> Self {
-        let error_data = match error.clone() {
+        let error_data = match &error {
             RpcValidatorError::UnknownEpoch => Some(Value::String(format!("Unknown Epoch"))),
             RpcValidatorError::ValidatorInfoUnavailable => {
                 Some(Value::String(format!("Validator info unavailable")))
             }
-            RpcValidatorError::Unreachable { error_message } => Some(Value::String(error_message)),
+            RpcValidatorError::Unreachable { error_message } => {
+                Some(Value::String(error_message.clone()))
+            }
             RpcValidatorError::InternalError { .. } => Some(Value::String(error.to_string())),
         };
 
-        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
+        Self::new_handler_error(
+            error_data,
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
+        )
     }
 }

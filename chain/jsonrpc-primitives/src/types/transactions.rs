@@ -20,7 +20,7 @@ pub enum TransactionInfo {
     },
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
@@ -121,7 +121,11 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
             _ => Value::String(error.to_string()),
         };
 
-        Self::new_handler_error(Some(error_data), serde_json::to_value(error).unwrap())
+        Self::new_handler_error(
+            Some(error_data),
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
+        )
     }
 }
 

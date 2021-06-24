@@ -27,7 +27,7 @@ pub struct RpcLightClientNextBlockResponse {
     pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
@@ -59,7 +59,7 @@ pub enum RpcLightClientProofError {
     Unreachable { error_message: String },
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]
@@ -202,14 +202,18 @@ impl From<actix::MailboxError> for RpcLightClientNextBlockError {
 
 impl From<RpcLightClientProofError> for crate::errors::RpcError {
     fn from(error: RpcLightClientProofError) -> Self {
-        let error_data = match error.clone() {
+        let error_data = match &error {
             RpcLightClientProofError::UnknownBlock { error_message } => {
                 Some(Value::String(format!("DB Not Found Error: {}", error_message)))
             }
             _ => Some(Value::String(error.to_string())),
         };
 
-        Self::new_handler_error(error_data, serde_json::to_value(error).unwrap())
+        Self::new_handler_error(
+            error_data,
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
+        )
     }
 }
 
@@ -217,7 +221,8 @@ impl From<RpcLightClientNextBlockError> for crate::errors::RpcError {
     fn from(error: RpcLightClientNextBlockError) -> Self {
         Self::new_handler_error(
             Some(Value::String(error.to_string())),
-            serde_json::to_value(error).unwrap(),
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
         )
     }
 }

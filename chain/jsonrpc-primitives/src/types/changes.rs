@@ -27,7 +27,7 @@ pub struct RpcStateChangesInBlockResponse {
     pub changes: near_primitives::views::StateChangesKindsView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Deserialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]
@@ -107,7 +107,8 @@ impl From<RpcStateChangesError> for crate::errors::RpcError {
     fn from(error: RpcStateChangesError) -> Self {
         Self::new_handler_error(
             Some(Value::String(error.to_string())),
-            serde_json::to_value(error).unwrap(),
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
         )
     }
 }

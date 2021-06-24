@@ -12,7 +12,7 @@ pub struct RpcQueryRequest {
     pub request: near_primitives::views::QueryRequest,
 }
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
@@ -256,7 +256,8 @@ impl From<RpcQueryError> for crate::errors::RpcError {
     fn from(error: RpcQueryError) -> Self {
         Self::new_handler_error(
             Some(Value::String(error.to_string())),
-            serde_json::to_value(error).unwrap(),
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
         )
     }
 }

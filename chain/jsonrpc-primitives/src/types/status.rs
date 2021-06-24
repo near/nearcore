@@ -10,7 +10,7 @@ pub struct RpcStatusResponse {
 #[derive(Debug, Serialize)]
 pub struct RpcHealthResponse;
 
-#[derive(thiserror::Error, Debug, Serialize, Clone)]
+#[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStatusError {
     #[error("Node is syncing")]
@@ -76,7 +76,8 @@ impl From<RpcStatusError> for crate::errors::RpcError {
     fn from(error: RpcStatusError) -> Self {
         Self::new_handler_error(
             Some(Value::String(error.to_string())),
-            serde_json::to_value(error).unwrap(),
+            serde_json::to_value(error)
+                .expect("Not expected serialization error while serializing struct"),
         )
     }
 }

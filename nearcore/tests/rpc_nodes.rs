@@ -718,17 +718,14 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
             })
             .await;
 
-        let error_message = match query_response {
+        let error = match query_response {
             Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
             Err(err) => serde_json::to_value(err).unwrap(),
         };
 
-        assert_eq!(
-            error_message["data"],
-            serde_json::json!("Account ID 1nval$d*@cc0ount is invalid"),
-        );
+        assert_eq!(error["data"], serde_json::json!("Account ID 1nval$d*@cc0ount is invalid"),);
 
-        assert_eq!(error_message["cause"]["name"], serde_json::json!("INVALID_ACCOUNT"),);
+        assert_eq!(error["cause"]["name"], serde_json::json!("INVALID_ACCOUNT"),);
         System::current().stop();
     });
 }

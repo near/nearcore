@@ -22,7 +22,7 @@ use testlib::genesis_block;
 mod node_cluster;
 use node_cluster::NodeCluster;
 
-// Queryies json-rpc block that doesn't exists
+// Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
 fn test_block_unknown_block_error() {
@@ -78,7 +78,7 @@ fn test_block_unknown_block_error() {
     });
 }
 
-// Queryies json-rpc chunk that doesn't exists
+// Queries json-rpc chunk that doesn't exists
 // (randomish chunk hash, we hope it won't happen in test case)
 // Checks if the struct is expected and contains the proper data
 #[test]
@@ -146,7 +146,7 @@ fn test_chunk_unknown_chunk_error() {
     });
 }
 
-// Queryies json-rpc EXPERIMENTAL_protocol_config that doesn't exists
+// Queries json-rpc EXPERIMENTAL_protocol_config that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
 fn test_protocol_config_unknown_block_error() {
@@ -207,7 +207,7 @@ fn test_protocol_config_unknown_block_error() {
     });
 }
 
-// Queryies json-rpc gas_price that doesn't exists
+// Queries json-rpc gas_price that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
 fn test_gas_price_unknown_block_error() {
@@ -264,7 +264,7 @@ fn test_gas_price_unknown_block_error() {
     });
 }
 
-// Queryies json-rpc EXPERIMENTAL_receipt that doesn't exists
+// Queries json-rpc EXPERIMENTAL_receipt that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
 fn test_receipt_id_unknown_receipt_error() {
