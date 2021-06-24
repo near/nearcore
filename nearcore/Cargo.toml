@@ -74,9 +74,8 @@ nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_pr
 protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
 protocol_feature_math_extension = [
-    "near-crypto/protocol_feature_math_extension",
     "near-primitives/protocol_feature_math_extension",
-    "near-runtime/protocol_feature_math_extension"
+    "node-runtime/protocol_feature_math_extension"
 ]
 
 # enable this to build neard with wasmer 1.0 runner
