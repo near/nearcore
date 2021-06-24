@@ -1018,10 +1018,20 @@ impl<'a> VMLogic<'a> {
 
         let mut signature_bytes = [0u8; 65];
         self.memory_get_into(sig_ptr, &mut signature_bytes)?;
-        let signature = Secp256K1Signature::from(signature_bytes);
 
-        let mut hash_bytes = [0u8; 32];
-        self.memory_get_into(hash_ptr, &mut hash_bytes)?;
+        let signature = {
+            let vec = self.get_vec_from_memory_or_register(sig_ptr, 65)?;
+            let mut bytes = [0u8; 65];
+            bytes.copy_from_slice(&vec);
+            Secp256K1Signature::from(bytes)
+        };
+
+        let hash = {
+            let vec = self.get_vec_from_memory_or_register(hash_ptr, 32)?;
+            let mut bytes = [0u8; 32];
+            bytes.copy_from_slice(&vec);
+            bytes
+        };
 
         if (malleability_flag & 1) == 1 {
             if !signature.check_signature_values((malleability_flag & 2) == 2) {
@@ -1029,7 +1039,7 @@ impl<'a> VMLogic<'a> {
             }
         }
 
-        if let Ok(pk) = signature.recover(hash_bytes) {
+        if let Ok(pk) = signature.recover(hash) {
             self.internal_write_register(register_id, pk.as_ref().to_vec())?;
             return Ok(true as u64);
         };
