@@ -76,4 +76,5 @@ protocol_feature_math_extension = [
     "near-vm-logic/protocol_feature_math_extension",
     "near-vm-runner/protocol_feature_math_extension",
     "nearcore/protocol_feature_math_extension",
+    "node-runtime/protocol_feature_math_extension"
 ]
