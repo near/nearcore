@@ -72,6 +72,7 @@ protocol_feature_evm = ["near-evm-runner/protocol_feature_evm",
                         "testlib/protocol_feature_evm"]
 sandbox = ["node-runtime/sandbox", "state-viewer/sandbox"]
 protocol_feature_math_extension = [
+    "near-primitives/protocol_feature_math_extension",
     "near-vm-logic/protocol_feature_math_extension",
     "near-vm-runner/protocol_feature_math_extension",
     "nearcore/protocol_feature_math_extension",
