@@ -575,14 +575,14 @@ impl Secp256K1Signature {
         s_bytes.copy_from_slice(&self.0[32..64]);
         let s = U256::from(s_bytes);
 
-        if reject_upper {
+        let s_check = if reject_upper {
             // Reject upper range of s values (ECDSA malleability)
-            if s > SECP256K1_N_HALF {
-                return false;
-            }
-        }
+            SECP256K1_N_HALF + U256::one()
+        } else {
+            SECP256K1_N
+        };
 
-        r < SECP256K1_N && s < SECP256K1_N
+        r < SECP256K1_N && s < s_check
     }
 
     pub fn recover(

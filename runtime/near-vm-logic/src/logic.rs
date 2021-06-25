@@ -1027,7 +1027,7 @@ impl<'a> VMLogic<'a> {
             } else {
                 return Err(VMLogicError::HostError(HostError::InvalidECRecoverVByte {
                     value: v as u64,
-                }))
+                }));
             }
         };
 
