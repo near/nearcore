@@ -6,6 +6,7 @@ sure they are backward compatible.
 
 import sys
 import os
+import struct
 import subprocess
 import time
 import base58
@@ -83,8 +84,8 @@ def main():
 
     tx = sign_function_call_tx(new_signer_key,
                                new_account_id,
-                               'write_random_value', [], 10**13, 0, nonce + 1,
-                               block_hash)
+                               'write_key_value', struct.pack('<QQ', 42, 24),
+                               10**13, 0, nonce + 1, block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res

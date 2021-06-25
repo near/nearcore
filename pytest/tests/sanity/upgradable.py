@@ -6,6 +6,7 @@ At the end run for 3 epochs and observe that current protocol version of the net
 """
 
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -81,7 +82,8 @@ def main():
     # write some random value
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10 ** 13, 0, 2,
+                               'write_key_value', struct.pack('<QQ', 42, 24),
+                               10 ** 13, 0, 2,
                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
@@ -109,7 +111,8 @@ def main():
     # write some random value again
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10 ** 13, 0, 4,
+                               'write_key_value', struct.pack('<QQ', 42, 24),
+                               10 ** 13, 0, 4,
                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res

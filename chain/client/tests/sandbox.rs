@@ -60,8 +60,8 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
         "test0".to_string(),
         &signer,
         vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "write_random_value".to_string(),
-            args: vec![],
+            method_name: "write_key_value".to_string(),
+            args: vec![42, 0, 0, 0, 0, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0],
             gas: 100000000000000,
             deposit: 0,
         })],
