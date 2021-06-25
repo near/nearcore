@@ -103,11 +103,8 @@ impl RpcError {
     pub fn new_internal_or_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
         if error_struct["name"] == "INTERNAL_ERROR" {
             let error_message = match error_struct["info"].get("error_message") {
-                Some(error_message) => error_message.to_string(),
-                None => Value::String(
-                    "InternalError happened during serializing InternalError".to_string(),
-                )
-                .to_string(),
+                Some(Value::String(error_message)) => error_message.as_str(),
+                _ => "InternalError happened during serializing InternalError",
             };
             Self::new_internal_error(error_data, error_message.to_string())
         } else {
