@@ -3232,7 +3232,7 @@ mod contract_precompilation_tests {
         produce_epochs(env, 1, height)
     }
 
-    fn state_sync(env: &mut TestEnv, height: BlockHeight) {
+    fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let sync_hash = *sync_block.hash();
         let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
@@ -3280,7 +3280,7 @@ mod contract_precompilation_tests {
         let height = deploy_contract(&mut env, "test0", &wasm_code, start_height);
 
         // Perform state sync for the second client.
-        state_sync(&mut env, height - 1);
+        state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
         let caches: Vec<Arc<StoreCompiledContractCache>> = stores
@@ -3378,7 +3378,7 @@ mod contract_precompilation_tests {
         height = deploy_contract(&mut env, "test0", &wasm_code, height);
 
         // Perform state sync for the second client on the last produced height.
-        state_sync(&mut env, height - 1);
+        state_sync_on_height(&mut env, height - 1);
 
         let caches: Vec<Arc<StoreCompiledContractCache>> = stores
             .iter()
@@ -3450,7 +3450,7 @@ mod contract_precompilation_tests {
         height = produce_epochs(&mut env, 1, height);
 
         // Perform state sync for the second client.
-        state_sync(&mut env, height - 1);
+        state_sync_on_height(&mut env, height - 1);
 
         let caches: Vec<Arc<StoreCompiledContractCache>> = stores
             .iter()
