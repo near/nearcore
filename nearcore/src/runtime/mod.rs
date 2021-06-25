@@ -515,6 +515,8 @@ impl NightshadeRuntime {
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
+        // Execute precompile_contract in parallel but prevent it from using more than half of all
+        // threads so that node will still function normally.
         rayon::ThreadPoolBuilder::new()
             .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
             .build()
