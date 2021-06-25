@@ -35,10 +35,10 @@ impl From<RpcNetworkInfoError> for crate::errors::RpcError {
     fn from(error: RpcNetworkInfoError) -> Self {
         let error_data = match serde_json::to_value(error) {
             Ok(value) => value,
-            Err(_err) => {
+            Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    "Failed to serialize RpcNetworkInfoError".to_string(),
+                    format!("Failed to serialize RpcNetworkInfoError: {:?}", err),
                 )
             }
         };

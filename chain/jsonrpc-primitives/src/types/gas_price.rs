@@ -66,10 +66,10 @@ impl From<RpcGasPriceError> for crate::errors::RpcError {
 
         let error_data_value = match serde_json::to_value(error) {
             Ok(value) => value,
-            Err(_err) => {
+            Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    "Failed to serialize RpcGasPriceError".to_string(),
+                    format!("Failed to serialize RpcGasPriceError: {:?}", err),
                 )
             }
         };

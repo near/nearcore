@@ -201,10 +201,10 @@ impl From<RpcLightClientProofError> for crate::errors::RpcError {
 
         let error_data_value = match serde_json::to_value(error) {
             Ok(value) => value,
-            Err(_err) => {
+            Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    "Failed to serialize RpcLightClientProofError".to_string(),
+                    format!("Failed to serialize RpcLightClientProofError: {:?}", err),
                 )
             }
         };
@@ -217,10 +217,10 @@ impl From<RpcLightClientNextBlockError> for crate::errors::RpcError {
     fn from(error: RpcLightClientNextBlockError) -> Self {
         let error_data = match serde_json::to_value(error) {
             Ok(value) => value,
-            Err(_err) => {
+            Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    "Failed to serialize RpcLightClientNextBlockError".to_string(),
+                    format!("Failed to serialize RpcLightClientNextBlockError: {:?}", err),
                 )
             }
         };

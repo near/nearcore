@@ -37,7 +37,6 @@ pub enum RpcErrorKind {
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcRequestValidationErrorKind {
     MethodNotFound { method_name: String },
-    InvalidRequest,
     ParseError { error_message: String },
 }
 
@@ -103,7 +102,14 @@ impl RpcError {
     /// Returns HANDLER_ERROR if the error is not internal one
     pub fn new_internal_or_handler_error(error_data: Option<Value>, error_struct: Value) -> Self {
         if error_struct["name"] == "INTERNAL_ERROR" {
-            Self::new_internal_error(error_data, error_struct["info"]["error_message"].to_string())
+            let error_message = match error_struct["info"].get("error_message") {
+                Some(error_message) => error_message.to_string(),
+                None => Value::String(
+                    "InternalError happened during serializing InternalError".to_string(),
+                )
+                .to_string(),
+            };
+            Self::new_internal_error(error_data, error_message.to_string())
         } else {
             Self::new_handler_error(error_data, error_struct)
         }
@@ -127,18 +133,6 @@ impl RpcError {
             message: "Server error".to_owned(),
             data: error_data,
             error_struct: Some(RpcErrorKind::HandlerError(error_struct)),
-        }
-    }
-
-    pub fn new_validation_error(
-        error_data: Option<Value>,
-        validatation_error_kind: RpcRequestValidationErrorKind,
-    ) -> Self {
-        RpcError {
-            code: -32_000,
-            message: "Server error".to_owned(),
-            data: error_data,
-            error_struct: Some(RpcErrorKind::RequestValidationError(validatation_error_kind)),
         }
     }
 

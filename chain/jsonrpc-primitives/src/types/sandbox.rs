@@ -33,10 +33,10 @@ impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
     fn from(error: RpcSandboxPatchStateError) -> Self {
         let error_data = match serde_json::to_value(error) {
             Ok(value) => value,
-            Err(_err) => {
+            Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    "Failed to serialize RpcSandboxPatchStateError".to_string(),
+                    format!("Failed to serialize RpcSandboxPatchStateError: {:?}", err),
                 )
             }
         };

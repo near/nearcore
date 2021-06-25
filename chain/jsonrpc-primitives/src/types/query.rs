@@ -251,10 +251,10 @@ impl From<RpcQueryError> for crate::errors::RpcError {
         let error_data = Some(serde_json::Value::String(error.to_string()));
         let error_data_value = match serde_json::to_value(error) {
             Ok(value) => value,
-            Err(_err) => {
+            Err(err) => {
                 return Self::new_internal_error(
                     None,
-                    "Failed to serialize RpcQueryError".to_string(),
+                    format!("Failed to serialize RpcQueryError: {:?}", err),
                 )
             }
         };
