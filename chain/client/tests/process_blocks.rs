@@ -3163,7 +3163,7 @@ mod cap_max_gas_price_tests {
             let min_gas_price =
                 env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
             was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
-            price_exceeded_limit |= block.header().gas_price() > 10 * min_gas_price;
+            price_exceeded_limit |= block.header().gas_price() > 20 * min_gas_price;
         }
 
         assert!(was_congested);
