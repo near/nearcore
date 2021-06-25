@@ -515,14 +515,20 @@ impl NightshadeRuntime {
             RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
-        contract_codes.par_iter().for_each(|code| {
-            precompile_contract(
-                &code,
-                &runtime_config.wasm_config,
-                compiled_contract_cache.as_deref(),
-            )
-            .ok();
-        });
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
+            .build()
+            .unwrap()
+            .install(|| {
+                contract_codes.par_iter().for_each(|code| {
+                    precompile_contract(
+                        &code,
+                        &runtime_config.wasm_config,
+                        compiled_contract_cache.as_deref(),
+                    )
+                    .ok();
+                })
+            });
         Ok(())
     }
 }
