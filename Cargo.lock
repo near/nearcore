@@ -3675,6 +3675,7 @@ dependencies = [
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-logic",
+ "once_cell",
  "parity-wasm",
  "pwasm-utils",
  "serde",
