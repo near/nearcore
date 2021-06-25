@@ -3279,6 +3279,7 @@ version = "0.2.1"
 dependencies = [
  "actix",
  "actix-cors",
+ "actix-http",
  "actix-web",
  "awc",
  "borsh",
@@ -3309,6 +3310,7 @@ dependencies = [
 name = "near-jsonrpc-client"
 version = "0.1.0"
 dependencies = [
+ "actix-http",
  "actix-web",
  "awc",
  "futures",
@@ -3499,6 +3501,7 @@ version = "0.1.1"
 dependencies = [
  "actix",
  "actix-cors",
+ "actix-http",
  "actix-web",
  "awc",
  "derive_more",
@@ -6416,9 +6419,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core-near"
-version = "0.17.1"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2390b0b8cf58615c2f8b454d9535e1aed1d14c510cc1ce1af806a1992ad53300"
+checksum = "c65db7e27877fb7499a5af9d7ab763bb0ddc78c3d1a6310a8ca6e86e71e532f9"
 dependencies = [
  "bincode",
  "blake3",
