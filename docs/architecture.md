@@ -119,6 +119,15 @@ In `VMLogic`, interaction with NEAR blockchain happens in the following two ways
 - `VMContext`, which contains lightweight information such as current block hash, current block height, epoch id, etc.
 - `External`, which is a trait that contains functions to interact with blockchain by either reading some nontrivial data, or writing to the blockchain.
 
+### `runtime/near-vm-runner`
+
+`run_vm` function in `runner.rs` is the entry point to the vm runner.
+This function essentially spins up the vm and executes some function in a contract.
+It supports different wasm compilers includeing wasmer0, wasmer1, and wasmtime through compile-time feature flags.
+However, currently we only use wasmer0 in production.
+The `imports` module exposes host functions defined in `near-vm-logic` to WASM code. 
+In other words, it defines the ABI of the contracts on NEAR.
+
 ### `neard`
 
 As mentioned before, `neard` is the crate that contains that main entry points.
