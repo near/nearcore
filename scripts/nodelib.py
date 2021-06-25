@@ -47,13 +47,18 @@ def docker_init(image, home_dir, init_flags):
 
 def nodocker_init(home_dir, is_release, init_flags):
     target = './target/%s/near' % ('release' if is_release else 'debug')
-    subprocess.call([target, '--home=%s' % home_dir, 'init'] + init_flags)
+    cmd = [target]
+    if home_dir:
+        cmd.extend(['--home', home_dir])
+    cmd.extend(['init'])
+    subprocess.call(cmd + init_flags)
 
 
 """Retrieve requested chain id from the flags."""
 
 
 def get_chain_id_from_flags(flags):
+    # TODO this doesn't handle the `--chain-id my-id` syntax which should also be valid
     chain_id_flags = [flag for flag in flags if flag.startswith('--chain-id=')]
     if len(chain_id_flags) == 1:
         return chain_id_flags[0][len('--chain-id='):]
@@ -119,7 +124,8 @@ def check_and_setup(nodocker,
         else:
             prompt += ": "
         account_id = input(prompt)
-        init_flags.append('--account-id=%s' % account_id)
+        if account_id:
+            init_flags.append('--account-id=%s' % account_id)
 
     if chain_id == 'testnet':
         testnet_genesis_hash = open('near/res/testnet_genesis_hash').read()
@@ -232,7 +238,8 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     if verbose:
         cmd += ['--verbose', '']
     cmd.append('run')
-    cmd.append('--telemetry-url=%s' % telemetry_url)
+    if telemetry_url:
+        cmd.append('--telemetry-url=%s' % telemetry_url)
     if boot_nodes:
         cmd.append('--boot-nodes=%s' % boot_nodes)
     try:
@@ -386,8 +393,10 @@ def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
             './target/%s/genesis-csv-to-json' %
             ('release' if is_release else 'debug')
         ]
-        cmd.extend(['--home', home])
-        cmd.extend(['--chain-id', chain_id])
+        if home:
+            cmd.extend(['--home', home])
+        if chain_id:
+            cmd.extend(['--chain-id', chain_id])
         if len(tracked_shards) > 0:
             cmd.extend(['--tracked-shards', tracked_shards])
         try:
@@ -396,13 +405,16 @@ def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
             logger.info("\nStopping NEARCore.")
     else:
         subprocess.check_output(['mkdir', '-p', home])
-        subprocess.check_output([
+        cmd = [
             'docker', 'run', '-u', USER, '-v',
             '%s:/srv/genesis-csv-to-json' % home, image, 'genesis-csv-to-json',
             '--home=/srv/genesis-csv-to-json',
-            '--chain-id=%s' % chain_id,
-            '--tracked-shards=%s' % tracked_shards
-        ])
+        ]
+        if chain_id:
+            cmd.extend(['--chain-id', chain_id])
+        if tracked_shards:
+            cmd.extend(['--tracked-shards', tracked_shards])
+        subprocess.check_output(cmd)
     logger.info("Genesis created")
 
 

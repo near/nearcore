@@ -104,6 +104,8 @@ pytest contracts/deploy_call_smart_contract.py
 pytest contracts/deploy_call_smart_contract.py --features nightly_protocol --features nightly_protocol_features
 pytest --timeout=240 contracts/gibberish.py
 pytest --timeout=240 contracts/gibberish.py --features nightly_protocol --features nightly_protocol_features
+pytest --timeout=400 contracts/infinite_loops.py
+pytest --timeout=400 contracts/infinite_loops.py --features nightly_protocol --features nightly_protocol_features
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions

@@ -14,6 +14,7 @@ use tracing::info;
 
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
+#[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
@@ -408,7 +409,9 @@ pub struct Config {
     pub genesis_records_file: Option<String>,
     pub validator_key_file: String,
     pub node_key_file: String,
-    pub rpc: RpcConfig,
+    #[cfg(feature = "json_rpc")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc: Option<RpcConfig>,
     #[cfg(feature = "rosetta_rpc")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
@@ -437,7 +440,8 @@ impl Default for Config {
             genesis_records_file: None,
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
-            rpc: RpcConfig::default(),
+            #[cfg(feature = "json_rpc")]
+            rpc: Some(RpcConfig::default()),
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
@@ -469,6 +473,22 @@ impl Config {
         let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
         if let Err(err) = file.write_all(str.as_bytes()) {
             panic!("Failed to write a config file {}", err);
+        }
+    }
+
+    pub fn rpc_addr(&self) -> Option<&String> {
+        #[cfg(feature = "json_rpc")]
+        if let Some(rpc) = &self.rpc {
+            return Some(&rpc.addr);
+        }
+        None
+    }
+
+    #[allow(unused_variables)]
+    pub fn set_rpc_addr(&mut self, addr: String) {
+        #[cfg(feature = "json_rpc")]
+        {
+            self.rpc.get_or_insert(Default::default()).addr = addr;
         }
     }
 }
@@ -561,7 +581,8 @@ pub struct NearConfig {
     config: Config,
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
-    pub rpc_config: RpcConfig,
+    #[cfg(feature = "json_rpc")]
+    pub rpc_config: Option<RpcConfig>,
     #[cfg(feature = "rosetta_rpc")]
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
@@ -581,7 +602,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc.addr.clone(),
+                rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -667,12 +688,21 @@ impl NearConfig {
                 archive: config.archive,
             },
             telemetry_config: config.telemetry,
+            #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
         }
+    }
+
+    pub fn rpc_addr(&self) -> Option<&String> {
+        #[cfg(feature = "json_rpc")]
+        if let Some(rpc) = &self.rpc_config {
+            return Some(&rpc.addr);
+        }
+        None
     }
 }
 
@@ -948,7 +978,7 @@ pub fn create_testnet_configs_from_seeds(
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
-            config.rpc.addr = format!("127.0.0.1:{}", open_port());
+            config.set_rpc_addr(format!("127.0.0.1:{}", open_port()));
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
@@ -1088,7 +1118,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
-    config.rpc.addr = format!("0.0.0.0:{}", open_port());
+    config.set_rpc_addr(format!("0.0.0.0:{}", open_port()));
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
