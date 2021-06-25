@@ -600,12 +600,7 @@ impl Handler<Status> for ClientActor {
             protocol_version,
             latest_protocol_version: PROTOCOL_VERSION,
             chain_id: self.client.config.chain_id.clone(),
-            rpc_addr: self
-                .client
-                .config
-                .rpc_addr
-                .as_ref()
-                .map(|addr| addr.clone()),
+            rpc_addr: self.client.config.rpc_addr.as_ref().map(|addr| addr.clone()),
             validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
