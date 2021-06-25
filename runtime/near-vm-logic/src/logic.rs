@@ -1022,16 +1022,13 @@ impl<'a> VMLogic<'a> {
             let mut bytes = [0u8; 65];
             bytes[0..64].copy_from_slice(&vec);
 
-            match v {
-                0 | 1 | 2 | 3 => {
-                    bytes[64] = v as u8;
-                    Secp256K1Signature::from(bytes)
-                }
-                _ => {
-                    return Err(VMLogicError::HostError(HostError::InvalidECRecoverVByte {
-                        value: v as u64,
-                    }))
-                }
+            if v < 4 {
+                bytes[64] = v as u8;
+                Secp256K1Signature::from(bytes)
+            } else {
+                return Err(VMLogicError::HostError(HostError::InvalidECRecoverVByte {
+                    value: v as u64,
+                }))
             }
         };
 
