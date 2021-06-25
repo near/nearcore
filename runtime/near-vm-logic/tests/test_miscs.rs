@@ -587,7 +587,7 @@ fn test_ecrecover() {
         0xea, 0xb4, 0x7b, 0x9c,
     ];
 
-    let b = logic.ecrecover(hash.as_ptr() as _, signature.as_ptr() as _, 0, 0, 1).unwrap();
+    let b = logic.ecrecover(32, hash.as_ptr() as _, 64, signature.as_ptr() as _, 0, 0, 1).unwrap();
     assert_ne!(b, 0);
 
     let result = &vec![0u8; 64];

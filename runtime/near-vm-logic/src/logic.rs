@@ -1008,7 +1008,9 @@ impl<'a> VMLogic<'a> {
     #[cfg(feature = "protocol_feature_math_extension")]
     pub fn ecrecover(
         &mut self,
+        hash_len: u64,
         hash_ptr: u64,
+        sig_len: u64,
         sig_ptr: u64,
         v: u64,
         malleability_flag: u64,
@@ -1017,7 +1019,16 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
         let signature = {
-            let vec = self.get_vec_from_memory_or_register(sig_ptr, 64)?;
+            let vec = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
+            if vec.len() != 64 {
+                return Err(VMLogicError::HostError(HostError::ECRecoverError {
+                    msg: format!(
+                        "The length of the signature: {}, exceeds the limit of 64 bytes",
+                        vec.len()
+                    ),
+                }));
+            }
+
             let mut bytes = [0u8; 65];
             bytes[0..64].copy_from_slice(&vec);
 
@@ -1025,14 +1036,23 @@ impl<'a> VMLogic<'a> {
                 bytes[64] = v as u8;
                 Secp256K1Signature::from(bytes)
             } else {
-                return Err(VMLogicError::HostError(HostError::InvalidECRecoverVByte {
-                    value: v as u64,
+                return Err(VMLogicError::HostError(HostError::ECRecoverError {
+                    msg: format!("V recovery byte 0 through 3 are valid but was provided {}", v),
                 }));
             }
         };
 
         let hash = {
-            let vec = self.get_vec_from_memory_or_register(hash_ptr, 32)?;
+            let vec = self.get_vec_from_memory_or_register(hash_ptr, hash_len)?;
+            if vec.len() != 32 {
+                return Err(VMLogicError::HostError(HostError::ECRecoverError {
+                    msg: format!(
+                        "The length of the hash: {}, exceeds the limit of 32 bytes",
+                        vec.len()
+                    ),
+                }));
+            }
+
             let mut bytes = [0u8; 32];
             bytes.copy_from_slice(&vec);
             bytes
