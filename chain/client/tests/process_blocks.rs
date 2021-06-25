@@ -2348,7 +2348,6 @@ fn test_refund_receipts_processing() {
         assert!(match execution_outcome.outcome_with_id.outcome.status {
             ExecutionStatus::SuccessReceiptId(id) => {
                 let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-                assert_eq!(receipt_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
                 assert!(match receipt_outcome.outcome_with_id.outcome.status {
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_)) => true,
                     _ => false,
@@ -2363,7 +2362,7 @@ fn test_refund_receipts_processing() {
     // this is the block where all receipts generated from transactions are processed and we
     // start to process refund receipts
     let ending_block_height = 10;
-    if !checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
+    if checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
         CountRefundReceiptsInGasLimit, genesis.config.protocol_version) {
         // check each block only process one refund receipt
         let mut processed_refund_receipt_ids = HashSet::new();
