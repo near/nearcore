@@ -16,7 +16,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout, load_binary_file
+from utils import wait_for_blocks_or_timeout, load_test_contract
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
     sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
 
@@ -77,11 +77,8 @@ def main():
     # deploy a contract
     status = nodes[0].get_status()
     hash = status['sync_info']['latest_block_hash']
-    tx = sign_deploy_contract_tx(
-        nodes[0].signer_key,
-        load_binary_file(
-            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 1,
-        base58.b58decode(hash.encode('utf8')))
+    tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 1,
+                                 base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
