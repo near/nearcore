@@ -606,9 +606,8 @@ impl Secp256K1Signature {
             })?
             .serialize_vec(&SECP256K1, false);
 
-        let pk = Secp256K1PublicKey::try_from(&res[1..65]).map_err(|err| {
-            crate::errors::ParseSignatureError::InvalidData { error_message: err.to_string() }
-        })?;
+        // Can not fail
+        let pk = Secp256K1PublicKey::try_from(&res[1..65]).unwrap();
 
         Ok(pk)
     }
