@@ -994,9 +994,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Malleability Flags
     ///
-    /// 0 - No malleability check.
-    /// 1 - Check malleability.
-    /// 2 - Rejecting upper range.
+    /// 0 - No extra checks.
+    /// 1 - Rejecting upper range.
     ///
     /// # Errors
     ///
@@ -1039,10 +1038,8 @@ impl<'a> VMLogic<'a> {
             bytes
         };
 
-        if (malleability_flag & 1) == 1 {
-            if !signature.check_signature_values((malleability_flag & 2) == 2) {
-                return Ok(false as u64);
-            }
+        if !signature.check_signature_values((malleability_flag & 1) == 1) {
+            return Ok(false as u64);
         }
 
         if let Ok(pk) = signature.recover(hash) {
