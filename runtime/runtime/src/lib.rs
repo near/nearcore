@@ -1224,7 +1224,7 @@ impl Runtime {
         // This contains the gas "burnt" for refund receipts. Even though we don't actually
         // charge any gas for refund receipts, we still count the gas use towards the block gas
         // limit
-        let mut total_gas_limit_used = gas_used_for_migrations;
+        let mut total_gas_burnt = gas_used_for_migrations;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1239,7 +1239,7 @@ impl Runtime {
                 outgoing_receipts.push(receipt);
             }
 
-            total_gas_limit_used += outcome_with_id.outcome.gas_burnt;
+            total_gas_burnt += outcome_with_id.outcome.gas_burnt;
 
             outcomes.push(outcome_with_id);
         }
@@ -1250,7 +1250,7 @@ impl Runtime {
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
-                                   gas_limit_used: &mut Gas|
+                                   total_gas_burnt: &mut Gas|
          -> Result<_, RuntimeError> {
             self.process_receipt(
                 state_update,
@@ -1264,8 +1264,8 @@ impl Runtime {
             .into_iter()
             .try_for_each(
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
-                    *gas_limit_used =
-                        safe_add_gas(*gas_limit_used, outcome_with_id.outcome.gas_burnt)?;
+                    *total_gas_burnt =
+                        safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
                     outcomes.push(outcome_with_id);
                     Ok(())
                 },
@@ -1277,10 +1277,10 @@ impl Runtime {
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         for receipt in local_receipts.iter() {
-            if total_gas_limit_used < gas_limit {
+            if total_gas_burnt < gas_limit {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(&receipt, &mut state_update, &mut total_gas_limit_used)?;
+                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1288,7 +1288,7 @@ impl Runtime {
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_gas_limit_used >= gas_limit {
+            if total_gas_burnt >= gas_limit {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
@@ -1312,7 +1312,7 @@ impl Runtime {
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
-            process_receipt(&receipt, &mut state_update, &mut total_gas_limit_used)?;
+            process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
@@ -1321,8 +1321,8 @@ impl Runtime {
             // want to store invalid receipts in state as delayed.
             validate_receipt(&apply_state.config.wasm_config.limit_config, &receipt)
                 .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_gas_limit_used < gas_limit {
-                process_receipt(&receipt, &mut state_update, &mut total_gas_limit_used)?;
+            if total_gas_burnt < gas_limit {
+                process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
             } else {
                 Self::delay_receipt(&mut state_update, &mut delayed_receipts_indices, receipt)?;
             }
@@ -1649,7 +1649,7 @@ mod tests {
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
-            // Check that refund receipts are processed relayed if CountRefundReceiptsInGasLimit is enabled,
+            // Check that refund receipts are delayed if CountRefundReceiptsInGasLimit is enabled,
             // and otherwise processed all at once
             let capped_i = if checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
                 CountRefundReceiptsInGasLimit, apply_state.current_protocol_version) {
