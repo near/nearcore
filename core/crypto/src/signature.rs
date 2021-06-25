@@ -555,6 +555,13 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
     }
 }
 
+const SECP256K1_N: U256 =
+    U256([0xbfd25e8cd0364141, 0xbaaedce6af48a03b, 0xfffffffffffffffe, 0xffffffffffffffff]);
+
+// Half of SECP256K1_N.
+const SECP256K1_N_HALF: U256 =
+    U256([0xdfe92f46681b20a0, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
+
 #[derive(Clone)]
 pub struct Secp256K1Signature([u8; 65]);
 
@@ -568,21 +575,14 @@ impl Secp256K1Signature {
         s_bytes.copy_from_slice(&self.0[32..64]);
         let s = U256::from(s_bytes);
 
-        let secp256k1_n = U256::from([
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2, 0x5e, 0x8c,
-            0xd0, 0x36, 0x41, 0x41,
-        ]);
-
         if reject_upper {
-            let secp256k1_half_n = secp256k1_n / U256::from(2);
             // Reject upper range of s values (ECDSA malleability)
-            if s > secp256k1_half_n {
+            if s > SECP256K1_N_HALF {
                 return false;
             }
         }
 
-        r < secp256k1_n && s < secp256k1_n
+        r < SECP256K1_N && s < SECP256K1_N
     }
 
     pub fn recover(
