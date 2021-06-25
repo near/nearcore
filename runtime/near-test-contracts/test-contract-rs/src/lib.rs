@@ -304,15 +304,6 @@ pub unsafe fn write_block_height() {
 }
 
 #[no_mangle]
-pub unsafe fn write_random_value() {
-    random_seed(0);
-    let data = [0u8; 32];
-    read_register(0, data.as_ptr() as u64);
-    let value = b"hello";
-    storage_write(data.len() as _, data.as_ptr() as _, value.len() as _, value.as_ptr() as _, 1);
-}
-
-#[no_mangle]
 pub unsafe fn read_value() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
