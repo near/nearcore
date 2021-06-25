@@ -3,8 +3,13 @@
 import argparse
 import json
 import os
+import sys
 import subprocess
 import urllib
+
+from pathlib import Path
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
+from configured_logger import logger
 
 try:
     input = raw_input
@@ -19,7 +24,7 @@ def install_cargo():
     try:
         subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'), '--version'])
     except OSError:
-        print("Installing Rust...")
+        logger.info("Installing Rust...")
         subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y',
                                 shell=True)
 
@@ -64,7 +69,7 @@ def compile_package(package_name, is_release):
         flags = ['--release'] + flags
     code = subprocess.call([os.path.expanduser('cargo'), 'build'] + flags)
     if code != 0:
-        print("Compilation failed, aborting")
+        logger.info("Compilation failed, aborting")
         exit(code)
 
 
@@ -86,27 +91,27 @@ def check_and_setup(nodocker,
             open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
         if chain_id != '' and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
-                print(
+                logger.info(
                     "Folder %s already has network configuration for %s, which is not the official TestNet.\n"
                     "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch."
                     % (home_dir, genesis_config['chain_id'], home_dir))
             elif genesis_config['chain_id'] == 'testnet':
-                print(
+                logger.info(
                     "Folder %s already has network configuration for the official TestNet.\n"
                     "Use ./scripts/start_testnet.py instead to keep running it.\n"
                     "If you want to run a different network, either specify different --home or remove %s to start from scratch"
                     % (home_dir, home_dir))
             elif chain_id != '':
-                print(
+                logger.info(
                     "Folder %s already has network configuration for %s. Use ./scripts/start_localnet.py to continue running it."
                     % (home_dir, genesis_config['chain_id']))
             exit(1)
-        print("Using existing node configuration from %s for %s" %
+        logger.info("Using existing node configuration from %s for %s" %
               (home_dir, genesis_config['chain_id']))
         return
 
-    print("Setting up network configuration.")
+    logger.info("Setting up network configuration.")
     if len([x for x in init_flags if x.startswith('--account-id')]) == 0:
         prompt = "Enter your account ID"
         if chain_id != '':
@@ -120,7 +125,7 @@ def check_and_setup(nodocker,
         testnet_genesis_hash = open('near/res/testnet_genesis_hash').read()
         testnet_genesis_records = 'near/res/testnet_genesis_records_%s.json' % testnet_genesis_hash
         if not os.path.exists(testnet_genesis_records):
-            print('Downloading testnet genesis records')
+            logger.info('Downloading testnet genesis records')
             url = 'https://s3-us-west-1.amazonaws.com/testnet.nearprotocol.com/testnet_genesis_records_%s.json' % testnet_genesis_hash
             urllib.urlretrieve(url, testnet_genesis_records)
         init_flags.extend([
@@ -148,9 +153,9 @@ def print_staking_key(home_dir):
 
     key_file = json.loads(open(key_path).read())
     if not key_file['account_id']:
-        print("Node is not staking. Re-run init to specify staking account.")
+        logger.info("Node is not staking. Re-run init to specify staking account.")
         return
-    print("Stake for user '%s' with '%s'" %
+    logger.info("Stake for user '%s' with '%s'" %
           (key_file['account_id'], key_file['public_key']))
 
 
@@ -185,7 +190,7 @@ def get_port(home_dir, net):
 
 
 def run_docker(image, home_dir, boot_nodes, telemetry_url, verbose):
-    print("Starting NEAR client and Watchtower dockers...")
+    logger.info("Starting NEAR client and Watchtower dockers...")
     docker_stop_if_exists('watchtower')
     docker_stop_if_exists('nearcore')
     # Start nearcore container, mapping home folder and ports.
@@ -211,7 +216,7 @@ def run_docker(image, home_dir, boot_nodes, telemetry_url, verbose):
         '--name', 'watchtower', '-v',
         '/var/run/docker.sock:/var/run/docker.sock', 'v2tec/watchtower', image
     ])
-    print(
+    logger.info(
         "Node is running! \nTo check logs call: docker logs --follow nearcore")
 
 
@@ -219,8 +224,8 @@ def run_docker(image, home_dir, boot_nodes, telemetry_url, verbose):
 
 
 def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
-    print("Starting NEAR client...")
-    print(
+    logger.info("Starting NEAR client...")
+    logger.info(
         "Autoupdate is not supported at the moment for runs outside of docker")
     cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
@@ -233,7 +238,7 @@ def run_nodocker(home_dir, is_release, boot_nodes, telemetry_url, verbose):
     try:
         subprocess.call(cmd)
     except KeyboardInterrupt:
-        print("\nStopping NEARCore.")
+        logger.info("\nStopping NEARCore.")
 
 
 def setup_and_run(nodocker,
@@ -252,7 +257,7 @@ def setup_and_run(nodocker,
             subprocess.check_output(['docker', 'pull', image])
             subprocess.check_output(['docker', 'pull', 'v2tec/watchtower'])
         except subprocess.CalledProcessError as exc:
-            print("Failed to fetch docker containers: %s" % exc)
+            logger.info("Failed to fetch docker containers: %s" % exc)
             exit(1)
 
     check_and_setup(nodocker, is_release, image, home_dir, init_flags,
@@ -275,7 +280,7 @@ def stop_docker():
 
 
 def generate_node_key(home, is_release, nodocker, image):
-    print("Generating node key...")
+    logger.info("Generating node key...")
     if nodocker:
         cmd = [
             './target/%s/keypair-generator' %
@@ -287,7 +292,7 @@ def generate_node_key(home, is_release, nodocker, image):
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
-            print("\nStopping NEARCore.")
+            logger.info("\nStopping NEARCore.")
     else:
         subprocess.check_output(['mkdir', '-p', home])
         subprocess.check_output([
@@ -295,11 +300,11 @@ def generate_node_key(home, is_release, nodocker, image):
             '%s:/srv/keypair-generator' % home, image, 'keypair-generator',
             '--home=/srv/keypair-generator', '--generate-config', 'node-key'
         ])
-    print("Node key generated")
+    logger.info("Node key generated")
 
 
 def generate_validator_key(home, is_release, nodocker, image, account_id):
-    print("Generating validator key...")
+    logger.info("Generating validator key...")
     if nodocker:
         cmd = [
             './target/%s/keypair-generator' %
@@ -312,7 +317,7 @@ def generate_validator_key(home, is_release, nodocker, image, account_id):
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
-            print("\nStopping NEARCore.")
+            logger.info("\nStopping NEARCore.")
     else:
         subprocess.check_output(['mkdir', '-p', home])
         subprocess.check_output([
@@ -321,11 +326,11 @@ def generate_validator_key(home, is_release, nodocker, image, account_id):
             '--home=/srv/keypair-generator', '--generate-config',
             '--account-id=%s' % account_id, 'validator-key'
         ])
-    print("Validator key generated")
+    logger.info("Validator key generated")
 
 
 def generate_signer_key(home, is_release, nodocker, image, account_id):
-    print("Generating signer keys...")
+    logger.info("Generating signer keys...")
     if nodocker:
         cmd = [
             './target/%s/keypair-generator' %
@@ -338,7 +343,7 @@ def generate_signer_key(home, is_release, nodocker, image, account_id):
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
-            print("\nStopping NEARCore.")
+            logger.info("\nStopping NEARCore.")
     else:
         subprocess.check_output(['mkdir', '-p', home])
         subprocess.check_output([
@@ -347,7 +352,7 @@ def generate_signer_key(home, is_release, nodocker, image, account_id):
             '--home=/srv/keypair-generator', '--generate-config',
             '--account-id=%s' % account_id, 'signer-keys'
         ])
-    print("Signer keys generated")
+    logger.info("Signer keys generated")
 
 
 def initialize_keys(home, is_release, nodocker, image, account_id,
@@ -359,7 +364,7 @@ def initialize_keys(home, is_release, nodocker, image, account_id,
         try:
             subprocess.check_output(['docker', 'pull', image])
         except subprocess.CalledProcessError as exc:
-            print("Failed to fetch docker containers: %s" % exc)
+            logger.info(f"Failed to fetch docker containers: {exc}")
             exit(1)
     if generate_signer_keys:
         generate_signer_key(home, is_release, nodocker, image, account_id)
@@ -370,9 +375,9 @@ def initialize_keys(home, is_release, nodocker, image, account_id,
 
 def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
     if os.path.exists(os.path.join(home, 'genesis.json')):
-        print("Genesis already exists")
+        logger.info("Genesis already exists")
         return
-    print("Creating genesis...")
+    logger.info("Creating genesis...")
     if not os.path.exists(os.path.join(home, 'accounts.csv')):
         raise Exception(
             "Failed to generate genesis: accounts.csv does not exist")
@@ -388,7 +393,7 @@ def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
         try:
             subprocess.call(cmd)
         except KeyboardInterrupt:
-            print("\nStopping NEARCore.")
+            logger.info("\nStopping NEARCore.")
     else:
         subprocess.check_output(['mkdir', '-p', home])
         subprocess.check_output([
@@ -398,7 +403,7 @@ def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
             '--chain-id=%s' % chain_id,
             '--tracked-shards=%s' % tracked_shards
         ])
-    print("Genesis created")
+    logger.info("Genesis created")
 
 
 def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose,
@@ -411,7 +416,7 @@ def start_stakewars(home, is_release, nodocker, image, telemetry_url, verbose,
         try:
             subprocess.check_output(['docker', 'pull', image])
         except subprocess.CalledProcessError as exc:
-            print("Failed to fetch docker containers: %s" % exc)
+            logger.info(f"Failed to fetch docker containers: {exc}")
             exit(1)
     create_genesis(home, is_release, nodocker, image, 'stakewars',
                    tracked_shards)

@@ -5,9 +5,12 @@ import re
 import sys
 import os
 
+from pathlib import Path
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
+from configured_logger import logger
+
 expensive_pattern = '#[cfg(feature = "expensive_tests")]'
 test_pattern = '#[test]'
-
 
 def find_first(str1, candidates, start):
     found = list(filter(lambda x: x[0]>=0, 
@@ -17,7 +20,7 @@ def find_first(str1, candidates, start):
         return min(found)
     else:
         return -1, None
-    
+
 
 def find_fn(str1, start):
     fn_start = str1.find('fn ', start)
@@ -73,11 +76,11 @@ if __name__ == '__main__':
     rust_src = list(filter(lambda f: f.find('/target/') == -1, rust_src))
     for rs in rust_src:
         rs = os.path.abspath(rs)
-        print(f'checking file {rs}')
+        logger.info(f'checking file {rs}')
         expensive_tests = expensive_tests_in_file(rs)
         for t in expensive_tests:
-            print(f'  expensive test {t}')
+            logger.info(f'  expensive test {t}')
             if t not in nightly_txt_tests:
-                print(f'error: file {rs} test {t} not in nightly.txt')
+                logger.info(f'error: file {rs} test {t} not in nightly.txt')
                 exit(1)
-    print('all tests in nightly')
+    logger.info('all tests in nightly')

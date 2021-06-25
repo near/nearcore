@@ -9,6 +9,10 @@ import json
 import os
 from collections import OrderedDict
 
+from pathlib import Path
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent.parent / 'pytest/lib'))
+from configured_logger import logger
+
 
 def main():
     if len(sys.argv) == 1:
@@ -16,7 +20,7 @@ def main():
     elif len(sys.argv) == 2 and sys.argv[1] == 'check':
         check_res()
     else:
-        print('Usage: update-res.py | update-res.py check')
+        logger.info('Usage: update-res.py | update-res.py check')
         exit(2)
 
 
@@ -45,7 +49,7 @@ def near_init_genesis():
 def update_res():
     genesis = near_init_genesis()
     json.dump(genesis, open(genesis_config_path, 'w'), indent=2)
-    print('nearcore/res/genesis_config.json updated')
+    logger.info('nearcore/res/genesis_config.json updated')
 
 
 def check_res():
@@ -53,10 +57,10 @@ def check_res():
     res_genesis_config = json.load(open(genesis_config_path),
                                    object_pairs_hook=OrderedDict)
     if genesis != res_genesis_config:
-        print(
+        logger.info(
             'nearcore/res/genesis_config.json does not match `near init` generated'
         )
-        print('Please update by run scripts/state/update_res.py')
+        logger.info('Please update by run scripts/state/update_res.py')
         exit(1)
 
 

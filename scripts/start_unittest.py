@@ -2,9 +2,14 @@
 
 import argparse
 import os
+import sys
 import subprocess
 
 from nodelib import setup_and_run
+from pathlib import Path
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
+from configured_logger import logger
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -26,7 +31,7 @@ if __name__ == "__main__":
         help='Image to run in docker (default: nearprotocol/nearcore)')
     args = parser.parse_args()
 
-    print(
+    logger.info(
         "Starting unittest nodes with test.near account and seed key of alice.near"
     )
     home_dir = os.path.join(os.getcwd(), 'testdir', '.near')

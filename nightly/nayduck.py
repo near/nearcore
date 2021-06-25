@@ -21,12 +21,16 @@
 
 import argparse
 import subprocess
+import sys
 import requests
 
 import json
 import os
 
 from colorama import Fore
+from pathlib import Path
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
+from configured_logger import logger
 
 
 DEFAULT_TEST_FILE = 'tests_for_nayduck.txt'
@@ -69,10 +73,10 @@ def get_tests(fl):
     return tests
 
 def github_auth():
-    print("Go to the following link in your browser:")
-    print()
-    print("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
-    print()
+    logger.info(
+        "Go to the following link in your browser:\n"
+        "http://nayduck.eastus.cloudapp.azure.com:3000/local_auth\n"
+    )
     code = input("Enter verification code: ")
     with open(os.path.expanduser('~/.nayduck'), 'w') as f:
         f.write(code)
@@ -96,10 +100,10 @@ if __name__ == "__main__":
     tests = get_tests(args.test_file)
     user = get_current_user().strip()
     post = {'branch': branch, 'sha': sha, 'tests': tests, 'requester': user, 'run_type': args.run_type, 'token': token.strip()}
-    print('Sending request ...')
+    logger.info('Sending request ...')
     res = requests.post('http://nayduck.eastus.cloudapp.azure.com:5000/request_a_run', json=post)
     json_res = json.loads(res.text)
     if json_res['code'] == 0:
-        print(Fore.GREEN + json_res['response'])
+        logger.info(Fore.GREEN + json_res['response'])
     else:
-        print(Fore.RED + json_res['response'])
+        logger.info(Fore.RED + json_res['response'])

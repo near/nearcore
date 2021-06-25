@@ -7,6 +7,10 @@ import sys
 import glob
 from itertools import zip_longest
 from multiprocessing import cpu_count
+from pathlib import Path
+
+sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
+from configured_logger import logger
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -87,13 +91,13 @@ if __name__ == "__main__":
             binary = future_to_binary[future]
             result = future.result()
             if result[0] != 0:
-                print(result[2])
+                logger.info(result[2])
                 errors = True
-                print(
+                logger.info(
                     f'========= error: kcov {binary} fail, exit code {result[0]} cause coverage fail'
                 )
             else:
-                print(f'========= kcov {binary} done')
+                logger.info(f'========= kcov {binary} done')
 
     # Merge coverage
     i = 0
@@ -122,11 +126,11 @@ if __name__ == "__main__":
             i += 1
 
     merged_coverage = os.path.join(coverage_dir(i), str(j))
-    print(f'========= coverage merged to {merged_coverage}')
+    logger.info(f'========= coverage merged to {merged_coverage}')
     subprocess.check_output(
         ['mv', merged_coverage, f'{current_path}/../merged_coverage'])
     subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
 
     if errors:
-        print(
+        logger.info(
             f'========= some errors in running kcov, coverage maybe inaccurate')
