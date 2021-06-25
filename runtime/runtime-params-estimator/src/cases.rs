@@ -746,11 +746,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        #[cfg(feature = "protocol_feature_math_extension")]
         ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
-        #[cfg(feature = "protocol_feature_math_extension")]
         ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
-        #[cfg(feature = "protocol_feature_math_extension")]
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
