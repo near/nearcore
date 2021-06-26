@@ -8,7 +8,7 @@ sys.path.append('lib')
 
 import mocknet
 from transaction import sign_payment_tx, sign_function_call_tx, sign_deploy_contract_tx
-from utils import load_binary_file
+from utils import load_test_contract
 
 nodes = mocknet.get_nodes()
 accounts = mocknet.accounts_from_nodes(nodes)
@@ -48,10 +48,7 @@ assert (initial_balances[1] + 100) % 1000 == new_balances[1] % 1000
 # Test contract deployment
 
 tx = sign_deploy_contract_tx(
-    accounts[2],
-    load_binary_file(
-        '../runtime/near-test-contracts/res/test_contract_rs.wasm'),
-    nonces[2] + 1, last_block_hash_decoded)
+    accounts[2], load_test_contract(), nonces[2] + 1, last_block_hash_decoded)
 nodes[0].send_tx_and_wait(tx, timeout=20)
 
 tx2 = sign_function_call_tx(accounts[2], accounts[2].account_id,

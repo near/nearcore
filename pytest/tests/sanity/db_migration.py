@@ -17,7 +17,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout, load_binary_file
+from utils import wait_for_blocks_or_timeout, load_test_contract
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 
 logging.basicConfig(level=logging.INFO)
@@ -27,10 +27,8 @@ def deploy_contract(node):
     status = node.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     hash_ = base58.b58decode(hash_.encode('utf8'))
-    tx = sign_deploy_contract_tx(
-        node.signer_key,
-        load_binary_file(
-            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 10, hash_)
+    tx = sign_deploy_contract_tx(node.signer_key, load_test_contract(), 10,
+                                 hash_)
     node.send_tx_and_wait(tx, timeout=15)
     wait_for_blocks_or_timeout(node, 3, 100)
 
