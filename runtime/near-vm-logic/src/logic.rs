@@ -1058,7 +1058,7 @@ impl<'a> VMLogic<'a> {
             bytes
         };
 
-        if !signature.check_signature_values((malleability_flag & 1) == 1) {
+        if !signature.check_signature_values(malleability_flag != 0) {
             return Ok(false as u64);
         }
 
