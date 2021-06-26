@@ -2323,22 +2323,32 @@ fn test_refund_receipts_processing() {
         env.clients[0].process_tx(tx, false, false);
     }
 
-    for i in 3..13 {
-        env.produce_block(0, i);
-        let prev_block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+    env.produce_block(0, 3);
+    env.produce_block(0, 4);
+    let mut block_height = 5;
+    loop {
+        env.produce_block(0, block_height);
+        let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
+        let prev_block = env.clients[0].chain.get_block_by_height(block_height-1).unwrap().clone();
         let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
-        println!("gas used:{} gas limit: {}", chunk_extra.gas_used(), chunk_extra.gas_limit());
         let state_update =
             env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
         let delayed_indices =
             get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
                 .unwrap();
-        println!("block {} has {:?} delayed receipts", i,
-                 match delayed_indices {
-                     None => String::from("None"),
-                     Some(delayed_indices) =>
-                         format!("{}-{}", delayed_indices.first_index, delayed_indices.next_available_index)
-                 });
+        let finished_all_delayed_receipts = match delayed_indices{
+            None => false,
+            Some(delayed_indices) => {
+                println!("delayed_indices {}-{}", delayed_indices.first_index, delayed_indices.next_available_index);
+                delayed_indices.next_available_index>0 && delayed_indices.first_index == delayed_indices.next_available_index
+            },
+        };
+        let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
+        println!("block {} receipts {:#?}", block_height, chunk.receipts());
+        if chunk.receipts().len() == 0 && chunk.transactions().len() == 0 && finished_all_delayed_receipts {
+            break;
+        }
+        block_height+=1;
     }
 
     let mut refund_receipt_ids = HashSet::new();
@@ -2352,54 +2362,44 @@ fn test_refund_receipts_processing() {
                     ExecutionStatus::Failure(TxExecutionError::ActionError(_)) => true,
                     _ => false,
                 });
-                refund_receipt_ids.insert(receipt_outcome.outcome_with_id.outcome.receipt_ids[0].clone());
+                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter()
+                    .for_each(|id| {refund_receipt_ids.insert(id.clone());});
                 true
             },
             _ => false
         });
     }
 
-    // this is the block where all receipts generated from transactions are processed and we
-    // start to process refund receipts
-    let ending_block_height = 10;
-    if checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
-        CountRefundReceiptsInGasLimit, genesis.config.protocol_version) {
-        // check each block only process one refund receipt
-        let mut processed_refund_receipt_ids = HashSet::new();
-        for i in 0..=2 {
-            let block = env.clients[0].chain.get_block_by_height(ending_block_height+i).unwrap().clone();
-            let execution_outcomes_from_block = env.clients[0]
-                .chain
-                .get_block_execution_outcomes(block.hash())
-                .unwrap()
-                .remove(&0)
-                .unwrap();
-            assert_eq!(execution_outcomes_from_block.len(), 1);
-            processed_refund_receipt_ids.insert(execution_outcomes_from_block[0].outcome_with_id.id);
-            let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
-            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
-        }
-        assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
+    let ending_block_height = block_height - 1;
+    let count_refund_receipts_in_gas_limit = checked_feature!(
+        "protocol_feature_count_refund_receipts_in_gas_limit", CountRefundReceiptsInGasLimit,
+        genesis.config.protocol_version);
+    let begin_block_height = if count_refund_receipts_in_gas_limit {
+        ending_block_height - refund_receipt_ids.len() as u64 + 1
     } else {
-        // all refund receipts will be processed at once at block 10 after congestion ends
-        let block = env.clients[0].chain.get_block_by_height(ending_block_height).unwrap().clone();
+        ending_block_height
+    };
+    let mut processed_refund_receipt_ids = HashSet::new();
+    for i in begin_block_height..=ending_block_height {
+        let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
         let execution_outcomes_from_block = env.clients[0]
             .chain
             .get_block_execution_outcomes(block.hash())
             .unwrap()
             .remove(&0)
             .unwrap();
-        assert_eq!(execution_outcomes_from_block.len(), 3);
-        assert_eq!(
-            execution_outcomes_from_block
-                .into_iter()
-                .map(|execution_outcome| execution_outcome.outcome_with_id.id)
-                .collect::<HashSet<_>>(),
-            refund_receipt_ids
-        );
+        execution_outcomes_from_block.iter().for_each(|outcome| {
+            processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
+        });
         let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
-        assert_eq!(chunk_extra.gas_used(), 0);
+        if count_refund_receipts_in_gas_limit {
+            assert_eq!(execution_outcomes_from_block.len(), 1);
+            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
+        } else {
+            assert_eq!(chunk_extra.gas_used(), 0);
+        }
     }
+    assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
 #[test]
