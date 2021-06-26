@@ -46,6 +46,7 @@ once_cell = "1"
 num-traits = "0.2.12"
 libc = "0.2.81"
 wabt = "0.9"
+ripemd160 = "0.9.0"
 
 [features]
 default = ["costs_counting"]
