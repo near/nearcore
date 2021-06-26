@@ -406,3 +406,39 @@ fn test_tx_invalid_tx_error() {
         .start();
     });
 }
+
+#[test]
+fn test_query_rpc_account_view_invalid_account_must_return_error() {
+    init_integration_logger();
+
+    let cluster = NodeCluster::new(1, |index| format!("invalid_account{}", index))
+        .set_num_shards(1)
+        .set_num_validator_seats(1)
+        .set_num_lightclients(0)
+        .set_epoch_length(10)
+        .set_genesis_height(0);
+
+    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
+        let client = new_client(&format!("http://{}", rpc_addrs[0]));
+        let query_response = client
+            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
+                block_reference: near_primitives::types::BlockReference::BlockId(BlockId::Height(
+                    0, // request is fired immediately so we won't have any other block except the genesis one
+                )),
+                request: near_primitives::views::QueryRequest::ViewAccount {
+                    account_id: "1nval$d*@cc0ount".to_string(),
+                },
+            })
+            .await;
+
+        let error = match query_response {
+            Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
+            Err(err) => serde_json::to_value(err).unwrap(),
+        };
+
+        assert_eq!(error["data"], serde_json::json!("Account ID 1nval$d*@cc0ount is invalid"),);
+
+        assert_eq!(error["cause"]["name"], serde_json::json!("INVALID_ACCOUNT"),);
+        System::current().stop();
+    });
+}
