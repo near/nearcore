@@ -408,7 +408,7 @@ fn test_tx_invalid_tx_error() {
 }
 
 #[test]
-fn test_query_rpc_account_view_invalid_account_must_return_error() {
+fn test_query_rpc_account_view_unknown_block_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::new(1, |index| format!("invalid_account{}", index))
@@ -423,10 +423,10 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: near_primitives::types::BlockReference::BlockId(BlockId::Height(
-                    0, // request is fired immediately so we won't have any other block except the genesis one
+                    1,
                 )),
                 request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "1nval$d*@cc0ount".to_string(),
+                    account_id: "near.0".to_string(),
                 },
             })
             .await;
@@ -436,9 +436,7 @@ fn test_query_rpc_account_view_invalid_account_must_return_error() {
             Err(err) => serde_json::to_value(err).unwrap(),
         };
 
-        assert_eq!(error["data"], serde_json::json!("Account ID 1nval$d*@cc0ount is invalid"),);
-
-        assert_eq!(error["cause"]["name"], serde_json::json!("INVALID_ACCOUNT"),);
+        assert_eq!(error["cause"]["name"], serde_json::json!("UNKNOWN_BLOCK"),);
         System::current().stop();
     });
 }
