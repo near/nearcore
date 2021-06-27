@@ -34,7 +34,9 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -48,8 +50,6 @@ use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
 };
-use near_primitives::errors::TxExecutionError;
-use near_primitives::checked_feature;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
@@ -2329,26 +2329,37 @@ fn test_refund_receipts_processing() {
     loop {
         env.produce_block(0, block_height);
         let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
-        let prev_block = env.clients[0].chain.get_block_by_height(block_height-1).unwrap().clone();
-        let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
-        let state_update =
-            env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
+        let prev_block =
+            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+        let state_update = env.clients[0]
+            .runtime_adapter
+            .get_tries()
+            .new_trie_update(0, *chunk_extra.state_root());
         let delayed_indices =
-            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
-                .unwrap();
-        let finished_all_delayed_receipts = match delayed_indices{
+            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+        let finished_all_delayed_receipts = match delayed_indices {
             None => false,
             Some(delayed_indices) => {
-                println!("delayed_indices {}-{}", delayed_indices.first_index, delayed_indices.next_available_index);
-                delayed_indices.next_available_index>0 && delayed_indices.first_index == delayed_indices.next_available_index
-            },
+                println!(
+                    "delayed_indices {}-{}",
+                    delayed_indices.first_index, delayed_indices.next_available_index
+                );
+                delayed_indices.next_available_index > 0
+                    && delayed_indices.first_index == delayed_indices.next_available_index
+            }
         };
-        let chunk = env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
+        let chunk =
+            env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
         println!("block {} receipts {:#?}", block_height, chunk.receipts());
-        if chunk.receipts().len() == 0 && chunk.transactions().len() == 0 && finished_all_delayed_receipts {
+        if chunk.receipts().len() == 0
+            && chunk.transactions().len() == 0
+            && finished_all_delayed_receipts
+        {
             break;
         }
-        block_height+=1;
+        block_height += 1;
     }
 
     let mut refund_receipt_ids = HashSet::new();
@@ -2362,15 +2373,17 @@ fn test_refund_receipts_processing() {
                 receipt_outcome.outcome_with_id.outcome.receipt_ids.iter()
                     .for_each(|id| {refund_receipt_ids.insert(id.clone());});
                 true
-            },
-            _ => false
+            }
+            _ => false,
         });
     }
 
     let ending_block_height = block_height - 1;
     let count_refund_receipts_in_gas_limit = checked_feature!(
-        "protocol_feature_count_refund_receipts_in_gas_limit", CountRefundReceiptsInGasLimit,
-        genesis.config.protocol_version);
+        "protocol_feature_count_refund_receipts_in_gas_limit",
+        CountRefundReceiptsInGasLimit,
+        genesis.config.protocol_version
+    );
     let begin_block_height = if count_refund_receipts_in_gas_limit {
         ending_block_height - refund_receipt_ids.len() as u64 + 1
     } else {

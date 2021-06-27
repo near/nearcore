@@ -10,8 +10,8 @@ pub use near_primitives;
 use near_primitives::runtime::get_insufficient_storage_stake;
 use near_primitives::{
     account::Account,
-    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     checked_feature,
+    errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     hash::CryptoHash,
     receipt::{
         ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
@@ -560,8 +560,11 @@ impl Runtime {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
-            if !checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
-                CountRefundReceiptsInGasLimit, apply_state.current_protocol_version) {
+            if !checked_feature!(
+                "protocol_feature_count_refund_receipts_in_gas_limit",
+                CountRefundReceiptsInGasLimit,
+                apply_state.current_protocol_version
+            ) {
                 result.gas_burnt = 0;
                 result.gas_used = 0;
             }
@@ -602,11 +605,8 @@ impl Runtime {
         };
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_burnt: Gas = if receipt.predecessor_id == system_account() {
-            0
-        } else {
-            result.gas_burnt
-        };
+        let gas_burnt: Gas =
+            if receipt.predecessor_id == system_account() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
@@ -1651,8 +1651,11 @@ mod tests {
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
             // Check that refund receipts are delayed if CountRefundReceiptsInGasLimit is enabled,
             // and otherwise processed all at once
-            let capped_i = if checked_feature!("protocol_feature_count_refund_receipts_in_gas_limit",
-                CountRefundReceiptsInGasLimit, apply_state.current_protocol_version) {
+            let capped_i = if checked_feature!(
+                "protocol_feature_count_refund_receipts_in_gas_limit",
+                CountRefundReceiptsInGasLimit,
+                apply_state.current_protocol_version
+            ) {
                 std::cmp::min(i, n)
             } else {
                 n
@@ -1845,15 +1848,12 @@ mod tests {
             .collect()
     }
 
-    fn generate_refund_receipts(small_transfer: u128, n:u64) -> Vec<Receipt> {
+    fn generate_refund_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
         let mut receipt_id = CryptoHash::default();
         (0..n)
             .map(|i| {
                 receipt_id = hash(receipt_id.as_ref());
-                Receipt::new_balance_refund(
-                        &alice_account(),
-                        small_transfer + Balance::from(i)
-                    )
+                Receipt::new_balance_refund(&alice_account(), small_transfer + Balance::from(i))
             })
             .collect()
     }
