@@ -2358,10 +2358,7 @@ fn test_refund_receipts_processing() {
         assert!(match execution_outcome.outcome_with_id.outcome.status {
             ExecutionStatus::SuccessReceiptId(id) => {
                 let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-                assert!(match receipt_outcome.outcome_with_id.outcome.status {
-                    ExecutionStatus::Failure(TxExecutionError::ActionError(_)) => true,
-                    _ => false,
-                });
+                assert!(matches!(receipt_outcome.outcome_with_id.outcome.status, ExecutionStatus::Failure(TxExecutionError::ActionError(_)));
                 receipt_outcome.outcome_with_id.outcome.receipt_ids.iter()
                     .for_each(|id| {refund_receipt_ids.insert(id.clone());});
                 true
