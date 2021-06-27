@@ -2366,16 +2366,19 @@ fn test_refund_receipts_processing() {
     for (_, id) in tx_hashes.into_iter().enumerate() {
         let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
         assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
-        assert!(match execution_outcome.outcome_with_id.outcome.status {
+        match execution_outcome.outcome_with_id.outcome.status {
             ExecutionStatus::SuccessReceiptId(id) => {
                 let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
-                assert!(matches!(receipt_outcome.outcome_with_id.outcome.status, ExecutionStatus::Failure(TxExecutionError::ActionError(_)));
-                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter()
-                    .for_each(|id| {refund_receipt_ids.insert(id.clone());});
-                true
+                assert!(matches!(
+                    receipt_outcome.outcome_with_id.outcome.status,
+                    ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+                ));
+                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                    refund_receipt_ids.insert(id.clone());
+                });
             }
-            _ => false,
-        });
+            _ => assert!(false),
+        };
     }
 
     let ending_block_height = block_height - 1;
