@@ -28,9 +28,13 @@ pub struct RpcLightClientNextBlockResponse {
 }
 
 #[derive(thiserror::Error, Debug, Serialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
     InconsistentState {
         number_or_shards: usize,
@@ -47,28 +51,20 @@ pub enum RpcLightClientProofError {
     },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 #[derive(thiserror::Error, Debug, Serialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 impl RpcLightClientExecutionProofRequest {
@@ -119,13 +115,13 @@ impl From<near_client_primitives::types::GetExecutionOutcomeError> for RpcLightC
             near_client_primitives::types::GetExecutionOutcomeError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             },
-            near_client_primitives::types::GetExecutionOutcomeError::Unreachable { error_message } => {
+            near_client_primitives::types::GetExecutionOutcomeError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcLightClientProofError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -140,13 +136,15 @@ impl From<near_client_primitives::types::GetBlockProofError> for RpcLightClientP
             near_client_primitives::types::GetBlockProofError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetBlockProofError::Unreachable { error_message } => {
+            near_client_primitives::types::GetBlockProofError::Unreachable {
+                ref error_message,
+            } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcLightClientProofError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -167,14 +165,14 @@ impl From<near_client_primitives::types::GetNextLightClientBlockError>
                 epoch_id,
             } => Self::EpochOutOfBounds { epoch_id },
             near_client_primitives::types::GetNextLightClientBlockError::Unreachable {
-                error_message,
+                ref error_message,
             } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcLightClientNextBlockError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -194,21 +192,38 @@ impl From<actix::MailboxError> for RpcLightClientNextBlockError {
 
 impl From<RpcLightClientProofError> for crate::errors::RpcError {
     fn from(error: RpcLightClientProofError) -> Self {
-        let error_data = match error {
+        let error_data = match &error {
             RpcLightClientProofError::UnknownBlock { error_message } => {
                 Some(Value::String(format!("DB Not Found Error: {}", error_message)))
             }
             _ => Some(Value::String(error.to_string())),
         };
 
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        let error_data_value = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcLightClientProofError: {:?}", err),
+                )
+            }
+        };
+
+        Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }
 
 impl From<RpcLightClientNextBlockError> for crate::errors::RpcError {
     fn from(error: RpcLightClientNextBlockError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcLightClientNextBlockError: {:?}", err),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }
