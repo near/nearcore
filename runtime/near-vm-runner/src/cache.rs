@@ -19,11 +19,8 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
-    Version1 {
-        code_hash: CryptoHash,
-        vm_config_non_crypto_hash: u64,
-        vm_kind: VMKind,
-    },
+    #[allow(unused)]
+    Version1 { code_hash: CryptoHash, vm_config_non_crypto_hash: u64, vm_kind: VMKind },
     Version2 {
         code_hash: CryptoHash,
         vm_config_non_crypto_hash: u64,
