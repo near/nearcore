@@ -898,6 +898,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         part_id: u64,
         _num_parts: u64,
         data: &[u8],
+        _epoch_id: &EpochId,
     ) -> Result<(), Error> {
         if part_id != 0 {
             return Ok(());

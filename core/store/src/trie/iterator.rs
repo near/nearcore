@@ -41,6 +41,14 @@ pub struct TrieIterator<'a> {
 
 pub type TrieItem = Result<(Vec<u8>, Vec<u8>), StorageError>;
 
+/// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+pub struct TrieTraversalItem {
+    /// Hash of the node.
+    pub hash: CryptoHash,
+    /// Key of the node if it stores a value.
+    pub key: Option<Vec<u8>>,
+}
+
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
@@ -130,6 +138,17 @@ impl<'a> TrieIterator<'a> {
         result
     }
 
+    fn has_value(&self) -> bool {
+        match self.trail.last() {
+            Some(b) => match (&b.status, &b.node.node) {
+                (CrumbStatus::At, TrieNode::Branch(_, Some(_))) => true,
+                (CrumbStatus::At, TrieNode::Leaf(_, _)) => true,
+                _ => false,
+            },
+            None => false, // Trail finished
+        }
+    }
+
     fn iter_step(&mut self) -> Option<IterStep> {
         self.trail.last_mut()?.increment();
         let b = self.trail.last().expect("Trail finished.");
@@ -197,12 +216,14 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
-    /// Returns hashes of nodes with paths in [path_begin, path_end). Used by state parts
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
+    /// order and return TrieTraversalItem for each visited node.
+    /// Used to generate and apply state parts for state sync.
     pub(crate) fn visit_nodes_interval(
         &mut self,
         path_begin: &[u8],
         path_end: &[u8],
-    ) -> Result<Vec<CryptoHash>, StorageError> {
+    ) -> Result<Vec<TrieTraversalItem>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash = self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
@@ -210,9 +231,13 @@ impl<'a> TrieIterator<'a> {
             return Ok(vec![]);
         }
         let mut nodes_list = Vec::new();
+
         // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
         if &self.key_nibbles[..] >= path_begin {
-            nodes_list.push(last_hash);
+            nodes_list.push(TrieTraversalItem {
+                hash: last_hash,
+                key: self.has_value().then(|| self.key()),
+            });
         }
 
         loop {
@@ -232,12 +257,15 @@ impl<'a> TrieIterator<'a> {
                     }
                     let node = self.trie.retrieve_node(&hash)?;
                     self.descend_into_node(node);
-                    nodes_list.push(hash);
+                    nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
                 IterStep::Value(hash) => {
                     self.trie.retrieve_raw_bytes(&hash)?;
-                    nodes_list.push(hash);
+                    nodes_list.push(TrieTraversalItem {
+                        hash,
+                        key: self.has_value().then(|| self.key()),
+                    });
                 }
             }
         }
@@ -287,6 +315,7 @@ mod tests {
     use near_primitives::hash::CryptoHash;
 
     use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
+    use crate::trie::iterator::IterStep;
     use crate::Trie;
 
     #[test]
@@ -339,5 +368,39 @@ mod tests {
         let result2: Vec<_> =
             map.range(seek_key.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).take(5).collect();
         assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_has_value() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let tries = create_tries();
+            let trie = tries.get_trie_for_shard(0);
+            let trie_changes = gen_changes(&mut rng, 10);
+            let trie_changes = simplify_changes(&trie_changes);
+            let state_root =
+                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let mut iterator = trie.iter(&state_root).unwrap();
+            loop {
+                let iter_step = match iterator.iter_step() {
+                    Some(iter_step) => iter_step,
+                    None => break,
+                };
+                match iter_step {
+                    IterStep::Value(_) => assert!(iterator.has_value()),
+                    _ => assert!(!iterator.has_value()),
+                }
+                match iter_step {
+                    IterStep::PopTrail => {
+                        iterator.trail.pop();
+                    }
+                    IterStep::Descend(hash) => match iterator.trie.retrieve_node(&hash) {
+                        Ok(node) => iterator.descend_into_node(node),
+                        Err(e) => panic!("Unexpected error: {}", e),
+                    },
+                    _ => {}
+                }
+            }
+        }
     }
 }
