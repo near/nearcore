@@ -4,9 +4,14 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
 
+use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize};
+use crate::trie::{
+    ApplyStatePartResult, NodeHandle, RawTrieNodeWithSize, TrieNode, TrieNodeWithSize,
+};
 use crate::{PartialStorage, StorageError, Trie, TrieChanges, TrieIterator};
+use near_primitives::contract::ContractCode;
+use near_primitives::state_record::is_contract_code_key;
 
 impl Trie {
     /// Computes the set of trie nodes for a state part.
@@ -31,7 +36,6 @@ impl Trie {
         let recorded = with_recording.recorded_storage().unwrap();
 
         let trie_nodes = recorded.nodes;
-
         Ok(trie_nodes)
     }
 
@@ -176,34 +180,56 @@ impl Trie {
         Ok(())
     }
 
-    /// Returns the storage changes for the state part.
+    fn apply_state_part_impl(
+        state_root: &StateRoot,
+        part_id: u64,
+        num_parts: u64,
+        part: Vec<Vec<u8>>,
+    ) -> Result<ApplyStatePartResult, StorageError> {
+        if state_root == &CryptoHash::default() {
+            return Ok(ApplyStatePartResult {
+                trie_changes: TrieChanges::empty(CryptoHash::default()),
+                contract_codes: vec![],
+            });
+        }
+        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
+        let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
+        let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
+        let mut iterator = TrieIterator::new(&trie, state_root)?;
+        let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
+        let mut map = HashMap::new();
+        let mut contract_codes = Vec::new();
+        for TrieTraversalItem { hash, key } in trie_traversal_items {
+            let value = trie.retrieve_raw_bytes(&hash)?;
+            map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
+            if let Some(trie_key) = key {
+                if is_contract_code_key(&trie_key) {
+                    contract_codes.push(ContractCode::new(value, None));
+                }
+            }
+        }
+        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
+        Ok(ApplyStatePartResult {
+            trie_changes: TrieChanges {
+                old_root: CryptoHash::default(),
+                new_root: *state_root,
+                insertions,
+                deletions,
+            },
+            contract_codes,
+        })
+    }
+
+    /// Applies state part and returns the storage changes for the state part and all contract codes extracted from it.
     /// Writing all storage changes gives the complete trie.
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
         part: Vec<Vec<u8>>,
-    ) -> Result<TrieChanges, StorageError> {
-        if state_root == &CryptoHash::default() {
-            return Ok(TrieChanges::empty(CryptoHash::default()));
-        }
-        let trie = Trie::from_recorded_storage(PartialStorage { nodes: PartialState(part) });
-        let path_begin = trie.find_path_for_part_boundary(state_root, part_id, num_parts)?;
-        let path_end = trie.find_path_for_part_boundary(state_root, part_id + 1, num_parts)?;
-        let mut iterator = TrieIterator::new(&trie, state_root)?;
-        let hashes = iterator.visit_nodes_interval(&path_begin, &path_end)?;
-        let mut map = HashMap::new();
-        for hash in hashes {
-            let value = trie.retrieve_raw_bytes(&hash)?;
-            map.entry(hash).or_insert_with(|| (value, 0)).1 += 1;
-        }
-        let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
-        Ok(TrieChanges {
-            old_root: CryptoHash::default(),
-            new_root: *state_root,
-            insertions,
-            deletions,
-        })
+    ) -> ApplyStatePartResult {
+        Self::apply_state_part_impl(state_root, part_id, num_parts, part)
+            .expect("apply_state_part is guaranteed to succeed when each part is valid")
     }
 
     pub fn get_memory_usage_from_serialized(bytes: &Vec<u8>) -> Result<u64, StorageError> {
@@ -421,7 +447,7 @@ mod tests {
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
         let _ =
             Trie::validate_trie_nodes_for_part(&state_root, 0, 1, PartialState(vec![])).unwrap();
-        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]).unwrap();
+        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]);
     }
 
     fn construct_trie_for_big_parts_1(
@@ -626,7 +652,7 @@ mod tests {
                         num_parts,
                         parts[part_id as usize].clone(),
                     )
-                    .unwrap()
+                    .trie_changes
                 })
                 .collect::<Vec<_>>();
             merge_trie_changes(changes)
