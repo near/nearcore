@@ -126,7 +126,10 @@ impl EpochInfoProvider for SafeEpochManager {
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    genesis_runtime_config: Arc<RuntimeConfig>,
+    /// Runtime configuration.  Note that it may be slightly different than
+    /// `genesis_config.runtime_config`.  Consider `max_gas_burnt_view` value
+    /// which may be configured per node.
+    runtime_config: Arc<RuntimeConfig>,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -146,11 +149,18 @@ impl NightshadeRuntime {
         initial_tracking_accounts: Vec<AccountId>,
         initial_tracking_shards: Vec<ShardId>,
         trie_viewer_state_size_limit: Option<u64>,
+        max_gas_burnt_view: Option<Gas>,
     ) -> Self {
         let runtime = Runtime::new();
-        let trie_viewer = TrieViewer::new_with_state_size_limit(trie_viewer_state_size_limit);
+        let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let genesis_runtime_config = Arc::new(genesis_config.runtime_config.clone());
+        let runtime_config = Arc::new({
+            let mut cfg = genesis_config.runtime_config.clone();
+            if let Some(gas) = max_gas_burnt_view {
+                cfg.wasm_config.limit_config.max_gas_burnt_view = gas;
+            }
+            cfg
+        });
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let reward_calculator = RewardCalculator::new(&genesis_config);
@@ -179,7 +189,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
-            genesis_runtime_config,
+            runtime_config,
             store,
             tries,
             runtime,
@@ -424,7 +434,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: RuntimeConfig::from_protocol_version(
-                &self.genesis_runtime_config,
+                &self.runtime_config,
                 current_protocol_version,
             ),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
@@ -585,10 +595,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let runtime_config = RuntimeConfig::from_protocol_version(
-            &self.genesis_runtime_config,
-            current_protocol_version,
-        );
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.runtime_config, current_protocol_version);
 
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
@@ -657,10 +665,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        let runtime_config = RuntimeConfig::from_protocol_version(
-            &self.genesis_runtime_config,
-            current_protocol_version,
-        );
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.runtime_config, current_protocol_version);
 
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -1542,8 +1548,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         config.protocol_version = protocol_version;
         // Currently only runtime config is changed through protocol upgrades.
         let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
-        config.runtime_config = (*runtime_config).clone();
+            RuntimeConfig::from_protocol_version(&self.runtime_config, protocol_version);
+        // If we were initialised with a custom max_gas_burnt_view (see new
+        // function), bring back the value from genesis configuration.  Since
+        // max_gas_burnt_view never changes as a result of protocol upgrade, we
+        // can be sure that this value will be correct.
+        config.runtime_config = {
+            let mut cfg = (*runtime_config).clone();
+            cfg.wasm_config.limit_config.max_gas_burnt_view =
+                config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
+            cfg
+        };
         Ok(config)
     }
 
@@ -1792,6 +1807,7 @@ mod test {
                 &genesis,
                 initial_tracked_accounts,
                 initial_tracked_shards,
+                None,
                 None,
             );
             let (_store, state_roots) = runtime.genesis_state();

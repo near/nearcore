@@ -810,8 +810,13 @@ def apply_config_changes(node_dir, client_config_change):
     with open(fname) as f:
         config_json = json.loads(f.read())
 
+    # ClientConfig keys which are valid but may be missing from the config.json
+    # file.  At the moment it’s only max_gas_burnt_view which is an Option and
+    # None by default.  If None, the key is not present in the file.
+    allowed_missing_configs = ('max_gas_burnt_view',)
+
     for k, v in client_config_change.items():
-        assert k in config_json
+        assert k in allowed_missing_configs or k in config_json
         if isinstance(v, dict):
             for key, value in v.items():
                 assert key in config_json[k], key
