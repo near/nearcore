@@ -34,18 +34,21 @@ use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas,
-    MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot,
+    StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, EpochValidatorInfo, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
+use near_vm_runner::precompile_contract;
+
 use near_store::{
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots, ColState,
-    PartialStorage, ShardTries, Store, StoreCompiledContractCache, StoreUpdate, Trie,
-    WrappedTrieChanges,
+    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
+    ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
+    StoreUpdate, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -60,6 +63,7 @@ use near_primitives::runtime::config::RuntimeConfig;
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
 
@@ -509,6 +513,35 @@ impl NightshadeRuntime {
         };
 
         Ok(result)
+    }
+
+    fn precompile_contracts(
+        &self,
+        epoch_id: &EpochId,
+        contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error> {
+        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
+        let runtime_config =
+            RuntimeConfig::from_protocol_version(&self.runtime_config, protocol_version);
+        let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
+            Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
+        // Execute precompile_contract in parallel but prevent it from using more than half of all
+        // threads so that node will still function normally.
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(std::cmp::max(rayon::current_num_threads() / 2, 1))
+            .build()
+            .unwrap()
+            .install(|| {
+                contract_codes.par_iter().for_each(|code| {
+                    precompile_contract(
+                        &code,
+                        &runtime_config.wasm_config,
+                        compiled_contract_cache.as_deref(),
+                    )
+                    .ok();
+                })
+            });
+        Ok(())
     }
 }
 
@@ -1419,14 +1452,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: u64,
         num_parts: u64,
         data: &[u8],
+        epoch_id: &EpochId,
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let trie_changes = Trie::apply_state_part(&state_root, part_id, num_parts, part)
-            .expect("combine_state_parts is guaranteed to succeed when each part is valid");
+        let ApplyStatePartResult { trie_changes, contract_codes } =
+            Trie::apply_state_part(&state_root, part_id, num_parts, part);
         let tries = self.get_tries();
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
+        self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
 
@@ -2299,7 +2334,11 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        new_env.runtime.apply_state_part(0, &env.state_roots[0], 0, 1, &state_part).unwrap();
+        let epoch_id = &new_env.head.epoch_id;
+        new_env
+            .runtime
+            .apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id)
+            .unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {
             new_env.step_default(vec![]);
