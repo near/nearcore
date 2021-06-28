@@ -37,6 +37,7 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
             vec![],
             vec![],
             None,
+            None,
         )) as Arc<dyn RuntimeAdapter>],
     );
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");

@@ -29,6 +29,7 @@ pytest --timeout=360 sanity/block_sync_archival.py
 pytest --timeout=240 sanity/validator_switch.py
 pytest --timeout=240 sanity/restaked.py
 pytest --timeout=240 sanity/rpc_state_changes.py
+pytest sanity/rpc_max_gas_burnt.py
 pytest sanity/rpc_tx_status.py
 pytest --timeout=120 sanity/garbage_collection.py
 pytest --timeout=120 sanity/garbage_collection1.py

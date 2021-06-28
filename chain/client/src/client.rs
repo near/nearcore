@@ -1707,6 +1707,7 @@ mod test {
                     vec![],
                     vec![],
                     None,
+                    None,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect()
@@ -1790,7 +1791,7 @@ mod test {
             env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
         let max_gas_price =
             env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
-        assert!(max_gas_price <= 10 * min_gas_price);
+        assert!(max_gas_price <= 20 * min_gas_price);
     }
 
     #[test]

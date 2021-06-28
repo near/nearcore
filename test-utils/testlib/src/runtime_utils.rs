@@ -92,7 +92,7 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, tries, root) = get_runtime_and_trie();
-    let trie_viewer = TrieViewer::new_with_state_size_limit(None);
+    let trie_viewer = TrieViewer::default();
     let state_update = tries.new_trie_update(0, root);
     (trie_viewer, state_update)
 }

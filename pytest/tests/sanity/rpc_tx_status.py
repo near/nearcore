@@ -35,7 +35,7 @@ payment_tx = transaction.sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
 submit_tx_and_check(nodes[0], payment_tx)
 
 print("2")
-deploy_contract_tx = transaction.sign_deploy_contract_tx(nodes[0].signer_key, load_binary_file('../tests/hello.wasm'), 2, base58.b58decode(block_hash.encode('utf8')))
+deploy_contract_tx = transaction.sign_deploy_contract_tx(nodes[0].signer_key, load_binary_file('testdata/hello.wasm'), 2, base58.b58decode(block_hash.encode('utf8')))
 submit_tx_and_check(nodes[0], deploy_contract_tx)
 
 print("3")

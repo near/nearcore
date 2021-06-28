@@ -1,6 +1,6 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
-/chain/ @SkidanovAlex @bowenwang1996
+/chain/ @bowenwang1996
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
 /chain/network/ @mfornet @bowenwang1996 @pmnoxx
@@ -10,20 +10,20 @@
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
-/runtime/ @evgenykuzyakov @bowenwang1996 @EgorKulikov
+/runtime/ @bowenwang1996 @EgorKulikov
 /runtime/runtime-params-estimator/ @olonho
 /runtime/near-evm-runner/ @ailisp @artob @frankbraun
 /runtime/near-test-contracts/ @olonho @ailisp @matklad
 /runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad
 /runtime/near-vm-runner/ @olonho @ailisp @matklad
 
-/genesis-tools/ @evgenykuzyakov @ailisp
+/genesis-tools/ @ailisp
 /tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
-/core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
+/core/  @bowenwang1996 @frol @nearmax
 /neard/ @bowenwang1996 @frol
-/nearcore/ @bowenwang1996 @frol @evgenykuzyakov @SkidanovAlex
+/nearcore/ @bowenwang1996 @frol
 
 /.buildkite/ @chefsale @mhalambek
 /scripts/ @chefsale @mhalambek
