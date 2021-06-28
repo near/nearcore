@@ -2342,17 +2342,12 @@ fn test_refund_receipts_processing() {
         let finished_all_delayed_receipts = match delayed_indices {
             None => false,
             Some(delayed_indices) => {
-                println!(
-                    "delayed_indices {}-{}",
-                    delayed_indices.first_index, delayed_indices.next_available_index
-                );
                 delayed_indices.next_available_index > 0
                     && delayed_indices.first_index == delayed_indices.next_available_index
             }
         };
         let chunk =
             env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
-        println!("block {} receipts {:#?}", block_height, chunk.receipts());
         if chunk.receipts().len() == 0
             && chunk.transactions().len() == 0
             && finished_all_delayed_receipts
