@@ -10,6 +10,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use near_primitives::challenge::PartialState;
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateRoot, StateRootNode};
 
@@ -456,6 +457,14 @@ impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
+}
+
+/// Result of applying state part to Trie.
+pub struct ApplyStatePartResult {
+    /// Trie changes after applying state part.
+    pub trie_changes: TrieChanges,
+    /// Contract codes belonging to the state part.
+    pub contract_codes: Vec<ContractCode>,
 }
 
 impl Trie {

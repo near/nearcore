@@ -238,7 +238,9 @@ impl Broken {
     /// with the right values.
     pub fn reply(&self) -> Message {
         match *self {
-            Broken::Unmatched(_) => Message::error(RpcError::invalid_request()),
+            Broken::Unmatched(_) => Message::error(RpcError::parse_error(
+                "JSON RPC Request format was expected".to_owned(),
+            )),
             Broken::SyntaxError(ref e) => Message::error(RpcError::parse_error(e.clone())),
         }
     }

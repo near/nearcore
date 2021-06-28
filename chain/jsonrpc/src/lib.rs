@@ -166,10 +166,8 @@ fn process_query_response(
             near_jsonrpc_primitives::types::query::RpcQueryError::UnknownBlock {
                 ref block_reference,
             } => match block_reference {
-                near_primitives::types::BlockReference::BlockId(block_id) => Err(RpcError::new(
-                    -32_000,
-                    "Server error".to_string(),
-                    Some(match block_id {
+                near_primitives::types::BlockReference::BlockId(block_id) => {
+                    let error_data = Some(match block_id {
                         near_primitives::types::BlockId::Height(height) => json!(format!(
                             "DB Not Found Error: BLOCK HEIGHT: {} \n Cause: Unknown",
                             height
@@ -177,8 +175,18 @@ fn process_query_response(
                         near_primitives::types::BlockId::Hash(block_hash) => {
                             json!(format!("DB Not Found Error: BLOCK HEADER: {}", block_hash))
                         }
-                    }),
-                )),
+                    });
+                    let error_data_value = match serde_json::to_value(err) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            return Err(RpcError::new_internal_error(
+                                None,
+                                format!("Failed to serialize RpcQueryError: {:?}", err),
+                            ))
+                        }
+                    };
+                    Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
+                }
                 _ => Err(err.into()),
             },
             _ => Err(err.into()),
@@ -200,7 +208,9 @@ impl JsonRpcHandler {
             Message::Request(request) => {
                 Ok(Message::response(id, self.process_request(request).await))
             }
-            _ => Ok(Message::error(RpcError::invalid_request())),
+            _ => Ok(Message::error(RpcError::parse_error(
+                "JSON RPC Request format was expected".to_owned(),
+            ))),
         }
     }
 
@@ -818,9 +828,11 @@ impl JsonRpcHandler {
             Some(receipt_view) => {
                 Ok(near_jsonrpc_primitives::types::receipts::RpcReceiptResponse { receipt_view })
             }
-            None => Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt(
-                request_data.receipt_reference.receipt_id,
-            )),
+            None => {
+                Err(near_jsonrpc_primitives::types::receipts::RpcReceiptError::UnknownReceipt {
+                    receipt_id: request_data.receipt_reference.receipt_id,
+                })
+            }
         }
     }
 
