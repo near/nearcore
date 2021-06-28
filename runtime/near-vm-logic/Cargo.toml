@@ -21,7 +21,9 @@ serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
 
-near-primitives = { path = "../../core/primitives" }
+# If you want to uncomment this, think twice: `near-primitives` are a heavy dependency,
+# we are intentionally avoiding it here.
+# near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }

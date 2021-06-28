@@ -11,7 +11,7 @@ mod utils;
 
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, ValuePtr};
-pub use logic::{VMLogic, VMOutcome};
+pub use logic::{VMLogic, VMLogicProtocolFeatures, VMOutcome};
 pub use near_primitives_core::config::*;
 pub use near_primitives_core::profile;
 pub use near_primitives_core::types::ProtocolVersion;
