@@ -3268,6 +3268,7 @@ mod contract_precompilation_tests {
                     vec![],
                     vec![],
                     None,
+                    None,
                 ))
             })
             .collect();
@@ -3312,7 +3313,7 @@ mod contract_precompilation_tests {
         let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap();
         let state_root = chunk_extra.state_root().clone();
 
-        let viewer = TrieViewer::new_with_state_size_limit(None);
+        let viewer = TrieViewer::default();
         let trie = Rc::new(env.clients[1].runtime_adapter.get_trie_for_shard(0));
         let state_update = TrieUpdate::new(trie, state_root);
 
@@ -3358,6 +3359,7 @@ mod contract_precompilation_tests {
                     &genesis,
                     vec![],
                     vec![],
+                    None,
                     None,
                 ))
             })
@@ -3423,6 +3425,7 @@ mod contract_precompilation_tests {
                     &genesis,
                     vec![],
                     vec![],
+                    None,
                     None,
                 ))
             })
