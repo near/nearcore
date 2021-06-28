@@ -107,6 +107,8 @@ pub enum ProtocolFeature {
     RestoreReceiptsAfterFix,
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     CapMaxGasPrice,
+    #[cfg(feature = "protocol_feature_count_refund_receipts_in_gas_limit")]
+    CountRefundReceiptsInGasLimit,
 }
 
 /// Current latest stable version of the protocol.
@@ -117,7 +119,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 45;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 113;
+pub const PROTOCOL_VERSION: ProtocolVersion = 114;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -149,6 +151,8 @@ impl ProtocolFeature {
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_cap_max_gas_price")]
             ProtocolFeature::CapMaxGasPrice => 113,
+            #[cfg(feature = "protocol_feature_count_refund_receipts_in_gas_limit")]
+            ProtocolFeature::CountRefundReceiptsInGasLimit => 114,
         }
     }
 }

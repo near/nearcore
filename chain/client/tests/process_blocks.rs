@@ -34,8 +34,10 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
+use near_primitives::checked_feature;
 
 use near_primitives::errors::InvalidTxError;
+use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -2291,6 +2293,125 @@ fn test_block_execution_outcomes() {
         .unwrap();
     assert_eq!(execution_outcomes_from_block.len(), 1);
     assert!(execution_outcomes_from_block[0].outcome_with_id.id == delayed_receipt_id[0]);
+}
+
+#[test]
+fn test_refund_receipts_processing() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let min_gas_price = 10000;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = min_gas_price;
+    // set gas limit to be small
+    genesis.config.gas_limit = 1_000_000;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let mut tx_hashes = vec![];
+    // send transactions to a non-existing account to generate refund
+    for i in 0..3 {
+        // send transaction to the same account to generate local receipts
+        let tx = SignedTransaction::send_money(
+            i + 1,
+            "test0".to_string(),
+            "random_account".to_string(),
+            &signer,
+            1,
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(tx.get_hash());
+        env.clients[0].process_tx(tx, false, false);
+    }
+
+    env.produce_block(0, 3);
+    env.produce_block(0, 4);
+    let mut block_height = 5;
+    loop {
+        env.produce_block(0, block_height);
+        let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
+        let prev_block =
+            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+        let state_update = env.clients[0]
+            .runtime_adapter
+            .get_tries()
+            .new_trie_update(0, *chunk_extra.state_root());
+        let delayed_indices =
+            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+        let finished_all_delayed_receipts = match delayed_indices {
+            None => false,
+            Some(delayed_indices) => {
+                delayed_indices.next_available_index > 0
+                    && delayed_indices.first_index == delayed_indices.next_available_index
+            }
+        };
+        let chunk =
+            env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
+        if chunk.receipts().len() == 0
+            && chunk.transactions().len() == 0
+            && finished_all_delayed_receipts
+        {
+            break;
+        }
+        block_height += 1;
+    }
+
+    let mut refund_receipt_ids = HashSet::new();
+    for (_, id) in tx_hashes.into_iter().enumerate() {
+        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+        assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
+        match execution_outcome.outcome_with_id.outcome.status {
+            ExecutionStatus::SuccessReceiptId(id) => {
+                let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+                assert!(matches!(
+                    receipt_outcome.outcome_with_id.outcome.status,
+                    ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+                ));
+                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                    refund_receipt_ids.insert(id.clone());
+                });
+            }
+            _ => assert!(false),
+        };
+    }
+
+    let ending_block_height = block_height - 1;
+    let count_refund_receipts_in_gas_limit = checked_feature!(
+        "protocol_feature_count_refund_receipts_in_gas_limit",
+        CountRefundReceiptsInGasLimit,
+        genesis.config.protocol_version
+    );
+    let begin_block_height = if count_refund_receipts_in_gas_limit {
+        ending_block_height - refund_receipt_ids.len() as u64 + 1
+    } else {
+        ending_block_height
+    };
+    let mut processed_refund_receipt_ids = HashSet::new();
+    for i in begin_block_height..=ending_block_height {
+        let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+        let execution_outcomes_from_block = env.clients[0]
+            .chain
+            .get_block_execution_outcomes(block.hash())
+            .unwrap()
+            .remove(&0)
+            .unwrap();
+        execution_outcomes_from_block.iter().for_each(|outcome| {
+            processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
+        });
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
+        if count_refund_receipts_in_gas_limit {
+            assert_eq!(execution_outcomes_from_block.len(), 1);
+            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
+        } else {
+            assert_eq!(chunk_extra.gas_used(), 0);
+        }
+    }
+    assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
 #[test]
