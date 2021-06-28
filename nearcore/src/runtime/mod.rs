@@ -522,7 +522,7 @@ impl NightshadeRuntime {
     ) -> Result<(), Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.genesis_runtime_config, protocol_version);
+            RuntimeConfig::from_protocol_version(&self.runtime_config, protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
