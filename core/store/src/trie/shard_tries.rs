@@ -1,5 +1,6 @@
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
+use crate::trie::TrieRefcountChange;
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 use borsh::BorshSerialize;
 use near_primitives::hash::CryptoHash;
@@ -90,28 +91,28 @@ impl ShardTries {
     }
 
     fn apply_deletions_inner(
-        deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
+        deletions: &Vec<TrieRefcountChange>,
         tries: ShardTries,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
         store_update.tries = Some(tries.clone());
-        for (hash, value, rc) in deletions.iter() {
-            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
+        for TrieRefcountChange { key_hash, value, rc } in deletions.iter() {
+            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, key_hash);
             store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, -(*rc as i64));
         }
         Ok(())
     }
 
     fn apply_insertions_inner(
-        insertions: &Vec<(CryptoHash, Vec<u8>, u32)>,
+        insertions: &Vec<TrieRefcountChange>,
         tries: ShardTries,
         shard_id: ShardId,
         store_update: &mut StoreUpdate,
     ) -> Result<(), StorageError> {
         store_update.tries = Some(tries);
-        for (hash, value, rc) in insertions.iter() {
-            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, hash);
+        for TrieRefcountChange { key_hash, value, rc } in insertions.iter() {
+            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, key_hash);
             store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, *rc as i64);
         }
         Ok(())
@@ -201,8 +202,8 @@ impl ShardTries {
         assert!(trie_changes.deletions.is_empty());
         // Not new_with_tries on purpose
         let mut store_update = StoreUpdate::new(self.get_store().storage.clone());
-        for (hash, value, rc) in trie_changes.insertions.into_iter() {
-            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &hash);
+        for TrieRefcountChange { key_hash, value, rc } in trie_changes.insertions.into_iter() {
+            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &key_hash);
             store_update.update_refcount(DBCol::ColState, key.as_ref(), &value, rc as i64);
         }
         (store_update, trie_changes.new_root)

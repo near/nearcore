@@ -67,6 +67,7 @@ impl GenesisBuilder {
             vec![],
             vec![],
             None,
+            None,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
