@@ -12,7 +12,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockReference;
+use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::FinalExecutionStatus;
 
 #[macro_use]
@@ -56,7 +56,7 @@ fn test_send_tx_async() {
         let client1 = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
             Box::new(move |_| {
-                let signer_account_id = "test1".to_string();
+                let signer_account_id = "test1".parse().unwrap();
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
                     actix::spawn(
                         client1
@@ -191,7 +191,7 @@ fn test_replay_protection() {
 #[test]
 fn test_tx_status_invalid_account_id() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), "".to_string()).await {
+        match client.tx(to_base(&CryptoHash::default()), AccountId::test_account()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                 assert!(s.starts_with("\"Invalid account id"));
@@ -204,7 +204,7 @@ fn test_tx_status_invalid_account_id() {
 #[test]
 fn test_tx_status_missing_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), "test1".to_string()).await {
+        match client.tx(to_base(&CryptoHash::default()), "test1".parse().unwrap()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                 assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");

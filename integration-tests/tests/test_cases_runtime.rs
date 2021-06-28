@@ -19,7 +19,8 @@ mod test {
     }
 
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
-        let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        let mut genesis =
+            Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 1);
         add_test_contract(&mut genesis, &bob_account());
         // Set expensive state requirements and add alice more money.
         genesis.config.runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;

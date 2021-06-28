@@ -1,6 +1,7 @@
 //! Tools for creating a genesis block.
 
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,7 +27,7 @@ use near_store::{
 use nearcore::{get_store_path, NightshadeRuntime};
 
 fn get_account_id(account_index: u64) -> AccountId {
-    format!("near_{}_{}", account_index, account_index).parse().unwrap()
+    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

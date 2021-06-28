@@ -2132,8 +2132,8 @@ mod tests {
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
-        let test2_reward = *validator_reward.get(&"test2".parse().unwrap()).unwrap();
-        let protocol_reward = *validator_reward.get(&"near".parse().unwrap()).unwrap();
+        let test2_reward = *validator_reward.get("test2").unwrap();
+        let protocol_reward = *validator_reward.get("near").unwrap();
 
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(),
@@ -2237,10 +2237,10 @@ mod tests {
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
-        let test1_reward = *validator_reward.get(&"test1".parse().unwrap()).unwrap();
-        let test2_reward = *validator_reward.get(&"test2".parse().unwrap()).unwrap();
+        let test1_reward = *validator_reward.get("test1").unwrap();
+        let test2_reward = *validator_reward.get("test2").unwrap();
         assert_eq!(test1_reward, test2_reward * 2);
-        let protocol_reward = *validator_reward.get(&"near".parse().unwrap()).unwrap();
+        let protocol_reward = *validator_reward.get("near").unwrap();
 
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(),
@@ -2340,8 +2340,8 @@ mod tests {
             PROTOCOL_VERSION,
             epoch_length * NUM_NS_IN_SECOND,
         );
-        let test2_reward = *validator_reward.get(&"test2".parse().unwrap()).unwrap();
-        let protocol_reward = *validator_reward.get(&"near".parse().unwrap()).unwrap();
+        let test2_reward = *validator_reward.get("test2").unwrap();
+        let protocol_reward = *validator_reward.get("near").unwrap();
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(),
             &epoch_info(
@@ -3265,15 +3265,15 @@ mod tests {
         let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
         let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
         assert_eq!(
-            epoch_info1.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info1.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Unstaked)
         );
         assert_eq!(
-            epoch_info2.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info2.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert_eq!(
-            epoch_info3.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info3.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert!(epoch_info4.validator_kickout().is_empty());
@@ -3315,15 +3315,15 @@ mod tests {
         let epoch_info3 = epoch_manager.get_epoch_info(&EpochId(h[3])).unwrap().clone();
         let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
         assert_eq!(
-            epoch_info1.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info1.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert_eq!(
-            epoch_info2.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info2.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert_eq!(
-            epoch_info3.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info3.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert!(epoch_info4.validator_kickout().is_empty());
@@ -3367,16 +3367,16 @@ mod tests {
         let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone(); // Slashed
         let epoch_info5 = epoch_manager.get_epoch_info(&EpochId(h[5])).unwrap().clone(); // Ok
         assert_eq!(
-            epoch_info1.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info1.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Unstaked)
         );
         assert!(epoch_info2.validator_kickout().is_empty());
         assert_eq!(
-            epoch_info3.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info3.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert_eq!(
-            epoch_info4.validator_kickout().get(&"test1".parse().unwrap()),
+            epoch_info4.validator_kickout().get("test1"),
             Some(&ValidatorKickoutReason::Slashed)
         );
         assert!(epoch_info5.validator_kickout().is_empty());
@@ -3419,9 +3419,9 @@ mod tests {
             vec![stake("test1".parse().unwrap(), stake_amount)],
         );
         let epoch_info2 = epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().clone();
-        assert!(epoch_info2.stake_change().get(&"test1".parse().unwrap()).is_none());
+        assert!(epoch_info2.stake_change().get("test1").is_none());
         let epoch_info4 = epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().clone();
-        assert!(epoch_info4.stake_change().get(&"test1".parse().unwrap()).is_some());
+        assert!(epoch_info4.stake_change().get("test1").is_some());
     }
 
     #[test]

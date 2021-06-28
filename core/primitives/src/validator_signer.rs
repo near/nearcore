@@ -5,14 +5,13 @@ use borsh::BorshSerialize;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
-use crate::account_id::{AccountId, TEST_ACCOUNT};
 use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
 use crate::hash::{hash, CryptoHash};
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
 use crate::telemetry::TelemetryInfo;
-use crate::types::{BlockHeight, EpochId};
+use crate::types::{AccountId, BlockHeight, EpochId};
 
 /// Validator signer that is used to sign blocks and approvals.
 pub trait ValidatorSigner: Sync + Send {
@@ -63,7 +62,7 @@ pub trait ValidatorSigner: Sync + Send {
 /// Don't use in any production or code that requires signature verification.
 #[derive(smart_default::SmartDefault)]
 pub struct EmptyValidatorSigner {
-    #[default(TEST_ACCOUNT.clone())]
+    #[default(AccountId::test_account())]
     account_id: AccountId,
 }
 

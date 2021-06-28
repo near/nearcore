@@ -203,6 +203,7 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryFrom;
     use std::sync::Arc;
 
     use rand::seq::SliceRandom;
@@ -333,7 +334,7 @@ mod tests {
         let n = 100;
         let mut transactions = (1..=n)
             .map(|i| {
-                let signer_id: AccountId = format!("user_{}", i % 5).parse().unwrap();
+                let signer_id = AccountId::try_from(format!("user_{}", i % 5)).unwrap();
                 let signer_seed = format!("user_{}", i % 3);
                 let signer = Arc::new(InMemorySigner::from_seed(
                     signer_id.clone(),
@@ -420,7 +421,7 @@ mod tests {
     fn test_pool_iterator_remembers_the_last_key() {
         let transactions = (1..=10)
             .map(|i| {
-                let signer_id: AccountId = format!("user_{}", i).parse().unwrap();
+                let signer_id = AccountId::try_from(format!("user_{}", i)).unwrap();
                 let signer_seed = signer_id.as_ref();
                 let signer = Arc::new(InMemorySigner::from_seed(
                     signer_id.clone(),

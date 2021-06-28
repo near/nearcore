@@ -12,10 +12,11 @@ use near_primitives::transaction::{
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
 use testlib::node::{Node, ThreadNode};
+use testlib::runtime_utils::{alice_account, bob_account};
 
 fn start_node() -> ThreadNode {
     init_integration_logger();
-    let genesis = Genesis::test(vec!["alice.near", "bob.near"], 1);
+    let genesis = Genesis::test(vec![alice_account(), bob_account()], 1);
     let mut near_config = load_test_config("alice.near", open_port(), genesis);
     near_config.client_config.skip_sync_wait = true;
 
@@ -27,12 +28,13 @@ fn start_node() -> ThreadNode {
 #[test]
 fn test_check_tx_error_log() {
     let node = start_node();
-    let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
+    let signer =
+        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();
     let tx = SignedTransaction::from_actions(
         1,
-        "bob.near".to_string(),
-        "test.near".to_string(),
+        bob_account(),
+        "test.near".parse().unwrap(),
         &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
@@ -49,7 +51,7 @@ fn test_check_tx_error_log() {
     assert_eq!(
         tx_result,
         InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
-            account_id: "bob.near".to_string(),
+            account_id: bob_account(),
             public_key: signer.public_key.clone()
         })
         .into()
@@ -63,13 +65,14 @@ fn test_deliver_tx_error_log() {
         node.genesis().config.runtime_config.transaction_costs.clone(),
         node.genesis().config.min_gas_price,
     );
-    let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
+    let signer =
+        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();
     let cost = fee_helper.create_account_transfer_full_key_cost_no_reward();
     let tx = SignedTransaction::from_actions(
         1,
-        "alice.near".to_string(),
-        "test.near".to_string(),
+        alice_account(),
+        "test.near".parse().unwrap(),
         &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
@@ -86,7 +89,7 @@ fn test_deliver_tx_error_log() {
     assert_eq!(
         tx_result,
         InvalidTxError::NotEnoughBalance {
-            signer_id: "alice.near".to_string(),
+            signer_id: alice_account(),
             balance: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
             cost: TESTING_INIT_BALANCE + 1 + cost
         }

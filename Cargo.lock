@@ -3024,9 +3024,7 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "derive_more",
- "lazy_static",
  "paperclip",
- "regex",
  "serde",
  "thiserror",
 ]
@@ -3250,7 +3248,6 @@ dependencies = [
  "lunarity-lexer",
  "near-crypto",
  "near-primitives",
- "near-runtime-utils",
  "near-vm-errors",
  "near-vm-logic",
  "num-bigint",
@@ -3557,14 +3554,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-utils"
-version = "3.0.0"
-dependencies = [
- "lazy_static",
- "regex",
-]
-
-[[package]]
 name = "near-rust-allocator-proxy"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3650,7 +3639,6 @@ dependencies = [
  "byteorder",
  "near-primitives",
  "near-primitives-core",
- "near-runtime-utils",
  "near-vm-errors",
  "serde",
  "serde_json",

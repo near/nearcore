@@ -47,14 +47,15 @@ fn testbed_for_evm(
     env.set_background_threads(4);
     for account_idx in 0..accounts {
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let code = hex::decode(&*TEST).unwrap();
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
 
         let block: Vec<_> = vec![SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            "evm".to_owned(),
+            "evm".parse().unwrap(),
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "deploy_code".to_string(),
@@ -96,13 +97,14 @@ fn deploy_evm_contract(
         };
         accounts_deployed.insert(account_idx);
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
 
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            "evm".to_owned(),
+            "evm".parse().unwrap(),
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "deploy_code".to_string(),
@@ -226,9 +228,9 @@ pub fn create_evm_context<'a>(
         vm_config,
         fees_config,
         1000,
-        account_id.to_string(),
-        account_id.to_string(),
-        account_id.to_string(),
+        account_id.parse().unwrap(),
+        account_id.parse().unwrap(),
+        account_id.parse().unwrap(),
         attached_deposit,
         0,
         10u64.pow(14),
@@ -311,7 +313,8 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
         };
         accounts_deployed.insert(account_idx);
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
 
         let mut testbed = testbed.lock().unwrap();
         let runtime_node = RuntimeNode {
@@ -330,7 +333,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
         let addr = node_user
             .function_call(
                 account_id.clone(),
-                "evm".to_string(),
+                "evm".parse().unwrap(),
                 "deploy_code",
                 code.clone(),
                 10u64.pow(14),
@@ -349,7 +352,7 @@ pub fn measure_evm_function<F: FnOnce(Vec<u8>) -> Vec<u8> + Copy>(
         SignedTransaction::from_actions(
             nonce as u64,
             account_id.clone(),
-            "evm".to_owned(),
+            "evm".parse().unwrap(),
             &signer,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "call_function".to_string(),

@@ -415,10 +415,9 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::receipt::DataReceiver;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -448,8 +447,11 @@ mod tests {
         let root = MerkleHash::default();
 
         let account_id = alice_account();
-        let signer =
-            Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+        let signer = Arc::new(InMemorySigner::from_seed(
+            account_id.clone(),
+            KeyType::ED25519,
+            account_id.as_ref(),
+        ));
 
         let mut initial_state = tries.new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
@@ -551,56 +553,6 @@ mod tests {
         let access_key =
             get_access_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
         assert_eq!(access_key.nonce, 1);
-    }
-
-    #[test]
-    fn test_validate_transaction_invalid_signer_id() {
-        let config = RuntimeConfig::default();
-        let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
-
-        let invalid_account_id = "WHAT?".to_string();
-        assert_err_both_validations(
-            &config,
-            &mut state_update,
-            gas_price,
-            &SignedTransaction::send_money(
-                1,
-                invalid_account_id.clone(),
-                bob_account(),
-                &*signer,
-                100,
-                CryptoHash::default(),
-            ),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidSignerId {
-                signer_id: invalid_account_id.clone(),
-            }),
-        );
-    }
-
-    #[test]
-    fn test_validate_transaction_invalid_receiver_id() {
-        let config = RuntimeConfig::default();
-        let (signer, mut state_update, gas_price) =
-            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
-
-        let invalid_account_id = "WHAT?".to_string();
-        assert_err_both_validations(
-            &config,
-            &mut state_update,
-            gas_price,
-            &SignedTransaction::send_money(
-                1,
-                alice_account(),
-                invalid_account_id.clone(),
-                &*signer,
-                100,
-                CryptoHash::default(),
-            ),
-            RuntimeError::InvalidTxError(InvalidTxError::InvalidReceiverId {
-                receiver_id: invalid_account_id,
-            }),
-        );
     }
 
     #[test]
@@ -1195,76 +1147,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_receipt_incorrect_predecessor_id() {
-        let limit_config = VMLimitConfig::default();
-        let invalid_account_id = "WHAT?".to_string();
-        let mut receipt = Receipt::new_balance_refund(&alice_account(), 10);
-        receipt.predecessor_id = invalid_account_id.clone();
-        assert_eq!(
-            validate_receipt(&limit_config, &receipt).expect_err("expected an error"),
-            ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
-        );
-    }
-
-    #[test]
-    fn test_validate_receipt_incorrect_receiver_id() {
-        let limit_config = VMLimitConfig::default();
-        let invalid_account_id = "WHAT?".to_string();
-        assert_eq!(
-            validate_receipt(&limit_config, &Receipt::new_balance_refund(&invalid_account_id, 10))
-                .expect_err("expected an error"),
-            ReceiptValidationError::InvalidReceiverId { account_id: invalid_account_id }
-        );
-    }
-
-    // ActionReceipt
-
-    #[test]
-    fn test_validate_action_receipt_invalid_signer_id() {
-        let limit_config = VMLimitConfig::default();
-        let invalid_account_id = "WHAT?".to_string();
-        assert_eq!(
-            validate_action_receipt(
-                &limit_config,
-                &ActionReceipt {
-                    signer_id: invalid_account_id.clone(),
-                    signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 100,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![]
-                }
-            )
-            .expect_err("expected an error"),
-            ReceiptValidationError::InvalidSignerId { account_id: invalid_account_id }
-        );
-    }
-
-    #[test]
-    fn test_validate_action_receipt_invalid_data_receiver_id() {
-        let limit_config = VMLimitConfig::default();
-        let invalid_account_id = "WHAT?".to_string();
-        assert_eq!(
-            validate_action_receipt(
-                &limit_config,
-                &ActionReceipt {
-                    signer_id: alice_account(),
-                    signer_public_key: PublicKey::empty(KeyType::ED25519),
-                    gas_price: 100,
-                    output_data_receivers: vec![DataReceiver {
-                        data_id: CryptoHash::default(),
-                        receiver_id: invalid_account_id.clone(),
-                    }],
-                    input_data_ids: vec![],
-                    actions: vec![]
-                }
-            )
-            .expect_err("expected an error"),
-            ReceiptValidationError::InvalidDataReceiverId { account_id: invalid_account_id }
-        );
-    }
-
-    #[test]
     fn test_validate_action_receipt_too_many_input_deps() {
         let mut limit_config = VMLimitConfig::default();
         limit_config.max_number_input_data_dependencies = 1;
@@ -1429,7 +1311,9 @@ mod tests {
             validate_actions(
                 &limit_config,
                 &vec![
-                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
+                    Action::DeleteAccount(DeleteAccountAction {
+                        beneficiary_id: "bob".parse().unwrap()
+                    }),
                     Action::CreateAccount(CreateAccountAction {}),
                 ]
             )
@@ -1447,7 +1331,9 @@ mod tests {
                 &limit_config,
                 &vec![
                     Action::CreateAccount(CreateAccountAction {}),
-                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
+                    Action::DeleteAccount(DeleteAccountAction {
+                        beneficiary_id: "bob".parse().unwrap()
+                    }),
                 ]
             ),
             Ok(()),

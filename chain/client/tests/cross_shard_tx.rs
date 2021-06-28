@@ -22,7 +22,12 @@ fn test_keyvalue_runtime_balances() {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+        let validators = vec![vec![
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test3".parse().unwrap(),
+            "test4".parse().unwrap(),
+        ]];
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
@@ -39,7 +44,7 @@ fn test_keyvalue_runtime_balances() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: String, _msg: &NetworkRequests| {
+            Arc::new(RwLock::new(Box::new(move |_account_id: _, _msg: &NetworkRequests| {
                 (NetworkResponses::NoResponse, true)
             }))),
         );
@@ -56,7 +61,7 @@ fn test_keyvalue_runtime_balances() {
                     .1
                     .send(Query::new(
                         BlockReference::latest(),
-                        QueryRequest::ViewAccount { account_id: flat_validators[i].to_string() },
+                        QueryRequest::ViewAccount { account_id: flat_validators[i].clone() },
                     ))
                     .then(move |res| {
                         let query_response = res.unwrap().unwrap();
@@ -111,7 +116,7 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
-        let signer = InMemorySigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
+        let signer = InMemorySigner::from_seed(from.clone(), KeyType::ED25519, from.as_ref());
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
@@ -168,7 +173,7 @@ mod tests {
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
         nonce: Arc<AtomicUsize>,
-        validators: Vec<&'static str>,
+        validators: Vec<AccountId>,
         successful_queries: Arc<RwLock<HashSet<AccountId>>>,
         unsuccessful_queries: Arc<AtomicUsize>,
         balances: Arc<RwLock<Vec<u128>>>,
@@ -264,9 +269,9 @@ mod tests {
                     send_tx(
                         validators.len(),
                         connectors.clone(),
-                        account_id_to_shard_id(&validators[from].to_string(), 8) as usize,
-                        validators[from].to_string(),
-                        validators[to].to_string(),
+                        account_id_to_shard_id(&validators[from], 8) as usize,
+                        validators[from].clone(),
+                        validators[to].clone(),
                         amount,
                         next_nonce as u64,
                         block_hash,
@@ -292,18 +297,15 @@ mod tests {
                         let balances1 = balances.clone();
                         let observed_balances1 = observed_balances.clone();
                         let presumable_epoch1 = presumable_epoch.clone();
-                        let account_id1 = validators[i].to_string();
+                        let account_id1 = validators[i].clone();
                         let block_stats1 = block_stats.clone();
                         actix::spawn(
-                            connectors_[account_id_to_shard_id(&validators[i].to_string(), 8)
-                                as usize
+                            connectors_[account_id_to_shard_id(&validators[i], 8) as usize
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
                                 .send(Query::new(
                                     BlockReference::latest(),
-                                    QueryRequest::ViewAccount {
-                                        account_id: validators[i].to_string(),
-                                    },
+                                    QueryRequest::ViewAccount { account_id: validators[i].clone() },
                                 ))
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
@@ -398,27 +400,31 @@ mod tests {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
-            let validators = if rotate_validators {
-                vec![
-                    vec![
+            let validators: Vec<Vec<_>> = if rotate_validators {
+                [
+                    [
                         "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6",
                         "test1.7", "test1.8",
                     ],
-                    vec![
+                    [
                         "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6",
                         "test2.7", "test2.8",
                     ],
-                    vec![
+                    [
                         "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6",
                         "test3.7", "test3.8",
                     ],
                 ]
+                .iter()
             } else {
-                vec![vec![
+                [[
                     "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7",
                     "test1.8",
                 ]]
-            };
+                .iter()
+            }
+            .map(|l| l.iter().map(|account_id| account_id.parse().unwrap()).collect())
+            .collect();
             let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
             let balances = Arc::new(RwLock::new(vec![]));
             let observed_balances = Arc::new(RwLock::new(vec![]));
@@ -444,11 +450,9 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 true,
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, _msg: &NetworkRequests| {
-                        (NetworkResponses::NoResponse, true)
-                    },
-                ))),
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, _msg: &NetworkRequests| {
+                    (NetworkResponses::NoResponse, true)
+                }))),
             );
             *connectors.write().unwrap() = conn;
             let block_hash = *genesis_block.hash();
@@ -458,7 +462,7 @@ mod tests {
             let nonce = Arc::new(AtomicUsize::new(1));
             let successful_queries = Arc::new(RwLock::new(HashSet::new()));
             let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
-            let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
+            let flat_validators = validators.iter().flatten().cloned().collect::<Vec<_>>();
 
             for i in 0..8 {
                 let connectors1 = connectors.clone();
@@ -473,20 +477,17 @@ mod tests {
                 let account_id1 = flat_validators[i].clone();
                 let block_stats1 = block_stats.clone();
                 actix::spawn(
-                    connectors_[account_id_to_shard_id(&flat_validators[i].to_string(), 8)
-                        as usize
+                    connectors_[account_id_to_shard_id(&flat_validators[i], 8) as usize
                         + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query::new(
                             BlockReference::latest(),
-                            QueryRequest::ViewAccount {
-                                account_id: flat_validators[i].to_string(),
-                            },
+                            QueryRequest::ViewAccount { account_id: flat_validators[i].clone() },
                         ))
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
-                                account_id1.to_string(),
+                                account_id1,
                                 connectors1,
                                 iteration1,
                                 nonce1,

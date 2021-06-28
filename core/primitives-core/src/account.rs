@@ -1,6 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
+pub use near_account_id as id;
+
 use crate::hash::CryptoHash;
 use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Nonce, StorageUsage};

@@ -13,7 +13,6 @@ use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::account_id::{AccountId, TEST_ACCOUNT};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -28,8 +27,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards, ShardId,
-    StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
+    ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -113,7 +112,7 @@ fn create_receipt_nonce(
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec![TEST_ACCOUNT.clone()]], 1, 1, 5)
+        Self::new_with_validators(store, vec![vec![AccountId::test_account()]], 1, 1, 5)
     }
 
     pub fn new_with_validators(
@@ -1154,10 +1153,11 @@ pub fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
+    let test_account = AccountId::test_account();
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        TEST_ACCOUNT.clone(),
+        test_account.clone(),
         KeyType::ED25519,
-        TEST_ACCOUNT.as_ref(),
+        test_account.as_ref(),
     ));
     (chain, runtime, signer)
 }
@@ -1321,6 +1321,7 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
+    use std::convert::TryFrom;
     use std::time::Instant;
 
     use borsh::BorshSerialize;
@@ -1329,7 +1330,7 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::NumShards;
+    use near_primitives::types::{AccountId, NumShards};
     use near_store::test_utils::create_test_store;
 
     use crate::RuntimeAdapter;
@@ -1358,7 +1359,9 @@ mod test {
         let store = create_test_store();
         let runtime_adapter = KeyValueRuntime::new_with_validators(
             store,
-            vec![(0..num_shards).map(|i| format!("test{}", i).parse().unwrap()).collect()],
+            vec![(0..num_shards)
+                .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
+                .collect()],
             1,
             num_shards,
             10,
@@ -1369,7 +1372,9 @@ mod test {
         let receipts = (0..3000)
             .map(|_| {
                 let random_number = rng.gen_range(0, 1000);
-                create_receipt_from_receiver_id(format!("test{}", random_number).parse().unwrap())
+                create_receipt_from_receiver_id(
+                    AccountId::try_from(format!("test{}", random_number)).unwrap(),
+                )
             })
             .collect::<Vec<_>>();
         let start = Instant::now();

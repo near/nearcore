@@ -20,7 +20,6 @@ use near_network::types::ROUTED_MESSAGE_TTL;
 use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::account_id::TEST_ACCOUNT;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
@@ -483,14 +482,13 @@ impl From<&str> for Config {
 #[easy_ext::ext(GenesisExt)]
 impl Genesis {
     pub fn test_with_seeds(
-        seeds: Vec<&str>,
+        accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
-        for (i, &account) in seeds.iter().enumerate() {
-            let account = account.parse::<AccountId>().unwrap();
+        for (i, account) in accounts.into_iter().enumerate() {
             let signer =
                 InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_ref());
             let i = i as u64;
@@ -539,23 +537,23 @@ impl Genesis {
         Genesis::new(config, records.into())
     }
 
-    pub fn test(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
-        Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats])
+    pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
+        Self::test_with_seeds(accounts, num_validator_seats, vec![num_validator_seats])
     }
 
-    pub fn test_free(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
+    pub fn test_free(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
         let mut genesis =
-            Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats]);
+            Self::test_with_seeds(accounts, num_validator_seats, vec![num_validator_seats]);
         genesis.config.runtime_config = RuntimeConfig::free();
         genesis
     }
 
     pub fn test_sharded(
-        seeds: Vec<&str>,
+        accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
     ) -> Self {
-        Self::test_with_seeds(seeds, num_validator_seats, num_validator_seats_per_shard)
+        Self::test_with_seeds(accounts, num_validator_seats, num_validator_seats_per_shard)
     }
 }
 
@@ -692,7 +690,7 @@ impl NearConfig {
         }
 
         let network_signer = InMemorySigner::from_secret_key(
-            TEST_ACCOUNT.clone(),
+            "node".parse().unwrap(),
             self.network_config.secret_key.clone(),
         );
         network_signer.write_to_file(&dir.join(&self.config.node_key_file));
@@ -790,7 +788,7 @@ pub fn init_configs(
             }
 
             let network_signer =
-                InMemorySigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519);
+                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             genesis.to_file(&dir.join(config.genesis_file));
@@ -809,7 +807,7 @@ pub fn init_configs(
             }
 
             let network_signer =
-                InMemorySigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519);
+                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             // download genesis from s3
@@ -855,7 +853,7 @@ pub fn init_configs(
             signer.write_to_file(&dir.join(config.validator_key_file));
 
             let network_signer =
-                InMemorySigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519);
+                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
             let mut records = vec![];
             add_account_with_key(
@@ -939,10 +937,10 @@ pub fn create_testnet_configs_from_seeds(
         .collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
-        .map(|seed| InMemorySigner::from_seed(TEST_ACCOUNT.clone(), KeyType::ED25519, seed))
+        .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
     let genesis = Genesis::test_sharded(
-        seeds.iter().map(|s| s.as_str()).collect(),
+        seeds.iter().map(|s| s.parse().unwrap()).collect(),
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
     );
@@ -1101,7 +1099,8 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let (signer, validator_signer) = if seed.is_empty() {
-        let signer = Arc::new(InMemorySigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519));
+        let signer =
+            Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));
         (signer, None)
     } else {
         let signer =

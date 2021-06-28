@@ -1,6 +1,7 @@
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 use near_epoch_manager::test_utils::{
@@ -119,7 +120,7 @@ fn random_proposals<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<ValidatorStake> {
     let mut proposals = Vec::new();
     let proposal_chance = 0.2;
     if rng.gen_range(0.0, 1.0) < proposal_chance {
-        let account_id = format!("test{}", rng.gen_range(1, 6)).parse().unwrap();
+        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1, 6))).unwrap();
         let stake_amount = rng.gen_range(100, 2000);
         proposals.push(stake(account_id, stake_amount));
     }
@@ -130,7 +131,7 @@ fn random_slashes<RngImpl: Rng>(rng: &mut RngImpl) -> Vec<SlashedValidator> {
     let mut slashes = Vec::new();
     let slash_chance = 0.2;
     if rng.gen_range(0.0, 1.0) < slash_chance {
-        let account_id = format!("test{}", rng.gen_range(1, 6)).parse().unwrap();
+        let account_id = AccountId::try_from(format!("test{}", rng.gen_range(1, 6))).unwrap();
         slashes.push(SlashedValidator::new(account_id, true));
     }
     slashes

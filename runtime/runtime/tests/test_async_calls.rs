@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use crate::runtime_group_tools::RuntimeGroup;
 use borsh::ser::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
@@ -5,6 +7,7 @@ use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
+use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 
 pub mod runtime_group_tools;
@@ -734,7 +737,7 @@ fn test_account_factory() {
     let signed_transaction = SignedTransaction::from_actions(
         1,
         signer_sender.account_id.clone(),
-        signer_receiver.account_id.clone(),
+        signer_receiver.account_id,
         &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
@@ -766,7 +769,7 @@ fn test_account_factory() {
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
                         data_id = output_data_receivers[0].data_id.clone();
-                        assert_eq!(&output_data_receivers[0].receiver_id, "near_2");
+                        assert_eq!(output_data_receivers[0].receiver_id.as_ref(), "near_2");
                      },
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -778,7 +781,7 @@ fn test_account_factory() {
                         assert_eq!(access_key.nonce, 0);
                         assert_eq!(access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: Some(TESTING_INIT_BALANCE / 2),
-                            receiver_id: "near_1".to_string(),
+                            receiver_id: "near_1".parse().unwrap(),
                             method_names: vec!["call_promise".to_string(), "hello".to_string()],
                         }));
                      },
@@ -929,7 +932,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(public_key, &signer_new_account.public_key);
                      },
                      a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
-                        assert_eq!(beneficiary_id.as_str(), "near_2");
+                        assert_eq!(beneficiary_id.as_ref(), "near_2");
                      }
                      => [r2, r3, ref1] );
 
@@ -966,11 +969,11 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
 
 #[test]
 fn test_transfer_64len_hex() {
-    let pk = InMemorySigner::from_seed("test_hex", KeyType::ED25519, "test_hex");
-    let account_id = hex::encode(pk.public_key.unwrap_as_ed25519().0);
+    let pk = InMemorySigner::from_seed("test_hex".parse().unwrap(), KeyType::ED25519, "test_hex");
+    let account_id = AccountId::try_from(hex::encode(pk.public_key.unwrap_as_ed25519().0)).unwrap();
 
     let group = RuntimeGroup::new_with_account_ids(
-        vec!["near_0".to_string(), "near_1".to_string(), account_id.clone()],
+        vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), account_id.clone()],
         2,
         near_test_contracts::rs_contract(),
     );
@@ -1016,7 +1019,7 @@ fn test_transfer_64len_hex() {
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ &account_id,
+    assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::Transfer(TransferAction{deposit}), {
@@ -1029,11 +1032,11 @@ fn test_transfer_64len_hex() {
 
 #[test]
 fn test_create_transfer_64len_hex_fail() {
-    let pk = InMemorySigner::from_seed("test_hex", KeyType::ED25519, "test_hex");
-    let account_id = hex::encode(pk.public_key.unwrap_as_ed25519().0);
+    let pk = InMemorySigner::from_seed("test_hex".parse().unwrap(), KeyType::ED25519, "test_hex");
+    let account_id = AccountId::try_from(hex::encode(pk.public_key.unwrap_as_ed25519().0)).unwrap();
 
     let group = RuntimeGroup::new_with_account_ids(
-        vec!["near_0".to_string(), "near_1".to_string(), account_id.clone()],
+        vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), account_id.clone()],
         2,
         near_test_contracts::rs_contract(),
     );
@@ -1082,7 +1085,7 @@ fn test_create_transfer_64len_hex_fail() {
                         assert_eq!(*deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ &account_id,
+    assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},

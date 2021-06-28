@@ -1284,7 +1284,7 @@ mod test {
         let (mut chain, _, signers) = setup_with_validators(
             vec!["test0", "test1", "test2", "test3", "test4"]
                 .iter()
-                .map(|x| x.to_string())
+                .map(|x| x.parse().unwrap())
                 .collect(),
             1,
             1,
@@ -1304,7 +1304,7 @@ mod test {
                 .map(|account_id| {
                     account_id.map(|account_id| {
                         let signer = InMemoryValidatorSigner::from_seed(
-                            account_id,
+                            account_id.parse().unwrap(),
                             KeyType::ED25519,
                             account_id,
                         );

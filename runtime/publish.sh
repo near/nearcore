@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -ex
-for p in near-runtime-utils near-vm-errors near-vm-logic near-vm-runner near-vm-runner-standalone
+for p in near-vm-errors near-vm-logic near-vm-runner near-vm-runner-standalone
 do
 pushd ./${p}
 cargo publish

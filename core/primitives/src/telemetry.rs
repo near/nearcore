@@ -24,7 +24,7 @@ pub struct TelemetrySystemInfo {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TelemetryChainInfo {
     pub node_id: String,
-    pub account_id: AccountId,
+    pub account_id: Option<AccountId>,
     pub is_validator: bool,
     pub status: String,
     pub latest_block_hash: String,

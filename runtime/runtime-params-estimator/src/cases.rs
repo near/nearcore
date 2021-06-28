@@ -32,6 +32,7 @@ use near_primitives::runtime::fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
+use near_primitives::types::AccountId;
 use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 
 static SMALLEST_CODE: TestContract = TestContract::new("test-contract/res/smallest_contract.wasm");
@@ -71,7 +72,8 @@ fn measure_function(
         let account_idx = accounts_deployed[i];
         accounts_deployed.remove(i);
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let mut f_write = |account_idx, method_name: &str| {
             let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
             let function_call = Action::FunctionCall(FunctionCallAction {
@@ -288,9 +290,14 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
         let account_id = get_account_id(account_idx);
-        let other_account_id =
-            format!("near_{}_{}", account_idx, rand::thread_rng().gen::<usize>());
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let other_account_id = AccountId::try_from(format!(
+            "near_{}_{}",
+            account_idx,
+            rand::thread_rng().gen::<usize>()
+        ))
+        .unwrap();
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -326,7 +333,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         beneficiaries.insert(beneficiary_idx);
         let account_id = get_account_id(account_idx);
         let beneficiary_id = get_account_id(beneficiary_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -420,7 +428,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         };
         deleted_accounts.insert(account_idx);
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -465,7 +474,8 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
             good_code_accounts.insert(account_idx);
         }
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,

@@ -24,7 +24,6 @@ use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, 
 
 use crate::trie::{TrieCache, TrieCachingStorage};
 use near_crypto::KeyType;
-use near_primitives::account_id::{AccountId, TEST_ACCOUNT};
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -36,6 +35,7 @@ use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncRespo
 use near_primitives::trie_key::TrieKey;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::AccountId;
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
@@ -159,7 +159,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         let num_parity_parts = num_total_parts - num_data_parts;
         let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
         let signer =
-            InMemoryValidatorSigner::from_seed(TEST_ACCOUNT.clone(), KeyType::ED25519, "test");
+            InMemoryValidatorSigner::from_seed(AccountId::test_account(), KeyType::ED25519, "test");
         let mut store_update = store.store_update();
         let batch_size_limit = 10_000_000;
         let mut batch_size = 0;

@@ -1713,7 +1713,7 @@ mod test {
     }
 
     fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         create_nightshade_runtimes(&genesis, n)
     }
 
@@ -1721,7 +1721,8 @@ mod test {
     fn test_pending_approvals() {
         let runtimes = create_runtimes(1);
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
-        let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+        let signer =
+            InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         let parent_hash = hash(&[1]);
         let approval = Approval::new(parent_hash, 0, 1, &signer);
         let peer_id = PeerId::random();
@@ -1729,9 +1730,10 @@ mod test {
             .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
         let approvals =
             env.clients[0].pending_approvals.cache_remove(&ApprovalInner::Endorsement(parent_hash));
-        let expected = vec![("test0".to_string(), (approval, ApprovalType::PeerApproval(peer_id)))]
-            .into_iter()
-            .collect::<HashMap<_, _>>();
+        let expected =
+            vec![("test0".parse().unwrap(), (approval, ApprovalType::PeerApproval(peer_id)))]
+                .into_iter()
+                .collect::<HashMap<_, _>>();
         assert_eq!(approvals, Some(expected));
     }
 
@@ -1746,7 +1748,11 @@ mod test {
             runtimes,
             vec![network_adapter.clone()],
         );
-        let signer = InMemoryValidatorSigner::from_seed("random", KeyType::ED25519, "random");
+        let signer = InMemoryValidatorSigner::from_seed(
+            "random".parse().unwrap(),
+            KeyType::ED25519,
+            "random",
+        );
         let parent_hash = hash(&[1]);
         // Approval not from a validator. Should be dropped
         let approval = Approval::new(parent_hash, 1, 3, &signer);
@@ -1755,7 +1761,11 @@ mod test {
             .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
         assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
         // Approval with invalid signature. Should be dropped
-        let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "random");
+        let signer = InMemoryValidatorSigner::from_seed(
+            "test0".parse().unwrap(),
+            KeyType::ED25519,
+            "random",
+        );
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let approval = Approval::new(genesis_hash, 0, 1, &signer);
         env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
@@ -1765,7 +1775,8 @@ mod test {
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     #[test]
     fn test_cap_max_gas_price() {
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let epoch_length = 5;
         genesis.config.min_gas_price = 1_000;
         genesis.config.max_gas_price = 1_000_000;

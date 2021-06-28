@@ -780,7 +780,7 @@ mod tests {
             &RuntimeFeesConfig::default(),
             &AccountCreationConfig {
                 min_allowed_top_level_account_length: length,
-                registrar_account_id: AccountId::from("registrar"),
+                registrar_account_id: "registrar".parse().unwrap(),
             },
             &mut account,
             &mut actor_id,
@@ -799,32 +799,32 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_top_level_long() {
-        let account_id = AccountId::from("bob_near_long_name");
-        let predecessor_id = AccountId::from("alice.near");
+        let account_id = "bob_near_long_name".parse().unwrap();
+        let predecessor_id = "alice.near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_top_level_by_registrar() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("registrar");
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "registrar".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_sub_account() {
-        let account_id = AccountId::from("alice.near");
-        let predecessor_id = AccountId::from("near");
+        let account_id = "alice.near".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_invalid_sub_account() {
-        let account_id = AccountId::from("alice.near");
-        let predecessor_id = AccountId::from("bob");
+        let account_id = "alice.near".parse::<AccountId>().unwrap();
+        let predecessor_id = "bob".parse::<AccountId>().unwrap();
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
@@ -832,8 +832,8 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountNotAllowed {
-                    account_id: account_id.clone(),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    predecessor_id: predecessor_id,
                 },
             })
         );
@@ -841,8 +841,8 @@ mod tests {
 
     #[test]
     fn test_create_account_invalid_short_top_level() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("near");
+        let account_id = "bob".parse::<AccountId>().unwrap();
+        let predecessor_id = "near".parse::<AccountId>().unwrap();
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
@@ -850,9 +850,9 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id.clone(),
-                    registrar_account_id: AccountId::from("registrar"),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    registrar_account_id: "registrar".parse().unwrap(),
+                    predecessor_id: predecessor_id,
                 },
             })
         );
@@ -860,10 +860,9 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_short_top_level_len_allowed() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("near");
-        let action_result =
-            test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
+        let action_result = test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
     }
 
@@ -876,7 +875,7 @@ mod tests {
         let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
         let action_receipt = match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => action_receipt,
             _ => unreachable!("Balance refund should be an action receipt"),
@@ -889,7 +888,7 @@ mod tests {
             &action_receipt,
             &mut action_result,
             account_id,
-            &DeleteAccountAction { beneficiary_id: "bob".to_string() },
+            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             ProtocolFeature::DeleteActionRestriction.protocol_version(),
             &RuntimeFeesConfig::default(),
         );
@@ -902,7 +901,7 @@ mod tests {
         let tries = create_tries();
         let mut state_update = tries.new_trie_update(0, CryptoHash::default());
         let action_result = test_delete_large_account(
-            &"alice".to_string(),
+            &"alice".parse().unwrap(),
             &CryptoHash::default(),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
             &mut state_update,
@@ -912,7 +911,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".to_string()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         )
@@ -921,7 +920,7 @@ mod tests {
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = create_tries();
         let mut state_update = tries.new_trie_update(0, CryptoHash::default());
-        let account_id = "alice".to_string();
+        let account_id = "alice".parse::<AccountId>().unwrap();
         let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
         let empty_contract = [0; 10_000].to_vec();
         let contract_hash = hash(&empty_contract);
@@ -945,7 +944,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".to_string()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         );

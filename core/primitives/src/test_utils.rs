@@ -5,7 +5,6 @@ use num_rational::Rational;
 use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::account_id::{AccountId, TEST_ACCOUNT};
 use crate::block::Block;
 use crate::block_header::BlockHeader;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
@@ -22,7 +21,7 @@ use crate::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
     TransferAction,
 };
-use crate::types::{Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::PROTOCOL_VERSION;
 use crate::views::FinalExecutionStatus;
@@ -250,8 +249,8 @@ impl SignedTransaction {
     pub fn empty(block_hash: CryptoHash) -> Self {
         Self::from_actions(
             0,
-            TEST_ACCOUNT.clone(),
-            TEST_ACCOUNT.clone(),
+            AccountId::test_account(),
+            AccountId::test_account(),
             &EmptySigner {},
             vec![],
             block_hash,

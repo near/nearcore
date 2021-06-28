@@ -5,9 +5,11 @@ use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::types::AccountId;
 use near_vm_runner::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::os::raw::c_void;
 use std::path::PathBuf;
@@ -15,8 +17,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Get account id from its index.
-pub fn get_account_id(account_index: usize) -> String {
-    format!("near_{}_{}", account_index, account_index)
+pub fn get_account_id(account_index: usize) -> AccountId {
+    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
 }
 
 /// Total number of transactions that we need to prepare.
@@ -94,7 +96,8 @@ pub fn measure_actions(
         let account_id = get_account_id(account_idx);
         let other_account_id = get_account_id(other_account_idx);
 
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
 
         SignedTransaction::from_actions(

@@ -118,6 +118,12 @@ impl AccountId {
     }
 }
 
+impl std::borrow::Borrow<str> for AccountId {
+    fn borrow(&self) -> &str {
+        self.as_ref()
+    }
+}
+
 impl FromStr for AccountId {
     type Err = ParseAccountError;
 

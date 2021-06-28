@@ -66,10 +66,10 @@ impl From<near_primitives::types::AccountId> for AccountIdentifier {
 }
 
 impl std::str::FromStr for AccountIdentifier {
-    type Err = near_primitives::account_id::ParseAccountError;
+    type Err = near_primitives::account::id::ParseAccountError;
 
     fn from_str(account_id: &str) -> Result<Self, Self::Err> {
-        Ok(Self::from(account_id.parse::<near_primitives::account_id::AccountId>()?))
+        Ok(Self::from(account_id.parse::<near_primitives::types::AccountId>()?))
     }
 }
 

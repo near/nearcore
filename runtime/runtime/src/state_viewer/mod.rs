@@ -291,7 +291,7 @@ mod tests {
         let result = viewer.call_function(
             root,
             view_state,
-            &AccountId::from("test.contract"),
+            &"test.contract".parse().unwrap(),
             "run_test",
             &[],
             &mut logs,
@@ -299,41 +299,6 @@ mod tests {
         );
 
         assert_eq!(result.unwrap(), encode_int(10));
-    }
-
-    #[test]
-    fn test_view_call_bad_contract_id() {
-        let (viewer, root) = get_test_trie_viewer();
-
-        let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            prev_block_hash: CryptoHash::default(),
-            block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
-        };
-        let result = viewer.call_function(
-            root,
-            view_state,
-            &"bad!contract".to_string(),
-            "run_test",
-            &[],
-            &mut logs,
-            &MockEpochInfoProvider::default(),
-        );
-
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains(r#"Account ID "bad!contract" is invalid"#),
-            "Got different error that doesn't match: {}",
-            err
-        );
     }
 
     #[test]
@@ -356,7 +321,7 @@ mod tests {
         let result = viewer.call_function(
             root,
             view_state,
-            &AccountId::from("test.contract"),
+            &"test.contract".parse().unwrap(),
             "run_test_with_storage_change",
             &[],
             &mut logs,
@@ -390,7 +355,7 @@ mod tests {
         let view_call_result = viewer.call_function(
             root,
             view_state,
-            &AccountId::from("test.contract"),
+            &"test.contract".parse().unwrap(),
             "sum_with_input",
             &args,
             &mut logs,
@@ -412,11 +377,11 @@ mod tests {
             b"321".to_vec(),
         );
         state_update.set(
-            TrieKey::ContractData { account_id: "alina".to_string(), key: b"qqq".to_vec() },
+            TrieKey::ContractData { account_id: "alina".parse().unwrap(), key: b"qqq".to_vec() },
             b"321".to_vec(),
         );
         state_update.set(
-            TrieKey::ContractData { account_id: "alex".to_string(), key: b"qqq".to_vec() },
+            TrieKey::ContractData { account_id: "alex".parse().unwrap(), key: b"qqq".to_vec() },
             b"321".to_vec(),
         );
         state_update.commit(StateChangeCause::InitialState);
@@ -508,7 +473,7 @@ mod tests {
             .call_function(
                 root,
                 view_state,
-                &AccountId::from("test.contract"),
+                &"test.contract".parse().unwrap(),
                 "panic_after_logging",
                 &[],
                 &mut logs,

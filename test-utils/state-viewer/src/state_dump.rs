@@ -86,7 +86,8 @@ mod test {
     use crate::state_dump::state_dump;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -185,7 +186,8 @@ mod test {
     #[should_panic(expected = "Trie node missing")]
     fn test_dump_state_not_track_shard() {
         let epoch_length = 4;
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -235,7 +237,8 @@ mod test {
     #[test]
     fn test_dump_state_with_delayed_receipt() {
         let epoch_length = 4;
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;

@@ -57,12 +57,16 @@ pub struct RuntimeUser {
 }
 
 impl RuntimeUser {
-    pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
+    pub fn new(
+        account_id: AccountId,
+        signer: Arc<dyn Signer>,
+        client: Arc<RwLock<MockClient>>,
+    ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
             trie_viewer: TrieViewer::new_with_state_size_limit(None),
-            account_id: account_id.to_string(),
+            account_id,
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),

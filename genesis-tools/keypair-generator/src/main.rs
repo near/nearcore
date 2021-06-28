@@ -98,7 +98,7 @@ fn main() {
             if generate_config {
                 let mut path = home_dir.to_path_buf();
                 path.push(nearcore::config::NODE_KEY_FILE);
-                generate_key_to_file("", key, path);
+                generate_key_to_file("node", key, path);
             }
         }
         (_, _) => unreachable!(),

@@ -8,13 +8,12 @@ use serde::{Deserialize, Serialize};
 use near_crypto::{PublicKey, Signature};
 
 use crate::account::AccessKey;
-use crate::account_id::{AccountId, TEST_ACCOUNT};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
-use crate::types::{Balance, Gas, Nonce};
+use crate::types::{AccountId, Balance, Gas, Nonce};
 
 pub type LogEntry = String;
 
@@ -346,7 +345,7 @@ pub struct ExecutionOutcome {
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
-    #[default(TEST_ACCOUNT.clone())]
+    #[default(AccountId::test_account())]
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     /// NOTE: Should be the latest field since it contains unparsable by light client
@@ -434,12 +433,12 @@ mod tests {
 
     #[test]
     fn test_verify_transaction() {
-        let signer = InMemorySigner::from_random(TEST_ACCOUNT.clone(), KeyType::ED25519);
+        let signer = InMemorySigner::from_random(AccountId::test_account(), KeyType::ED25519);
         let transaction = Transaction {
-            signer_id: TEST_ACCOUNT.clone(),
+            signer_id: AccountId::test_account(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: TEST_ACCOUNT.clone(),
+            receiver_id: AccountId::test_account(),
             block_hash: Default::default(),
             actions: vec![],
         }

@@ -1443,7 +1443,6 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
-    use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
@@ -1506,8 +1505,11 @@ mod tests {
         let root = MerkleHash::default();
         let runtime = Runtime::new();
         let account_id = alice_account();
-        let signer =
-            Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+        let signer = Arc::new(InMemorySigner::from_seed(
+            account_id.clone(),
+            KeyType::ED25519,
+            account_id.as_ref(),
+        ));
 
         let mut initial_state = tries.new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
@@ -1517,7 +1519,7 @@ mod tests {
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
             &mut initial_state,
-            account_id.clone(),
+            account_id,
             signer.public_key(),
             &AccessKey::full_access(),
         );
@@ -2005,88 +2007,6 @@ mod tests {
             ],
             "STEP #5 failed",
         );
-    }
-
-    #[test]
-    fn test_apply_invalid_incoming_receipts() {
-        let initial_balance = to_yocto(1_000_000);
-        let initial_locked = to_yocto(500_000);
-        let small_transfer = to_yocto(10_000);
-        let gas_limit = 1;
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-            setup_runtime(initial_balance, initial_locked, gas_limit);
-
-        let n = 1;
-        let mut receipts = generate_receipts(small_transfer, n);
-        let invalid_account_id = "Invalid".to_string();
-        receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
-
-        let err = runtime
-            .apply(
-                tries.get_trie_for_shard(0),
-                root,
-                &None,
-                &apply_state,
-                &receipts,
-                &[],
-                &epoch_info_provider,
-                None,
-            )
-            .err()
-            .unwrap();
-        assert_eq!(
-            err,
-            RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {
-                account_id: invalid_account_id
-            })
-        )
-    }
-
-    #[test]
-    fn test_apply_invalid_delayed_receipts() {
-        let initial_balance = to_yocto(1_000_000);
-        let initial_locked = to_yocto(500_000);
-        let small_transfer = to_yocto(10_000);
-        let gas_limit = 1;
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-            setup_runtime(initial_balance, initial_locked, gas_limit);
-
-        let n = 1;
-        let mut invalid_receipt = generate_receipts(small_transfer, n).pop().unwrap();
-        let invalid_account_id = "Invalid".to_string();
-        invalid_receipt.predecessor_id = invalid_account_id.clone();
-
-        // Saving invalid receipt to the delayed receipts.
-        let mut state_update = tries.new_trie_update(0, root);
-        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
-            .unwrap();
-        set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
-        store_update.commit().unwrap();
-
-        let err = runtime
-            .apply(
-                tries.get_trie_for_shard(0),
-                root,
-                &None,
-                &apply_state,
-                &[],
-                &[],
-                &epoch_info_provider,
-                None,
-            )
-            .err()
-            .unwrap();
-        assert_eq!(
-            err,
-            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
-                "Delayed receipt #0 in the state is invalid: {}",
-                ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
-            )))
-        )
     }
 
     #[test]

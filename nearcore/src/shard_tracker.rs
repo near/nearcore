@@ -236,7 +236,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards};
+    use near_primitives::types::{AccountId, BlockHeight, EpochId, NumShards};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
@@ -267,7 +267,7 @@ mod tests {
             num_blocks_per_year: 1000000,
             epoch_length: 1,
             protocol_reward_rate: Rational::from_integer(0),
-            protocol_treasury_account: "".to_string(),
+            protocol_treasury_account: AccountId::test_account(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
             num_seconds_per_year: 1000000,
@@ -279,7 +279,7 @@ mod tests {
                 PROTOCOL_VERSION,
                 reward_calculator,
                 vec![ValidatorStake::new(
-                    "test".to_string(),
+                    AccountId::test_account(),
                     PublicKey::empty(KeyType::ED25519),
                     100,
                 )],
@@ -323,11 +323,11 @@ mod tests {
         let epoch_manager = get_epoch_manager(num_shards);
         let mut tracker =
             ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager, num_shards);
-        tracker.track_accounts(&["test1".to_string(), "test2".to_string()]);
+        tracker.track_accounts(&["test1".parse().unwrap(), "test2".parse().unwrap()]);
         tracker.track_shards(&[2, 3]);
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(account_id_to_shard_id(&"test1".to_string(), num_shards));
-        total_tracked_shards.insert(account_id_to_shard_id(&"test2".to_string(), num_shards));
+        total_tracked_shards.insert(account_id_to_shard_id(&"test1".parse().unwrap(), num_shards));
+        total_tracked_shards.insert(account_id_to_shard_id(&"test2".parse().unwrap(), num_shards));
         total_tracked_shards.insert(2);
         total_tracked_shards.insert(3);
         assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);
@@ -344,7 +344,11 @@ mod tests {
             epoch_manager.clone(),
             num_shards,
         );
-        tracker.track_accounts(&["test1".to_string(), "test2".to_string(), "test3".to_string()]);
+        tracker.track_accounts(&[
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test3".parse().unwrap(),
+        ]);
         tracker.track_shards(&[2, 3]);
         {
             let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -353,12 +357,12 @@ mod tests {
             record_block(&mut epoch_manager, hash(&[1]), hash(&[2]), 2, vec![]);
         }
         tracker
-            .untrack_accounts(&hash(&[1]), vec!["test2".to_string(), "test3".to_string()])
+            .untrack_accounts(&hash(&[1]), vec!["test2".parse().unwrap(), "test3".parse().unwrap()])
             .unwrap();
         tracker.update_epoch(&hash(&[2])).unwrap();
 
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(account_id_to_shard_id(&"test1".to_string(), num_shards));
+        total_tracked_shards.insert(account_id_to_shard_id(&"test1".parse().unwrap(), num_shards));
         total_tracked_shards.insert(2);
         total_tracked_shards.insert(3);
 
@@ -376,7 +380,11 @@ mod tests {
             epoch_manager.clone(),
             num_shards,
         );
-        tracker.track_accounts(&["test1".to_string(), "test2".to_string(), "test3".to_string()]);
+        tracker.track_accounts(&[
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test3".parse().unwrap(),
+        ]);
         tracker.track_shards(&[2, 3]);
         {
             let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -388,9 +396,9 @@ mod tests {
         tracker.update_epoch(&hash(&[2])).unwrap();
 
         let mut total_tracked_shards = HashSet::new();
-        for account_id in vec!["test1", "test2", "test3"] {
+        for account_id in ["test1", "test2", "test3"].iter() {
             total_tracked_shards
-                .insert(account_id_to_shard_id(&account_id.to_string(), num_shards));
+                .insert(account_id_to_shard_id(&account_id.parse().unwrap(), num_shards));
         }
 
         assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);

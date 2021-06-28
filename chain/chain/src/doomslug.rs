@@ -600,10 +600,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use near_crypto::{KeyType, SecretKey};
-    use near_primitives::account_id::TEST_ACCOUNT;
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
-    use near_primitives::types::ApprovalStake;
+    use near_primitives::types::{AccountId, ApprovalStake};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     use crate::doomslug::{
@@ -620,7 +619,7 @@ mod tests {
             Duration::from_millis(100),
             Duration::from_millis(3000),
             Some(Arc::new(InMemoryValidatorSigner::from_seed(
-                TEST_ACCOUNT.clone(),
+                AccountId::test_account(),
                 KeyType::ED25519,
                 "test",
             ))),
@@ -769,7 +768,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            TEST_ACCOUNT.clone(),
+            AccountId::test_account(),
             KeyType::ED25519,
             "test",
         ));

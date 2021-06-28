@@ -58,11 +58,12 @@ fn test_tx_propagation() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer =
+            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.2".to_string(),
+            "near.1".parse().unwrap(),
+            "near.2".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -97,7 +98,7 @@ fn test_tx_propagation() {
                     view_client
                         .send(TxStatus {
                             tx_hash,
-                            signer_account_id: "near.1".to_string(),
+                            signer_account_id: "near.1".parse().unwrap(),
                             fetch_receipt: false,
                         })
                         .then(move |res| {
@@ -140,11 +141,12 @@ fn test_tx_propagation_through_rpc() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer =
+            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.2".to_string(),
+            "near.1".parse().unwrap(),
+            "near.2".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -208,11 +210,12 @@ fn test_tx_status_with_light_client() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer =
+            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.2".to_string(),
+            "near.1".parse().unwrap(),
+            "near.2".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -278,11 +281,12 @@ fn test_tx_status_with_light_client1() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.3", KeyType::ED25519, "near.3");
+        let signer =
+            InMemorySigner::from_seed("near.3".parse().unwrap(), KeyType::ED25519, "near.3");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.3".to_string(),
-            "near.0".to_string(),
+            "near.3".parse().unwrap(),
+            "near.0".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -456,7 +460,7 @@ fn test_get_validator_info_rpc() {
                         assert!(res
                             .current_validators
                             .iter()
-                            .any(|r| r.account_id == "near.0".to_string()));
+                            .any(|r| r.account_id.as_ref() == "near.0"));
                         System::current().stop();
                     }
                 });
@@ -508,12 +512,13 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(
                 1,
-                "near.0".to_string(),
-                "near.1".to_string(),
+                "near.0".parse().unwrap(),
+                "near.1".parse().unwrap(),
                 &signer,
                 10000,
                 genesis_hash,
@@ -521,8 +526,8 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         } else {
             SignedTransaction::create_account(
                 1,
-                "near.0".to_string(),
-                "near.1".to_string(),
+                "near.0".parse().unwrap(),
+                "near.1".parse().unwrap(),
                 10,
                 signer.public_key.clone(),
                 &signer,
@@ -545,14 +550,14 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                             let mut futures = vec![];
                             for id in vec![TransactionOrReceiptId::Transaction {
                                 transaction_hash: final_transaction_outcome.transaction_outcome.id,
-                                sender_id: "near.0".to_string(),
+                                sender_id: "near.0".parse().unwrap(),
                             }]
                             .into_iter()
                             .chain(
                                 final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
                                     TransactionOrReceiptId::Receipt {
                                         receipt_id: r.id,
-                                        receiver_id: "near.1".to_string(),
+                                        receiver_id: "near.1".parse().unwrap(),
                                     }
                                 }),
                             ) {
@@ -675,7 +680,7 @@ fn test_query_rpc_account_view_must_succeed() {
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
                 request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "near.0".to_string(),
+                    account_id: "near.0".parse().unwrap(),
                 },
             })
             .await
@@ -697,42 +702,6 @@ fn test_query_rpc_account_view_must_succeed() {
 }
 
 #[test]
-fn test_query_rpc_account_view_invalid_account_must_return_error() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let query_response = client
-            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
-                request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "1nval$d*@cc0ount".to_string(),
-                },
-            })
-            .await;
-
-        let error_message = match query_response {
-            Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
-            Err(err) => err.data.unwrap(),
-        };
-
-        assert!(
-            error_message.to_string().contains("Account ID 1nval$d*@cc0ount is invalid"),
-            "{}",
-            error_message
-        );
-        System::current().stop();
-    });
-}
-
-#[test]
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
@@ -749,7 +718,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
                 request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "accountdoesntexist.0".to_string(),
+                    account_id: "accountdoesntexist.0".parse().unwrap(),
                 },
             })
             .await;
@@ -786,11 +755,12 @@ fn test_tx_not_enough_balance_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.0".to_string(),
-            "near.1".to_string(),
+            "near.0".parse().unwrap(),
+            "near.1".parse().unwrap(),
             &signer,
             1100000000000000000000000000000000,
             genesis_hash,
@@ -847,11 +817,12 @@ fn test_send_tx_sync_returns_transaction_hash() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.0".to_string(),
-            "near.0".to_string(),
+            "near.0".parse().unwrap(),
+            "near.0".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -897,11 +868,12 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer =
+            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.1".to_string(),
+            "near.1".parse().unwrap(),
+            "near.1".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -954,11 +926,12 @@ fn test_check_unknown_tx_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.0".to_string(),
-            "near.0".to_string(),
+            "near.0".parse().unwrap(),
+            "near.0".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -1011,11 +984,11 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer = InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.1".to_string(),
+            "near.1".parse().unwrap(),
+            "near.1".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,

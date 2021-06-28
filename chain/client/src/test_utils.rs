@@ -1,6 +1,7 @@
 use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -383,7 +384,9 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
-    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
+    network_mock: Arc<
+        RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
@@ -437,7 +440,7 @@ pub fn setup_mock_all_validators(
                 let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
-                let (resp, perform_default) = guard.deref_mut()(account_id.to_string(), msg);
+                let (resp, perform_default) = guard.deref_mut()(account_id.clone(), msg);
                 drop(guard);
 
                 if perform_default {
@@ -445,7 +448,7 @@ pub fn setup_mock_all_validators(
                     let mut my_address = None;
                     let mut my_ord = None;
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                        if *name == account_id {
+                        if name == &account_id {
                             my_key_pair = Some(key_pairs[i].clone());
                             my_address = Some(addresses[i].clone());
                             my_ord = Some(i);
@@ -1022,8 +1025,9 @@ pub struct TestEnv {
 impl TestEnv {
     /// Create a `TestEnv` with `KeyValueRuntime`.
     pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
-        let validators: Vec<AccountId> =
-            (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let validators: Vec<AccountId> = (0..num_validators)
+            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
+            .collect();
         let network_adapters =
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
         let clients = (0..num_clients)
@@ -1034,7 +1038,7 @@ impl TestEnv {
                     vec![validators.clone()],
                     1,
                     1,
-                    Some(format!("test{}", i).parse().unwrap()),
+                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
                     false,
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
@@ -1070,13 +1074,14 @@ impl TestEnv {
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
         network_adapters: Vec<Arc<MockNetworkAdapter>>,
     ) -> Self {
-        let validators: Vec<AccountId> =
-            (0..num_validator_seats).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let validators: Vec<AccountId> = (0..num_validator_seats)
+            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
+            .collect();
         let clients = (0..num_clients)
             .map(|i| {
                 setup_client_with_runtime(
                     num_validator_seats,
-                    Some(format!("test{}", i).parse().unwrap()),
+                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
                     false,
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
@@ -1180,7 +1185,7 @@ impl TestEnv {
             vec![self.validators.clone()],
             1,
             1,
-            Some(format!("test{}", id).parse().unwrap()),
+            Some(AccountId::try_from(format!("test{}", id)).unwrap()),
             false,
             self.network_adapters[id].clone(),
             self.chain_genesis.clone(),

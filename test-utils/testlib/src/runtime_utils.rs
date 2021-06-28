@@ -85,8 +85,9 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
-    add_test_contract(&mut genesis, &AccountId::from("test.contract"));
+    let mut genesis =
+        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
+    add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
     get_runtime_and_trie_from_genesis(&genesis)
 }
 
