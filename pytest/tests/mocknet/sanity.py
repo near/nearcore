@@ -14,8 +14,6 @@ from utils import load_test_contract
 nodes = mocknet.get_nodes()
 accounts = mocknet.accounts_from_nodes(nodes)
 
-logger.info("")
-
 # Test balance transfers
 initial_balances = [
     int(nodes[0].get_account(account.account_id)['result']['amount'])

@@ -18,17 +18,15 @@ def init_network_pillager():
             f.write("42")
     except IOError as e:
         if e[0] == 13:
-            logger.info(
+            logger.critical(
                 "Failed to modify `/sys/fs/cgroup/net_cls/block/net_cls.classid`."
             )
-            logger.info(
-                "Make sure the current user has access to it, e.g. by changing the owner:"
+            logger.critical(
+                "Make sure the current user has access to it, e.g. by changing the owner:\n"
             )
-            logger.info("")
-            logger.info(
+            logger.critical(
                 "    chown <group>.<user> /sys/fs/cgroup/net_cls/block/net_cls.classid"
             )
-            logger.info("")
             sys.exit(1)
     _run_process([
         "iptables", "-A", "OUTPUT", "-m", "cgroup", "--cgroup", "42", "-j",

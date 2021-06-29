@@ -148,7 +148,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
         while True:
             validators = node.validators()
             if validators != initial_validators:
-                logger.info(
+                logger.critical(
                     f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
                 )
                 sys.exit(1)
@@ -162,7 +162,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
         for _ in range(max_blocks):
             validators = node.validators()
             if validators != initial_validators:
-                logger.info(
+                logger.critical(
                     f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
                 )
                 sys.exit(1)

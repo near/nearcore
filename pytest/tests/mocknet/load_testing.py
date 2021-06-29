@@ -133,7 +133,6 @@ if __name__ == '__main__':
     test_passed = check_memory_usage(nodes[0]) and test_passed
     test_passed = check_slow_blocks(initial_metrics,
                                     transfer_final_metrics) and test_passed
-    logger.info('')
 
     logger.info('INFO: Waiting for contracts to be deployed.')
     measurement_duration = transfer_final_metrics.timestamp - time.time()
@@ -151,7 +150,6 @@ if __name__ == '__main__':
     test_passed = check_memory_usage(nodes[0]) and test_passed
     test_passed = check_slow_blocks(all_tx_initial_metrics,
                                     final_metrics) and test_passed
-    logger.info('')
 
     final_validator_accounts = mocknet.list_validators(nodes[0])
     assert initial_validator_accounts == final_validator_accounts

@@ -363,9 +363,7 @@ class LocalNode(BaseNode):
         try:
             self.kill()
         except:
-            logger.info("Kill failed on cleanup!")
-            traceback.print_exc()
-            logger.info("\n\n")
+            logger.critical('Kill failed on cleanup!', exc_info=sys.exc_info())
 
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
@@ -510,10 +508,10 @@ chmod +x near
 
 
 def github_auth():
-    logger.info("Go to the following link in your browser:")
-    logger.info("")
-    logger.info("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
-    logger.info("")
+    print("Go to the following link in your browser:")
+    print("")
+    print("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
+    print("")
     code = input("Enter verification code: ")
     with open(os.path.expanduser('~/.nayduck'), 'w') as f:
         f.write(code)
@@ -622,7 +620,7 @@ class PreexistingCluster():
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
-            logger.info('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            logger.info('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes))
             if requester == "NayDuck" and k == 3:
                 logger.info("Postpone test for NayDuck.")
                 sys.exit(13)
@@ -636,7 +634,6 @@ class PreexistingCluster():
             if len(self.nodes) == num_nodes:
                 break
 
-        logger.info("")
         logger.info("ips: %s" % self.ips)
         while True:
             status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
@@ -648,7 +645,7 @@ class PreexistingCluster():
                     status[v] += 1
                 else:
                     logger.info("Unexpected status %s for %s" % (v, k))
-            logger.info('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']),  end='\r')
+            logger.info('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']))
             if status['BUILD FAILED'] > 0:
                 logger.info('Build failed for at least one instance')
                 self.nodes = []
@@ -663,7 +660,6 @@ class PreexistingCluster():
     def atexit_cleanup_preexist(self, *args):
         if self.already_cleaned_up:
             sys.exit(0)
-        logger.info("")
         post = {'request_id': self.request_id, 'token': self.token}
         logger.info("Starting cleaning up remote instances.")
         res = requests.post('http://40.112.59.229:5000/cancel_the_run', json=post)
@@ -742,8 +738,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
-        logger.info("Attempt to launch a regular test with a mocknet config",
-              file=sys.stderr)
+        logger.critical("Attempt to launch a regular test with a mocknet config")
         sys.exit(1)
 
     is_local = config['local']

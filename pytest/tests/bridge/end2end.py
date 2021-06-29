@@ -4,10 +4,9 @@
 # If `no_txs_in_parallel`, no txs will be executed in parallel.
 
 import sys, time
-from configured_logger import logger
 
 if len(sys.argv) < 3:
-    logger.info("python end2end.py <eth2near_tx_number> <near2eth_tx_number> [...]")
+    print("python end2end.py <eth2near_tx_number> <near2eth_tx_number> [...]")
     exit(1)
 
 no_txs_in_same_block = False
@@ -29,6 +28,7 @@ sys.path.append('lib')
 
 from cluster import start_cluster, start_bridge
 from bridge import alice, bridge_cluster_config_changes
+from configured_logger import logger
 
 nodes = start_cluster(2, 0, 1, None, [], bridge_cluster_config_changes)
 (bridge, ganache) = start_bridge(nodes)

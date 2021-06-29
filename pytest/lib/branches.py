@@ -121,6 +121,6 @@ def prepare_ab_test(other_branch):
         if not os.getenv('NAYDUCK'):
             compile_binary(str(other_branch))
         else:
-            logger.info('RC binary should be downloaded for NayDuck.')
+            logger.critical('RC binary should be downloaded for NayDuck.')
             sys.exit(1)
     return '../target/debug/', [other_branch, escaped(current_branch())]

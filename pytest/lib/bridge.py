@@ -175,9 +175,7 @@ class Cleanable(object):
                 self.stderr.close()
             self.kill()
         except BaseException:
-            logger.info("Kill %s failed on cleanup!" % (self.__class__.__name__))
-            traceback.print_exc()
-            logger.info("\n\n")
+            logger.error('Kill %s failed on cleanup', type(self).__name__, exc_info=sys.exc_info())
 
     def restart(self):
         assert not self.cleaned

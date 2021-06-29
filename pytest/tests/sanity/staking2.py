@@ -72,7 +72,6 @@ def do_moar_stakes(last_block_hash, update_expected):
     if update_expected:
         fake_stakes = [0, 0, 0]
         all_stakes.append(stakes)
-        logger.info("")
     else:
         fake_stakes = stakes
 
