@@ -54,6 +54,8 @@ near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.9"
 
 [features]
+default = ["json_rpc"]
+
 performance_stats = ["near-performance-metrics/performance_stats"]
 memory_stats = ["near-performance-metrics/memory_stats"]
 c_memory_stats = ["near-performance-metrics/c_memory_stats"]
