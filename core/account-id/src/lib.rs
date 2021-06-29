@@ -1,6 +1,8 @@
-use std::{convert::TryFrom, io, str::FromStr};
+use std::{convert::TryFrom, str::FromStr};
 
+#[cfg(feature = "borsh")]
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "serde")]
 use serde::{self, de};
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -30,12 +32,13 @@ pub enum ParseAccountError {
     derive_more::Into,
     derive_more::AsRef,
     derive_more::Display,
-    serde::Serialize,
-    serde::Deserialize,
-    BorshSerialize,
 )]
 #[as_ref(forward)]
-pub struct AccountId(#[serde(deserialize_with = "serde_validate_account_id")] Box<str>);
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize))]
+pub struct AccountId(
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "serde_validate_account_id"))] Box<str>,
+);
 
 impl AccountId {
     pub fn len(&self) -> usize {
@@ -142,6 +145,12 @@ impl TryFrom<String> for AccountId {
     }
 }
 
+impl From<AccountId> for String {
+    fn from(account_id: AccountId) -> Self {
+        account_id.0.into_string()
+    }
+}
+
 impl TryFrom<&[u8]> for AccountId {
     type Error = ParseAccountError;
 
@@ -150,6 +159,7 @@ impl TryFrom<&[u8]> for AccountId {
     }
 }
 
+#[cfg(feature = "serde")]
 fn serde_validate_account_id<'de, D>(d: D) -> Result<Box<str>, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -159,11 +169,12 @@ where
     Ok(account_id)
 }
 
+#[cfg(feature = "borsh")]
 impl BorshDeserialize for AccountId {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
         let account_id = BorshDeserialize::deserialize(buf)?;
         Self::validate(&account_id)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
         Ok(Self(account_id))
     }
 }
@@ -182,10 +193,14 @@ mod paperclip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "borsh")]
+    use borsh::{BorshDeserialize, BorshSerialize};
+    #[cfg(feature = "serde")]
+    use serde_json::json;
 
     #[test]
     fn test_is_valid_account_id() {
-        let ok_account_ids = &[
+        let ok_account_ids = [
             "aa",
             "a-a",
             "a-aa",
@@ -212,15 +227,45 @@ mod tests {
             // Valid, but can't be created
             "near.a",
         ];
-        for account_id in ok_account_ids {
-            assert!(
-                AccountId::validate(account_id).is_ok(),
-                "Valid account id {:?} marked invalid",
-                account_id
-            );
+        for account_id in ok_account_ids.iter().cloned() {
+            let _parsed_account_id = AccountId::from_str(account_id).unwrap_or_else(|err| {
+                panic!("Valid account id {:?} marked invalid: {}", account_id, err)
+            });
+
+            #[cfg(feature = "serde")]
+            {
+                let deserialized_account_id: AccountId = serde_json::from_value(json!(account_id))
+                    .unwrap_or_else(|err| {
+                        panic!("failed to deserialize account ID {:?}: {}", account_id, err)
+                    });
+                assert_eq!(deserialized_account_id, _parsed_account_id);
+
+                let serialized_account_id = serde_json::to_value(&deserialized_account_id)
+                    .unwrap_or_else(|err| {
+                        panic!("failed to serialize account ID {:?}: {}", account_id, err)
+                    });
+                assert_eq!(serialized_account_id, json!(account_id));
+            };
+
+            #[cfg(feature = "borsh")]
+            {
+                let str_serialized_account_id = account_id.try_to_vec().unwrap();
+
+                let deserialized_account_id = AccountId::try_from_slice(&str_serialized_account_id)
+                    .unwrap_or_else(|err| {
+                        panic!("failed to deserialize account ID {:?}: {}", account_id, err)
+                    });
+                assert_eq!(deserialized_account_id, _parsed_account_id);
+
+                let serialized_account_id =
+                    deserialized_account_id.try_to_vec().unwrap_or_else(|err| {
+                        panic!("failed to serialize account ID {:?}: {}", account_id, err)
+                    });
+                assert_eq!(serialized_account_id, str_serialized_account_id);
+            };
         }
 
-        let bad_account_ids = &[
+        let bad_account_ids = [
             "a",
             "A",
             "Abc",
@@ -247,12 +292,30 @@ mod tests {
             "some-complex-address@gmail.com",
             "sub.buy_d1gitz@atata@b0-rg.c_0_m",
         ];
-        for account_id in bad_account_ids {
+        for account_id in bad_account_ids.iter().cloned() {
             assert!(
                 AccountId::validate(account_id).is_err(),
                 "Invalid account id {:?} marked valid",
                 account_id
             );
+
+            #[cfg(feature = "serde")]
+            assert!(
+                serde_json::from_value::<AccountId>(json!(account_id)).is_err(),
+                "successfully deserialized invalid account ID {:?}",
+                account_id
+            );
+
+            #[cfg(feature = "borsh")]
+            {
+                let str_serialized_account_id = account_id.try_to_vec().unwrap();
+
+                assert!(
+                    AccountId::try_from_slice(&str_serialized_account_id).is_err(),
+                    "successfully deserialized invalid account ID {:?}",
+                    account_id
+                );
+            };
         }
     }
 

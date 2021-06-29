@@ -8,9 +8,12 @@ repository = "https://github.com/near/nearcore"
 homepage = "https://github.com/near/nearcore"
 description = "This crate contains the account ID primitive and its validation facilities"
 
+[features]
+default = ["borsh", "serde"]
+
 [dependencies]
-borsh = "0.8.1"
-serde = { version = "1", features = [ "derive" ] }
+borsh = { version = "0.8.1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 thiserror = "1"
 derive_more = "0.99.3"
 
@@ -19,3 +22,6 @@ git = "https://github.com/near/paperclip"
 branch = "actix-web-4-beta.6"
 optional = true
 features = ["actix"]
+
+[dev-dependencies]
+serde_json = "1"
