@@ -558,9 +558,9 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
 const SECP256K1_N: U256 =
     U256([0xbfd25e8cd0364141, 0xbaaedce6af48a03b, 0xfffffffffffffffe, 0xffffffffffffffff]);
 
-// Half of SECP256K1_N.
-const SECP256K1_N_HALF: U256 =
-    U256([0xdfe92f46681b20a0, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
+// Half of SECP256K1_N + 1.
+const SECP256K1_N_HALF_ONE: U256 =
+    U256([0xdfe92f46681b20a1, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
 
 #[derive(Clone)]
 pub struct Secp256K1Signature([u8; 65]);
@@ -577,7 +577,7 @@ impl Secp256K1Signature {
 
         let s_check = if reject_upper {
             // Reject upper range of s values (ECDSA malleability)
-            SECP256K1_N_HALF + U256::one()
+            SECP256K1_N_HALF_ONE
         } else {
             SECP256K1_N
         };
