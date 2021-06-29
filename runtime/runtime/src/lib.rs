@@ -21,6 +21,7 @@ use near_primitives::version::{
 };
 use near_primitives::{
     account::Account,
+    checked_feature,
     errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError},
     hash::CryptoHash,
     receipt::{
@@ -555,10 +556,18 @@ impl Runtime {
             }
         }
 
-        // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_deficit_amount = if receipt.predecessor_id == system_account() {
-            result.gas_burnt = 0;
-            result.gas_used = 0;
+            // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
+            // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
+            // enabled because we want it to be counted in gas limit calculation later
+            if !checked_feature!(
+                "protocol_feature_count_refund_receipts_in_gas_limit",
+                CountRefundReceiptsInGasLimit,
+                apply_state.current_protocol_version
+            ) {
+                result.gas_burnt = 0;
+                result.gas_used = 0;
+            }
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.other_burnt_amount = safe_add_balance(
@@ -595,9 +604,12 @@ impl Runtime {
             }
         };
 
+        // If the receipt is a refund, then we consider it free without burnt gas.
+        let gas_burnt: Gas =
+            if receipt.predecessor_id == system_account() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
-            safe_gas_to_balance(apply_state.gas_price, result.gas_burnt)? - gas_deficit_amount;
+            safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
         // The amount of tokens burnt for the execution of this receipt. It's used in the execution
         // outcome.
         let tokens_burnt = tx_burnt_amount;
@@ -1209,6 +1221,9 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
+        // This contains the gas "burnt" for refund receipts. Even though we don't actually
+        // charge any gas for refund receipts, we still count the gas use towards the block gas
+        // limit
         let mut total_gas_burnt = gas_used_for_migrations;
 
         for signed_transaction in transactions {
@@ -1447,10 +1462,12 @@ mod tests {
 
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
+    use near_primitives::contract::ContractCode;
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
+    use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
         AddKeyAction, DeleteKeyAction, FunctionCallAction, TransferAction,
     };
@@ -1459,6 +1476,8 @@ mod tests {
     use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
+    use near_vm_runner::{get_contract_cache_key, VMKind};
+    use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1467,6 +1486,26 @@ mod tests {
 
     fn to_yocto(near: Balance) -> Balance {
         near * 10u128.pow(24)
+    }
+
+    fn create_receipts_with_actions(
+        account_id: AccountId,
+        signer: Arc<InMemorySigner>,
+        actions: Vec<Action>,
+    ) -> Vec<Receipt> {
+        vec![Receipt {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: account_id,
+                signer_public_key: signer.public_key(),
+                gas_price: GAS_PRICE,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions,
+            }),
+        }]
     }
 
     #[test]
@@ -1601,6 +1640,58 @@ mod tests {
                 None,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn test_apply_refund_receipts() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let small_transfer = to_yocto(10_000);
+        let gas_limit = 1;
+        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let n = 10;
+        let receipts = generate_refund_receipts(small_transfer, n);
+
+        // Checking n receipts delayed
+        for i in 1..=n + 3 {
+            let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
+            let apply_result = runtime
+                .apply(
+                    tries.get_trie_for_shard(0),
+                    root,
+                    &None,
+                    &apply_state,
+                    prev_receipts,
+                    &[],
+                    &epoch_info_provider,
+                    None,
+                )
+                .unwrap();
+            let (store_update, new_root) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+            root = new_root;
+            store_update.commit().unwrap();
+            let state = tries.new_trie_update(0, root);
+            let account = get_account(&state, &alice_account()).unwrap().unwrap();
+            // Check that refund receipts are delayed if CountRefundReceiptsInGasLimit is enabled,
+            // and otherwise processed all at once
+            let capped_i = if checked_feature!(
+                "protocol_feature_count_refund_receipts_in_gas_limit",
+                CountRefundReceiptsInGasLimit,
+                apply_state.current_protocol_version
+            ) {
+                std::cmp::min(i, n)
+            } else {
+                n
+            };
+            assert_eq!(
+                account.amount(),
+                initial_balance
+                    + small_transfer * Balance::from(capped_i)
+                    + Balance::from(capped_i * (capped_i - 1) / 2)
+            );
+        }
     }
 
     #[test]
@@ -1778,6 +1869,16 @@ mod tests {
                         })],
                     }),
                 }
+            })
+            .collect()
+    }
+
+    fn generate_refund_receipts(small_transfer: u128, n: u64) -> Vec<Receipt> {
+        let mut receipt_id = CryptoHash::default();
+        (0..n)
+            .map(|i| {
+                receipt_id = hash(receipt_id.as_ref());
+                Receipt::new_balance_refund(&alice_account(), small_transfer + Balance::from(i))
             })
             .collect()
     }
@@ -2274,19 +2375,7 @@ mod tests {
             }),
         ];
 
-        let receipts = vec![Receipt {
-            predecessor_id: alice_account(),
-            receiver_id: alice_account(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: alice_account(),
-                signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
-        }];
+        let receipts = create_receipts_with_actions(alice_account(), signer, actions);
 
         let apply_result = runtime
             .apply(
@@ -2327,19 +2416,7 @@ mod tests {
 
         let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
 
-        let receipts = vec![Receipt {
-            predecessor_id: alice_account(),
-            receiver_id: alice_account(),
-            receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: alice_account(),
-                signer_public_key: signer.public_key(),
-                gas_price: GAS_PRICE,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions,
-            }),
-        }];
+        let receipts = create_receipts_with_actions(alice_account(), signer, actions);
 
         let apply_result = runtime
             .apply(
@@ -2360,5 +2437,48 @@ mod tests {
         let final_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         assert_eq!(final_account_state.storage_usage(), 0);
+    }
+
+    #[test]
+    fn test_contract_precompilation() {
+        let initial_balance = to_yocto(1_000_000);
+        let initial_locked = to_yocto(500_000);
+        let gas_limit = 10u64.pow(15);
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+            setup_runtime(initial_balance, initial_locked, gas_limit);
+
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
+        let actions =
+            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })];
+
+        let receipts = create_receipts_with_actions(alice_account(), signer, actions);
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(0),
+                root,
+                &None,
+                &apply_state,
+                &receipts,
+                &[],
+                &epoch_info_provider,
+                None,
+            )
+            .unwrap();
+        let (store_update, _) = tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        store_update.commit().unwrap();
+
+        let contract_code = ContractCode::new(wasm_code, None);
+        let key = get_contract_cache_key(
+            &contract_code,
+            VMKind::default(),
+            &apply_state.config.wasm_config,
+        );
+        apply_state
+            .cache
+            .unwrap()
+            .get(&key.0)
+            .expect("Compiled contract should be cached")
+            .expect("Compilation result should be non-empty");
     }
 }

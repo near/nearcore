@@ -3136,6 +3136,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "node-runtime",
  "num-rational",
@@ -3275,7 +3276,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "actix",
  "actix-cors",
@@ -3323,7 +3324,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-primitives"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "actix",
  "lazy_static",
@@ -3737,10 +3738,12 @@ dependencies = [
  "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
+ "near-vm-runner",
  "node-runtime",
  "num-rational",
  "primitive-types",
  "rand 0.7.3",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",

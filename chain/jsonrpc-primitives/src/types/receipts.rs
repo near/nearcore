@@ -18,18 +18,13 @@ pub struct RpcReceiptResponse {
     pub receipt_view: near_primitives::views::ReceiptView,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcReceiptError {
-    #[error("The node reached its limits. Try again later. More details: {0}")]
-    InternalError(String),
-    #[error("Receipt with id {0} has never been observed on this node")]
-    UnknownReceipt(near_primitives::hash::CryptoHash),
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {0}")]
-    Unreachable(String),
+    #[error("The node reached its limits. Try again later. More details: {error_message}")]
+    InternalError { error_message: String },
+    #[error("Receipt with id {receipt_id} has never been observed on this node")]
+    UnknownReceipt { receipt_id: near_primitives::hash::CryptoHash },
 }
 
 impl From<ReceiptReference> for near_client_primitives::types::GetReceipt {
@@ -48,17 +43,19 @@ impl RpcReceiptRequest {
 impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
     fn from(error: near_client_primitives::types::GetReceiptError) -> Self {
         match error {
-            near_client_primitives::types::GetReceiptError::IOError(s) => Self::InternalError(s),
-            near_client_primitives::types::GetReceiptError::UnknownReceipt(hash) => {
-                Self::UnknownReceipt(hash)
+            near_client_primitives::types::GetReceiptError::IOError(error_message) => {
+                Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetReceiptError::Unreachable(error_message) => {
+            near_client_primitives::types::GetReceiptError::UnknownReceipt(hash) => {
+                Self::UnknownReceipt { receipt_id: hash }
+            }
+            near_client_primitives::types::GetReceiptError::Unreachable(ref error_message) => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcReceiptError"],
                 );
-                Self::Unreachable(error_message)
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -66,14 +63,21 @@ impl From<near_client_primitives::types::GetReceiptError> for RpcReceiptError {
 
 impl From<actix::MailboxError> for RpcReceiptError {
     fn from(error: actix::MailboxError) -> Self {
-        Self::InternalError(error.to_string())
+        Self::InternalError { error_message: error.to_string() }
     }
 }
 
 impl From<RpcReceiptError> for crate::errors::RpcError {
     fn from(error: RpcReceiptError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcReceiptError: {:?}", err),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }

@@ -277,6 +277,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         vec![],
         None,
+        None,
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
@@ -570,6 +571,7 @@ fn test_fishermen_challenge() {
             vec![],
             vec![],
             None,
+            None,
         ))
     };
     let runtime1 = create_runtime();
@@ -632,6 +634,7 @@ fn test_challenge_in_different_epoch() {
         vec![],
         vec![],
         None,
+        None,
     ));
     let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
@@ -639,6 +642,7 @@ fn test_challenge_in_different_epoch() {
         &genesis.clone(),
         vec![],
         vec![],
+        None,
         None,
     ));
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];

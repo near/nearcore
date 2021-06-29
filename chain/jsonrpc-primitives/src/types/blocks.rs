@@ -9,20 +9,21 @@ pub enum BlockReference {
     SyncCheckpoint(near_primitives::types::SyncCheckpoint),
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcBlockError {
     #[error("Block not found: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        // We are skipping this field for now
+        // until we can provide useful struct like block_height or block_hash
+        // that was requested
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,13 +62,13 @@ impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
             near_client_primitives::types::GetBlockError::IOError { error_message } => {
                 Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetBlockError::Unreachable { error_message } => {
+            near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcBlockError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -81,18 +82,27 @@ impl From<actix::MailboxError> for RpcBlockError {
 
 impl From<RpcBlockError> for crate::errors::RpcError {
     fn from(error: RpcBlockError) -> Self {
-        let error_data = match error {
+        let error_data = match &error {
             RpcBlockError::UnknownBlock { error_message } => Some(Value::String(format!(
                 "DB Not Found Error: {} \n Cause: Unknown",
                 error_message
             ))),
-            RpcBlockError::Unreachable { error_message } => Some(Value::String(error_message)),
             RpcBlockError::NotSyncedYet | RpcBlockError::InternalError { .. } => {
                 Some(Value::String(error.to_string()))
             }
         };
 
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        let error_data_value = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcBlockError: {:?}", err),
+                )
+            }
+        };
+
+        Self::new_internal_or_handler_error(error_data, error_data_value)
     }
 }
 

@@ -107,6 +107,8 @@ pub enum ProtocolFeature {
     RestoreReceiptsAfterFix,
     #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     CapMaxGasPrice,
+    #[cfg(feature = "protocol_feature_count_refund_receipts_in_gas_limit")]
+    CountRefundReceiptsInGasLimit,
     #[cfg(feature = "protocol_feature_math_extension")]
     MathExtension,
 }
@@ -151,6 +153,8 @@ impl ProtocolFeature {
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_cap_max_gas_price")]
             ProtocolFeature::CapMaxGasPrice => 113,
+            #[cfg(feature = "protocol_feature_count_refund_receipts_in_gas_limit")]
+            ProtocolFeature::CountRefundReceiptsInGasLimit => 114,
             #[cfg(feature = "protocol_feature_math_extension")]
             ProtocolFeature::MathExtension => 114,
         }
