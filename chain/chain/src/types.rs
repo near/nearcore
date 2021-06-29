@@ -148,6 +148,8 @@ pub struct BlockEconomicsConfig {
 }
 
 impl BlockEconomicsConfig {
+    /// Set max gas price to be this multiplier * min_gas_price
+    const MAX_GAS_MULTIPLIER: u128 = 20;
     /// Compute min gas price according to protocol version and genesis protocol version.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
@@ -172,7 +174,10 @@ impl BlockEconomicsConfig {
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         if checked_feature!("protocol_feature_cap_max_gas_price", CapMaxGasPrice, protocol_version)
         {
-            std::cmp::min(self.max_gas_price, 10 * self.min_gas_price(protocol_version))
+            std::cmp::min(
+                self.max_gas_price,
+                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
+            )
         } else {
             self.max_gas_price
         }
@@ -628,6 +633,7 @@ pub trait RuntimeAdapter: Send + Sync {
         part_id: u64,
         num_parts: u64,
         part: &[u8],
+        epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.

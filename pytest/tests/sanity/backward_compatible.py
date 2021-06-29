@@ -16,7 +16,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import load_binary_file
+from utils import load_test_contract
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 def main():
@@ -75,11 +75,8 @@ def main():
     block_height = status['sync_info']['latest_block_height']
     nonce = block_height * 1_000_000 - 1
 
-    tx = sign_deploy_contract_tx(
-        new_signer_key,
-        load_binary_file(
-            '../runtime/near-test-contracts/res/test_contract_rs.wasm'), nonce,
-        block_hash)
+    tx = sign_deploy_contract_tx(new_signer_key, load_test_contract(), nonce,
+                                 block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 

@@ -8,7 +8,7 @@ import requests
 sys.path.append('lib')
 from cluster import start_cluster
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
-from utils import load_binary_file, compile_rust_contract
+from utils import load_test_contract
 
 nodes = start_cluster(
     4, 0, 1, None,
@@ -17,9 +17,7 @@ nodes = start_cluster(
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
-tx = sign_deploy_contract_tx(
-    nodes[0].signer_key,
-    load_binary_file('../runtime/near-test-contracts/res/test_contract_rs.wasm'), 10, hash_)
+tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10, hash_)
 nodes[0].send_tx(tx)
 
 time.sleep(3)

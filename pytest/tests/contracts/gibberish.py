@@ -8,14 +8,13 @@ import base58
 sys.path.append('lib')
 from cluster import start_cluster
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
-from utils import load_binary_file
+from utils import load_test_contract
 
 nodes = start_cluster(
     3, 0, 4, None,
     [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {})
 
-wasm_blob_1 = load_binary_file(
-    '../runtime/near-test-contracts/res/test_contract_rs.wasm')
+wasm_blob_1 = load_test_contract()
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']

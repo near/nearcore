@@ -160,3 +160,7 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
         }
     }
 }
+
+pub fn is_contract_code_key(key: &[u8]) -> bool {
+    &key[0..1] == col::CONTRACT_CODE
+}
