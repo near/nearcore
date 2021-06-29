@@ -7,6 +7,7 @@ import base58
 
 sys.path.append('lib')
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 

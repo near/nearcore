@@ -20,7 +20,7 @@ def main():
     elif len(sys.argv) == 2 and sys.argv[1] == 'check':
         check_res()
     else:
-        logger.info('Usage: update-res.py | update-res.py check')
+        print('Usage: update-res.py | update-res.py check')
         exit(2)
 
 
