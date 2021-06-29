@@ -367,7 +367,8 @@ impl Default for ExtCostsConfig {
             #[cfg(feature = "protocol_feature_math_extension")]
             ripemd160_base: SAFETY_MULTIPLIER * 284558362,
             #[cfg(feature = "protocol_feature_math_extension")]
-            ripemd160_block: SAFETY_MULTIPLIER * 3542227,
+            // Cost per byte is 3542227. There are 64 bytes in a block.
+            ripemd160_block: SAFETY_MULTIPLIER * 226702528,
             #[cfg(feature = "protocol_feature_math_extension")]
             ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
             log_base: SAFETY_MULTIPLIER * 1181104350,
