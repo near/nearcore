@@ -1058,6 +1058,15 @@ impl<'a> VMLogic<'a> {
             bytes
         };
 
+        if (malleability_flag != 0 && malleability_flag != 1) {
+            return Err(VMLogicError::HostError(HostError::ECRecoverError {
+                 msg: format!(
+                     "Malleability flag needs to be 0 or 1, but is instead {}",
+                     malleability_flag
+                    ),
+                }));
+        }
+
         if !signature.check_signature_values(malleability_flag != 0) {
             return Ok(false as u64);
         }
