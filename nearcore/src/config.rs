@@ -1118,7 +1118,7 @@ pub fn download_config(url: &String, path: &PathBuf) {
             .body()
             .limit(10_000)
             .await
-            .expect("Genesis file is bigger than 10MB. Please make the limit higher.");
+            .expect("Config file is bigger than 10MB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 
