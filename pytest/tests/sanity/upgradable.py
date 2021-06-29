@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 First run network with 3 `stable` nodes and 1 `new` node.
 Then start switching `stable` nodes one by one with new nodes.

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # This script runs integration tests in the cloud.  You can see the runs here:
 #
