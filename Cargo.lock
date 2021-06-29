@@ -3762,6 +3762,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "nearcore",
  "openssl-probe",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
