@@ -43,7 +43,11 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
     }
 }
 
-fn get_key(code: &ContractCode, vm_kind: VMKind, config: &VMConfig) -> CryptoHash {
+pub fn get_contract_cache_key(
+    code: &ContractCode,
+    vm_kind: VMKind,
+    config: &VMConfig,
+) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version2 {
         code_hash: code.hash,
@@ -199,7 +203,7 @@ pub mod wasmer0_cache {
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<wasmer_runtime::Module, VMError> {
-        let key = get_key(code, VMKind::Wasmer0, config);
+        let key = get_contract_cache_key(code, VMKind::Wasmer0, config);
         #[cfg(not(feature = "no_cache"))]
         return memcache_compile_module_cached_wasmer(key, &code.code, config, cache);
         #[cfg(feature = "no_cache")]
@@ -304,7 +308,7 @@ pub mod wasmer2_cache {
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let key = get_key(code, VMKind::Wasmer2, config);
+        let key = get_contract_cache_key(code, VMKind::Wasmer2, config);
         #[cfg(not(feature = "no_cache"))]
         return memcache_compile_module_cached_wasmer2(key, &code.code, config, cache, store);
         #[cfg(feature = "no_cache")]
@@ -322,7 +326,7 @@ pub fn precompile_contract_vm(
         None => return Ok(ContractPrecompilatonResult::CacheNotAvailable),
         Some(it) => it,
     };
-    let key = get_key(wasm_code, vm_kind, config);
+    let key = get_contract_cache_key(wasm_code, vm_kind, config);
     // Check if we already cached with such a key.
     match cache.get(&key.0) {
         // If so - do not override.

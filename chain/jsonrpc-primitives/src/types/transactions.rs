@@ -20,10 +20,14 @@ pub enum TransactionInfo {
     },
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
-    InvalidTransaction { context: near_primitives::errors::InvalidTxError },
+    InvalidTransaction {
+        #[serde(skip)]
+        context: near_primitives::errors::InvalidTxError,
+    },
     #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
     DoesNotTrackShard,
     #[error("Transaction with hash {transaction_hash} was routed")]
@@ -119,7 +123,18 @@ impl From<RpcTransactionError> for crate::errors::RpcError {
             }
             _ => Value::String(error.to_string()),
         };
-        Self::new(-32_000, "Server error".to_string(), Some(error_data))
+
+        let error_data_value = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcTransactionError: {:?}", err),
+                )
+            }
+        };
+
+        Self::new_internal_or_handler_error(Some(error_data), error_data_value)
     }
 }
 
