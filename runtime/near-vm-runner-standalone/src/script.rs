@@ -220,11 +220,20 @@ fn vm_script_smoke_test() {
     assert_eq!(ret, expected);
 }
 
+#[cfg(feature = "no_cache")]
 #[test]
-fn evm_slow_deserialize_repro() {
+fn test_evm_slow_deserialize_repro() {
+    evm_slow_deserialize_repro(VMKind::Wasmer0);
+    evm_slow_deserialize_repro(VMKind::Wasmer1);
+}
+
+#[cfg(feature = "no_cache")]
+fn evm_slow_deserialize_repro(vm_kind: VMKind) {
+    println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
     crate::tracing_timings::enable();
 
     let mut script = Script::default();
+    script.vm_kind(vm_kind);
     script.contract_cache(true);
 
     // From near-evm repo, the version of when slow issue reported
