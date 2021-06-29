@@ -1089,7 +1089,6 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
-
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
@@ -1110,7 +1109,7 @@ impl EncodedShardChunk {
         #[cfg(feature = "protocol_feature_block_header_v3")]
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 
-        let (new_chunk, merkle_paths) = if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
+        if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals =
                 validator_proposals.into_iter().map(|v| v.into_v1()).collect();
@@ -1131,7 +1130,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV1 { header, content };
-            (Self::V1(chunk), merkle_paths)
+            Ok((Self::V1(chunk), merkle_paths))
         } else if block_header_v3_version.is_none()
             || protocol_version < block_header_v3_version.unwrap()
         {
@@ -1155,7 +1154,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
-            (Self::V2(chunk), merkle_paths)
+            Ok((Self::V2(chunk), merkle_paths))
         } else {
             #[cfg(not(feature = "protocol_feature_block_header_v3"))]
             unreachable!();
@@ -1178,11 +1177,9 @@ impl EncodedShardChunk {
                     signer,
                 );
                 let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-                (Self::V2(chunk), merkle_paths)
+                Ok((Self::V2(chunk), merkle_paths))
             }
-        };
-
-        Ok((new_chunk, merkle_paths))
+        }
     }
 
     pub fn chunk_hash(&self) -> ChunkHash {
