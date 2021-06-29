@@ -6,11 +6,9 @@ use std::marker::PhantomPinned;
 use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "single_thread_rocksdb")]
-use rocksdb::Env;
 use rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
-    Options, ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction,
+    Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use strum::EnumIter;
 use tracing::warn;
@@ -751,13 +749,15 @@ impl PreWriteCheckErr {
     }
 }
 
-#[cfg(feature = "single_thread_rocksdb")]
 impl Drop for RocksDB {
     fn drop(&mut self) {
-        // RocksDB with only one thread stuck on wait some condition var
-        // Turn on additional threads to proceed
-        let mut env = Env::default().unwrap();
-        env.set_background_threads(4);
+        if cfg!(feature = "single_thread_rocksdb") {
+            // RocksDB with only one thread stuck on wait some condition var
+            // Turn on additional threads to proceed
+            let mut env = Env::default().unwrap();
+            env.set_background_threads(4);
+        }
+        self.db.cancel_all_background_work(true);
     }
 }
 
