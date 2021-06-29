@@ -6,8 +6,6 @@ use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
 #[cfg(feature = "protocol_feature_math_extension")]
-use near_crypto::Secp256K1PublicKey;
-#[cfg(feature = "protocol_feature_math_extension")]
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
@@ -981,8 +979,10 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per(ripemd160_block, message_blocks as u64)?;
 
-        let value_hash = ripemd160(&value);
-        self.internal_write_register(register_id, value_hash)
+        use ripemd160::Digest;
+
+        let value_hash = ripemd160::Ripemd160::digest(&value);
+        self.internal_write_register(register_id, value_hash.as_slice().to_vec())
     }
 
     /// Recovers an ECDSA signer address and returns it into `register_id`.
@@ -1018,7 +1018,7 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         self.gas_counter.pay_base(ecrecover_base)?;
 
-        let signature_data = {
+        let signature = {
             let vec = self.get_vec_from_memory_or_register(sig_ptr, sig_len)?;
             if vec.len() != 64 {
                 return Err(VMLogicError::HostError(HostError::ECRecoverError {
@@ -1034,7 +1034,7 @@ impl<'a> VMLogic<'a> {
 
             if v < 4 {
                 bytes[64] = v as u8;
-                bytes
+                Secp256K1Signature::from(bytes)
             } else {
                 return Err(VMLogicError::HostError(HostError::ECRecoverError {
                     msg: format!("V recovery byte 0 through 3 are valid but was provided {}", v),
@@ -1058,13 +1058,16 @@ impl<'a> VMLogic<'a> {
             bytes
         };
 
-        match ecrecover(signature_data, hash, malleability_flag) {
-            Some(key) => {
-                self.internal_write_register(register_id, key.as_ref().to_vec())?;
-                Ok(true as u64)
-            }
-            None => Ok(false as u64),
+        if !signature.check_signature_values(malleability_flag != 0) {
+            return Ok(false as u64);
         }
+
+        if let Ok(pk) = signature.recover(hash) {
+            self.internal_write_register(register_id, pk.as_ref().to_vec())?;
+            return Ok(true as u64);
+        };
+
+        Ok(false as u64)
     }
 
     /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
@@ -2581,23 +2584,4 @@ impl std::fmt::Debug for VMOutcome {
             self.balance, self.storage_usage, return_data_str, self.burnt_gas, self.used_gas
         )
     }
-}
-
-#[cfg(feature = "protocol_feature_math_extension")]
-pub fn ecrecover(
-    signature_data: [u8; 65],
-    hash_data: [u8; 32],
-    malleability_flag: u64,
-) -> Option<Secp256K1PublicKey> {
-    let signature = Secp256K1Signature::from(signature_data);
-    if !signature.check_signature_values(malleability_flag != 0) {
-        return None;
-    }
-    signature.recover(hash_data).map_or(None, |result| Some(result))
-}
-
-#[cfg(feature = "protocol_feature_math_extension")]
-pub fn ripemd160(data: &[u8]) -> Vec<u8> {
-    use ripemd160::Digest;
-    ripemd160::Ripemd160::digest(data).as_slice().to_vec()
 }

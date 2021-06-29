@@ -4890,7 +4890,6 @@ dependencies = [
  "rand 0.7.3",
  "rand_xorshift 0.2.0",
  "rayon",
- "ripemd160",
  "rocksdb",
  "serde_json",
  "state-viewer",

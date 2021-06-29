@@ -19,7 +19,3 @@ pub use near_vm_errors::{HostError, VMLogicError};
 pub use types::ReturnData;
 
 pub use gas_counter::with_ext_cost_counter;
-#[cfg(feature = "protocol_feature_math_extension")]
-pub use logic::ecrecover;
-#[cfg(feature = "protocol_feature_math_extension")]
-pub use logic::ripemd160;

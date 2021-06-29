@@ -23,7 +23,7 @@ const SIGNER_ACCOUNT_ID: &str = "bob";
 const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
 const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
-pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
+fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
         signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
@@ -162,10 +162,7 @@ impl CompiledContractCache for MockCompiledContractCache {
     }
 }
 
-pub(crate) fn least_squares_method(
-    xs: &Vec<u64>,
-    ys: &Vec<u64>,
-) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
+fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
     let n = xs.len();
     let n128 = n as i128;
 
