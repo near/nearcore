@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0
+
+* Add `json_rpc` feature which allows to choose whether to include and run JSON RPC or not. **The `json_rpc` feature is disabled by default**
+
+## Breaking changes
+
+JSON RPC is not a default feature in nearcore by default since nearcore 1.20.0 version. You can enable JSON RPC by using a feature in your dependencies:
+
+Example:
+
+```toml
+[dependencies]
+near-indexer = { git = "https://github.com/near/nearcore", features = ["json_rpc"] }
+```
+
 ## 0.9.2
 
 * Optimize the delayed receipts tracking process introduced in previous version to avoid indexer stuck.
