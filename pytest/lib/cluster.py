@@ -208,7 +208,7 @@ class BaseNode(object):
                 self.get_status()['validators']))
 
     def stop_checking_store(self):
-        logger.info("WARN: Stopping checking Storage for inconsistency for %s:%s" %
+        logger.warning("Stopping checking Storage for inconsistency for %s:%s" %
               self.addr())
         self.is_check_store = False
 
@@ -220,8 +220,8 @@ class BaseNode(object):
                 pass
             else:
                 if res['result'] == 0:
-                    logger.info(
-                        "ERROR: Storage for %s:%s in inconsistent state, stopping"
+                    logger.error(
+                        "Storage for %s:%s in inconsistent state, stopping"
                         % self.addr())
                     self.kill()
                 self.store_tests += res['result']
@@ -324,8 +324,8 @@ class LocalNode(BaseNode):
         try:
             self.wait_for_rpc(10)
         except:
-            logger.info(
-                '=== Error: failed to start node, rpc does not ready in 10 seconds'
+            logger.error(
+                '=== failed to start node, rpc does not ready in 10 seconds'
             )
             self.stdout.close()
             self.stderr.close()

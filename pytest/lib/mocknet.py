@@ -216,21 +216,21 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
     while 'error' in response.keys():
         error_data = response['error']['data']
         if 'timeout' in error_data.lower():
-            logger.info(
-                f'WARN: transaction {tx_hash} returned Timout, checking status again.'
+            logger.warning(
+                f'transaction {tx_hash} returned Timout, checking status again.'
             )
             time.sleep(5)
             response = node.get_tx(tx_hash, account_id)
         elif "doesn't exist" in error_data:
             missing_count += 1
-            logger.info(
-                f'WARN: transaction {tx_hash} falied to be recieved by the node, checking again.'
+            logger.warning(
+                f'transaction {tx_hash} falied to be recieved by the node, checking again.'
             )
             if missing_count < 20:
                 time.sleep(5)
                 response = node.get_tx(tx_hash, account_id)
             else:
-                logger.info(f'WARN: re-sending transaction {tx_hash}.')
+                logger.warning(f're-sending transaction {tx_hash}.')
                 response = node.send_tx_and_wait(tx, timeout)
                 missing_count = 0
         else:
@@ -346,8 +346,8 @@ def reset_data(node, retries=0):
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
     except:
         if retries < 3:
-            logger.info(
-                f'WARN: And error occured while clearing data directory, retrying'
+            logger.warning(
+                f'And error occured while clearing data directory, retrying'
             )
             reset_data(node, retries=retries + 1)
         else:

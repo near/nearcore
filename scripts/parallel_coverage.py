@@ -93,8 +93,8 @@ if __name__ == "__main__":
             if result[0] != 0:
                 logger.info(result[2])
                 errors = True
-                logger.info(
-                    f'========= error: kcov {binary} fail, exit code {result[0]} cause coverage fail'
+                logger.error(
+                    f'========= kcov {binary} fail, exit code {result[0]} cause coverage fail'
                 )
             else:
                 logger.info(f'========= kcov {binary} done')

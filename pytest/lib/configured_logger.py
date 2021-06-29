@@ -27,13 +27,15 @@ def new_logger(
 
     log = logging.getLogger(name)
     log.setLevel(level)
+    fmt = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', '%Y-%m-%d %H:%M:%S')
 
     if outfile is not None:
         handler = logging.FileHandler(outfile)
-        handler.setLevel(level)
     else:
         handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(level)
+    handler.setLevel(level)
+    handler.setFormatter(fmt)
+
     log.addHandler(handler)
     log.propagate = False
 
