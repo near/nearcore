@@ -2,6 +2,7 @@ mod contract_preload;
 mod error_cases;
 mod invalid_contracts;
 mod rs_contract;
+mod trap_conflict;
 mod ts_contract;
 
 use near_primitives::contract::ContractCode;
@@ -26,19 +27,6 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    #[cfg(feature = "wasmer0_vm")]
-    static WASMER0_TRAP_HANDLER_SETUP: OnceCell<()> = OnceCell::new();
-    #[cfg(feature = "wasmer0_vm")]
-    WASMER0_TRAP_HANDLER_SETUP.get_or_init(|| {
-        // This is a HACK. When wasmer2 is enabled, this test must be run once before bad_import tests to ensure wasmer 0 trap handler is setup
-        // Otherwise tests of cargo test -p near-vm-runner --lib tests::error_cases fails. Possibly related to wasmer2 installed a different,
-        // non compatible global trap handler in wasmer/lib/vm/src/trap/traphandlers.rs.
-        // Alternative possible fix is have separate test binaries, one run all tests with wasmer0, another with wasmer2. But that's repetitive
-        // If only one of wasmer0 and wasmer2 is enabled, tests pass without this hack, so should not be a problem after we fully move to wasmer2
-        let _ =
-            make_simple_contract_call_vm(&error_cases::trap_contract(), "hello", VMKind::Wasmer0);
-    });
-
     #[cfg(feature = "wasmer0_vm")]
     runner(VMKind::Wasmer0);
 
