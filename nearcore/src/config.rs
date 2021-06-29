@@ -1113,7 +1113,7 @@ pub fn download_config(url: &String, path: &PathBuf) {
             client.get(url).send().await.expect("Unable to download the config file");
 
         // IMPORTANT: limit specifies the maximum size of the genesis
-        // In case where the genesis is bigger than the specified limit Overflow Error is thrown
+        // In case where the config is bigger than the specified limit Overflow Error is thrown
         let body = response
             .body()
             .limit(10_000)
