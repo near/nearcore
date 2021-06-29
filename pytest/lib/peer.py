@@ -179,6 +179,13 @@ async def run_handshake(conn: Connection,
         await conn.send(handshake)
         response = await conn.recv()
 
+    # The peer might have sent us an unsolicited Block message before confirming
+    # the Handshake.  We’re not interested in blocks so ignore the messages.
+    for _ in range(5):
+        if response.enum != 'Block':
+            break
+        response = await conn.recv()
+
     assert response.enum == 'Handshake', response.enum if response.enum != 'HandshakeFailure' else response.HandshakeFailure[1].enum
 
 
