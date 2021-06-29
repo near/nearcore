@@ -365,11 +365,11 @@ impl Default for ExtCostsConfig {
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
             #[cfg(feature = "protocol_feature_math_extension")]
-            ripemd160_base: SAFETY_MULTIPLIER * 15136567500, // 10 x sha256_base
+            ripemd160_base: SAFETY_MULTIPLIER * 284558362,
             #[cfg(feature = "protocol_feature_math_extension")]
-            ripemd160_block: SAFETY_MULTIPLIER * 80391170 * 8, // 10 x sha256_byte x 8 bytes
+            ripemd160_block: SAFETY_MULTIPLIER * 226702528,
             #[cfg(feature = "protocol_feature_math_extension")]
-            ecrecover_base: SAFETY_MULTIPLIER * 75682837500, // 50 x sha256_base
+            ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
             storage_write_base: SAFETY_MULTIPLIER * 21398912000,
