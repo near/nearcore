@@ -790,8 +790,10 @@ pub fn init_configs(
     num_shards: NumShards,
     fast: bool,
     genesis: Option<&str>,
-    download: bool,
+    should_download_genesis: bool,
     download_genesis_url: Option<&str>,
+    should_download_config: bool,
+    download_config_url: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
@@ -801,13 +803,25 @@ pub fn init_configs(
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
         panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
+
+    let mut config = Config::default();
     let chain_id = chain_id
         .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
         .unwrap_or_else(random_chain_id);
-    let mut config = Config::default();
+
+    if let Some(url) = download_config_url {
+        download_config(&url.to_string(), &dir.join(CONFIG_FILENAME));
+        config = Config::from_file(&dir.join(CONFIG_FILENAME));
+    } else if should_download_config {
+        let url = get_config_url(&chain_id);
+        download_config(&url, &dir.join(CONFIG_FILENAME));
+        config = Config::from_file(&dir.join(CONFIG_FILENAME));
+    }
+
     if max_gas_burnt_view.is_some() {
         config.max_gas_burnt_view = max_gas_burnt_view;
     }
+
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
@@ -816,7 +830,6 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            // TODO: add download genesis for mainnet
             let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
                 .expect("Failed to deserialize MainNet genesis");
             if let Some(account_id) = account_id {
@@ -850,7 +863,7 @@ pub fn init_configs(
 
             if let Some(url) = download_genesis_url {
                 download_genesis(&url.to_string(), &genesis_path);
-            } else if download {
+            } else if should_download_genesis {
                 let url = get_genesis_url(&chain_id);
                 download_genesis(&url, &genesis_path);
             } else {
@@ -1058,9 +1071,15 @@ pub fn get_genesis_url(chain_id: &String) -> String {
     )
 }
 
+pub fn get_config_url(chain_id: &String) -> String {
+    format!(
+        "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/config.json",
+        chain_id,
+    )
+}
+
 pub fn download_genesis(url: &String, path: &PathBuf) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-
     let url = url.clone();
     let path = path.clone();
 
@@ -1076,6 +1095,30 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
             .limit(10_000_000_000)
             .await
             .expect("Genesis file is bigger than 10GB. Please make the limit higher.");
+
+        std::fs::write(&path, &body).expect("Failed to create / write a genesis file.");
+
+        info!(target: "near", "Saved the genesis file to: {} ...", path.as_path().display());
+    });
+}
+
+pub fn download_config(url: &String, path: &PathBuf) {
+    info!(target: "near", "Downloading config file from: {} ...", url);
+    let url = url.clone();
+    let path = path.clone();
+
+    actix::System::new().block_on(async move {
+        let client = awc::Client::new();
+        let mut response =
+            client.get(url).send().await.expect("Unable to download the config file");
+
+        // IMPORTANT: limit specifies the maximum size of the genesis
+        // In case where the genesis is bigger than the specified limit Overflow Error is thrown
+        let body = response
+            .body()
+            .limit(10_000)
+            .await
+            .expect("Genesis file is bigger than 10MB. Please make the limit higher.");
 
         std::fs::write(&path, &body).expect("Failed to create / write a config file.");
 
