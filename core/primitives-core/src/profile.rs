@@ -11,7 +11,7 @@ use crate::types::Gas;
 type DataArray = [Cell<u64>; ProfileData::LEN];
 
 /// Profile of gas consumption.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct ProfileData {
     data: Rc<DataArray>,
 }
