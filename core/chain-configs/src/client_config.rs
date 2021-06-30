@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId};
 use near_primitives::version::Version;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -24,7 +24,7 @@ pub struct ClientConfig {
     /// Chain id for status.
     pub chain_id: String,
     /// Listening rpc port for status.
-    pub rpc_addr: String,
+    pub rpc_addr: Option<String>,
     /// Duration to check for producing / skipping block.
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
@@ -97,6 +97,10 @@ pub struct ClientConfig {
     pub view_client_throttle_period: Duration,
     /// Upper bound of the byte size of contract state that is still viewable. None is no limit
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// Max burnt gas per view method.  If present, overrides value stored in
+    /// genesis file.  The value only affects the RPCs without influencing the
+    /// protocol thus changing it per-node doesn’t affect the blockchain.
+    pub max_gas_burnt_view: Option<Gas>,
 }
 
 impl ClientConfig {
@@ -111,7 +115,7 @@ impl ClientConfig {
         ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
-            rpc_addr: "0.0.0.0:3030".to_string(),
+            rpc_addr: Some("0.0.0.0:3030".to_string()),
             block_production_tracking_delay: Duration::from_millis(std::cmp::max(
                 10,
                 min_block_prod_time / 5,
@@ -154,6 +158,7 @@ impl ClientConfig {
             epoch_sync_enabled,
             view_client_throttle_period: Duration::from_secs(1),
             trie_viewer_state_size_limit: None,
+            max_gas_burnt_view: None,
         }
     }
 }

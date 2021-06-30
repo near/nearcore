@@ -1,6 +1,6 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
-use near_primitives::types::{NumSeats, NumShards};
+use near_primitives::types::{Gas, NumSeats, NumShards};
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -123,6 +123,10 @@ pub(super) struct InitCmd {
     /// Specify private key generated from seed (TESTING ONLY).
     #[clap(long)]
     test_seed: Option<String>,
+    /// Customize max_gas_burnt_view runtime limit.  If not specified, value
+    /// from genesis configuration will be taken.
+    #[clap(long)]
+    max_gas_burnt_view: Option<Gas>,
 }
 
 impl InitCmd {
@@ -145,6 +149,7 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.max_gas_burnt_view,
         );
     }
 }
@@ -166,12 +171,24 @@ pub(super) struct RunCmd {
     /// Set this to false to only produce blocks when there are txs or receipts (default true).
     #[clap(long)]
     produce_empty_blocks: Option<bool>,
-    /// Customize RPC listening address (useful for running multiple nodes on the same machine).
+    /// Customize RPC listening address (useful for running multiple nodes on
+    /// the same machine).  Ignored if ‘--disable-rpc’ is given.
+    #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
+    /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
+    /// RPC endpoint.
+    #[clap(long)]
+    #[allow(dead_code)]
+    disable_rpc: bool,
     /// Customize telemetry url.
     #[clap(long)]
     telemetry_url: Option<String>,
+    /// Customize max_gas_burnt_view runtime limit.  If not specified, either
+    /// value given at ‘init’ (i.e. present in config.json) or one from genesis
+    /// configuration will be taken.
+    #[clap(long)]
+    max_gas_burnt_view: Option<Gas>,
 }
 
 impl RunCmd {
@@ -199,8 +216,11 @@ impl RunCmd {
         if let Some(network_addr) = self.network_addr {
             near_config.network_config.addr = Some(network_addr);
         }
-        if let Some(rpc_addr) = self.rpc_addr {
-            near_config.rpc_config.addr = rpc_addr;
+        #[cfg(feature = "json_rpc")]
+        if self.disable_rpc {
+            near_config.rpc_config = None;
+        } else if let Some(rpc_addr) = self.rpc_addr {
+            near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
         }
         if let Some(telemetry_url) = self.telemetry_url {
             if !telemetry_url.is_empty() {
@@ -209,6 +229,9 @@ impl RunCmd {
         }
         if self.archive {
             near_config.client_config.archive = true;
+        }
+        if self.max_gas_burnt_view.is_some() {
+            near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
         }
 
         #[cfg(feature = "sandbox")]

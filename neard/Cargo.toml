@@ -28,6 +28,8 @@ near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [features]
+default = ["json_rpc"]
+
 performance_stats = ["nearcore/performance_stats"]
 memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
@@ -37,6 +39,7 @@ metric_recorder = ["nearcore/metric_recorder"]
 no_cache = ["nearcore/no_cache"]
 delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
+json_rpc = ["nearcore/json_rpc"]
 protocol_feature_evm = ["nearcore/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["nearcore/protocol_feature_block_header_v3"]

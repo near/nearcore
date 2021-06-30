@@ -2,9 +2,10 @@
 # and call various scenarios to trigger store changes.
 # Check that the key changes are observable via `changes` RPC call.
 
-import sys
 import base58, base64
 import json
+import struct
+import sys
 import threading
 
 import deepdiff
@@ -12,7 +13,7 @@ import deepdiff
 sys.path.append('lib')
 from cluster import start_cluster
 from key import Key
-from utils import load_binary_file
+from utils import load_test_contract
 import transaction
 
 nodes = start_cluster(
@@ -325,18 +326,18 @@ def test_key_value_changes():
     1. Deploy a contract.
     2. Observe the code changes in the block where the transaction outcome "lands".
     3. Send two transactions to be included into the same block setting and overriding the value of
-       the same key (`my_key`).
+       the same key.
     4. Observe the changes in the block where the transaction outcome "lands".
     """
 
     contract_key = nodes[0].signer_key
-    hello_smart_contract = load_binary_file('../tests/hello.wasm')
+    contract_blob = load_test_contract()
 
     # Step 1
     status = nodes[0].get_status()
     latest_block_hash = status['sync_info']['latest_block_hash']
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
-        contract_key, hello_smart_contract, 10,
+        contract_key, contract_blob, 10,
         base58.b58decode(latest_block_hash.encode('utf8')))
     deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 10)
 
@@ -401,7 +402,7 @@ def test_key_value_changes():
                 "account_id":
                     contract_key.account_id,
                 "code_base64":
-                    base64.b64encode(hello_smart_contract).decode('utf-8'),
+                    base64.b64encode(contract_blob).decode('utf-8'),
             }
         },]
     }
@@ -429,40 +430,37 @@ def test_key_value_changes():
     latest_block_hash = status['sync_info']['latest_block_hash']
     function_caller_key = nodes[0].signer_key
 
-    def set_value_1():
-        function_call_1_tx = transaction.sign_function_call_tx(
-            function_caller_key, contract_key.account_id, 'setKeyValue',
-            json.dumps({
-                "key": "my_key",
-                "value": "my_value_1"
-            }).encode('utf-8'), 300000000000000, 100000000000, 20,
+    key = struct.pack('<Q', 42)
+    key_base64 = base64.b64encode(key).decode('ascii')
+
+    def set_value(value, *, nounce):
+        args = key + struct.pack('<Q', value)
+        tx = transaction.sign_function_call_tx(
+            function_caller_key, contract_key.account_id,
+            'write_key_value', args, 300000000000000, 100000000000, nounce,
             base58.b58decode(latest_block_hash.encode('utf8')))
-        nodes[1].send_tx_and_wait(function_call_1_tx, 10)
+        response = nodes[1].send_tx_and_wait(tx, 10)
+        try:
+            status = response['result']['receipts_outcome'][0]['outcome'][
+                'status']
+        except (KeyError, IndexError):
+            status = ()
+        assert 'SuccessValue' in status, (
+            "Expected successful execution, but the output was: %s" % response)
+        return response
 
-    function_call_1_thread = threading.Thread(target=set_value_1)
-    function_call_1_thread.start()
+    thread = threading.Thread(target=lambda: set_value(10, nounce=20))
+    thread.start()
+    response = set_value(20, nounce=30)
+    thread.join()
 
-    function_call_2_tx = transaction.sign_function_call_tx(
-        function_caller_key, contract_key.account_id, 'setKeyValue',
-        json.dumps({
-            "key": "my_key",
-            "value": "my_value_2"
-        }).encode('utf-8'), 300000000000000, 100000000000, 30,
-        base58.b58decode(latest_block_hash.encode('utf8')))
-    function_call_2_response = nodes[1].send_tx_and_wait(function_call_2_tx, 10)
-    assert function_call_2_response['result']['receipts_outcome'][0]['outcome']['status'] == {'SuccessValue': ''}, \
-        "Expected successful execution, but the output was: %s" % function_call_2_response
-    function_call_1_thread.join()
-
-    tx_block_hash = function_call_2_response['result']['transaction_outcome'][
-        'block_hash']
+    tx_block_hash = response['result']['transaction_outcome']['block_hash']
 
     # Step 4
     assert_changes_in_block_response(
         request={"block_id": tx_block_hash},
         expected_response={
-            "block_hash":
-                tx_block_hash,
+            "block_hash": tx_block_hash,
             "changes": [
                 {
                     "type": "account_touched",
@@ -482,7 +480,7 @@ def test_key_value_changes():
     base_request = {
         "block_id": block_hash,
         "changes_type": "data_changes",
-        "key_prefix_base64": base64.b64encode(b"my_key").decode('utf-8'),
+        "key_prefix_base64": key_base64,
     }
     for request in [
             # Test empty account_ids
@@ -502,7 +500,7 @@ def test_key_value_changes():
             **base_request,
             "account_ids": [contract_key.account_id],
             "key_prefix_base64":
-                base64.b64encode(b"my_key_with_extra").decode('utf-8'),
+                base64.b64encode(struct.pack('<Q', 24)).decode('ascii'),
         },
     ]:
         assert_changes_response(request=request,
@@ -513,8 +511,7 @@ def test_key_value_changes():
 
     # Test happy-path
     expected_response = {
-        "block_hash":
-            tx_block_hash,
+        "block_hash": tx_block_hash,
         "changes": [{
             "cause": {
                 "type": "receipt_processing",
@@ -522,22 +519,23 @@ def test_key_value_changes():
             "type": "data_update",
             "change": {
                 "account_id": contract_key.account_id,
-                "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
-                "value_base64": base64.b64encode(b"my_value_1").decode('utf-8'),
+                "key_base64": key_base64,
+                "value_base64": base64.b64encode(
+                    struct.pack('<Q', 10)).decode('ascii'),
             }
         }, {
             "cause": {
                 "type":
                     "receipt_processing",
                 "receipt_hash":
-                    function_call_2_response["result"]["receipts_outcome"][0]
-                    ["id"],
+                    response["result"]["receipts_outcome"][0]["id"],
             },
             "type": "data_update",
             "change": {
                 "account_id": contract_key.account_id,
-                "key_base64": base64.b64encode(b"my_key").decode('utf-8'),
-                "value_base64": base64.b64encode(b"my_value_2").decode('utf-8'),
+                "key_base64": key_base64,
+                "value_base64": base64.b64encode(
+                    struct.pack('<Q', 20)).decode('ascii'),
             }
         }]
     }
@@ -545,7 +543,7 @@ def test_key_value_changes():
     base_request = {
         "block_id": tx_block_hash,
         "changes_type": "data_changes",
-        "key_prefix_base64": base64.b64encode(b"my_key").decode('utf-8'),
+        "key_prefix_base64": key_base64,
     }
     for request in [
         {
@@ -561,12 +559,12 @@ def test_key_value_changes():
         {
             **base_request,
             "account_ids": [contract_key.account_id],
-            "key_prefix_base64": base64.b64encode(b"").decode('utf-8'),
+            "key_prefix_base64": '',
         },
         {
             **base_request,
             "account_ids": [contract_key.account_id],
-            "key_prefix_base64": base64.b64encode(b"my_ke").decode('utf-8'),
+            "key_prefix_base64": base64.b64encode(key[:3]).decode('ascii'),
         },
     ]:
         assert_changes_response(

@@ -14,6 +14,7 @@ use tracing::info;
 
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
+#[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::ROUTED_MESSAGE_TTL;
@@ -408,7 +409,9 @@ pub struct Config {
     pub genesis_records_file: Option<String>,
     pub validator_key_file: String,
     pub node_key_file: String,
-    pub rpc: RpcConfig,
+    #[cfg(feature = "json_rpc")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc: Option<RpcConfig>,
     #[cfg(feature = "rosetta_rpc")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
@@ -428,6 +431,9 @@ pub struct Config {
     pub view_client_throttle_period: Duration,
     #[serde(default = "default_trie_viewer_state_size_limit")]
     pub trie_viewer_state_size_limit: Option<u64>,
+    /// If set, overrides value in genesis configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_gas_burnt_view: Option<Gas>,
 }
 
 impl Default for Config {
@@ -437,7 +443,8 @@ impl Default for Config {
             genesis_records_file: None,
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
-            rpc: RpcConfig::default(),
+            #[cfg(feature = "json_rpc")]
+            rpc: Some(RpcConfig::default()),
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
             telemetry: TelemetryConfig::default(),
@@ -452,6 +459,7 @@ impl Default for Config {
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
+            max_gas_burnt_view: None,
         }
     }
 }
@@ -469,6 +477,22 @@ impl Config {
         let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
         if let Err(err) = file.write_all(str.as_bytes()) {
             panic!("Failed to write a config file {}", err);
+        }
+    }
+
+    pub fn rpc_addr(&self) -> Option<&String> {
+        #[cfg(feature = "json_rpc")]
+        if let Some(rpc) = &self.rpc {
+            return Some(&rpc.addr);
+        }
+        None
+    }
+
+    #[allow(unused_variables)]
+    pub fn set_rpc_addr(&mut self, addr: String) {
+        #[cfg(feature = "json_rpc")]
+        {
+            self.rpc.get_or_insert(Default::default()).addr = addr;
         }
     }
 }
@@ -562,7 +586,8 @@ pub struct NearConfig {
     config: Config,
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
-    pub rpc_config: RpcConfig,
+    #[cfg(feature = "json_rpc")]
+    pub rpc_config: Option<RpcConfig>,
     #[cfg(feature = "rosetta_rpc")]
     pub rosetta_rpc_config: Option<RosettaRpcConfig>,
     pub telemetry_config: TelemetryConfig,
@@ -582,7 +607,7 @@ impl NearConfig {
             client_config: ClientConfig {
                 version: Default::default(),
                 chain_id: genesis.config.chain_id.clone(),
-                rpc_addr: config.rpc.addr.clone(),
+                rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
@@ -622,6 +647,7 @@ impl NearConfig {
                 epoch_sync_enabled: config.epoch_sync_enabled,
                 view_client_throttle_period: config.view_client_throttle_period,
                 trie_viewer_state_size_limit: config.trie_viewer_state_size_limit,
+                max_gas_burnt_view: config.max_gas_burnt_view,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -668,12 +694,21 @@ impl NearConfig {
                 archive: config.archive,
             },
             telemetry_config: config.telemetry,
+            #[cfg(feature = "json_rpc")]
             rpc_config: config.rpc,
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc_config: config.rosetta_rpc,
             genesis,
             validator_signer,
         }
+    }
+
+    pub fn rpc_addr(&self) -> Option<&String> {
+        #[cfg(feature = "json_rpc")]
+        if let Some(rpc) = &self.rpc_config {
+            return Some(&rpc.addr);
+        }
+        None
     }
 }
 
@@ -760,6 +795,7 @@ pub fn init_configs(
     genesis: Option<&str>,
     download: bool,
     download_genesis_url: Option<&str>,
+    max_gas_burnt_view: Option<Gas>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -771,12 +807,15 @@ pub fn init_configs(
     let chain_id = chain_id
         .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
         .unwrap_or_else(random_chain_id);
+    let mut config = Config::default();
+    if max_gas_burnt_view.is_some() {
+        config.max_gas_burnt_view = max_gas_burnt_view;
+    }
     match chain_id.as_ref() {
         "mainnet" => {
             if test_seed.is_some() {
                 panic!("Test seed is not supported for MainNet");
             }
-            let mut config = Config::default();
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
@@ -798,7 +837,6 @@ pub fn init_configs(
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
-            let mut config = Config::default();
             config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
@@ -833,7 +871,6 @@ pub fn init_configs(
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
-            let mut config = Config::default();
             config.network.skip_sync_wait = true;
             if fast {
                 config.consensus.min_block_production_delay =
@@ -953,7 +990,7 @@ pub fn create_testnet_configs_from_seeds(
         if local_ports {
             config.network.addr =
                 format!("127.0.0.1:{}", if i == 0 { first_node_port } else { open_port() });
-            config.rpc.addr = format!("127.0.0.1:{}", open_port());
+            config.set_rpc_addr(format!("127.0.0.1:{}", open_port()));
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
@@ -1093,7 +1130,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
 pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
-    config.rpc.addr = format!("0.0.0.0:{}", open_port());
+    config.set_rpc_addr(format!("0.0.0.0:{}", open_port()));
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =

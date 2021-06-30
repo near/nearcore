@@ -10,7 +10,6 @@ use near_chain::ChainGenesis;
 #[cfg(feature = "adversarial")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
-use near_jsonrpc::start_http;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -23,9 +22,10 @@ pub use crate::config::{init_configs, load_config, load_test_config, NearConfig,
 use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23};
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
+    fill_col_outcomes_by_hash, fill_col_outcomes_with_metadata, fill_col_transaction_refcount,
+    get_store_version, migrate_10_to_11, migrate_11_to_12, migrate_13_to_14, migrate_14_to_15,
+    migrate_17_to_18, migrate_21_to_22, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9,
+    migrate_9_to_10, set_store_version,
 };
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -216,6 +216,12 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 22 to 23");
         migrate_22_to_23(&path, &near_config);
     }
+    if db_version <= 23 {
+        info!(target: "near", "Migrate DB from version 23 to 24");
+        let store = create_store(&path);
+        fill_col_outcomes_with_metadata(&store);
+        set_store_version(&store, 24);
+    }
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
@@ -262,6 +268,7 @@ pub fn start_with_config(
         config.client_config.tracked_accounts.clone(),
         config.client_config.tracked_shards.clone(),
         config.client_config.trie_viewer_state_size_limit,
+        config.client_config.max_gas_burnt_view,
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
@@ -292,12 +299,15 @@ pub fn start_with_config(
         #[cfg(feature = "adversarial")]
         adv.clone(),
     );
-    start_http(
-        config.rpc_config,
-        config.genesis.config.clone(),
-        client_actor.clone(),
-        view_client.clone(),
-    );
+    #[cfg(feature = "json_rpc")]
+    if let Some(rpc_config) = config.rpc_config {
+        near_jsonrpc::start_http(
+            rpc_config,
+            config.genesis.config.clone(),
+            client_actor.clone(),
+            view_client.clone(),
+        );
+    }
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
         start_rosetta_rpc(

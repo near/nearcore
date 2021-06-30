@@ -1,6 +1,6 @@
 [package]
 name = "near-jsonrpc-primitives"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -22,3 +22,6 @@ near-metrics = { path = "../../core/metrics" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
+
+[features]
+adversarial = []

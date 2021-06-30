@@ -15,6 +15,7 @@ easy-ext = "0.2"
 chrono = { version = "0.4.4", features = ["serde"] }
 futures = "0.3"
 rand = "0.7"
+rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "3"
@@ -35,11 +36,12 @@ near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
 near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
-near-jsonrpc = { path = "../chain/jsonrpc" }
+near-jsonrpc = { path = "../chain/jsonrpc", optional = true }
 near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
+near-vm-runner = { path = "../runtime/near-vm-runner"}
 
 delay-detector = { path = "../tools/delay_detector", optional = true }
 
@@ -61,7 +63,8 @@ metric_recorder = ["near-network/metric_recorder", "near-client/metric_recorder"
 no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache"]
 delay_detector = ["near-client/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
-protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
+json_rpc = ["near-jsonrpc"]
+protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm", "near-client/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]

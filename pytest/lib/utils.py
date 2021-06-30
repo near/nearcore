@@ -178,6 +178,16 @@ def load_binary_file(filepath):
         return bytearray(binaryfile.read())
 
 
+def load_test_contract(filename='test_contract_rs.wasm'):
+    """Loads a WASM file from near-test-contracts package.
+
+    This is just a convenience function around load_binary_file which loads
+    files from ../runtime/near-test-contracts/res directory.  By default
+    test_contract_rs.wasm is loaded.
+    """
+    return load_binary_file('../runtime/near-test-contracts/res/' + filename)
+
+
 def compile_rust_contract(content):
     empty_contract_rs = os.path.join(os.path.dirname(__file__),
                                      '../empty-contract-rs')

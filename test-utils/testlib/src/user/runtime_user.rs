@@ -65,7 +65,7 @@ impl RuntimeUser {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
-            trie_viewer: TrieViewer::new_with_state_size_limit(None),
+            trie_viewer: TrieViewer::default(),
             account_id,
             client,
             transaction_results: Default::default(),

@@ -35,8 +35,8 @@ use crate::db::{
 };
 pub use crate::trie::{
     iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
-    update::TrieUpdateValuePtr, KeyForStateChanges, PartialStorage, ShardTries, Trie, TrieChanges,
-    WrappedTrieChanges,
+    update::TrieUpdateValuePtr, ApplyStatePartResult, KeyForStateChanges, PartialStorage,
+    ShardTries, Trie, TrieChanges, WrappedTrieChanges,
 };
 
 pub mod db;

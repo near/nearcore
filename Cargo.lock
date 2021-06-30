@@ -3026,6 +3026,7 @@ dependencies = [
  "derive_more",
  "paperclip",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -3146,6 +3147,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "node-runtime",
  "num-rational",
@@ -3284,10 +3286,11 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "actix",
  "actix-cors",
+ "actix-http",
  "actix-web",
  "awc",
  "borsh",
@@ -3318,6 +3321,7 @@ dependencies = [
 name = "near-jsonrpc-client"
 version = "0.1.0"
 dependencies = [
+ "actix-http",
  "actix-web",
  "awc",
  "futures",
@@ -3330,7 +3334,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-primitives"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "actix",
  "lazy_static",
@@ -3508,6 +3512,7 @@ version = "0.1.1"
 dependencies = [
  "actix",
  "actix-cors",
+ "actix-http",
  "actix-web",
  "awc",
  "derive_more",
@@ -3589,6 +3594,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "smart-default",
  "strum",
  "tempfile",
  "thiserror",
@@ -3734,10 +3740,12 @@ dependencies = [
  "near-rust-allocator-proxy",
  "near-store",
  "near-telemetry",
+ "near-vm-runner",
  "node-runtime",
  "num-rational",
  "primitive-types",
  "rand 0.7.3",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",
@@ -6415,9 +6423,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core-near"
-version = "0.17.1"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2390b0b8cf58615c2f8b454d9535e1aed1d14c510cc1ce1af806a1992ad53300"
+checksum = "c65db7e27877fb7499a5af9d7ab763bb0ddc78c3d1a6310a8ca6e86e71e532f9"
 dependencies = [
  "bincode",
  "blake3",

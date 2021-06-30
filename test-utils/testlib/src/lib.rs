@@ -35,7 +35,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
     let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None));
+        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None, None));
     let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
 }
@@ -46,7 +46,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
     let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None));
+        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None, None));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()
 }
@@ -82,7 +82,7 @@ pub fn start_nodes(
             if i == 0 { first_node } else { open_port() },
             genesis.clone(),
         );
-        rpc_addrs.push(near_config.rpc_config.addr.clone());
+        rpc_addrs.push(near_config.rpc_addr().unwrap().clone());
         near_config.client_config.min_num_peers = num_nodes - 1;
         if i > 0 {
             near_config.network_config.boot_nodes =

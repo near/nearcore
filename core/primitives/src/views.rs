@@ -39,8 +39,8 @@ use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderI
 use crate::sharding::{ShardChunkHeaderInnerV2, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -317,8 +317,9 @@ pub struct StatusResponse {
     pub protocol_version: u32,
     /// Latest protocol version that this client supports.
     pub latest_protocol_version: u32,
-    /// Address for RPC server.
-    pub rpc_addr: String,
+    /// Address for RPC server.  None if node doesn’t have RPC endpoint enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc_addr: Option<String>,
     /// Current epoch validators.
     pub validators: Vec<ValidatorInfo>,
     /// Sync status of the node.
@@ -1017,6 +1018,9 @@ pub struct ExecutionOutcomeView {
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
+    /// Execution metadata, versioned
+    #[serde(skip)]
+    pub metadata: ExecutionMetadata,
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
@@ -1028,6 +1032,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
+            metadata: outcome.metadata,
         }
     }
 }
