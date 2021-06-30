@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::{cell::Cell, fmt};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
@@ -16,52 +16,9 @@ pub struct ProfileData {
     data: Rc<DataArray>,
 }
 
-impl BorshSerialize for ProfileData {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let mut v = vec![];
-        for i in 0..ProfileData::LEN {
-            let slot = &self.data[i];
-            v.push(slot.get());
-        }
-        BorshSerialize::serialize(&v, writer)
-    }
-}
-
-impl BorshDeserialize for ProfileData {
-    fn deserialize(buf: &mut &[u8]) -> std::io::Result<ProfileData> {
-        let v: Vec<u64> = BorshDeserialize::deserialize(buf)?;
-        if v.len() != ProfileData::LEN {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Invalid ProfileData",
-            ));
-        }
-        let profile_data = ProfileData::new();
-        for i in 0..ProfileData::LEN {
-            let slot = &profile_data.data[i];
-            slot.set(v[i]);
-        }
-        Ok(profile_data)
-    }
-}
-
-impl Serialize for ProfileData {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        unimplemented!()
-    }
-}
-
-impl<'de> Deserialize<'de> for ProfileData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        unimplemented!()
-    }
-}
+/// Result of a ProfileData stat
+#[derive(Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ProfileDataResult(pub Vec<u64>);
 
 impl Default for ProfileData {
     fn default() -> ProfileData {
@@ -141,13 +98,15 @@ impl ProfileData {
 
     /// Cut up counter values up to now
     /// get and reset all counter to zero
-    pub fn cut(&self) -> ProfileData {
-        let ret = self.clone();
+    pub fn cut(&self) -> ProfileDataResult {
+        let mut ret = vec![];
         for i in 0..ProfileData::LEN {
             let slot = &self.data[i];
+            let old = slot.get();
+            ret.push(old);
             slot.set(0);
         }
-        ret
+        ProfileDataResult(ret)
     }
 }
 
