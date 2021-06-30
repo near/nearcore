@@ -14,6 +14,7 @@ use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Gas, Nonce};
+use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
@@ -356,7 +357,14 @@ pub struct ExecutionOutcome {
 pub enum ExecutionMetadata {
     // V1: Empty Metadata
     ExecutionMetadataV1,
+
+    // V2: With ProfileData
+    ExecutionMetadataV2(ProfileData),
 }
+
+// Metadata SHOULD NOT be mutated after creation
+unsafe impl std::marker::Send for ExecutionMetadata {}
+unsafe impl std::marker::Sync for ExecutionMetadata {}
 
 impl Default for ExecutionMetadata {
     fn default() -> Self {
