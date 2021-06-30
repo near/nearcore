@@ -19,6 +19,7 @@ is the pure function of Docker image used, Rust compiler version and the NEAR im
 
 We build and run the cost estimator in the Docker container to make sure config is fully reproducible.
 Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resouce consuming.
+Note that for Mac the limit is configured in the desktop client, and default value most likely will be very low.
 First fetch appropriate base image, with `docker pull rust`.
 Then create a Docker image with `build.sh`, it will create a Docker image with additional build deps.
 
@@ -30,8 +31,8 @@ Start container and build estimator with:
     host> ./run.sh
     docker> cd /host/nearcore
     docker> cargo run -j2 --release --package neard --features protocol_feature_evm --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-    docker> cargo run -j2 --release --package genesis-populate --features protocol_feature_evm --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-    docker> cd /host/nearcore/runtime/runtime-params-estimator
+    docker> cargo run -j2 --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
+    docker> cd /host/runtime/runtime-params-estimator/
     docker> pushd ./test-contract && ./build.sh && popd
     docker> cargo build --release --package runtime-params-estimator --features required
 
