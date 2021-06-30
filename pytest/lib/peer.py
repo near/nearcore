@@ -159,32 +159,29 @@ async def run_handshake(conn: Connection,
                         key_pair: SigningKey,
                         listen_port=12345):
     handshake = create_handshake(key_pair, target_public_key, listen_port)
-    sign_handshake(key_pair, handshake.Handshake)
 
-    await conn.send(handshake)
-    response = await conn.recv()
+    async def send_handshake():
+        sign_handshake(key_pair, handshake.Handshake)
+        await conn.send(handshake)
+        # The peer might sent us an unsolicited message before replying to
+        # a successful handshake.  This is because node is multi-threaded and
+        # peers are added to PeerManager before the reply is sent.  Since we
+        # don’t care about those messages, ignore them and wait for some kind of
+        # Handshake reply.
+        return await conn.recv(lambda msg: msg.enum.startswith('Handshake'))
+
+    response = await send_handshake()
 
     if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
         pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
         handshake.Handshake.version = pvm
-        sign_handshake(key_pair, handshake.Handshake)
-        await conn.send(handshake)
-        response = await conn.recv()
+        response = await send_handshake()
 
     if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'GenesisMismatch':
         gm = response.HandshakeFailure[1].GenesisMismatch
         handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
         handshake.Handshake.chain_info.genesis_id.hash = gm.hash
-        sign_handshake(key_pair, handshake.Handshake)
-        await conn.send(handshake)
-        response = await conn.recv()
-
-    # The peer might have sent us an unsolicited Block message before confirming
-    # the Handshake.  We’re not interested in blocks so ignore the messages.
-    for _ in range(5):
-        if response.enum != 'Block':
-            break
-        response = await conn.recv()
+        response = await send_handshake()
 
     assert response.enum == 'Handshake', response.enum if response.enum != 'HandshakeFailure' else response.HandshakeFailure[1].enum
 
