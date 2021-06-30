@@ -87,6 +87,8 @@ pub struct ApplyTransactionResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
+    /// Receipts restored during runtime apply after migration.
+    pub receipts_to_restore: Vec<Receipt>,
 }
 
 impl ApplyTransactionResult {

@@ -510,6 +510,7 @@ impl NightshadeRuntime {
             total_gas_burnt,
             total_balance_burnt,
             proof: apply_result.proof,
+            receipts_to_restore: vec![],
         };
 
         Ok(result)

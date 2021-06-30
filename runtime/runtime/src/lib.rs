@@ -122,6 +122,8 @@ pub struct ApplyResult {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
     pub proof: Option<PartialStorage>,
+    /// Receipts restored during runtime apply after migration.
+    pub receipts_to_restore: Vec<Receipt>,
 }
 
 #[derive(Debug)]
@@ -1214,6 +1216,7 @@ impl Runtime {
                 state_changes,
                 stats,
                 proof,
+                receipts_to_restore,
             });
         }
 
@@ -1376,6 +1379,7 @@ impl Runtime {
             state_changes,
             stats,
             proof,
+            receipts_to_restore: vec![],
         })
     }
 
