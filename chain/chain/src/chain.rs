@@ -2942,6 +2942,9 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
+                    if !apply_result.receipts_to_restore.is_empty() {
+                        self.chain_store_update.save_receipts(&apply_result.receipts_to_restore);
+                    }
                 } else {
                     let mut new_extra = self
                         .chain_store_update
@@ -3708,6 +3711,9 @@ impl<'a> ChainUpdate<'a> {
                 shard_id,
                 receipt_proof_response.1,
             );
+        }
+        if !apply_result.receipts_to_restore.is_empty() {
+            self.chain_store_update.save_receipts(&apply_result.receipts_to_restore);
         }
         Ok(())
     }
