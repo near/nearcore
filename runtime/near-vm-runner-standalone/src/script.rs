@@ -223,26 +223,27 @@ fn vm_script_smoke_test() {
 #[cfg(feature = "no_cache")]
 #[test]
 fn test_evm_slow_deserialize_repro() {
+    fn evm_slow_deserialize_repro(vm_kind: VMKind) {
+        println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
+        crate::tracing_timings::enable();
+
+        let mut script = Script::default();
+        script.vm_kind(vm_kind);
+        script.contract_cache(true);
+
+        // From near-evm repo, the version of when slow issue reported
+        let contract =
+            script.contract_from_file(Path::new("../near-test-contracts/res/near_evm.wasm"));
+
+        let input =
+            hex::decode(&include_bytes!("../../near-test-contracts/res/ZombieOwnership.bin"))
+                .unwrap();
+
+        script.step(contract, "deploy_code").input(input).repeat(3);
+        let res = script.run();
+        assert_eq!(res.outcomes[0].1, None);
+    }
+
     evm_slow_deserialize_repro(VMKind::Wasmer0);
     evm_slow_deserialize_repro(VMKind::Wasmer1);
-}
-
-#[cfg(feature = "no_cache")]
-fn evm_slow_deserialize_repro(vm_kind: VMKind) {
-    println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
-    crate::tracing_timings::enable();
-
-    let mut script = Script::default();
-    script.vm_kind(vm_kind);
-    script.contract_cache(true);
-
-    // From near-evm repo, the version of when slow issue reported
-    let contract = script.contract_from_file(Path::new("../near-test-contracts/res/near_evm.wasm"));
-
-    let input =
-        hex::decode(&include_bytes!("../../near-test-contracts/res/ZombieOwnership.bin")).unwrap();
-
-    script.step(contract, "deploy_code").input(input).repeat(3);
-    let res = script.run();
-    assert_eq!(res.outcomes[0].1, None);
 }
