@@ -47,6 +47,10 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_math_extension")]
+    fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
+    #[cfg(feature = "protocol_feature_math_extension")]
+    fn ecrecover(hash_len: u64, hash_ptr: u64, sig_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64) -> u64;
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -421,6 +425,56 @@ pub unsafe fn keccak512_10kib_10k() {
     let buffer = [65u8; 10240];
     for _ in 0..10_000 {
         keccak512(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `ripemd160_base` and `ripemd160_block`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ripemd160 on 10b 10k times.
+#[cfg(feature = "protocol_feature_math_extension")]
+#[no_mangle]
+pub unsafe fn ripemd160_10b_10k() {
+    let buffer = [65u8; 10];
+    for _ in 0..10_000 {
+        ripemd160(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+// Function to measure `ripemd160_base` and `ripemd160_block`. Also measures `base`, `write_register_base`,
+// and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ripemd160 on 10kib 10k times.
+#[cfg(feature = "protocol_feature_math_extension")]
+#[no_mangle]
+pub unsafe fn ripemd160_10kib_10k() {
+    let buffer = [65u8; 10240];
+    for _ in 0..10_000 {
+        ripemd160(buffer.len() as u64, buffer.as_ptr() as *const u64 as u64, 0);
+    }
+}
+
+// Function to measure `ecrecover_base`. Also measures `base`, `write_register_base`, and
+// `write_register_byte`. However `ecrecover` computation is more expensive than register writing
+// so we are okay overcharging it.
+// Compute ecrecover 10k times.
+#[cfg(feature = "protocol_feature_math_extension")]
+#[no_mangle]
+pub unsafe fn ecrecover_10k() {
+    let hash_buffer: [u8; 32] = [
+        0x7d, 0xba, 0xf5, 0x58, 0xb0, 0xa1, 0xa5, 0xdc, 0x7a, 0x67, 0x20, 0x21, 0x17, 0xab, 0x14,
+        0x3c, 0x1d, 0x86, 0x05, 0xa9, 0x83, 0xe4, 0xa7, 0x43, 0xbc, 0x06, 0xfc, 0xc0, 0x31, 0x62,
+        0xdc, 0x0d,
+    ];
+    let sig_buffer: [u8; 64] = [
+        0x5d, 0x99, 0xb6, 0xf7, 0xf6, 0xd1, 0xf7, 0x3d, 0x1a, 0x26, 0x49, 0x7f, 0x2b, 0x1c, 0x89,
+        0xb2, 0x4c, 0x09, 0x93, 0x91, 0x3f, 0x86, 0xe9, 0xa2, 0xd0, 0x2c, 0xd6, 0x98, 0x87, 0xd9,
+        0xc9, 0x4f, 0x3c, 0x88, 0x03, 0x58, 0x57, 0x9d, 0x81, 0x1b, 0x21, 0xdd, 0x1b, 0x7f, 0xd9,
+        0xbb, 0x01, 0xc1, 0xd8, 0x1d, 0x10, 0xe6, 0x9f, 0x03, 0x84, 0xe6, 0x75, 0xc3, 0x2b, 0x39,
+        0x64, 0x3b, 0xe8, 0x92,
+    ];
+    
+    for _ in 0..10_000 {
+        ecrecover(32, hash_buffer.as_ptr() as _, 64, sig_buffer.as_ptr() as _, 0, 0, 0);
     }
 }
 

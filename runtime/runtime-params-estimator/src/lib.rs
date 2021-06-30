@@ -1,4 +1,4 @@
-// Lists all cases that we want to measure.
+/// Lists all cases that we want to measure.
 pub mod cases;
 // Generates runtime fees from the measurements.
 pub mod runtime_fees_generator;

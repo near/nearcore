@@ -7,8 +7,10 @@ use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
+use ethereum_types::U256;
 use lazy_static::lazy_static;
 use rand_core::OsRng;
+use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
 lazy_static! {
@@ -553,8 +555,63 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
     }
 }
 
+const SECP256K1_N: U256 =
+    U256([0xbfd25e8cd0364141, 0xbaaedce6af48a03b, 0xfffffffffffffffe, 0xffffffffffffffff]);
+
+// Half of SECP256K1_N + 1.
+const SECP256K1_N_HALF_ONE: U256 =
+    U256([0xdfe92f46681b20a1, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
+
 #[derive(Clone)]
 pub struct Secp256K1Signature([u8; 65]);
+
+impl Secp256K1Signature {
+    pub fn check_signature_values(&self, reject_upper: bool) -> bool {
+        let mut r_bytes = [0u8; 32];
+        r_bytes.copy_from_slice(&self.0[0..32]);
+        let r = U256::from(r_bytes);
+
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&self.0[32..64]);
+        let s = U256::from(s_bytes);
+
+        let s_check = if reject_upper {
+            // Reject upper range of s values (ECDSA malleability)
+            SECP256K1_N_HALF_ONE
+        } else {
+            SECP256K1_N
+        };
+
+        r < SECP256K1_N && s < s_check
+    }
+
+    pub fn recover(
+        &self,
+        msg: [u8; 32],
+    ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
+        let recoverable_sig = secp256k1::RecoverableSignature::from_compact(
+            &SECP256K1,
+            &self.0[0..64],
+            secp256k1::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
+        )
+        .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+            error_message: err.to_string(),
+        })?;
+        let msg = Message::from(msg);
+
+        let res = SECP256K1
+            .recover(&msg, &recoverable_sig)
+            .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+                error_message: err.to_string(),
+            })?
+            .serialize_vec(&SECP256K1, false);
+
+        // Can not fail
+        let pk = Secp256K1PublicKey::try_from(&res[1..65]).unwrap();
+
+        Ok(pk)
+    }
+}
 
 impl From<[u8; 65]> for Secp256K1Signature {
     fn from(data: [u8; 65]) -> Self {
