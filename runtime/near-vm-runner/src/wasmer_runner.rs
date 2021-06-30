@@ -118,7 +118,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     // error happens deterministically for at least one
                     // contract, so here we flip it back to some deterministic
                     // error, which won't cause the node to panic.
-                    FunctionCallError::WasmTrap(WasmTrap::Unreachable)
+                    FunctionCallError::WasmTrap(WasmTrap::Unreachable),
                 ),
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
