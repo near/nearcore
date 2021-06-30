@@ -530,6 +530,84 @@ fn test_keccak512() {
     });
 }
 
+#[cfg(feature = "protocol_feature_math_extension")]
+#[test]
+fn test_ripemd160() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    let data = b"tesdsst";
+    logic.ripemd160(data.len() as _, data.as_ptr() as _, 0).unwrap();
+    let res = &vec![0u8; 20];
+    logic.read_register(0, res.as_ptr() as _).expect("OK");
+    assert_eq!(
+        res,
+        &[21, 102, 156, 115, 232, 3, 58, 215, 35, 84, 129, 30, 143, 86, 212, 104, 70, 97, 14, 225,]
+    );
+    let len = data.len() as u64;
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 1,
+        ExtCosts::read_memory_byte: len,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 20,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 20,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 20,
+        ExtCosts::ripemd160_base: 1,
+        ExtCosts::ripemd160_block: 1,
+    });
+}
+
+#[cfg(feature = "protocol_feature_math_extension")]
+#[test]
+fn test_ecrecover() {
+    let mut logic_builder = VMLogicBuilder::default();
+    let mut logic = logic_builder.build(get_context(vec![], false));
+
+    // See: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/test/cryptography/ECDSA.test.js
+    let hash: [u8; 32] = [
+        0x7d, 0xba, 0xf5, 0x58, 0xb0, 0xa1, 0xa5, 0xdc, 0x7a, 0x67, 0x20, 0x21, 0x17, 0xab, 0x14,
+        0x3c, 0x1d, 0x86, 0x05, 0xa9, 0x83, 0xe4, 0xa7, 0x43, 0xbc, 0x06, 0xfc, 0xc0, 0x31, 0x62,
+        0xdc, 0x0d,
+    ];
+    let signature: [u8; 64] = [
+        0x5d, 0x99, 0xb6, 0xf7, 0xf6, 0xd1, 0xf7, 0x3d, 0x1a, 0x26, 0x49, 0x7f, 0x2b, 0x1c, 0x89,
+        0xb2, 0x4c, 0x09, 0x93, 0x91, 0x3f, 0x86, 0xe9, 0xa2, 0xd0, 0x2c, 0xd6, 0x98, 0x87, 0xd9,
+        0xc9, 0x4f, 0x3c, 0x88, 0x03, 0x58, 0x57, 0x9d, 0x81, 0x1b, 0x21, 0xdd, 0x1b, 0x7f, 0xd9,
+        0xbb, 0x01, 0xc1, 0xd8, 0x1d, 0x10, 0xe6, 0x9f, 0x03, 0x84, 0xe6, 0x75, 0xc3, 0x2b, 0x39,
+        0x64, 0x3b, 0xe8, 0x92,
+    ];
+    let signer: [u8; 64] = [
+        0xb3, 0x68, 0x70, 0xea, 0xab, 0x31, 0xcb, 0xeb, 0x1a, 0x5c, 0x07, 0x46, 0x7b, 0x42, 0x97,
+        0x40, 0x7c, 0x62, 0x11, 0x7a, 0x31, 0x15, 0x47, 0xc4, 0x30, 0x5e, 0x14, 0x71, 0x52, 0x1b,
+        0x53, 0x01, 0xc2, 0x59, 0x9d, 0x4e, 0xad, 0xdf, 0xd3, 0x84, 0x9d, 0xf9, 0xd5, 0x99, 0x38,
+        0xfd, 0x8f, 0x16, 0x56, 0x47, 0x77, 0x32, 0x66, 0x80, 0x66, 0xff, 0xa1, 0x2e, 0xb3, 0x47,
+        0xea, 0xb4, 0x7b, 0x9c,
+    ];
+
+    let b = logic.ecrecover(32, hash.as_ptr() as _, 64, signature.as_ptr() as _, 0, 0, 1).unwrap();
+    assert_ne!(b, 0);
+
+    let result = &vec![0u8; 64];
+    logic.read_register(1, result.as_ptr() as _).expect("OK");
+
+    assert_eq!(result.to_vec(), signer);
+    assert_costs(map! {
+        ExtCosts::base: 1,
+        ExtCosts::read_memory_base: 2,
+        ExtCosts::read_memory_byte: 96,
+        ExtCosts::write_memory_base: 1,
+        ExtCosts::write_memory_byte: 64,
+        ExtCosts::read_register_base: 1,
+        ExtCosts::read_register_byte: 64,
+        ExtCosts::write_register_base: 1,
+        ExtCosts::write_register_byte: 64,
+        ExtCosts::ecrecover_base: 1,
+    });
+}
+
 #[test]
 fn test_hash256_register() {
     let mut logic_builder = VMLogicBuilder::default();

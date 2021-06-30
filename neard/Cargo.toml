@@ -51,6 +51,7 @@ nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["nearcore/protocol_feature_cap_max_gas_price"]
+protocol_feature_math_extension = ["nearcore/protocol_feature_math_extension"]
 
 sandbox = ["nearcore/sandbox"]
 
