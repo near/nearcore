@@ -281,14 +281,8 @@ fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
         panic!("I can't make that many validators!");
     }
 
-    let letters = (b'a'..=b'z')
-        .take(n)
-        .map(|c| {
-            let mut s = String::with_capacity(1);
-            s.push(c as char);
-            AccountId::try_from(s).unwrap()
-        })
-        .collect();
+    let letters =
+        ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
 
     vec![letters]
 }

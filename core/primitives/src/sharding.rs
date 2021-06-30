@@ -1124,7 +1124,7 @@ impl EncodedShardChunk {
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let block_header_v3_version = None;
+        let block_header_v3_version: Option<u32> = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 

@@ -346,36 +346,4 @@ mod tests {
         }
         keys_to_state_records(&RES[..], 1).unwrap();
     }
-
-    #[test]
-    fn test_invalid_account_id() {
-        let account_to_row = |account_id| Row {
-            genesis_time: None,
-            account_id,
-            regular_pks: vec![],
-            privileged_pks: vec![],
-            foundation_pks: vec![],
-            full_pks: vec![],
-            amount: 0,
-            is_treasury: false,
-            validator_stake: 0,
-            validator_key: None,
-            peer_info: None,
-            smart_contract: None,
-            lockup: None,
-            vesting_start: None,
-            vesting_end: None,
-            vesting_cliff: None,
-        };
-        let check_invalid_account_id = |account_id: AccountId| {
-            let row = account_to_row(account_id.clone());
-            match row.verify() {
-                Err(e) => assert_eq!(e.to_string(), format!("Invalid Account Id: {}", account_id)),
-                _ => panic!("Row should not be valid"),
-            }
-        };
-        for account_id in ["Bowen", "^bowen", "bowen@near", "1&3"].iter() {
-            check_invalid_account_id(account_id.parse().unwrap());
-        }
-    }
 }

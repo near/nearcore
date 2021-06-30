@@ -161,12 +161,6 @@ mod test {
     }
 
     #[test]
-    fn test_create_account_failure_invalid_name_runtime() {
-        let node = create_runtime_node();
-        test_create_account_failure_invalid_name(node);
-    }
-
-    #[test]
     fn test_create_account_failure_no_funds_runtime() {
         let node = create_runtime_node();
         test_create_account_failure_no_funds(node);

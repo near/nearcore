@@ -229,9 +229,9 @@ mod test {
             SignedTransaction::new(
                 signature,
                 Transaction::new(
-                    "x".parse().unwrap(),
+                    "test_x".parse().unwrap(),
                     public_key,
-                    "y".parse().unwrap(),
+                    "test_y".parse().unwrap(),
                     7,
                     tx_hash,
                 ),

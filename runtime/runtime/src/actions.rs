@@ -374,9 +374,6 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    // NOTE: The account_id is valid, because the Receipt is validated before.
-    debug_assert!(AccountId::validate(account_id).is_ok());
-
     if AccountId::is_top_level_account_id(account_id) {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id

@@ -12,7 +12,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockReference};
+use near_primitives::types::BlockReference;
 use near_primitives::views::FinalExecutionStatus;
 
 #[macro_use]
@@ -185,19 +185,6 @@ fn test_replay_protection() {
         if let Ok(_) = client.broadcast_tx_commit(to_base64(&bytes)).await {
             panic!("transaction should not succeed");
         }
-    });
-}
-
-#[test]
-fn test_tx_status_invalid_account_id() {
-    test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), AccountId::test_account()).await {
-            Err(e) => {
-                let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                assert!(s.starts_with("\"Invalid account id"));
-            }
-            Ok(_) => panic!("transaction should not succeed"),
-        };
     });
 }
 

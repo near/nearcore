@@ -621,36 +621,6 @@ pub fn test_create_account_again(node: impl Node) {
     );
 }
 
-pub fn test_create_account_failure_invalid_name(node: impl Node) {
-    let account_id = &node.account_id().unwrap();
-    let node_user = node.user();
-    let money_used = 10;
-    for invalid_account_name in &[
-        "e",                                                                 // too short
-        "Alice.near",                                                        // capital letter
-        "alice(near)",                                                       // brackets are invalid
-        "qq@qq*qq",                                                          // * is invalid
-        "01234567890123456789012345678901234567890123456789012345678901234", // too long
-    ] {
-        let transaction_result = node_user
-            .create_account(
-                account_id.clone(),
-                invalid_account_name.parse().unwrap(),
-                node.signer().public_key(),
-                money_used,
-            )
-            .unwrap_err();
-        assert_eq!(
-            transaction_result,
-            ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidReceiverId {
-                    receiver_id: invalid_account_name.parse().unwrap()
-                }
-            ))
-        );
-    }
-}
-
 pub fn test_create_account_failure_no_funds(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
