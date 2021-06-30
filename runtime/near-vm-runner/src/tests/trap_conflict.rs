@@ -19,7 +19,7 @@ fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
         used_gas: gas,
         logs: vec![],
     }
-}
+}`
 
 pub fn trap_contract() -> Vec<u8> {
     wabt::wat2wasm(
