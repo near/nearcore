@@ -1,19 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import argparse
 import os
-import sys
 
 from nodelib import setup_and_run
-from pathlib import Path
-sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
-from configured_logger import logger
-
 
 if __name__ == "__main__":
-    logger.info("****************************************************")
-    logger.info("* Running NEAR validator node for Official TestNet *")
-    logger.info("****************************************************")
+    print("****************************************************")
+    print("* Running NEAR validator node for Official TestNet *")
+    print("****************************************************")
 
     DEFAULT_BOOT_NODE = ','.join([
         "AJLCcX4Uymeq5ssavjUCyEA8SV6Y365Mh5h4shqMSTDA@34.94.190.204:24567",
@@ -55,7 +50,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.local:
-        logger.info("Flag --local deprecated, please use --nodocker")
+        print("Flag --local deprecated, please use --nodocker")
     nodocker = args.nodocker or args.local
     setup_and_run(nodocker,
                   not args.debug,

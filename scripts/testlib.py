@@ -2,17 +2,11 @@
 
 import glob
 import os
-import sys
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import fcntl
 import re
 import filecmp
-
-from pathlib import Path
-sys.path.append(str(Path(os.path.abspath(__file__)).parent.parent / 'pytest/lib'))
-from configured_logger import logger
-
 
 fcntl.fcntl(1, fcntl.F_SETFL, 0)
 
@@ -35,7 +29,7 @@ def build_tests(nightly=False):
             "--features", "nightly_protocol", "--features",
             "nightly_protocol_features"
         ]
-    logger.info(f"Building tests using command: {' '.join(command)}")
+    print("Building tests using command: ", ' '.join(command))
     p = subprocess.run(command)
     if p.returncode != 0:
         os._exit(p.returncode)
@@ -48,7 +42,7 @@ def run_doc_tests(nightly=False):
             "--features", "nightly_protocol", "--features",
             "nightly_protocol_features"
         ]
-    logger.info(f"Building doc tests using command: {' '.join(command)}")
+    print("Building doc tests using command: ", ' '.join(command))
     p = subprocess.run(command)
     if p.returncode != 0:
         os._exit(p.returncode)
@@ -67,7 +61,7 @@ def test_binaries(exclude=None):
             elif not any(map(lambda e: re.match(e, fname), exclude)):
                 binaries.append(f)
             else:
-                logger.info(f'========= ignore {f}')
+                print(f'========= ignore {f}')
     return binaries
 
 
@@ -81,7 +75,7 @@ def run_test(test_binary, isolate=True):
         ]
     else:
         cmd = [test_binary]
-    logger.info(f'========= run test {test_binary}')
+    print(f'========= run test {test_binary}')
     if os.path.isfile(test_binary):
         p = subprocess.Popen(cmd,
                              stdout=subprocess.PIPE,

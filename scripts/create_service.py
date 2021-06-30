@@ -1,18 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import os
-import sys
 import subprocess
 from os.path import join, abspath, dirname, exists
 import stat
 import getpass
 
-from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent / 'pytest/lib'))
-from configured_logger import logger
-
-
 if os.getuid() != 0:
-    logger.info("Need to run as root")
+    print("Need to run as root")
     exit(1)
 
 near_release_path = abspath(join(dirname(__file__), '../target/release/near'))
@@ -44,7 +38,7 @@ with open(service_file_path, 'w') as f:
 st = os.stat(service_file_path)
 os.chmod(service_file_path,
          st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-logger.info("""
+print("""
 Service created at {}.
 To start: sudo systemctl start near
 To start on boot: sudo systemctl enable near
