@@ -53,6 +53,8 @@ impl AccountId {
         } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
             Err(ParseAccountError::TooLong)
         } else {
+            // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
+
             // NOTE: We don't want to use Regex here, because it requires extra time to compile it.
             // The valid account ID regex is /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/
             // Instead the implementation is based on the previous character checks.
