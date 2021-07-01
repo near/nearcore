@@ -794,6 +794,7 @@ pub fn init_configs(
     download_genesis_url: Option<&str>,
     should_download_config: bool,
     download_config_url: Option<&str>,
+    boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
@@ -816,6 +817,10 @@ pub fn init_configs(
         let url = get_config_url(&chain_id);
         download_config(&url, &dir.join(CONFIG_FILENAME));
         config = Config::from_file(&dir.join(CONFIG_FILENAME));
+    }
+
+    if let Some(nodes) = boot_nodes {
+        config.network.boot_nodes = nodes.to_string();
     }
 
     if max_gas_burnt_view.is_some() {
