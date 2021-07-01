@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TARGET_HEIGHT = 30
 AFTER_SYNC_HEIGHT = 150
@@ -45,20 +46,20 @@ nodes = start_cluster(
 node0_height = 0
 while node0_height < TARGET_HEIGHT:
     status = nodes[0].get_status()
-    print(status)
+    logger.info(status)
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('Kill node 1')
+logger.info('Kill node 1')
 nodes[1].kill()
 
 while node0_height < AFTER_SYNC_HEIGHT:
     status = nodes[0].get_status()
-    print(status)
+    logger.info(status)
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('Restart node 1')
+logger.info('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(3)
 
@@ -68,7 +69,7 @@ node1_height = 0
 while True:
     assert time.time() - start_time < TIMEOUT, "Block sync timed out"
     status = nodes[1].get_status()
-    print(status)
+    logger.info(status)
     node1_height = status['sync_info']['latest_block_height']
     if node1_height >= node0_height:
         break

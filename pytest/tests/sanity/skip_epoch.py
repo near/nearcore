@@ -9,6 +9,7 @@ import sys, time, base58
 sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
+from configured_logger import logger
 from transaction import sign_staking_tx
 from utils import TxContext
 
@@ -46,7 +47,7 @@ ctx = TxContext([4, 4, 4, 4, 4], [boot_node, None, node3, node4, observer])
 initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
-print("Initial balances: %s\nTotal supply: %s" %
+logger.info("Initial balances: %s\nTotal supply: %s" %
       (initial_balances, total_supply))
 
 seen_boot_heights = set()
@@ -64,18 +65,18 @@ while True:
     seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
-        print(new_height)
+        logger.info(new_height)
     if new_height >= TARGET_HEIGHT:
         break
 
     if new_height > 1 and not sent_txs:
         ctx.send_moar_txs(hash_, 10, False)
-        print("Sending txs at height %s" % new_height)
+        logger.info("Sending txs at height %s" % new_height)
         sent_txs = True
 
     time.sleep(0.1)
 
-print("stage 1 done")
+logger.info("stage 1 done")
 
 # 2. Spin up the second node and make sure it gets to 35 as well, and doesn't diverge
 node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
@@ -99,7 +100,7 @@ while True:
 
     if new_height > largest_height:
         largest_height = new_height
-        print(new_height)
+        logger.info(new_height)
 
     if node2_height > TARGET_HEIGHT and not node2_syncing:
         assert node2_height in seen_boot_heights, "%s not in %s" % (
@@ -108,7 +109,7 @@ while True:
 
     time.sleep(0.1)
 
-print("stage 2 done")
+logger.info("stage 2 done")
 
 # 3. During (1) we sent some txs. Make sure the state changed. We can't compare to the
 #    expected balances directly, since the tx sent to the shard that node1 is responsible
@@ -118,14 +119,14 @@ print("stage 2 done")
 #    receipts during the state sync from the observer.
 #    `max_inflation_rate` is set to zero, so the rewards do not mess up with the balances
 balances = ctx.get_balances()
-print("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
+logger.info("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
 
 assert (balances != initial_balances)
 assert (sum(balances) == total_supply)
 
 initial_balances = balances
 
-print("stage 3 done")
+logger.info("stage 3 done")
 
 # 4. Stake for the second node to bring it back up as a validator and wait until it actually
 #    becomes one
@@ -135,7 +136,7 @@ def get_validators():
     return set([x['account_id'] for x in boot_node.get_status()['validators']])
 
 
-print(get_validators())
+logger.info(get_validators())
 
 # The stake for node2 must be higher than that of boot_node, so that it can produce blocks
 # after the boot_node is brought down
@@ -148,7 +149,7 @@ assert (get_validators() == set(["test0", "test2", "test3"])), get_validators()
 
 while True:
     if time.time() - started > TIMEOUT:
-        print(get_validators())
+        logger.info(get_validators())
         assert False
 
     if get_validators() == set(["test0", "test1", "test2", "test3"]):
@@ -156,7 +157,7 @@ while True:
 
     time.sleep(1)
 
-print("stage 4 done")
+logger.info("stage 4 done")
 
 ctx.next_nonce = 100
 # 5. Record the latest height and bring down the first node, wait for couple epochs to pass
@@ -178,23 +179,23 @@ while True:
     seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
-        print(new_height)
+        logger.info(new_height)
     if new_height >= last_height + TARGET_HEIGHT:
         break
 
     if new_height > last_height + 1 and not sent_txs:
         ctx.send_moar_txs(hash_, 10, False)
-        print("Sending txs at height %s" % new_height)
+        logger.info("Sending txs at height %s" % new_height)
         sent_txs = True
 
     time.sleep(0.1)
 
 balances = ctx.get_balances()
-print("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
+logger.info("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
 
 ctx.nodes = [observer, node2]
 ctx.act_to_val = [0, 0, 0, 0, 0]
-print("Observer sees: %s" % ctx.get_balances())
+logger.info("Observer sees: %s" % ctx.get_balances())
 
 assert balances != initial_balances, "current balance %s, initial balance %s" % (balances, initial_balances)
 assert sum(balances) == total_supply

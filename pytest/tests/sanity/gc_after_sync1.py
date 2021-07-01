@@ -9,6 +9,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TARGET_HEIGHT1 = 15
 TARGET_HEIGHT2 = 35
@@ -45,7 +46,7 @@ while height < TARGET_HEIGHT1:
     status1 = nodes[1].get_status()
     height = status1['sync_info']['latest_block_height']
 
-print('Kill node 1')
+logger.info('Kill node 1')
 nodes[1].kill()
 
 start = time.time()
@@ -55,7 +56,7 @@ while height < TARGET_HEIGHT2:
     status0 = nodes[0].get_status()
     height = status0['sync_info']['latest_block_height']
 
-print('Restart node 1')
+logger.info('Restart node 1')
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 
 start = time.time()

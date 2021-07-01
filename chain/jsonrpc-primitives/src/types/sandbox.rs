@@ -14,7 +14,7 @@ impl RpcSandboxPatchStateRequest {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct RpcSandboxPatchStateResponse;
+pub struct RpcSandboxPatchStateResponse {}
 
 #[derive(thiserror::Error, Debug, Serialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]

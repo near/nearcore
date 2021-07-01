@@ -18,8 +18,10 @@ from rc import gcloud
 import traceback
 import uuid
 import network
+
 from proxy import NodesProxy
 from bridge import GanacheNode, RainbowBridge, alice, bob, carol
+from configured_logger import logger
 from key import Key
 
 os.environ["ADVERSARY_CONSENT"] = "1"
@@ -35,12 +37,12 @@ class DownloadException(Exception):
 
 
 def atexit_cleanup(node):
-    print("Cleaning up node %s:%s on script exit" % node.addr())
-    print("Executed store validity tests: %s" % node.store_tests)
+    logger.info("Cleaning up node %s:%s on script exit" % node.addr())
+    logger.info("Executed store validity tests: %s" % node.store_tests)
     try:
         node.cleanup()
     except:
-        print("Cleaning failed!")
+        logger.info("Cleaning failed!")
         traceback.print_exc()
         pass
 
@@ -140,7 +142,7 @@ class BaseNode(object):
                     'error'] and 'DB Not Found Error: BLOCK:' in block['error']['data']:
                 break
             elif 'result' not in block:
-                print(block)
+                logger.info(block)
 
             height = block['result']['header']['height']
             if height == 0:
@@ -206,7 +208,7 @@ class BaseNode(object):
                 self.get_status()['validators']))
 
     def stop_checking_store(self):
-        print("WARN: Stopping checking Storage for inconsistency for %s:%s" %
+        logger.warning("Stopping checking Storage for inconsistency for %s:%s" %
               self.addr())
         self.is_check_store = False
 
@@ -218,8 +220,8 @@ class BaseNode(object):
                 pass
             else:
                 if res['result'] == 0:
-                    print(
-                        "ERROR: Storage for %s:%s in inconsistent state, stopping"
+                    logger.error(
+                        "Storage for %s:%s in inconsistent state, stopping"
                         % self.addr())
                     self.kill()
                 self.store_tests += res['result']
@@ -297,7 +299,7 @@ class LocalNode(BaseNode):
     def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
-                print(f'Waiting for previous proxy instance to close')
+                logger.info(f'Waiting for previous proxy instance to close')
                 time.sleep(1)
 
 
@@ -322,16 +324,16 @@ class LocalNode(BaseNode):
         try:
             self.wait_for_rpc(10)
         except:
-            print(
-                '=== Error: failed to start node, rpc does not ready in 10 seconds'
+            logger.error(
+                '=== failed to start node, rpc does not ready in 10 seconds'
             )
             self.stdout.close()
             self.stderr.close()
             if os.environ.get('BUILDKITE'):
-                print('=== stdout: ')
-                print(open(self.stdout_name).read())
-                print('=== stderr: ')
-                print(open(self.stderr_name).read())
+                logger.info('=== stdout: ')
+                logger.info(open(self.stdout_name).read())
+                logger.info('=== stderr: ')
+                logger.info(open(self.stderr_name).read())
 
     def kill(self):
         if self.pid.value != 0:
@@ -361,9 +363,7 @@ class LocalNode(BaseNode):
         try:
             self.kill()
         except:
-            print("Kill failed on cleanup!")
-            traceback.print_exc()
-            print("\n\n")
+            logger.critical('Kill failed on cleanup!', exc_info=sys.exc_info())
 
         # move the node dir to avoid weird interactions with multiple serial test invocations
         target_path = self.node_dir + '_finished'
@@ -373,11 +373,11 @@ class LocalNode(BaseNode):
         self.cleaned = True
 
     def stop_network(self):
-        print("Stopping network for process %s" % self.pid.value)
+        logger.info("Stopping network for process %s" % self.pid.value)
         network.stop(self.pid.value)
 
     def resume_network(self):
-        print("Resuming network for process %s" % self.pid.value)
+        logger.info("Resuming network for process %s" % self.pid.value)
         network.resume_network(self.pid.value)
 
 
@@ -509,9 +509,9 @@ chmod +x near
 
 def github_auth():
     print("Go to the following link in your browser:")
-    print()
+    print("")
     print("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
-    print()
+    print("")
     code = input("Enter verification code: ")
     with open(os.path.expanduser('~/.nayduck'), 'w') as f:
         f.write(code)
@@ -542,7 +542,7 @@ class AzureNode(BaseNode):
                     res = requests.post('http://40.112.59.229:5000/upload', json=post)
                     json_res = json.loads(res.text)
                     if json_res['stderr'] != '':
-                        print(json_res['stderr'])
+                        logger.info(json_res['stderr'])
                         sys.exit()
             self.validator_key = Key.from_json_file(
                 os.path.join(node_dir, "validator_key.json"))
@@ -559,7 +559,7 @@ class AzureNode(BaseNode):
             res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
             json_res = json.loads(res.text)
             if json_res['stderr'] != '':
-                print(json_res['stderr'])
+                logger.info(json_res['stderr'])
                 sys.exit()
             self.wait_for_rpc(timeout=30)
 
@@ -569,7 +569,7 @@ class AzureNode(BaseNode):
             res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
             json_res = json.loads(res.text)
             if json_res['stderr'] != '':
-                print(json_res['stderr'])
+                logger.info(json_res['stderr'])
             sys.exit()
 
         def addr(self):
@@ -583,12 +583,12 @@ class AzureNode(BaseNode):
             res = requests.post('http://40.112.59.229:5000/companion', json=post)
             json_res = json.loads(res.text)
             if json_res['stderr'] != '':
-                print(json_res['stderr'])
+                logger.info(json_res['stderr'])
                 sys.exit()
-            
+
 
 class PreexistingCluster():
-        
+
     def __init__(self, num_nodes, node_dirs, release):
         self.already_cleaned_up = False
         if os.path.isfile(os.path.expanduser('~/.nayduck')):
@@ -604,10 +604,10 @@ class PreexistingCluster():
         res = requests.post('http://40.112.59.229:5000/request_a_run', json=post)
         json_res = json.loads(res.text)
         if json_res['code'] == -1:
-            print(json_res['err'])
+            logger.info(json_res['err'])
             return
         self.request_id = json_res['request_id']
-        print("GG request id: %s" % self.request_id)
+        logger.info("GG request id: %s" % self.request_id)
         self.ips = []
         atexit.register(self.atexit_cleanup_preexist, None)
         signal.signal(signal.SIGTERM, self.atexit_cleanup_preexist)
@@ -620,9 +620,9 @@ class PreexistingCluster():
             res = requests.post('http://40.112.59.229:5000/get_instances', json=post)
             json_res = json.loads(res.text)
             self.ips = json_res['ips']
-            print('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes),  end='\r')
+            logger.info('Got %s nodes out of %s asked\r' % (len(self.nodes), num_nodes))
             if requester == "NayDuck" and k == 3:
-                print("Postpone test for NayDuck.")
+                logger.info("Postpone test for NayDuck.")
                 sys.exit(13)
 
             if len(self.ips) != num_nodes:
@@ -634,8 +634,7 @@ class PreexistingCluster():
             if len(self.nodes) == num_nodes:
                 break
 
-        print()
-        print("ips: %s" % self.ips)
+        logger.info("ips: %s" % self.ips)
         while True:
             status = {'BUILDING': 0, 'READY': 0, 'BUILD FAILED': 0}
             post = {'ips': self.ips, 'token': self.token}
@@ -645,10 +644,10 @@ class PreexistingCluster():
                 if v in status:
                     status[v] += 1
                 else:
-                    print("Unexpected status %s for %s" % (v, k))
-            print('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']),  end='\r')
+                    logger.info("Unexpected status %s for %s" % (v, k))
+            logger.info('%s nodes are building and %s nodes are ready' % (status['BUILDING'], status['READY']))
             if status['BUILD FAILED'] > 0:
-                print('Build failed for at least one instance')
+                logger.info('Build failed for at least one instance')
                 self.nodes = []
                 break
             if status['READY'] == num_nodes:
@@ -661,13 +660,12 @@ class PreexistingCluster():
     def atexit_cleanup_preexist(self, *args):
         if self.already_cleaned_up:
             sys.exit(0)
-        print()
-        post = {'request_id': self.request_id, 'token': self.token} 
-        print("Starting cleaning up remote instances.")
+        post = {'request_id': self.request_id, 'token': self.token}
+        logger.info("Starting cleaning up remote instances.")
         res = requests.post('http://40.112.59.229:5000/cancel_the_run', json=post)
         json_res = json.loads(res.text)
         logs = json_res['logs']
-        print("Getting logs from remote instances")
+        logger.info("Getting logs from remote instances")
         for i in range(len(self.ips)):
             for log in logs:
                 if self.ips[i] in log:
@@ -678,7 +676,7 @@ class PreexistingCluster():
                     res = requests.get(log)
                     with open(fl, 'w') as f:
                         f.write(res.text)
-                    print(f"Logs are available in {fl}")
+                    logger.info(f"Logs are available in {fl}")
         self.already_cleaned_up = True
         sys.exit(0)
 
@@ -694,7 +692,7 @@ def spin_up_node(config,
                  single_node=False):
     is_local = config['local']
 
-    print("Starting node %s %s" % (ordinal,
+    logger.info("Starting node %s %s" % (ordinal,
                                    ("as BOOT NODE" if boot_addr is None else
                                     ("with boot=%s@%s:%s" %
                                      (boot_key, boot_addr[0], boot_addr[1])))))
@@ -723,14 +721,14 @@ def spin_up_node(config,
                             config['remote']['binary'])
             with remote_nodes_lock:
                 remote_nodes.append(node)
-            print(f"node {ordinal} machine created")
+            logger.info(f"node {ordinal} machine created")
 
     if proxy is not None:
         proxy.proxify_node(node)
 
     node.start(boot_key, boot_addr, skip_starting_proxy)
     time.sleep(3)
-    print(f"node {ordinal} started")
+    logger.info(f"node {ordinal} started")
     return node
 
 
@@ -740,15 +738,14 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
-        print("Attempt to launch a regular test with a mocknet config",
-              file=sys.stderr)
+        logger.critical("Attempt to launch a regular test with a mocknet config")
         sys.exit(1)
 
     is_local = config['local']
     near_root = config['near_root']
     binary_name = config.get('binary_name', 'near')
 
-    print("Creating %s cluster configuration with %s nodes" %
+    logger.info("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([
@@ -772,7 +769,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     ) == num_nodes + num_observers, "node dirs: %s num_nodes: %s num_observers: %s" % (
         len(node_dirs), num_nodes, num_observers)
 
-    print("Search for stdout and stderr in %s" % node_dirs)
+    logger.info("Search for stdout and stderr in %s" % node_dirs)
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
         apply_genesis_changes(node_dir, genesis_config_changes)
@@ -781,11 +778,11 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
             apply_config_changes(node_dir, client_config_change)
 
     if config['preexist']:
-        print("Use preexisting cluster.")
+        logger.info("Use preexisting cluster.")
         # ips of azure nodes with build neard but not yet started.
         global preexisting
         preexisting = PreexistingCluster(num_nodes + num_observers, node_dirs, config['release'])
-    
+
     return near_root, node_dirs
 
 
@@ -950,9 +947,9 @@ def load_config():
             with open(config_file) as f:
                 new_config = json.load(f)
                 config.update(new_config)
-                print(f"Load config from {config_file}, config {config}")
+                logger.info(f"Load config from {config_file}, config {config}")
         except FileNotFoundError:
-            print(f"Failed to load config file, use default config {config}")
+            logger.info(f"Failed to load config file, use default config {config}")
     else:
-        print(f"Use default config {config}")
+        logger.info(f"Use default config {config}")
     return config
