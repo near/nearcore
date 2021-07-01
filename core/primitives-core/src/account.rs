@@ -1,13 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use std::io;
 
 use crate::hash::CryptoHash;
 use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Nonce, StorageUsage};
-#[cfg(feature = "protocol_feature_add_account_versions")]
-use std::io;
-
-#[cfg(feature = "protocol_feature_add_account_versions")]
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
 )]
@@ -15,7 +12,6 @@ pub enum AccountVersion {
     V1,
 }
 
-#[cfg(feature = "protocol_feature_add_account_versions")]
 impl Default for AccountVersion {
     fn default() -> Self {
         AccountVersion::V1
@@ -24,10 +20,6 @@ impl Default for AccountVersion {
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-#[cfg_attr(
-    not(feature = "protocol_feature_add_account_versions"),
-    derive(BorshSerialize, BorshDeserialize)
-)]
 pub struct Account {
     /// The total not locked tokens.
     #[serde(with = "u128_dec_format_compatible")]
@@ -40,7 +32,6 @@ pub struct Account {
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
     /// Version of Account in re migrations and similar
-    #[cfg(feature = "protocol_feature_add_account_versions")]
     #[serde(default)]
     version: AccountVersion,
 }
@@ -56,14 +47,7 @@ impl Account {
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
-        Account {
-            amount,
-            locked,
-            code_hash,
-            storage_usage,
-            #[cfg(feature = "protocol_feature_add_account_versions")]
-            version: AccountVersion::V1,
-        }
+        Account { amount, locked, code_hash, storage_usage, version: AccountVersion::V1 }
     }
 
     #[inline]
@@ -87,7 +71,6 @@ impl Account {
     }
 
     #[inline]
-    #[cfg(feature = "protocol_feature_add_account_versions")]
     pub fn version(&self) -> AccountVersion {
         self.version
     }
@@ -112,14 +95,11 @@ impl Account {
         self.storage_usage = storage_usage;
     }
 
-    #[inline]
-    #[cfg(feature = "protocol_feature_add_account_versions")]
     pub fn set_version(&mut self, version: AccountVersion) {
         self.version = version;
     }
 }
 
-#[cfg(feature = "protocol_feature_add_account_versions")]
 #[derive(BorshSerialize, BorshDeserialize)]
 struct LegacyAccount {
     amount: Balance,
@@ -128,7 +108,6 @@ struct LegacyAccount {
     storage_usage: StorageUsage,
 }
 
-#[cfg(feature = "protocol_feature_add_account_versions")]
 impl BorshDeserialize for Account {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, io::Error> {
         if buf.len() == std::mem::size_of::<LegacyAccount>() {
@@ -148,7 +127,6 @@ impl BorshDeserialize for Account {
     }
 }
 
-#[cfg(feature = "protocol_feature_add_account_versions")]
 impl BorshSerialize for Account {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self.version {
@@ -245,7 +223,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_add_account_versions")]
     fn test_account_deserialization() {
         let old_account = LegacyAccount {
             amount: 100,

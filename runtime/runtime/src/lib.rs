@@ -559,7 +559,7 @@ impl Runtime {
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
             if !checked_feature!(
-                "protocol_feature_count_refund_receipts_in_gas_limit",
+                "stable",
                 CountRefundReceiptsInGasLimit,
                 apply_state.current_protocol_version
             ) {
@@ -1094,12 +1094,7 @@ impl Runtime {
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
     ) -> Result<(Gas, Vec<Receipt>), StorageError> {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
-
-        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        let gas_used: Gas = 0;
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version
             && migration_flags.is_first_block_of_version
         {
@@ -1138,8 +1133,6 @@ impl Runtime {
             vec![]
         };
 
-        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        (state_update, migration_data, migration_flags, protocol_version);
         Ok((gas_used, receipts_to_restore))
     }
 
@@ -1668,17 +1661,7 @@ mod tests {
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
-            // Check that refund receipts are delayed if CountRefundReceiptsInGasLimit is enabled,
-            // and otherwise processed all at once
-            let capped_i = if checked_feature!(
-                "protocol_feature_count_refund_receipts_in_gas_limit",
-                CountRefundReceiptsInGasLimit,
-                apply_state.current_protocol_version
-            ) {
-                std::cmp::min(i, n)
-            } else {
-                n
-            };
+            let capped_i = std::cmp::min(i, n);
             assert_eq!(
                 account.amount(),
                 initial_balance

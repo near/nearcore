@@ -187,11 +187,7 @@ pub fn prepaid_exec_fee(
 
     let extra_prepaid_gas = match action {
         Action::DeleteAccount(DeleteAccountAction { beneficiary_id }) => {
-            if checked_feature!(
-                "protocol_feature_allow_create_account_on_delete",
-                AllowCreateAccountOnDelete,
-                current_protocol_version
-            ) {
+            if checked_feature!("stable", AllowCreateAccountOnDelete, current_protocol_version) {
                 let sender_is_receiver = beneficiary_id == receiver_id;
                 let is_receiver_implicit =
                     is_implicit_account_creation_enabled(current_protocol_version)
