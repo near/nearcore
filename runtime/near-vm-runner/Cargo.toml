@@ -17,7 +17,7 @@ borsh = "0.8.1"
 serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 # Always used even for wasmer 1.0 for validating wasm, will be replaced when refactor prepare.rs
-wasmer-runtime-core = {version = "0.17.1", package = "wasmer-runtime-core-near" }
+wasmer-runtime-core = {version = "0.17.3", package = "wasmer-runtime-core-near" }
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
 wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-features = false, features = ["std", "enable-serde"] } # disable `rayon` feature.
@@ -64,6 +64,10 @@ protocol_feature_alt_bn128 = [
     "near-vm-logic/protocol_feature_alt_bn128",
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
+]
+protocol_feature_math_extension = [
+    "near-vm-logic/protocol_feature_math_extension",
+    "near-primitives/protocol_feature_math_extension"
 ]
 
 [package.metadata.cargo-udeps.ignore]

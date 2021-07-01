@@ -1,6 +1,4 @@
 use num_rational::Ratio;
-#[cfg(feature = "protocol_feature_evm")]
-use num_traits::cast::FromPrimitive;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -16,8 +14,6 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 
-#[cfg(feature = "protocol_feature_evm")]
-use crate::evm_estimator::cost_of_evm;
 use crate::ext_costs_generator::ExtCostsGenerator;
 use crate::runtime_fees_generator::RuntimeFeesGenerator;
 use crate::stats::Measurements;
@@ -198,6 +194,12 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
+    #[cfg(feature = "protocol_feature_math_extension")]
+    ripemd160_10b_10k,
+    #[cfg(feature = "protocol_feature_math_extension")]
+    ripemd160_10kib_10k,
+    #[cfg(feature = "protocol_feature_math_extension")]
+    ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -236,31 +238,12 @@ pub enum Metric {
 }
 
 #[allow(unused_variables)]
-pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
+pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     if only_compile {
         let (contract_compile_base_cost, contract_per_byte_cost) =
             compute_compile_cost_vm(config.metric, config.vm_kind, true);
         process::exit(0);
-    } else {
-        #[cfg(feature = "protocol_feature_evm")]
-        if only_evm {
-            config.block_sizes = vec![100];
-            let cost = cost_of_evm(&config, true);
-            println!(
-                "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}, deploy cost per byte: {}",
-                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.2).unwrap()),
-                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.0).unwrap()),
-                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.1).unwrap()),
-            );
-            println!(
-                "EVM base function call cost: {}, function call cost per EVM gas: {}",
-                ratio_to_gas(config.metric, cost.funcall_cost.1),
-                ratio_to_gas(config.metric, cost.funcall_cost.0),
-            );
-
-            process::exit(0);
-        }
     }
     config.block_sizes = vec![100];
     let mut nonces: HashMap<usize, u64> = HashMap::new();
@@ -578,6 +561,9 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         keccak256_10kib_10k => keccak256_10kib_10k,
         keccak512_10b_10k => keccak512_10b_10k,
         keccak512_10kib_10k => keccak512_10kib_10k,
+        #["protocol_feature_math_extension"] ripemd160_10b_10k => ripemd160_10b_10k,
+        #["protocol_feature_math_extension"] ripemd160_10kib_10k => ripemd160_10kib_10k,
+        #["protocol_feature_math_extension"] ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -760,6 +746,12 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
+        #[cfg(feature = "protocol_feature_math_extension")]
+        ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
+        #[cfg(feature = "protocol_feature_math_extension")]
+        ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
+        #[cfg(feature = "protocol_feature_math_extension")]
+        ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
         storage_write_base: measured_to_gas(metric, &measured, storage_write_base),

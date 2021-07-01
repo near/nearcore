@@ -15,6 +15,7 @@ easy-ext = "0.2"
 chrono = { version = "0.4.4", features = ["serde"] }
 futures = "0.3"
 rand = "0.7"
+rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "3"
@@ -40,6 +41,7 @@ near-rosetta-rpc = { path = "../chain/rosetta-rpc", optional = true }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
+near-vm-runner = { path = "../runtime/near-vm-runner"}
 
 delay-detector = { path = "../tools/delay_detector", optional = true }
 
@@ -52,6 +54,8 @@ near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.9"
 
 [features]
+default = ["json_rpc"]
+
 performance_stats = ["near-performance-metrics/performance_stats"]
 memory_stats = ["near-performance-metrics/memory_stats"]
 c_memory_stats = ["near-performance-metrics/c_memory_stats"]
@@ -62,17 +66,21 @@ no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache
 delay_detector = ["near-client/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
-protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm"]
+protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm", "near-client/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
 protocol_feature_add_account_versions = ["near-primitives/protocol_feature_add_account_versions"]
 protocol_feature_tx_size_limit = ["near-primitives/protocol_feature_tx_size_limit", "node-runtime/protocol_feature_tx_size_limit"]
 protocol_feature_allow_create_account_on_delete = ["node-runtime/protocol_feature_allow_create_account_on_delete"]
 protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage", "node-runtime/protocol_feature_fix_storage_usage"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_add_account_versions", "protocol_feature_tx_size_limit", "protocol_feature_allow_create_account_on_delete", "protocol_feature_fix_storage_usage", "protocol_feature_restore_receipts_after_fix", "protocol_feature_cap_max_gas_price", "protocol_feature_math_extension"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_cap_max_gas_price = ["near-primitives/protocol_feature_cap_max_gas_price", "near-chain/protocol_feature_cap_max_gas_price"]
+protocol_feature_math_extension = [
+    "near-primitives/protocol_feature_math_extension",
+    "node-runtime/protocol_feature_math_extension"
+]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default

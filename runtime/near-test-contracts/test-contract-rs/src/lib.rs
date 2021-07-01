@@ -335,6 +335,11 @@ pub unsafe fn log_something() {
 }
 
 #[no_mangle]
+pub unsafe fn loop_forever() {
+    loop {}
+}
+
+#[no_mangle]
 pub unsafe fn abort_with_zero() {
     // Tries to abort with 0 ptr to check underflow handling.
     abort(0, 0, 0, 0);
@@ -487,6 +492,30 @@ pub unsafe fn sum_n() {
 
     let data = sum.to_le_bytes();
     value_return(data.len() as u64, data.as_ptr() as u64);
+}
+
+/// Calculates Fibonacci numbers in inefficient way.  Used to burn gas for the
+/// sanity/max_gas_burnt_view.py test.  The implementation has exponential
+/// complexity (1.62^n to be exact) so even small increase in argument result in
+/// large increase in gas use.
+#[no_mangle]
+pub unsafe fn fibonacci() {
+    input(0);
+    if register_len(0) != 1 {
+        panic()
+    }
+    let mut n: u8 = 0;
+    read_register(0, &mut n as *mut u8 as u64);
+    let data = fib(n).to_le_bytes();
+    value_return(data.len() as u64, data.as_ptr() as u64);
+}
+
+fn fib(n: u8) -> u64 {
+    if n < 2 {
+        n as u64
+    } else {
+        fib(n - 2) + fib(n - 1)
+    }
 }
 
 #[no_mangle]
