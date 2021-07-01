@@ -1078,52 +1078,33 @@ pub fn get_config_url(chain_id: &String) -> String {
     )
 }
 
-pub fn download_genesis(url: &String, path: &PathBuf) {
-    info!(target: "near", "Downloading genesis file from: {} ...", url);
-    let url = url.clone();
-    let path = path.clone();
-
+pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
     actix::System::new().block_on(async move {
         let client = awc::Client::new();
-        let mut response =
-            client.get(url).send().await.expect("Unable to download the genesis file");
-
-        // IMPORTANT: limit specifies the maximum size of the genesis
-        // In case where the genesis is bigger than the specified limit Overflow Error is thrown
+        let mut response = client.get(url).send().await.expect("Unable to download the file");
+        // IMPORTANT: limit specifies the maximum size of the genesis or config file
+        // In case where the genesis or config file is bigger than the specified
+        // limit Overflow Error is thrown
         let body = response
             .body()
-            .limit(10_000_000_000)
+            .limit(limit)
             .await
-            .expect("Genesis file is bigger than 10GB. Please make the limit higher.");
+            .expect("File is bigger than specified limit. Please make the limit higher.");
 
-        std::fs::write(&path, &body).expect("Failed to create / write a genesis file.");
-
-        info!(target: "near", "Saved the genesis file to: {} ...", path.as_path().display());
+        std::fs::write(&path, &body).expect("Failed to create / write a file.");
     });
+}
+
+pub fn download_genesis(url: &String, path: &PathBuf) {
+    info!(target: "near", "Downloading genesis file from: {} ...", url);
+    download_file(&url, &path, 10_000_000_000);
+    info!(target: "near", "Saved the genesis file to: {} ...", path.as_path().display());
 }
 
 pub fn download_config(url: &String, path: &PathBuf) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    let url = url.clone();
-    let path = path.clone();
-
-    actix::System::new().block_on(async move {
-        let client = awc::Client::new();
-        let mut response =
-            client.get(url).send().await.expect("Unable to download the config file");
-
-        // IMPORTANT: limit specifies the maximum size of the genesis
-        // In case where the config is bigger than the specified limit Overflow Error is thrown
-        let body = response
-            .body()
-            .limit(10_000)
-            .await
-            .expect("Config file is bigger than 10MB. Please make the limit higher.");
-
-        std::fs::write(&path, &body).expect("Failed to create / write a config file.");
-
-        info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
-    });
+    download_file(&url, &path, 10_000);
+    info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
