@@ -6,6 +6,7 @@ import sys, time, base58, random, datetime
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_staking_tx
 
 HEIGHT_GOAL = 150
@@ -67,8 +68,8 @@ while True:
         block['result']['header']['approvals'])
 
     if height > largest_height:
-        print("... %s" % height)
-        print(block['result']['header']['approvals'])
+        logger.info("... %s" % height)
+        logger.info(block['result']['header']['approvals'])
         largest_height = height
 
         if height > HEIGHT_GOAL:
@@ -97,13 +98,13 @@ while True:
 
         while len(seen_epochs) > 1:
             prev_block = nodes[0].get_block(block['result']['header']['prev_hash'])
-            print(prev_block)
+            logger.info(prev_block)
             if prev_block['result']['header']['epoch_id'] != block['result']['header']['epoch_id']:
                 height = block['result']['header']['height']
                 break
             block = prev_block
 
-        print("EPOCH %s, VALS %s" % (epoch_id, get_validators()))
+        logger.info("EPOCH %s, VALS %s" % (epoch_id, get_validators()))
 
         if len(seen_epochs) > 2:  # the first two epochs share the validator set
             assert height_to_num_approvals[height] == 2

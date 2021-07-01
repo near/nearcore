@@ -4,6 +4,7 @@ import socket, struct, multiprocessing
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 PACKAGE_LEN = 16 * 1024 * 1024
 N_PROCESSES = 16
@@ -22,7 +23,7 @@ def one_process(ord_, seconds):
             s.send(struct.pack('I', PACKAGE_LEN))
             s.send(buf)
             sent += PACKAGE_LEN
-            print("PROCESS %s SENT %s BYTES" % (ord_, sent))
+            logger.info("PROCESS %s SENT %s BYTES" % (ord_, sent))
 
 
 status = nodes[0].get_status()

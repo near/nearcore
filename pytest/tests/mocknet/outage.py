@@ -8,6 +8,7 @@ from rc import pmap
 
 sys.path.append('lib')
 import mocknet
+from configured_logger import logger
 
 nodes = mocknet.get_nodes()
 
@@ -44,13 +45,13 @@ def wait_until_next_epoch(current_start_height, query_node):
         time.sleep(5)
 
 
-print('INFO: Starting Outage test.')
+logger.info('INFO: Starting Outage test.')
 
 # Ensure we start the test closer to the beginning of an epoch than the end.
 epoch_start_height = nodes[0].get_validators()['result']['epoch_start_height']
 current_height = nodes[0].get_status()['sync_info']['latest_block_height']
 if current_height > epoch_start_height + (epoch_length / 2):
-    print(
+    logger.info(
         'INFO: Presently over half way through epoch, waiting for the next epoch to start'
     )
     wait_until_next_epoch(epoch_start_height, nodes[0])
@@ -66,7 +67,7 @@ time.sleep(10)
 check_transfer()
 
 # Wait an epoch
-print('INFO: Waiting until next epoch.')
+logger.info('INFO: Waiting until next epoch.')
 validators = query_node.get_validators()['result']
 wait_until_next_epoch(validators['epoch_start_height'], query_node)
 
@@ -82,7 +83,7 @@ for k in kick_out:
     assert 'NotEnoughBlocks' in k['reason']
 
 # Wait another epoch
-print('INFO: Waiting until next epoch.')
+logger.info('INFO: Waiting until next epoch.')
 wait_until_next_epoch(validators['epoch_start_height'], query_node)
 
 # Check the network still functions
@@ -97,7 +98,7 @@ time.sleep(60)
 # Let the node catch up
 sync_start = time.time()
 sync_timeout = 300  # allow up to 5 minutes for syncing
-print('INFO: Waiting for node0 to sync.')
+logger.info('INFO: Waiting for node0 to sync.')
 while nodes[0].get_status()['sync_info']['syncing']:
     if time.time() - sync_start >= sync_timeout:
         raise TimeoutError('nodes[0] seems to be stalled while syncing')
@@ -110,7 +111,7 @@ mocknet.transfer_between_nodes(nodes)
 for i in range(len(offline_validators)):
     mocknet.stake_node(nodes[i])
 validators = nodes[0].get_validators()['result']
-print('INFO: Waiting until next epoch.')
+logger.info('INFO: Waiting until next epoch.')
 wait_until_next_epoch(validators['epoch_start_height'], nodes[0])
 
 # Confirm previously offline nodes will be validators in the next epoch
@@ -119,8 +120,8 @@ next_validators = set(
     map(lambda v: v['account_id'], validators['next_validators']))
 for v in offline_validators:
     assert v in next_validators
-print('INFO: previously offline nodes in next epoch validator set.')
-print('INFO: Waiting until next epoch.')
+logger.info('INFO: previously offline nodes in next epoch validator set.')
+logger.info('INFO: Waiting until next epoch.')
 wait_until_next_epoch(validators['epoch_start_height'], nodes[0])
 
 # Confirm nodes are a validators again
@@ -129,5 +130,5 @@ current_validators = set(
     map(lambda v: v['account_id'], validators['current_validators']))
 for v in offline_validators:
     assert v in current_validators
-print('INFO: previously offline nodes now in current epoch validator set.')
-print('INFO: Outage test complete.')
+logger.info('INFO: previously offline nodes now in current epoch validator set.')
+logger.info('INFO: Outage test complete.')

@@ -9,6 +9,7 @@ import sys, time, base58, random
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from utils import TxContext
 from transaction import sign_payment_tx
 
@@ -60,7 +61,7 @@ while True:
             nodes[4].send_tx(tx)
             ctx.expected_balances[0] -= 100
             ctx.expected_balances[1] += 100
-            print('Sent tx at height %s' % height)
+            logger.info('Sent tx at height %s' % height)
 
             step = 1
             sent_height = height
@@ -76,7 +77,7 @@ while True:
     else:
         # we are done with the sanity test, now let's stress it
         if ctx.get_balances() == ctx.expected_balances:
-            print("Balances caught up, took %s blocks, moving on" %
+            logger.info("Balances caught up, took %s blocks, moving on" %
                   (height - sent_height))
             last_balances = [x for x in ctx.expected_balances]
             ctx.send_moar_txs(hash_, 10, use_routing=True)
