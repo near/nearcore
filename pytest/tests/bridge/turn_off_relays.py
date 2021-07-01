@@ -10,6 +10,7 @@ if 'one_more_restart' in sys.argv:
     one_more_restart = True
 
 sys.path.append('lib')
+from configured_logger import logger
 
 from bridge import Eth2NearBlockRelay, Near2EthBlockRelay, alice, bridge_cluster_config_changes
 from cluster import start_cluster, start_bridge
@@ -19,11 +20,11 @@ nodes = start_cluster(2, 0, 1, None, [], bridge_cluster_config_changes)
 
 e2n = Eth2NearBlockRelay(bridge.config)
 e2n.start()
-print('=== E2N RELAY IS STARTED')
+logger.info('=== E2N RELAY IS STARTED')
 
 n2e = Near2EthBlockRelay(bridge.config)
 n2e.start()
-print('=== N2E RELAY IS STARTED')
+logger.info('=== N2E RELAY IS STARTED')
 
 tx = bridge.transfer_eth2near(alice, 1000)
 
@@ -48,4 +49,4 @@ assert tx.exitcode == 0
 bridge.check_balances(alice)
 
 
-print('EPIC')
+logger.info('EPIC')

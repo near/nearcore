@@ -137,11 +137,11 @@ class BridgeTx(object):
         self.custom = dict()
 
 def atexit_cleanup(obj):
-    print("Cleaning %s on script exit" % (obj.__class__.__name__))
+    logger.info("Cleaning %s on script exit" % (obj.__class__.__name__))
     try:
         obj.cleanup()
     except BaseException:
-        print("Cleaning failed!")
+        logger.info("Cleaning failed!")
         traceback.print_exc()
         pass
 
@@ -175,9 +175,7 @@ class Cleanable(object):
                 self.stderr.close()
             self.kill()
         except BaseException:
-            print("Kill %s failed on cleanup!" % (self.__class__.__name__))
-            traceback.print_exc()
-            print("\n\n")
+            logger.error('Kill %s failed on cleanup', type(self).__name__, exc_info=sys.exc_info())
 
     def restart(self):
         assert not self.cleaned
@@ -570,7 +568,7 @@ def eth2near_wait(tx, proof_ticket, node, adapter):
     serializer = BinarySerializer(None)
     serializer.serialize_field(block_number, 'u64')
     logger.debug('BLOCK NUMBER SERIALIZED: %s' % (base64.b64encode(bytes(serializer.array)).decode("ascii")))
-    while True: 
+    while True:
         res = node.call_function(
             tx.near_client_account_id,
             'block_hash_safe',
@@ -688,7 +686,7 @@ def near2eth_get_proof(tx, withdraw_ticket, node, adapter):
             block_hash = outcome['block_hash']
             return (receipt_id, block_hash)
     logger.debug('NO PROOF FOUND')
-    
+
 @retry(stop_max_attempt_number=MAX_ATTEMPTS, wait_random_min=1000, wait_random_max=2500, wait_func=retry_func)
 def near2eth_wait(tx, proof_ticket, node, adapter):
     logger.info('TX %s, WAITING PHASE' % (tx.id))

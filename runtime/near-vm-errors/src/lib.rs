@@ -207,6 +207,8 @@ pub enum HostError {
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
+    /// General errors for ECDSA recover.
+    ECRecoverError { msg: String },
     /// Deserialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128DeserializationError { msg: String },
@@ -499,6 +501,7 @@ impl std::fmt::Display for HostError {
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
+            ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }
     }
 }

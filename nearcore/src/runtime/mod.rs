@@ -291,8 +291,9 @@ impl NightshadeRuntime {
     ) -> Vec<StateRoot> {
         let genesis_hash = genesis.json_hash();
         let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
-        if let Some(hash) = stored_hash {
-            assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
+        if let Some(_hash) = stored_hash {
+            // TODO: re-enable this check (#4447)
+            //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
             get_genesis_state_roots(&store)
                 .expect("Store failed on genesis intialization")
                 .expect("Genesis state roots not found in storage")
