@@ -3280,7 +3280,6 @@ version = "0.2.2"
 dependencies = [
  "actix",
  "actix-cors",
- "actix-http",
  "actix-web",
  "awc",
  "borsh",
@@ -3311,7 +3310,6 @@ dependencies = [
 name = "near-jsonrpc-client"
 version = "0.1.0"
 dependencies = [
- "actix-http",
  "actix-web",
  "awc",
  "futures",
@@ -3502,7 +3500,6 @@ version = "0.1.1"
 dependencies = [
  "actix",
  "actix-cors",
- "actix-http",
  "actix-web",
  "awc",
  "derive_more",
