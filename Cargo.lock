@@ -6465,7 +6465,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime-core-near"
 version = "0.17.3"
-source = "git+https://github.com/near/wasmer?rev=2deea4f4a62b0813a3733770612f78a663fc2b89#2deea4f4a62b0813a3733770612f78a663fc2b89"
+source = "git+https://github.com/near/wasmer?rev=dc45c4c2d91d692d60b7c48854f91073fdb420d9#dc45c4c2d91d692d60b7c48854f91073fdb420d9"
 dependencies = [
  "bincode",
  "blake3",
@@ -6494,7 +6494,7 @@ dependencies = [
 [[package]]
 name = "wasmer-runtime-near"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer?rev=2deea4f4a62b0813a3733770612f78a663fc2b89#2deea4f4a62b0813a3733770612f78a663fc2b89"
+source = "git+https://github.com/near/wasmer?rev=dc45c4c2d91d692d60b7c48854f91073fdb420d9#dc45c4c2d91d692d60b7c48854f91073fdb420d9"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -6507,7 +6507,7 @@ dependencies = [
 [[package]]
 name = "wasmer-singlepass-backend-near"
 version = "0.17.1"
-source = "git+https://github.com/near/wasmer?rev=2deea4f4a62b0813a3733770612f78a663fc2b89#2deea4f4a62b0813a3733770612f78a663fc2b89"
+source = "git+https://github.com/near/wasmer?rev=dc45c4c2d91d692d60b7c48854f91073fdb420d9#dc45c4c2d91d692d60b7c48854f91073fdb420d9"
 dependencies = [
  "bincode",
  "borsh 0.9.0",
