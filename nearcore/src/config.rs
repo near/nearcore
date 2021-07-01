@@ -1088,6 +1088,38 @@ pub fn download_genesis(url: &String, path: &PathBuf) {
     });
 }
 
+#[derive(Deserialize)]
+struct NodeKeyFile {
+    account_id: String,
+    public_key: PublicKey,
+    secret_key: near_crypto::SecretKey,
+}
+
+impl NodeKeyFile {
+    fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    }
+}
+
+impl From<NodeKeyFile> for KeyFile {
+    fn from(this: NodeKeyFile) -> Self {
+        Self {
+            account_id: if this.account_id.is_empty() {
+                "node".to_string()
+            } else {
+                this.account_id
+            }
+            .try_into()
+            .unwrap(),
+            public_key: this.public_key,
+            secret_key: this.secret_key,
+        }
+    }
+}
+
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(&config.genesis_file));
@@ -1104,11 +1136,11 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     } else {
         None
     };
-    let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
+    let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
         Genesis::new_with_path(genesis_config, genesis_records_file),
-        (&network_signer).into(),
+        network_signer.into(),
         validator_signer,
     )
 }
