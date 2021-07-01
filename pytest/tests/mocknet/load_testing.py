@@ -3,15 +3,17 @@
 # stays consistent.
 
 import sys, time
-from rc import pmap
+sys.path.append('lib')
 
+from rc import pmap
 from load_testing_helper import (ALL_TX_TIMEOUT, TRANSFER_ONLY_TIMEOUT,
                                  CONTRACT_DEPLOY_TIME, MAX_TPS)
 
-sys.path.append('lib')
 import mocknet
-from metrics import Metrics
 import data, utils
+
+from metrics import Metrics
+from configured_logger import logger
 
 
 def wasm_contract():
@@ -65,7 +67,7 @@ def measure_tps_bps(nodes):
         'in_tps': input_tps,
         'out_tps': measurement['tps']
     }
-    print(f'INFO: {result}')
+    logger.info(f'INFO: {result}')
     return result
 
 
@@ -81,7 +83,7 @@ def check_tps(measurement, expected_in, expected_out=None, tolarance=0.05):
 def check_memory_usage(node):
     metrics = mocknet.get_metrics(node)
     mem_usage = metrics.memory_usage / 1e6
-    print(f'INFO: Memory usage (MB) = {mem_usage}')
+    logger.info(f'INFO: Memory usage (MB) = {mem_usage}')
     return mem_usage < 4500
 
 
@@ -89,19 +91,19 @@ def check_slow_blocks(initial_metrics, final_metrics):
     delta = Metrics.diff(final_metrics, initial_metrics)
     slow_process_blocks = delta.block_processing_time[
         'le +Inf'] - delta.block_processing_time['le 1']
-    print(
+    logger.info(
         f'INFO: Number of blocks processing for more than 1s: {slow_process_blocks}'
     )
     return slow_process_blocks == 0
 
 
 if __name__ == '__main__':
-    print('INFO: Starting Load test.')
+    logger.info('INFO: Starting Load test.')
     nodes = mocknet.get_nodes()
     initial_validator_accounts = mocknet.list_validators(nodes[0])
     test_passed = True
 
-    print('INFO: Performing baseline block time measurement')
+    logger.info('INFO: Performing baseline block time measurement')
     # We do not include tps here because there are no transactions on mocknet normally.
     time.sleep(120)
     baseline_measurement = mocknet.chain_measure_bps_and_tps(
@@ -109,51 +111,49 @@ if __name__ == '__main__':
     baseline_measurement['in_tps'] = 0.0
     # quit test early if the baseline is poor.
     assert baseline_measurement['bps'] > 1.0
-    print(f'INFO: {baseline_measurement}')
-    print('INFO: Baseline block time measurement complete')
+    logger.info(f'INFO: {baseline_measurement}')
+    logger.info('INFO: Baseline block time measurement complete')
 
-    print('INFO: Setting remote python environments.')
+    logger.info('INFO: Setting remote python environments.')
     mocknet.setup_python_environments(nodes, wasm_contract())
-    print('INFO: Starting transaction spamming scripts.')
+    logger.info('INFO: Starting transaction spamming scripts.')
     mocknet.start_load_test_helpers(nodes, 'load_testing_helper.py')
 
     initial_metrics = mocknet.get_metrics(nodes[-1])
-    print('INFO: Waiting for transfer only period to complete.')
+    logger.info('INFO: Waiting for transfer only period to complete.')
     time.sleep(TRANSFER_ONLY_TIMEOUT)
     transfer_final_metrics = mocknet.get_metrics(nodes[-1])
 
     # wait before doing measurement to ensure tx_events written by helpers
     time.sleep(5)
-    print('INFO: Transfer-only results:')
+    logger.info('INFO: Transfer-only results:')
     transfer_only_measurement = measure_tps_bps(nodes)
     test_passed = (transfer_only_measurement['bps'] > 0.5) and test_passed
     test_passed = check_tps(transfer_only_measurement, MAX_TPS) and test_passed
     test_passed = check_memory_usage(nodes[0]) and test_passed
     test_passed = check_slow_blocks(initial_metrics,
                                     transfer_final_metrics) and test_passed
-    print('')
 
-    print('INFO: Waiting for contracts to be deployed.')
+    logger.info('INFO: Waiting for contracts to be deployed.')
     measurement_duration = transfer_final_metrics.timestamp - time.time()
     time.sleep(CONTRACT_DEPLOY_TIME - measurement_duration)
 
-    print('INFO: Waiting for random transactions period to complete.')
+    logger.info('INFO: Waiting for random transactions period to complete.')
     all_tx_initial_metrics = mocknet.get_metrics(nodes[-1])
     time.sleep(ALL_TX_TIMEOUT)
     final_metrics = mocknet.get_metrics(nodes[-1])
 
     time.sleep(5)
-    print('INFO: All transaction types results:')
+    logger.info('INFO: All transaction types results:')
     all_tx_measurement = measure_tps_bps(nodes)
     test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
     test_passed = check_memory_usage(nodes[0]) and test_passed
     test_passed = check_slow_blocks(all_tx_initial_metrics,
                                     final_metrics) and test_passed
-    print('')
 
     final_validator_accounts = mocknet.list_validators(nodes[0])
     assert initial_validator_accounts == final_validator_accounts
 
     assert test_passed
 
-    print('INFO: Load test complete.')
+    logger.info('INFO: Load test complete.')
