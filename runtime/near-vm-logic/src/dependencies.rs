@@ -179,8 +179,8 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index_one = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
-    /// let receipt_index_two = external.create_receipt(vec![receipt_index_one], "bob.near".to_owned());
+    /// let receipt_index_one = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
+    /// let receipt_index_two = external.create_receipt(vec![receipt_index_one], "bob.near".parse().unwrap());
     ///
     /// ```
     ///
@@ -204,7 +204,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_create_account(receipt_index).unwrap();
     ///
     /// ```
@@ -226,7 +226,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_deploy_contract(receipt_index, b"some valid Wasm code".to_vec()).unwrap();
     ///
     /// ```
@@ -255,7 +255,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_function_call(
     ///     receipt_index,
     ///     b"method_name".to_vec(),
@@ -290,7 +290,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_transfer(
     ///     receipt_index,
     ///     100000u128,
@@ -320,7 +320,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_stake(
     ///     receipt_index,
     ///     100000u128,
@@ -352,7 +352,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_add_key_with_full_access(
     ///     receipt_index,
     ///     b"some public key".to_vec(),
@@ -387,13 +387,13 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_add_key_with_function_call(
     ///     receipt_index,
     ///     b"some public key".to_vec(),
     ///     0u64,
     ///     None,
-    ///     "bob.near".to_owned(),
+    ///     "bob.near".parse().unwrap(),
     ///     vec![b"foo".to_vec(), b"bar".to_vec()]
     /// ).unwrap();
     ///
@@ -424,7 +424,7 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_delete_key(
     ///     receipt_index,
     ///     b"some public key".to_vec()
@@ -453,10 +453,10 @@ pub trait External {
     /// # use near_vm_logic::External;
     ///
     /// # let mut external = MockedExternal::new();
-    /// let receipt_index = external.create_receipt(vec![], "charli.near".to_owned()).unwrap();
+    /// let receipt_index = external.create_receipt(vec![], "charli.near".parse().unwrap()).unwrap();
     /// external.append_action_delete_account(
     ///     receipt_index,
-    ///     "sam".to_owned()
+    ///     "sam".parse().unwrap()
     /// ).unwrap();
     ///
     /// ```
