@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 First run network with 3 `stable` nodes and 1 `new` node.
 Then start switching `stable` nodes one by one with new nodes.
@@ -16,6 +16,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
+from configured_logger import logger
 from utils import wait_for_blocks_or_timeout, load_test_contract
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
     sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
@@ -28,12 +29,12 @@ def main():
     subprocess.check_output('mkdir -p /tmp/near', shell=True)
 
     branch = branches.latest_rc_branch()
-    print(f"Latest rc release branch is {branch}")
+    logger.info(f"Latest rc release branch is {branch}")
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test(branch)
 
     # Setup local network.
-    print([
+    logger.info([
         "%snear-%s" % (near_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
     ])

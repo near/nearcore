@@ -9,6 +9,7 @@ import fcntl
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from utils import LogTracker
 
 fcntl.fcntl(1, fcntl.F_SETFL, 0)  # no cache when execute from nightly runner
@@ -21,11 +22,11 @@ nodes = start_cluster(
     [["num_block_producer_seats", 199],
      ["num_block_producer_seats_per_shard", [99, 100]], ["epoch_length", 10],
      ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {})
-print('cluster started')
+logger.info('cluster started')
 
 started = time.time()
 
-print("Waiting for %s blocks..." % BLOCKS)
+logger.info("Waiting for %s blocks..." % BLOCKS)
 
 while True:
     assert time.time() - started < TIMEOUT
@@ -35,7 +36,7 @@ while True:
         break
     time.sleep(1)
 
-print("Got to %s blocks, rebooting the first node" % BLOCKS)
+logger.info("Got to %s blocks, rebooting the first node" % BLOCKS)
 
 nodes[0].kill()
 nodes[0].reset_data()

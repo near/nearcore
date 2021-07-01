@@ -1,4 +1,6 @@
 import subprocess, sys
+sys.path.append('lib')
+from configured_logger import logger
 
 
 def _run_process(cmd):
@@ -16,17 +18,15 @@ def init_network_pillager():
             f.write("42")
     except IOError as e:
         if e[0] == 13:
-            print(
+            logger.critical(
                 "Failed to modify `/sys/fs/cgroup/net_cls/block/net_cls.classid`."
             )
-            print(
-                "Make sure the current user has access to it, e.g. by changing the owner:"
+            logger.critical(
+                "Make sure the current user has access to it, e.g. by changing the owner:\n"
             )
-            print("")
-            print(
+            logger.critical(
                 "    chown <group>.<user> /sys/fs/cgroup/net_cls/block/net_cls.classid"
             )
-            print("")
             sys.exit(1)
     _run_process([
         "iptables", "-A", "OUTPUT", "-m", "cgroup", "--cgroup", "42", "-j",
@@ -55,7 +55,7 @@ if __name__ == "__main__":
                               stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE,
                               universal_newlines=True)
-    print(handle.pid)
+    logger.info(handle.pid)
     time.sleep(3)
     stop_network(handle.pid)
     time.sleep(3)
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     time.sleep(3)
     handle.kill()
     out, err = handle.communicate()
-    print("STDOUT (expect ~6 entries if all goes well):")
-    print(out)
-    print("STDERR (expect ~3 entries if all goes well):")
-    print(err)
+    logger.info("STDOUT (expect ~6 entries if all goes well):")
+    logger.info(out)
+    logger.info("STDERR (expect ~3 entries if all goes well):")
+    logger.info(err)
