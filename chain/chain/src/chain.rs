@@ -2942,6 +2942,7 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
+                    println!("RESTORED & PASSED: {}", apply_result.receipts_to_restore.len());
                     if !apply_result.receipts_to_restore.is_empty() {
                         self.chain_store_update.save_receipts(&apply_result.receipts_to_restore);
                     }

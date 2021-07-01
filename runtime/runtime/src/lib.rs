@@ -1216,7 +1216,7 @@ impl Runtime {
                 state_changes,
                 stats,
                 proof,
-                receipts_to_restore,
+                receipts_to_restore: vec![],
             });
         }
 
@@ -1370,6 +1370,7 @@ impl Runtime {
 
         let state_root = trie_changes.new_root;
         let proof = trie.recorded_storage();
+        println!("RESTORED: {}", receipts_to_restore.len());
         Ok(ApplyResult {
             state_root,
             trie_changes,
@@ -1379,7 +1380,7 @@ impl Runtime {
             state_changes,
             stats,
             proof,
-            receipts_to_restore: vec![],
+            receipts_to_restore,
         })
     }
 
