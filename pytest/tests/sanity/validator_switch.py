@@ -8,6 +8,7 @@ import sys, time, base58
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_staking_tx
 
 EPOCH_LENGTH = 20
@@ -29,7 +30,7 @@ for i in range(4):
     tx = sign_staking_tx(nodes[i].signer_key, nodes[i].validator_key, stake, 1,
                          base58.b58decode(hash_.encode('utf8')))
     nodes[0].send_tx(tx)
-    print("test%s stakes %d" % (i, stake))
+    logger.info("test%s stakes %d" % (i, stake))
 
 cur_height = 0
 while cur_height < EPOCH_LENGTH * 2:

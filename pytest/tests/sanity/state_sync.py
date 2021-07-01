@@ -14,13 +14,14 @@ import sys, time
 sys.path.append('lib')
 
 if len(sys.argv) < 3:
-    print("python state_sync.py [notx, onetx, manytx] <launch_at_block>")
+    logger.info("python state_sync.py [notx, onetx, manytx] <launch_at_block>")
     exit(1)
 
 mode = sys.argv[1]
 assert mode in ['notx', 'onetx', 'manytx']
 
 from cluster import init_cluster, spin_up_node, load_config
+from configured_logger import logger
 from utils import TxContext, LogTracker
 
 START_AT_BLOCK = int(sys.argv[2])
@@ -54,7 +55,7 @@ while observed_height < START_AT_BLOCK:
     hash_ = status['sync_info']['latest_block_hash']
     if new_height > observed_height:
         observed_height = new_height
-        print("Boot node got to height %s" % new_height)
+        logger.info("Boot node got to height %s" % new_height)
 
     if mode == 'onetx' and not sent_txs:
         ctx.send_moar_txs(hash_, 3, False)
@@ -63,7 +64,7 @@ while observed_height < START_AT_BLOCK:
     elif mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
             ctx.send_moar_txs(hash_, 3, False)
-            print("Sending moar txs at height %s" % new_height)
+            logger.info("Sending moar txs at height %s" % new_height)
     time.sleep(0.1)
 
 if mode == 'onetx':
@@ -81,7 +82,7 @@ while catch_up_height < observed_height:
     new_height = status['sync_info']['latest_block_height']
     if new_height > catch_up_height:
         catch_up_height = new_height
-        print("Second node got to height %s" % new_height)
+        logger.info("Second node got to height %s" % new_height)
 
     status = boot_node.get_status()
     boot_height = status['sync_info']['latest_block_height']
@@ -89,7 +90,7 @@ while catch_up_height < observed_height:
     if mode == 'manytx':
         if ctx.get_balances() == ctx.expected_balances:
             ctx.send_moar_txs(hash_, 3, False)
-            print("Sending moar txs at height %s" % boot_height)
+            logger.info("Sending moar txs at height %s" % boot_height)
     time.sleep(0.1)
 
 boot_heights = boot_node.get_all_heights()
@@ -107,7 +108,7 @@ elif catch_up_height <= 30:
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:
         assert time.time() - started < TIMEOUT
-        print(
+        logger.info(
             "Waiting for the old node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
@@ -118,9 +119,9 @@ if mode == 'manytx':
 
     while ctx.get_balances() != ctx.expected_balances:
         assert time.time() - started < TIMEOUT
-        print(
+        logger.info(
             "Waiting for the new node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
 
-print('EPIC')
+logger.info('EPIC')

@@ -11,6 +11,7 @@ if "swap_nodes" in sys.argv:
     swap_nodes = True  # swap nodes 0 and 1 after first sync
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TARGET_HEIGHT_1 = 60
 TARGET_HEIGHT_2 = 170
@@ -39,17 +40,17 @@ nodes = start_cluster(
      ["num_block_producer_seats", 10],
      ["num_block_producer_seats_per_shard", [10]]], {1: consensus_config})
 
-print('Kill node 1')
+logger.info('Kill node 1')
 nodes[1].kill()
 
 node0_height = 0
 while node0_height < TARGET_HEIGHT_1:
     status = nodes[0].get_status()
-    print(status)
+    logger.info(status)
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('Restart node 1')
+logger.info('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(3)
 
@@ -59,27 +60,27 @@ node1_height = 0
 while True:
     assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 1"
     status = nodes[1].get_status()
-    print(status)
+    logger.info(status)
     node1_height = status['sync_info']['latest_block_height']
     if node1_height >= node0_height:
         break
     time.sleep(2)
 
 if swap_nodes:
-    print('Swap nodes 0 and 1')
+    logger.info('Swap nodes 0 and 1')
     nodes[0], nodes[1] = nodes[1], nodes[0]
 
-print('Kill node 1')
+logger.info('Kill node 1')
 nodes[1].kill()
 
 node0_height = 0
 while node0_height < TARGET_HEIGHT_2:
     status = nodes[0].get_status()
-    print(status)
+    logger.info(status)
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('Restart node 1')
+logger.info('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(3)
 
@@ -89,7 +90,7 @@ node1_height = 0
 while True:
     assert time.time() - start_time < TIMEOUT, "Block sync timed out, phase 2"
     status = nodes[1].get_status()
-    print(status)
+    logger.info(status)
     node1_height = status['sync_info']['latest_block_height']
     if node1_height >= node0_height:
         break
@@ -135,8 +136,8 @@ assert blocks_count == 0
 # check that node can GC normally after syncing
 while node1_height < TARGET_HEIGHT_3:
     status = nodes[1].get_status()
-    print(status)
+    logger.info(status)
     node1_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('EPIC')
+logger.info('EPIC')
