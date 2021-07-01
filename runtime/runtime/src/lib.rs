@@ -264,7 +264,7 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::ExecutionMetadataV2(apply_state.profile.cut()),
                     },
                 };
                 Ok((receipt, outcome))

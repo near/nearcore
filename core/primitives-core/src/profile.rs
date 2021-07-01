@@ -1,6 +1,9 @@
 use std::rc::Rc;
 use std::{cell::Cell, fmt};
 
+use borsh::{BorshDeserialize, BorshSerialize};
+use serde::{Deserialize, Serialize};
+
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
 
@@ -12,6 +15,10 @@ type DataArray = [Cell<u64>; ProfileData::LEN];
 pub struct ProfileData {
     data: Rc<DataArray>,
 }
+
+/// Result of a ProfileData stat
+#[derive(Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ProfileDataResult(pub Vec<u64>);
 
 impl Default for ProfileData {
     fn default() -> ProfileData {
@@ -87,6 +94,19 @@ impl ProfileData {
     pub fn set_burnt_gas(&self, burnt_gas: u64) {
         let slot = &self.data[0];
         slot.set(burnt_gas)
+    }
+
+    /// Cut up counter values up to now
+    /// get and reset all counter to zero
+    pub fn cut(&self) -> ProfileDataResult {
+        let mut ret = vec![];
+        for i in 0..ProfileData::LEN {
+            let slot = &self.data[i];
+            let old = slot.get();
+            ret.push(old);
+            slot.set(0);
+        }
+        ProfileDataResult(ret)
     }
 }
 
