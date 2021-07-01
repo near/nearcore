@@ -129,4 +129,10 @@ skip = [
 
     # hashbrown uses an older version
     { name = "ahash", version = "=0.4.7" },
+
+    # zeropool-bn use borsh 0.8.1
+    { name = "borsh", version = "=0.8.1" },
+    { name = "borsh-derive", version = "=0.8.1" },
+    { name = "borsh-derive-internal", version = "=0.8.1" },
+    { name = "borsh-schema-derive-internal", version = "=0.8.1" },
 ]
