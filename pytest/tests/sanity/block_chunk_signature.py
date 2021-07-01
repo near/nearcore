@@ -6,6 +6,7 @@ import sys, time, asyncio
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
 
@@ -29,6 +30,5 @@ nodes = start_cluster(2, 0, 1, None, [], {}, Handler)
 time.sleep(5)
 h0 = nodes[0].get_status()['sync_info']['latest_block_height']
 h1 = nodes[1].get_status()['sync_info']['latest_block_height']
-print("Heights:", h0, h1)
+logger.info(f"Heights: {h0} {h1}")
 assert h0 <= 3 and h1 <= 3
-

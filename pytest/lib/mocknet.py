@@ -1,5 +1,6 @@
 import base58
 from cluster import GCloudNode
+from configured_logger import logger
 from key import Key
 from metrics import Metrics
 from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
@@ -8,6 +9,7 @@ import json
 import os
 import statistics
 import time
+
 from rc import run, pmap
 
 NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
@@ -83,7 +85,7 @@ def list_validators(node):
 
 def setup_python_environment(node, wasm_contract):
     m = node.machine
-    print(f'INFO: Setting up python environment on {m.name}')
+    logger.info(f'INFO: Setting up python environment on {m.name}')
     m.run('bash', input=PYTHON_SETUP_SCRIPT)
     m.upload('lib', PYTHON_DIR, switch_user='ubuntu')
     m.upload('requirements.txt', PYTHON_DIR, switch_user='ubuntu')
@@ -92,7 +94,7 @@ def setup_python_environment(node, wasm_contract):
              PYTHON_DIR,
              switch_user='ubuntu')
     m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
-    print(f'INFO: {m.name} python setup complete')
+    logger.info(f'INFO: {m.name} python setup complete')
 
 
 def setup_python_environments(nodes, wasm_contract):
@@ -108,7 +110,7 @@ def start_load_test_helper_script(script, index, pk, sk):
 
 def start_load_test_helper(node, script, pk, sk):
     m = node.machine
-    print(f'INFO: Starting load_test_helper on {m.name}')
+    logger.info(f'INFO: Starting load_test_helper on {m.name}')
     index = int(m.name.split('node')[-1])
     m.run('bash', input=start_load_test_helper_script(script, index, pk, sk))
 
@@ -214,21 +216,21 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
     while 'error' in response.keys():
         error_data = response['error']['data']
         if 'timeout' in error_data.lower():
-            print(
-                f'WARN: transaction {tx_hash} returned Timout, checking status again.'
+            logger.warning(
+                f'transaction {tx_hash} returned Timout, checking status again.'
             )
             time.sleep(5)
             response = node.get_tx(tx_hash, account_id)
         elif "doesn't exist" in error_data:
             missing_count += 1
-            print(
-                f'WARN: transaction {tx_hash} falied to be recieved by the node, checking again.'
+            logger.warning(
+                f'transaction {tx_hash} falied to be recieved by the node, checking again.'
             )
             if missing_count < 20:
                 time.sleep(5)
                 response = node.get_tx(tx_hash, account_id)
             else:
-                print(f'WARN: re-sending transaction {tx_hash}.')
+                logger.warning(f're-sending transaction {tx_hash}.')
                 response = node.send_tx_and_wait(tx, timeout)
                 missing_count = 0
         else:
@@ -245,7 +247,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
 
 
 def transfer_between_nodes(nodes):
-    print('INFO: Testing transfer between mocknet validators')
+    logger.info('INFO: Testing transfer between mocknet validators')
     node = nodes[0]
     alice = get_validator_account(nodes[1])
     bob = get_validator_account(nodes[0])
@@ -256,8 +258,8 @@ def transfer_between_nodes(nodes):
     alice_initial_balance = get_balance(alice)
     alice_nonce = node.get_nonce_for_pk(alice.account_id, alice.pk)
     bob_initial_balance = get_balance(bob)
-    print(f'INFO: Alice initial balance: {alice_initial_balance}')
-    print(f'INFO: Bob initial balance: {bob_initial_balance}')
+    logger.info(f'INFO: Alice initial balance: {alice_initial_balance}')
+    logger.info(f'INFO: Bob initial balance: {bob_initial_balance}')
 
     last_block_hash = node.get_status()['sync_info']['latest_block_hash']
     last_block_hash_decoded = base58.b58decode(last_block_hash.encode('utf8'))
@@ -269,8 +271,8 @@ def transfer_between_nodes(nodes):
 
     alice_final_balance = get_balance(alice)
     bob_final_balance = get_balance(bob)
-    print(f'INFO: Alice final balance: {alice_final_balance}')
-    print(f'INFO: Bob final balance: {bob_final_balance}')
+    logger.info(f'INFO: Alice final balance: {alice_final_balance}')
+    logger.info(f'INFO: Bob final balance: {bob_final_balance}')
 
     # Check mod 1000 to ignore the cost of the transaction itself
     assert (alice_initial_balance -
@@ -280,7 +282,7 @@ def transfer_between_nodes(nodes):
 
 def stake_node(node):
     account = get_validator_account(node)
-    print(f'INFO: Staking {account.account_id}.')
+    logger.info(f'INFO: Staking {account.account_id}.')
     nonce = node.get_nonce_for_pk(account.account_id, account.pk)
 
     validators = node.get_validators()['result']
@@ -318,7 +320,7 @@ def get_near_pid(machine):
 
 def stop_node(node):
     m = node.machine
-    print(f'INFO: Stopping node {m.name}')
+    logger.info(f'INFO: Stopping node {m.name}')
     pid = get_near_pid(m)
     if pid != '':
         m.run('bash', input=kill_proccess_script(pid))
@@ -327,7 +329,7 @@ def stop_node(node):
 
 def start_node(node):
     m = node.machine
-    print(f'INFO: Starting node {m.name}')
+    logger.info(f'INFO: Starting node {m.name}')
     pid = get_near_pid(m)
     if pid == '':
         start_process = m.run('sudo -u ubuntu -i', input=TMUX_START_SCRIPT)
@@ -338,14 +340,14 @@ def reset_data(node, retries=0):
     try:
         m = node.machine
         stop_node(node)
-        print(f'INFO: Clearing data directory of node {m.name}')
+        logger.info(f'INFO: Clearing data directory of node {m.name}')
         start_process = m.run('bash',
                               input='/home/ubuntu/near unsafe_reset_data')
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
     except:
         if retries < 3:
-            print(
-                f'WARN: And error occured while clearing data directory, retrying'
+            logger.warning(
+                f'And error occured while clearing data directory, retrying'
             )
             reset_data(node, retries=retries + 1)
         else:

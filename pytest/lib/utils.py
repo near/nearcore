@@ -2,6 +2,7 @@ from transaction import sign_payment_tx
 import random, base58
 from retrying import retry
 from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
+from configured_logger import logger
 import sys
 from rc import run, gcloud
 import os
@@ -43,7 +44,7 @@ class TxContext:
                 to += 1
             amt = random.randint(0, 500)
             if self.expected_balances[from_] >= amt:
-                print("Sending a tx from %s to %s for %s" % (from_, to, amt))
+                logger.info("Sending a tx from %s to %s for %s" % (from_, to, amt))
                 tx = sign_payment_tx(
                     self.nodes[from_].signer_key, 'test%s' % to, amt,
                     self.next_nonce,
@@ -75,7 +76,7 @@ class LogTracker:
                                  input='''
 with open('/tmp/python-rc.log') as f:
     f.seek(0, 2)
-    print(f.tell())
+    logger.info(f.tell())
 ''').stdout)
         else:
             # the above method should works for other cloud, if it has node.machine but untested
@@ -97,8 +98,8 @@ with open('/tmp/python-rc.log') as f:
 pattern={pattern}
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
-    print(s in f.read())
-    print(f.tell())
+    logger.info(s in f.read())
+    logger.info(f.tell())
 ''').stdout.strip().split('\n'))
             self.offset = int(offset)
             return ret == "True"
@@ -121,8 +122,8 @@ with open('/tmp/python-rc.log') as f:
                                            input=f'''
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
-    print(f.read().count({pattern})
-    print(f.tell())
+    logger.info(f.read().count({pattern})
+    logger.info(f.tell())
 ''').stdout.strip().split('\n')
             ret = int(ret)
             self.offset = int(offset)
@@ -147,7 +148,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
         while True:
             validators = node.validators()
             if validators != initial_validators:
-                print(
+                logger.critical(
                     f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
                 )
                 sys.exit(1)
@@ -161,7 +162,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
         for _ in range(max_blocks):
             validators = node.validators()
             if validators != initial_validators:
-                print(
+                logger.critical(
                     f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
                 )
                 sys.exit(1)
@@ -243,7 +244,7 @@ def collect_gcloud_config(num_nodes):
     for i in range(num_nodes):
         if not os.path.exists(f'/tmp/near/node{i}'):
             # TODO: avoid hardcoding the username
-            print(f'downloading node{i} config from gcloud')
+            logger.info(f'downloading node{i} config from gcloud')
             pathlib.Path(f'/tmp/near/node{i}').mkdir(parents=True,
                                                      exist_ok=True)
             gcloud.get(f'pytest-node-{user_name()}-{i}').download(

@@ -3,6 +3,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 overtake = False  # create a new chain which is shorter than current one
 if "overtake" in sys.argv:
@@ -31,23 +32,23 @@ if not doomslug:
 started = time.time()
 
 time.sleep(2)
-print("Waiting for %s blocks..." % BLOCKS)
+logger.info("Waiting for %s blocks..." % BLOCKS)
 
 while True:
     assert time.time() - started < TIMEOUT
     status = nodes[0].get_status()
     height = status['sync_info']['latest_block_height']
-    print(status)
+    logger.info(status)
     if height >= BLOCKS:
         break
     time.sleep(1)
 
-print("Got to %s blocks, getting to fun stuff" % BLOCKS)
+logger.info("Got to %s blocks, getting to fun stuff" % BLOCKS)
 
 status = nodes[0].get_status()
-print("STATUS OF HONEST", status)
+logger.info(f"STATUS OF HONEST {status}")
 saved_blocks = nodes[0].json_rpc('adv_get_saved_blocks', [])
-print("SAVED BLOCKS", saved_blocks)
+logger.info(f"SAVED BLOCKS {saved_blocks}")
 
 nodes[0].kill()  # to disallow syncing
 nodes[1].kill()
@@ -75,15 +76,15 @@ nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 
 time.sleep(3)
 status = nodes[1].get_status()
-print("STATUS OF MALICIOUS", status)
+logger.info(f"STATUS OF MALICIOUS {status}")
 
 status = nodes[0].get_status()
-print("STATUS OF HONEST AFTER", status)
+logger.info(f"STATUS OF HONEST AFTER {status}")
 height = status['sync_info']['latest_block_height']
 
 saved_blocks_2 = nodes[0].json_rpc('adv_get_saved_blocks', [])
-print("SAVED BLOCKS AFTER MALICIOUS INJECTION", saved_blocks_2)
-print("HEIGHT", height)
+logger.info(f"SAVED BLOCKS AFTER MALICIOUS INJECTION {saved_blocks_2}")
+logger.info(f"HEIGHT {height}")
 
 assert saved_blocks['result'] < BLOCKS + 10
 if overtake and not doomslug:
@@ -92,4 +93,4 @@ if overtake and not doomslug:
 else:
     assert saved_blocks_2['result'] < saved_blocks['result'] + 10
 
-print("Epic")
+logger.info("Epic")
