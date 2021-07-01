@@ -2138,33 +2138,6 @@ fn test_gas_price_change_no_chunk() {
     assert!(res.is_ok());
 }
 
-// State sync the second client to the first client.
-fn simulate_state_sync(env: &mut TestEnv, sync_hash: CryptoHash) {
-    assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
-    let state_root = match &state_sync_header {
-        ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
-        ShardStateSyncResponseHeader::V2(header) => {
-            *header.chunk.cloned_header().take_inner().prev_state_root()
-        }
-    };
-    let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &state_root).unwrap();
-    let num_parts = get_num_state_parts(state_root_node.memory_usage);
-    let state_sync_parts = (0..num_parts)
-        .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
-        .collect::<Vec<_>>();
-
-    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
-    for i in 0..num_parts {
-        env.clients[1]
-            .chain
-            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
-            .unwrap();
-    }
-    env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
-}
-
 #[test]
 fn test_catchup_gas_price_change() {
     init_test_logger();
@@ -2207,8 +2180,32 @@ fn test_catchup_gas_price_change() {
     assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
     assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).is_err());
 
+    // Simulate state sync
     let sync_hash = *blocks[5].hash();
-    simulate_state_sync(&mut env, sync_hash);
+    assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
+    let state_sync_header = env.clients[0].chain.get_state_response_header(0, sync_hash).unwrap();
+    let state_root = match &state_sync_header {
+        ShardStateSyncResponseHeader::V1(header) => header.chunk.header.inner.prev_state_root,
+        ShardStateSyncResponseHeader::V2(header) => {
+            *header.chunk.cloned_header().take_inner().prev_state_root()
+        }
+    };
+    //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
+    let state_root_node =
+        env.clients[0].runtime_adapter.get_state_root_node(0, &state_root).unwrap();
+    let num_parts = get_num_state_parts(state_root_node.memory_usage);
+    let state_sync_parts = (0..num_parts)
+        .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
+        .collect::<Vec<_>>();
+
+    env.clients[1].chain.set_state_header(0, sync_hash, state_sync_header).unwrap();
+    for i in 0..num_parts {
+        env.clients[1]
+            .chain
+            .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
+            .unwrap();
+    }
+    env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
 
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
