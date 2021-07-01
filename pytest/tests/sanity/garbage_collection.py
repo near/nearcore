@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TARGET_HEIGHT = 60
 TIMEOUT = 30
@@ -42,7 +43,7 @@ nodes = start_cluster(
          1: consensus_config
      })
 
-print('Kill node 1')
+logger.info('Kill node 1')
 nodes[1].kill()
 
 node0_height = 0
@@ -51,7 +52,7 @@ while node0_height < TARGET_HEIGHT:
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('Restart node 1')
+logger.info('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(3)
 

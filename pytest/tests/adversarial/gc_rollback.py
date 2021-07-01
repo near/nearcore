@@ -13,6 +13,7 @@ import random
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 EPOCH_LENGTH = 30
 NUM_BLOCKS_TOTAL = 200
@@ -33,13 +34,13 @@ last_fork = FORK_EACH_BLOCKS * 2
 while cur_height < NUM_BLOCKS_TOTAL:
     status = nodes[0].get_status()
     cur_height = status['sync_info']['latest_block_height']
-    print(status)
+    logger.info(status)
     if cur_height > last_fork:
         new_height = cur_height - random.randint(1, FORK_EACH_BLOCKS)
         nodes[1].kill()
         nodes[1].reset_data()
 
-        print("Rolling back from %d to %d" % (cur_height, new_height))
+        logger.info("Rolling back from %d to %d" % (cur_height, new_height))
         res = nodes[0].json_rpc('adv_switch_to_height', [new_height])
         assert 'result' in res, res
         #res = nodes[1].json_rpc('adv_switch_to_height', [new_height])
@@ -53,4 +54,4 @@ while cur_height < NUM_BLOCKS_TOTAL:
     time.sleep(0.9)
 
 saved_blocks = nodes[0].json_rpc('adv_get_saved_blocks', [])
-print(saved_blocks)
+logger.info(saved_blocks)
