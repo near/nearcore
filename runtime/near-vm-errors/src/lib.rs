@@ -206,14 +206,14 @@ pub enum HostError {
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
+    /// General errors for ECDSA recover.
+    ECRecoverError { msg: String },
     /// Deserialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128DeserializationError { msg: String },
     /// Serialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128SerializationError { msg: String },
-    /// General errors for ECDSA recover.
-    ECRecoverError { msg: String },
 }
 
 /// Errors specifically from native EVM.

@@ -87,12 +87,17 @@ pub enum ProtocolFeature {
     FixApplyChunks,
     LowerStorageCost,
     DeleteActionRestriction,
+    /// Add versions to `Account` data structure
     AccountVersions,
     TransactionSizeLimit,
+    /// Delete account can create implicit accounts
     AllowCreateAccountOnDelete,
+    /// Fix a bug in `storage_usage` for account caused by #3824
     FixStorageUsage,
+    /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
     CapMaxGasPrice,
     CountRefundReceiptsInGasLimit,
+    /// Add `ripemd60` and `ecrecover` host function
     MathExtension,
 
     // nightly features
