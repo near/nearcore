@@ -28,6 +28,7 @@ sys.path.append('lib')
 
 from cluster import start_cluster, start_bridge
 from bridge import alice, bridge_cluster_config_changes
+from configured_logger import logger
 
 nodes = start_cluster(2, 0, 1, None, [], bridge_cluster_config_changes)
 (bridge, ganache) = start_bridge(nodes)
@@ -59,4 +60,4 @@ assert exit_codes == [0 for _ in txs]
 bridge.check_balances(alice)
 
 
-print('EPIC')
+logger.info('EPIC')

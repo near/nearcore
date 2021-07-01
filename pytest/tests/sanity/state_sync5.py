@@ -7,6 +7,7 @@ import sys, time, base58
 sys.path.append('lib')
 
 from cluster import start_cluster, Key
+from configured_logger import logger
 from transaction import sign_payment_tx
 from utils import LogTracker
 
@@ -28,7 +29,7 @@ nodes = start_cluster(
      ["chunk_producer_kickout_threshold", 10]], {1: node1_config})
 time.sleep(2)
 nodes[1].kill()
-print('node1 is killed')
+logger.info('node1 is killed')
 
 status = nodes[0].get_status()
 block_hash = status['sync_info']['latest_block_hash']
@@ -55,7 +56,7 @@ while node1_height <= cur_height:
         assert False, "state sync timed out"
     if nonce % 5 == 0:
         status1 = nodes[1].get_status()
-        print(status1)
+        logger.info(status1)
         node1_height = status1['sync_info']['latest_block_height']
     tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce, base58.b58decode(genesis_hash.encode('utf8')))
     nodes[1].send_tx(tx)
