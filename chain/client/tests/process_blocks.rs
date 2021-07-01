@@ -94,6 +94,45 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
         .collect()
 }
 
+fn produce_epochs(
+    env: &mut TestEnv,
+    epoch_number: u64,
+    epoch_length: u64,
+    height: BlockHeight,
+) -> BlockHeight {
+    let next_height = height + epoch_number * epoch_length;
+    for i in height..next_height {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        for j in 1..env.clients.len() {
+            env.process_block(j, block.clone(), Provenance::NONE);
+        }
+    }
+    next_height
+}
+
+fn deploy_test_contract(
+    env: &mut TestEnv,
+    account_id: &str,
+    wasm_code: &[u8],
+    epoch_length: u64,
+    height: BlockHeight,
+) -> BlockHeight {
+    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+    let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id);
+
+    let tx = SignedTransaction::from_actions(
+        height,
+        account_id.to_string(),
+        account_id.to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
+        *block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    produce_epochs(env, 1, epoch_length, height)
+}
+
 /// Create environment and set of transactions which cause congestion on the chain.
 fn prepare_env_with_congestion(
     protocol_version: ProtocolVersion,
@@ -2899,6 +2938,46 @@ fn test_congestion_receipt_execution() {
     }
 }
 
+#[test]
+fn test_validator_stake_host_function() {
+    init_test_logger();
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    let mut env = TestEnv::new_with_runtime(
+        ChainGenesis::test(),
+        1,
+        1,
+        create_nightshade_runtimes(&genesis, 1),
+    );
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let block_height = deploy_test_contract(
+        &mut env,
+        "test0",
+        near_test_contracts::rs_contract(),
+        epoch_length,
+        1,
+    );
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signed_transaction = SignedTransaction::from_actions(
+        10,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "ext_validator_stake".to_string(),
+            args: b"test0".to_vec(),
+            gas: 100_000_000_000_000,
+            deposit: 0,
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(signed_transaction, false, false);
+    for i in 0..3 {
+        env.produce_block(0, block_height + i);
+    }
+}
+
 #[cfg(test)]
 mod access_key_nonce_range_tests {
     use super::*;
@@ -3325,37 +3404,6 @@ mod contract_precompilation_tests {
 
     const EPOCH_LENGTH: u64 = 5;
 
-    fn produce_epochs(env: &mut TestEnv, epoch_number: u64, height: BlockHeight) -> BlockHeight {
-        let next_height = height + epoch_number * EPOCH_LENGTH;
-        for i in height..next_height {
-            let block = env.clients[0].produce_block(i).unwrap().unwrap();
-            env.process_block(0, block.clone(), Provenance::PRODUCED);
-            env.process_block(1, block, Provenance::NONE);
-        }
-        next_height
-    }
-
-    fn deploy_contract(
-        env: &mut TestEnv,
-        account_id: &str,
-        wasm_code: &Vec<u8>,
-        height: BlockHeight,
-    ) -> BlockHeight {
-        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-        let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id);
-
-        let tx = SignedTransaction::from_actions(
-            height,
-            account_id.to_string(),
-            account_id.to_string(),
-            &signer,
-            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })],
-            *block.hash(),
-        );
-        env.clients[0].process_tx(tx, false, false);
-        produce_epochs(env, 1, height)
-    }
-
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let sync_hash = *sync_block.hash();
@@ -3402,7 +3450,8 @@ mod contract_precompilation_tests {
 
         // Process test contract deployment on the first client.
         let wasm_code = near_test_contracts::rs_contract().to_vec();
-        let height = deploy_contract(&mut env, "test0", &wasm_code, start_height);
+        let height =
+            deploy_test_contract(&mut env, "test0", &wasm_code, EPOCH_LENGTH, start_height);
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
@@ -3494,14 +3543,14 @@ mod contract_precompilation_tests {
 
         // Process tiny contract deployment on the first client.
         let tiny_wasm_code = near_test_contracts::tiny_contract().to_vec();
-        height = deploy_contract(&mut env, "test0", &tiny_wasm_code, height);
+        height = deploy_test_contract(&mut env, "test0", &tiny_wasm_code, EPOCH_LENGTH, height);
 
         // Wait 3 epochs.
-        height = produce_epochs(&mut env, 3, height);
+        height = produce_epochs(&mut env, 3, EPOCH_LENGTH, height);
 
         // Process test contract deployment on the first client.
         let wasm_code = near_test_contracts::rs_contract().to_vec();
-        height = deploy_contract(&mut env, "test0", &wasm_code, height);
+        height = deploy_test_contract(&mut env, "test0", &wasm_code, EPOCH_LENGTH, height);
 
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
@@ -3560,7 +3609,7 @@ mod contract_precompilation_tests {
 
         // Process test contract deployment on the first client.
         let wasm_code = near_test_contracts::rs_contract().to_vec();
-        height = deploy_contract(&mut env, "test2", &wasm_code, height);
+        height = deploy_test_contract(&mut env, "test2", &wasm_code, EPOCH_LENGTH, height);
 
         // Delete account on which test contract is stored.
         let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
@@ -3574,7 +3623,7 @@ mod contract_precompilation_tests {
             *block.hash(),
         );
         env.clients[0].process_tx(delete_account_tx, false, false);
-        height = produce_epochs(&mut env, 1, height);
+        height = produce_epochs(&mut env, 1, EPOCH_LENGTH, height);
 
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
