@@ -32,7 +32,7 @@ Start container and build estimator with:
     docker> cd /host/nearcore
     docker> cargo run -j2 --release --package neard --features protocol_feature_evm --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
     docker> cargo run -j2 --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-    docker> cd /host/runtime/runtime-params-estimator/
+    docker> cd /host/nearcore/runtime/runtime-params-estimator
     docker> pushd ./test-contract && ./build.sh && popd
     docker> cargo build --release --package runtime-params-estimator --features required
 
