@@ -4,6 +4,8 @@ import hashlib
 import struct
 
 import base58
+
+from configured_logger import logger
 from messages import schema
 from messages.crypto import PublicKey, Signature
 from messages.network import (EdgeInfo, GenesisId, Handshake, PeerChainInfoV2,
@@ -62,7 +64,7 @@ class Connection:
             while len(response) < length:
                 response += await self.reader.read(length - len(response))
                 if len(response) < length:
-                    print(f"Downloading message {len(response)}/{length}")
+                    logger.info(f"Downloading message {len(response)}/{length}")
 
             return response
 

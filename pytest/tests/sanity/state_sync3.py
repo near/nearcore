@@ -7,6 +7,7 @@ import base58
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 EPOCH_LENGTH = 1000
 MAX_SYNC_WAIT = 120
@@ -37,7 +38,7 @@ nodes = start_cluster(
 time.sleep(2)
 nodes[1].kill()
 
-print("step 1")
+logger.info("step 1")
 
 node0_height = 0
 while node0_height <= EPOCH_LENGTH * 2 + 1:
@@ -47,7 +48,7 @@ while node0_height <= EPOCH_LENGTH * 2 + 1:
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(2)
 
-print("step 2")
+logger.info("step 2")
 synced = False
 node1_height = 0
 start_time = time.time()

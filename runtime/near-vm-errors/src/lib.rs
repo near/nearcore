@@ -212,6 +212,9 @@ pub enum HostError {
     /// Serialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128SerializationError { msg: String },
+    /// General errors for ECDSA recover.
+    #[cfg(feature = "protocol_feature_math_extension")]
+    ECRecoverError { msg: String },
 }
 
 /// Errors specifically from native EVM.
@@ -498,6 +501,8 @@ impl std::fmt::Display for HostError {
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
+            #[cfg(feature = "protocol_feature_math_extension")]
+            ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }
     }
 }

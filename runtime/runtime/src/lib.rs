@@ -56,7 +56,6 @@ use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -264,7 +263,6 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
                     },
                 };
                 Ok((receipt, outcome))
@@ -733,7 +731,6 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         })
     }
@@ -1477,7 +1474,6 @@ mod tests {
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
     use near_vm_runner::{get_contract_cache_key, VMKind};
-    use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;
