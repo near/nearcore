@@ -116,11 +116,10 @@ skip = [
     { name = "cranelift-codegen-shared", version = "=0.68.0" },
     { name = "cranelift-entity", version = "=0.68.0" },
     { name = "cranelift-frontend", version = "=0.68.0" },
-    { name = "libloading", version = "=0.5.2" },
     { name = "wasmparser", version = "=0.65.0" },
     { name = "which", version = "=3.1.1" },
     { name = "object", version = "=0.22.0" },
-   
+
     # cached uses an older version
     { name = "strsim", version = "=0.9.3" },
     { name = "darling", version = "=0.10.2" },
@@ -129,4 +128,9 @@ skip = [
 
     # hashbrown uses an older version
     { name = "ahash", version = "=0.4.7" },
+
+    # rocksdb (transitively through clang-sys) uses this as a build
+    # dependency which conflicts with 0.6.7 that wasmer-engine-native
+    # uses.
+    { name = "libloading", version = "=0.7.0" },
 ]
