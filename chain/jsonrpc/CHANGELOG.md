@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+* Extended error structures to be more explicit. See [#2976 decision comment for reference](https://github.com/near/nearcore/issues/2976#issuecomment-865834617)
+
 ## 0.2.1
 
 * Refactored methods:

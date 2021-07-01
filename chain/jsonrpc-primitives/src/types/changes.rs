@@ -28,19 +28,17 @@ pub struct RpcStateChangesInBlockResponse {
 }
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcStateChangesError {
     #[error("Block not found: {error_message}")]
-    UnknownBlock { error_message: String },
+    UnknownBlock {
+        #[serde(skip_serializing)]
+        error_message: String,
+    },
     #[error("There are no fully synchronized blocks yet")]
     NotSyncedYet,
     #[error("The node reached its limits. Try again later. More details: {error_message}")]
     InternalError { error_message: String },
-    // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
-    // expected cases, we cannot statically guarantee that no other errors will be returned
-    // in the future.
-    // TODO #3851: Remove this variant once we can exhaustively match all the underlying errors
-    #[error("It is a bug if you receive this error type, please, report this incident: https://github.com/near/nearcore/issues/new/choose. Details: {error_message}")]
-    Unreachable { error_message: String },
 }
 
 impl RpcStateChangesRequest {
@@ -65,13 +63,13 @@ impl From<near_client_primitives::types::GetBlockError> for RpcStateChangesError
             near_client_primitives::types::GetBlockError::IOError { error_message } => {
                 Self::InternalError { error_message }
             }
-            near_client_primitives::types::GetBlockError::Unreachable { error_message } => {
+            near_client_primitives::types::GetBlockError::Unreachable { ref error_message } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcStateChangesError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -87,13 +85,15 @@ impl From<near_client_primitives::types::GetStateChangesError> for RpcStateChang
                 Self::UnknownBlock { error_message }
             }
             near_client_primitives::types::GetStateChangesError::NotSyncedYet => Self::NotSyncedYet,
-            near_client_primitives::types::GetStateChangesError::Unreachable { error_message } => {
+            near_client_primitives::types::GetStateChangesError::Unreachable {
+                ref error_message,
+            } => {
                 tracing::warn!(target: "jsonrpc", "Unreachable error occurred: {}", &error_message);
                 near_metrics::inc_counter_vec(
                     &crate::metrics::RPC_UNREACHABLE_ERROR_COUNT,
                     &["RpcStateChangesError"],
                 );
-                Self::Unreachable { error_message }
+                Self::InternalError { error_message: error.to_string() }
             }
         }
     }
@@ -101,9 +101,16 @@ impl From<near_client_primitives::types::GetStateChangesError> for RpcStateChang
 
 impl From<RpcStateChangesError> for crate::errors::RpcError {
     fn from(error: RpcStateChangesError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcStateChangesError: {:?}", err),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }
 

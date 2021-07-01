@@ -5,6 +5,7 @@ import sys, time, base58, base64
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from utils import TxContext
 from transaction import sign_payment_tx
 
@@ -20,7 +21,7 @@ started = time.time()
 old_balances = [
     int(nodes[0].get_account("test%s" % x)['result']['amount']) for x in [0, 1]
 ]
-print("BALANCES BEFORE", old_balances)
+logger.info(f"BALANCES BEFORE {old_balances}")
 
 status = nodes[0].get_status()
 hash1 = status['sync_info']['latest_block_hash']
@@ -46,7 +47,7 @@ for i in range(3):
 new_balances = [
     int(nodes[0].get_account("test%s" % x)['result']['amount']) for x in [0, 1]
 ]
-print("BALANCES AFTER", new_balances)
+logger.info(f"BALANCES AFTER {new_balances}")
 assert new_balances[0] == old_balances[0] - 303
 assert new_balances[1] == old_balances[1] + 303
 
@@ -71,5 +72,3 @@ tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 10,
 res = nodes[0].json_rpc('tx',
                         [base64.b64encode(tx).decode('utf8')], timeout=10)
 assert "doesn't exist" in res['error']['data'], res
-
-

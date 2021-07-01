@@ -91,7 +91,10 @@ where
         .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| {
-            near_jsonrpc_primitives::errors::RpcError::server_error(Some(format!("{:?}", err)))
+            near_jsonrpc_primitives::errors::RpcError::new_internal_error(
+                None,
+                format!("{:?}", err),
+            )
         })
         .and_then(|mut response| {
             response.body().map(|body| match body {
@@ -117,7 +120,9 @@ where
                         ))
                     })
                 }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::invalid_request()),
+                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
+                    "Failed to parse JSON RPC response"
+                ))),
             })
         })
         .boxed_local()

@@ -1,5 +1,4 @@
 use serde::Serialize;
-use serde_json::Value;
 
 #[derive(Serialize, Debug)]
 pub struct RpcNetworkInfoResponse {
@@ -7,7 +6,8 @@ pub struct RpcNetworkInfoResponse {
     pub network_info_response: near_client_primitives::types::NetworkInfoResponse,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Serialize)]
+#[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcNetworkInfoError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
@@ -33,8 +33,15 @@ impl From<String> for RpcNetworkInfoError {
 
 impl From<RpcNetworkInfoError> for crate::errors::RpcError {
     fn from(error: RpcNetworkInfoError) -> Self {
-        let error_data = Some(Value::String(error.to_string()));
-
-        Self::new(-32_000, "Server error".to_string(), error_data)
+        let error_data = match serde_json::to_value(error) {
+            Ok(value) => value,
+            Err(err) => {
+                return Self::new_internal_error(
+                    None,
+                    format!("Failed to serialize RpcNetworkInfoError: {:?}", err),
+                )
+            }
+        };
+        Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
     }
 }
