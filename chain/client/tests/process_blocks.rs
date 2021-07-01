@@ -3168,7 +3168,10 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     }
 }
 
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise `get_mut` for block header will panic.
 #[cfg(test)]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod storage_usage_fix_tests {
     use super::*;
     use borsh::BorshDeserialize;
