@@ -10,7 +10,7 @@ use actix::System;
 use actix::{Actor, Arbiter};
 use futures::{future, FutureExt};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
@@ -59,7 +59,7 @@ fn make_peer_manager(
 fn peer_handshake() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (port1, port2) = (open_port(), open_port());
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)], 10).start();
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)], 10).start();
@@ -84,7 +84,7 @@ fn peer_handshake() {
 fn peers_connect_all() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let port = open_port();
         let _pm = make_peer_manager("test", port, vec![], 10).start();
         let mut peers = vec![];
@@ -127,7 +127,7 @@ fn peers_connect_all() {
 fn peer_recover() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let port0 = open_port();
         let pm0 = Arc::new(make_peer_manager("test0", port0, vec![], 2).start());
         let _pm1 = make_peer_manager("test1", open_port(), vec![("test0", port0)], 1).start();
@@ -227,7 +227,7 @@ fn connection_spam_security_test() {
 
     let vec: Arc<RwLock<Vec<TcpStream>>> = Arc::new(RwLock::new(Vec::new()));
     let vec2: Arc<RwLock<Vec<TcpStream>>> = vec.clone();
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let arbiter = Arbiter::new();
         let port = open_port();
 
