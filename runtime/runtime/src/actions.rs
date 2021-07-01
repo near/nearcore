@@ -516,11 +516,7 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        if checked_feature!(
-            "protocol_feature_allow_create_account_on_delete",
-            AllowCreateAccountOnDelete,
-            current_protocol_version
-        ) {
+        if checked_feature!("stable", AllowCreateAccountOnDelete, current_protocol_version) {
             let sender_is_receiver = account_id == &delete_account.beneficiary_id;
             let is_receiver_implicit =
                 is_implicit_account_creation_enabled(current_protocol_version)

@@ -65,10 +65,6 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
-protocol_feature_math_extension = [
-    "near-vm-logic/protocol_feature_math_extension",
-    "near-primitives/protocol_feature_math_extension"
-]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
