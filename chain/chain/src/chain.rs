@@ -2448,16 +2448,13 @@ impl Chain {
         // Do not replace with `get_block_header`.
         let sync_block = self.get_block(sync_hash)?;
         // The Epoch of sync_hash may be either the current one or the previous one
-        println!("{:?} {:?} {:?}", head.epoch_id, *sync_block.header().epoch_id(), *sync_block.header().next_epoch_id());
         if head.epoch_id == *sync_block.header().epoch_id()
             || head.epoch_id == *sync_block.header().next_epoch_id()
         {
-            println!("1");
             let prev_hash = sync_block.header().prev_hash().clone();
             // If sync_hash is not on the Epoch boundary, it's malicious behavior
             self.runtime_adapter.is_next_block_epoch_start(&prev_hash)
         } else {
-            println!("2");
             Ok(false) // invalid Epoch of sync_hash, possible malicious behavior
         }
     }
