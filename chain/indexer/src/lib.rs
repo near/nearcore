@@ -38,7 +38,7 @@ pub struct InitConfigArgs {
     pub genesis: Option<String>,
     /// Download the verified NEAR genesis file automatically.
     pub should_download_genesis: bool,
-    /// Specify a custom download URL for the genesisfile.
+    /// Specify a custom download URL for the genesis file.
     pub download_genesis_url: Option<String>,
     /// Download the verified NEAR config file automtically.
     pub should_download_config: bool,
