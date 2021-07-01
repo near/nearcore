@@ -3053,7 +3053,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         high_height_with_no_chunk: BlockHeight,
         should_be_restored: bool,
     ) {
-        // init_test_logger();
+        init_test_logger();
 
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
@@ -3061,26 +3061,24 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         genesis.config.epoch_length = EPOCH_LENGTH;
         genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
-        let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = (0..2)
-            .map(|_| {
-                Arc::new(nearcore::NightshadeRuntime::new(
-                    Path::new("."),
-                    create_test_store(),
-                    &genesis,
-                    vec![],
-                    vec![],
-                    None,
-                    None,
-                ))
-            })
-            .collect();
-        let runtime_adapters =
-            runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
+        let runtime = nearcore::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
         // TODO #4305: get directly from NightshadeRuntime
         let migration_data = load_migration_data(&genesis.config.chain_id);
 
-        let mut env = TestEnv::new_with_runtime(chain_genesis.clone(), 2, 1, runtime_adapters);
-
+        let mut env = TestEnv::new_with_runtime(
+            chain_genesis.clone(),
+            1,
+            1,
+            vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
+        );
         let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
             HashSet::from_iter(
                 migration_data
@@ -3117,8 +3115,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                 ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
             );
 
-            env.process_block(0, block.clone(), Provenance::PRODUCED);
-            env.process_block(1, block, Provenance::NONE);
+            env.process_block(0, block, Provenance::PRODUCED);
 
             let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
             let protocol_version = env.clients[0]
@@ -3146,14 +3143,6 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             height += 1;
         }
 
-        // let sync_hash = env.clients[0]
-        //     .chain
-        //     .get_block_by_height(last_update_height)
-        //     .unwrap()
-        //     .hash()
-        //     .clone();
-        // simulate_state_sync(&mut env, sync_hash);
-
         // Recompute restored receipt hashes to compare with remaining receipts set.
         // Then check correctness of sets of receipts which were executed and receipts put into storage.
         let restored_receipt_hashes = get_restored_receipt_hashes(&migration_data);
@@ -3163,28 +3152,21 @@ mod protocol_feature_restore_receipts_after_fix_tests {
                 "Some of receipts were not executed, hashes: {:?}",
                 receipt_hashes_to_restore
             );
-            for receipt_id in restored_receipt_hashes.iter() {
-                assert!(env.clients[0]
-                    .chain
-                    .mut_store()
-                    .get_receipt(receipt_id)
-                    .unwrap()
-                    .is_some());
-            }
         } else {
             assert_eq!(
                 receipt_hashes_to_restore,
                 restored_receipt_hashes,
                 "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
             );
-            for receipt_id in restored_receipt_hashes.iter() {
-                assert!(env.clients[0]
-                    .chain
-                    .mut_store()
-                    .get_receipt(receipt_id)
-                    .unwrap()
-                    .is_none());
-            }
+        }
+
+        for receipt_id in restored_receipt_hashes.iter() {
+            assert_eq!(env.clients[0]
+                .chain
+                .mut_store()
+                .get_receipt(receipt_id)
+                .unwrap()
+                .is_some(), should_be_restored);
         }
     }
 

@@ -1370,7 +1370,6 @@ impl Runtime {
 
         let state_root = trie_changes.new_root;
         let proof = trie.recorded_storage();
-        println!("RESTORED: {}", receipts_to_restore.len());
         Ok(ApplyResult {
             state_root,
             trie_changes,
