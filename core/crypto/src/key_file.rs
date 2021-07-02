@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{PublicKey, SecretKey};
 
+use near_account_id::AccountId;
+
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
-    pub account_id: String,
+    pub account_id: AccountId,
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
 }

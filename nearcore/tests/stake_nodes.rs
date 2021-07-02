@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -48,7 +49,7 @@ fn init_test_staking(
 
     let seeds = (0..num_node_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis =
-        Genesis::test(seeds.iter().map(|s| s.as_str()).collect(), num_validator_seats);
+        Genesis::test(seeds.iter().map(|s| s.parse().unwrap()).collect(), num_validator_seats);
     genesis.config.epoch_length = epoch_length;
     genesis.config.num_block_producer_seats = num_node_seats;
     genesis.config.block_producer_kickout_threshold = 20;
@@ -78,9 +79,12 @@ fn init_test_staking(
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
             let (client, view_client, arbiters) = start_with_config(paths[i], config.clone());
-            let account_id = format!("near.{}", i);
-            let signer =
-                Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+            let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
+            let signer = Arc::new(InMemorySigner::from_seed(
+                account_id.clone(),
+                KeyType::ED25519,
+                account_id.as_ref(),
+            ));
             TestNode { account_id, signer, config, client, view_client, genesis_hash, arbiters }
         })
         .collect()
@@ -138,11 +142,11 @@ fn test_stake_nodes() {
                             if res.unwrap().validators
                                 == vec![
                                     ValidatorInfo {
-                                        account_id: "near.1".to_string(),
+                                        account_id: "near.1".parse().unwrap(),
                                         is_slashed: false,
                                     },
                                     ValidatorInfo {
-                                        account_id: "near.0".to_string(),
+                                        account_id: "near.0".parse().unwrap(),
                                         is_slashed: false,
                                     },
                                 ]
@@ -187,9 +191,9 @@ fn test_validator_kickout() {
             let stake_transactions = stakes.enumerate().map(|(i, stake)| {
                 let test_node = &test_nodes[i];
                 let signer = Arc::new(InMemorySigner::from_seed(
-                    &test_node.account_id,
+                    test_node.account_id.clone(),
                     KeyType::ED25519,
-                    &test_node.account_id,
+                    test_node.account_id.as_ref(),
                 ));
                 SignedTransaction::stake(
                     1,
@@ -228,7 +232,7 @@ fn test_validator_kickout() {
                         move |res| {
                             let expected: Vec<_> = (num_nodes / 2..num_nodes)
                                 .map(|i| ValidatorInfo {
-                                    account_id: format!("near.{}", i),
+                                    account_id: AccountId::try_from(format!("near.{}", i)).unwrap(),
                                     is_slashed: false,
                                 })
                                 .collect();
@@ -330,9 +334,9 @@ fn test_validator_join() {
                 10,
             );
             let signer = Arc::new(InMemorySigner::from_seed(
-                &test_nodes[1].account_id,
+                test_nodes[1].account_id.clone(),
                 KeyType::ED25519,
-                &test_nodes[1].account_id,
+                test_nodes[1].account_id.as_ref(),
             ));
             let unstake_transaction = SignedTransaction::stake(
                 1,
@@ -344,9 +348,9 @@ fn test_validator_join() {
             );
 
             let signer = Arc::new(InMemorySigner::from_seed(
-                &test_nodes[2].account_id,
+                test_nodes[2].account_id.clone(),
                 KeyType::ED25519,
-                &test_nodes[2].account_id,
+                test_nodes[2].account_id.as_ref(),
             ));
             let stake_transaction = SignedTransaction::stake(
                 1,
@@ -390,11 +394,11 @@ fn test_validator_join() {
                         move |res| {
                             let expected = vec![
                                 ValidatorInfo {
-                                    account_id: "near.0".to_string(),
+                                    account_id: "near.0".parse().unwrap(),
                                     is_slashed: false,
                                 },
                                 ValidatorInfo {
-                                    account_id: "near.2".to_string(),
+                                    account_id: "near.2".parse().unwrap(),
                                     is_slashed: false,
                                 },
                             ];

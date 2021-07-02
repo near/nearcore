@@ -123,39 +123,39 @@ impl TrieKey {
         match self {
             TrieKey::Account { account_id } => {
                 res.extend(col::ACCOUNT);
-                res.extend(account_id.as_bytes());
+                res.extend(account_id.as_ref().as_bytes());
             }
             TrieKey::ContractCode { account_id } => {
                 res.extend(col::CONTRACT_CODE);
-                res.extend(account_id.as_bytes());
+                res.extend(account_id.as_ref().as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 res.extend(col::ACCESS_KEY);
-                res.extend(account_id.as_bytes());
+                res.extend(account_id.as_ref().as_bytes());
                 res.extend(col::ACCESS_KEY);
                 res.extend(public_key.try_to_vec().unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 res.extend(col::RECEIVED_DATA);
-                res.extend(receiver_id.as_bytes());
+                res.extend(receiver_id.as_ref().as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(data_id.as_ref());
             }
             TrieKey::PostponedReceiptId { receiver_id, data_id } => {
                 res.extend(col::POSTPONED_RECEIPT_ID);
-                res.extend(receiver_id.as_bytes());
+                res.extend(receiver_id.as_ref().as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(data_id.as_ref());
             }
             TrieKey::PendingDataCount { receiver_id, receipt_id } => {
                 res.extend(col::PENDING_DATA_COUNT);
-                res.extend(receiver_id.as_bytes());
+                res.extend(receiver_id.as_ref().as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(receipt_id.as_ref());
             }
             TrieKey::PostponedReceipt { receiver_id, receipt_id } => {
                 res.extend(col::POSTPONED_RECEIPT);
-                res.extend(receiver_id.as_bytes());
+                res.extend(receiver_id.as_ref().as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(receipt_id.as_ref());
             }
@@ -168,7 +168,7 @@ impl TrieKey {
             }
             TrieKey::ContractData { account_id, key } => {
                 res.extend(col::CONTRACT_DATA);
-                res.extend(account_id.as_bytes());
+                res.extend(account_id.as_ref().as_bytes());
                 res.extend(ACCOUNT_DATA_SEPARATOR);
                 res.extend(key);
             }
@@ -244,22 +244,22 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id_prefix = &account_id_prefix[..account_data_separator_position];
-        Ok(AccountId::from(std::str::from_utf8(account_id_prefix).map_err(|_| {
+        AccountId::try_from(account_id_prefix).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "raw key does not have a valid AccountId to be TrieKey::ContractData",
             )
-        })?))
+        })
     }
 
     pub fn parse_account_id_from_account_key(raw_key: &[u8]) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::ACCOUNT, raw_key)?;
-        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+        AccountId::try_from(account_id).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "raw key does not have a valid AccountId to be TrieKey::Account",
             )
-        })?))
+        })
     }
 
     pub fn parse_account_id_from_access_key_key(
@@ -282,24 +282,24 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id = &account_id_prefix[..public_key_position];
-        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+        AccountId::try_from(account_id).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "raw key does not have a valid AccountId to be TrieKey::AccessKey",
             )
-        })?))
+        })
     }
 
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::CONTRACT_CODE, raw_key)?;
-        Ok(AccountId::from(std::str::from_utf8(account_id).map_err(|_| {
+        AccountId::try_from(account_id).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "raw key does not have a valid AccountId to be TrieKey::ContractCode",
             )
-        })?))
+        })
     }
 
     pub fn parse_trie_key_access_key_from_raw_key(
@@ -330,12 +330,12 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id_prefix = &account_id_prefix[..account_data_separator_position];
-        Ok(AccountId::from(std::str::from_utf8(account_id_prefix).map_err(|_| {
+        AccountId::try_from(account_id_prefix).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "raw key does not have a valid AccountId to be TrieKey::ReceivedData",
             )
-        })?))
+        })
     }
 
     pub fn parse_data_id_from_received_data_key(
@@ -360,7 +360,7 @@ pub mod trie_key_parsers {
     pub fn get_raw_prefix_for_access_keys(account_id: &AccountId) -> Vec<u8> {
         let mut res = Vec::with_capacity(col::ACCESS_KEY.len() * 2 + account_id.len());
         res.extend(col::ACCESS_KEY);
-        res.extend(account_id.as_bytes());
+        res.extend(account_id.as_ref().as_bytes());
         res.extend(col::ACCESS_KEY);
         res
     }
@@ -373,7 +373,7 @@ pub mod trie_key_parsers {
                 + prefix.len(),
         );
         res.extend(col::CONTRACT_DATA);
-        res.extend(account_id.as_bytes());
+        res.extend(account_id.as_ref().as_bytes());
         res.extend(ACCOUNT_DATA_SEPARATOR);
         res.extend(prefix);
         res
@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_key_for_account_consistency() {
-        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
             let key = TrieKey::Account { account_id: account_id.clone() };
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn test_key_for_access_key_consistency() {
         let public_key = PublicKey::empty(KeyType::ED25519);
-        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
             let key = TrieKey::AccessKey {
                 account_id: account_id.clone(),
                 public_key: public_key.clone(),
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn test_key_for_data_consistency() {
         let data_key = b"0123456789" as &[u8];
-        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
             let key =
                 TrieKey::ContractData { account_id: account_id.clone(), key: data_key.to_vec() };
             let raw_key = key.to_vec();
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_key_for_code_consistency() {
-        for account_id in OK_ACCOUNT_IDS.iter().map(|x| AccountId::from(*x)) {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
             let key = TrieKey::ContractCode { account_id: account_id.clone() };
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());

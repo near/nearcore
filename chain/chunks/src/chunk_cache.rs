@@ -186,7 +186,8 @@ mod tests {
     #[test]
     fn test_cache_removal() {
         let mut cache = EncodedChunksCache::new();
-        let signer = InMemoryValidatorSigner::from_random("test".to_string(), KeyType::ED25519);
+        let signer =
+            InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519);
         let partial_encoded_chunk = PartialEncodedChunkV2 {
             header: ShardChunkHeader::V2(ShardChunkHeaderV2::new(
                 CryptoHash::default(),

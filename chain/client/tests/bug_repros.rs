@@ -19,6 +19,7 @@ use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 
 #[test]
 fn repro_1183() {
@@ -28,7 +29,12 @@ fn repro_1183() {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+        let validators = vec![vec![
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test3".parse().unwrap(),
+            "test4".parse().unwrap(),
+        ]];
         let key_pairs = vec![
             PeerInfo::random(),
             PeerInfo::random(),
@@ -53,7 +59,7 @@ fn repro_1183() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: String, msg: &NetworkRequests| {
+            Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
                 if let NetworkRequests::Block { block } = msg {
                     let mut last_block = last_block.write().unwrap();
                     let mut delayed_one_parts = delayed_one_parts.write().unwrap();
@@ -75,7 +81,7 @@ fn repro_1183() {
                         } = delayed_message
                         {
                             for (i, name) in validators2.iter().flatten().enumerate() {
-                                if &name.to_string() == account_id {
+                                if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::PartialEncodedChunk(
                                             partial_encoded_chunk.clone().into(),
@@ -89,17 +95,21 @@ fn repro_1183() {
                     }
 
                     let mut nonce_delta = 0;
-                    for from in vec!["test1", "test2", "test3", "test4"] {
-                        for to in vec!["test1", "test2", "test3", "test4"] {
-                            connectors1.write().unwrap()
-                                [account_id_to_shard_id(&from.to_string(), 4) as usize]
+                    for from in ["test1", "test2", "test3", "test4"].iter() {
+                        for to in ["test1", "test2", "test3", "test4"].iter() {
+                            let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
+                            connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
                                 .0
                                 .do_send(NetworkClientMessages::Transaction {
                                     transaction: SignedTransaction::send_money(
                                         block.header().height() * 16 + nonce_delta,
-                                        from.to_string(),
-                                        to.to_string(),
-                                        &InMemorySigner::from_seed(from, KeyType::ED25519, from),
+                                        from.clone(),
+                                        to,
+                                        &InMemorySigner::from_seed(
+                                            from.clone(),
+                                            KeyType::ED25519,
+                                            from.as_ref(),
+                                        ),
                                         1,
                                         *block.header().prev_hash(),
                                     ),
@@ -139,7 +149,12 @@ fn repro_1183() {
 #[test]
 fn test_sync_from_achival_node() {
     init_test_logger();
-    let validators = vec![vec!["test1", "test2", "test3", "test4"]];
+    let validators = vec![vec![
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        "test3".parse().unwrap(),
+        "test4".parse().unwrap(),
+    ]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let largest_height = Arc::new(RwLock::new(0));
@@ -148,8 +163,8 @@ fn test_sync_from_achival_node() {
 
     run_actix_until_stop(async move {
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &NetworkRequests| {
             (NetworkResponses::NoResponse, true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -169,7 +184,7 @@ fn test_sync_from_achival_node() {
         );
         let mut block_counter = 0;
         *network_mock.write().unwrap() =
-            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+            Box::new(move |_: _, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 if let NetworkRequests::Block { block } = msg {
                     let mut largest_height = largest_height.write().unwrap();
                     *largest_height = max(block.header().height(), *largest_height);
@@ -237,15 +252,15 @@ fn test_sync_from_achival_node() {
 #[test]
 fn test_long_gap_between_blocks() {
     init_test_logger();
-    let validators = vec![vec!["test1", "test2"]];
+    let validators = vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]];
     let key_pairs = vec![PeerInfo::random(), PeerInfo::random()];
     let epoch_length = 1000;
     let target_height = 600;
 
     run_actix_until_stop(async move {
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
+            RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &NetworkRequests| {
             (NetworkResponses::NoResponse, true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -264,7 +279,7 @@ fn test_long_gap_between_blocks() {
             network_mock.clone(),
         );
         *network_mock.write().unwrap() =
-            Box::new(move |_: String, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+            Box::new(move |_: _, msg: &NetworkRequests| -> (NetworkResponses, bool) {
                 match msg {
                     NetworkRequests::Approval { approval_message } => {
                         actix::spawn(conns[1].1.send(GetBlock::latest()).then(move |res| {
@@ -277,7 +292,7 @@ fn test_long_gap_between_blocks() {
                         if approval_message.approval.target_height < target_height {
                             (NetworkResponses::NoResponse, false)
                         } else {
-                            if approval_message.target == "test1".to_string() {
+                            if approval_message.target.as_ref() == "test1" {
                                 (NetworkResponses::NoResponse, true)
                             } else {
                                 (NetworkResponses::NoResponse, false)

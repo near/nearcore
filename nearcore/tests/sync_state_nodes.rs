@@ -18,7 +18,7 @@ fn sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let genesis = Genesis::test(vec!["test1"], 1);
+        let genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, genesis.clone());
@@ -108,8 +108,16 @@ fn sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis =
-            Genesis::test_sharded(vec!["test1", "test2", "test3", "test4"], 4, vec![2, 2]);
+        let mut genesis = Genesis::test_sharded(
+            vec![
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
+                "test4".parse().unwrap(),
+            ],
+            4,
+            vec![2, 2],
+        );
         genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
         run_actix_until_stop(async move {
@@ -243,7 +251,11 @@ fn sync_empty_state() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test_sharded(vec!["test1", "test2"], 1, vec![1, 1, 1, 1]);
+        let mut genesis = Genesis::test_sharded(
+            vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+            1,
+            vec![1, 1, 1, 1],
+        );
         genesis.config.epoch_length = 20;
 
         run_actix_until_stop(async move {

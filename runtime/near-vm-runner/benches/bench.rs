@@ -24,10 +24,10 @@ fn setup(
 
     let input = input.to_le_bytes().to_vec();
     let context = VMContext {
-        current_account_id: "alice".to_owned(),
-        signer_account_id: "bob".to_owned(),
+        current_account_id: "alice".parse().unwrap(),
+        signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![1, 2, 3],
-        predecessor_account_id: "carol".to_owned(),
+        predecessor_account_id: "carol".parse().unwrap(),
         input,
         epoch_height: 0,
         block_index: 0,

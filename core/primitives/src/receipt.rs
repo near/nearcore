@@ -12,7 +12,6 @@ use crate::logging;
 use crate::serialize::{option_base64_format, u128_dec_format_compatible};
 use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance, ShardId};
-use crate::utils::system_account;
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
@@ -46,12 +45,12 @@ impl Receipt {
     /// allowance of the access key. For gas refunds use `new_gas_refund`.
     pub fn new_balance_refund(receiver_id: &AccountId, refund: Balance) -> Self {
         Receipt {
-            predecessor_id: system_account(),
+            predecessor_id: AccountId::system_account(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
 
             receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: system_account(),
+                signer_id: AccountId::system_account(),
                 signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price: 0,
                 output_data_receivers: vec![],
@@ -73,7 +72,7 @@ impl Receipt {
         signer_public_key: PublicKey,
     ) -> Self {
         Receipt {
-            predecessor_id: system_account(),
+            predecessor_id: AccountId::system_account(),
             receiver_id: receiver_id.clone(),
             receipt_id: CryptoHash::default(),
 

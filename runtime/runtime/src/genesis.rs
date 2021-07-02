@@ -24,7 +24,7 @@ use crate::Runtime;
 use std::iter::FromIterator;
 
 pub struct StorageComputer<'a> {
-    result: HashMap<String, u64>,
+    result: HashMap<AccountId, u64>,
     config: &'a StorageUsageConfig,
 }
 
@@ -58,8 +58,8 @@ impl<'a> StorageComputer<'a> {
             StateRecord::ReceivedData { .. } => None,
             StateRecord::DelayedReceipt(_) => None,
         };
-        if let Some((account, storage_usage)) = account_and_storage {
-            *self.result.entry(account).or_default() += storage_usage;
+        if let Some((account_id, storage_usage)) = account_and_storage {
+            *self.result.entry(account_id).or_default() += storage_usage;
         }
     }
 
@@ -69,7 +69,7 @@ impl<'a> StorageComputer<'a> {
         }
     }
 
-    pub fn finalize(self) -> HashMap<String, u64> {
+    pub fn finalize(self) -> HashMap<AccountId, u64> {
         self.result
     }
 }

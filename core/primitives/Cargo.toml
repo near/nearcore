@@ -28,7 +28,7 @@ rand = "0.7"
 reed-solomon-erasure = "4"
 jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
-num-rational = { version = "0.3", features = ["serde"]}
+num-rational = { version = "0.3", features = ["serde"] }
 primitive-types = "0.9"
 
 borsh = "0.8.1"

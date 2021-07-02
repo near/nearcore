@@ -23,10 +23,6 @@ use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
     DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
-use near_runtime_utils::{
-    is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
-    is_valid_top_level_account_id,
-};
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,
@@ -60,7 +56,7 @@ pub(crate) fn execute_function_call(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
     if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
-        && is_account_evm(&account_id)
+        && AccountId::is_evm(&account_id)
     {
         #[cfg(not(feature = "protocol_feature_evm"))]
         unreachable!();
@@ -378,10 +374,7 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    // NOTE: The account_id is valid, because the Receipt is validated before.
-    debug_assert!(is_valid_account_id(account_id));
-
-    if is_valid_top_level_account_id(account_id) {
+    if AccountId::is_top_level_account_id(account_id) {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id
         {
@@ -396,7 +389,7 @@ pub(crate) fn action_create_account(
         } else {
             // OK: Valid top-level Account ID
         }
-    } else if !is_valid_sub_account_id(&predecessor_id, account_id) {
+    } else if !account_id.is_sub_account_of(&predecessor_id) {
         // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
@@ -426,7 +419,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     transfer: &TransferAction,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(is_account_id_64_len_hex(account_id));
+    debug_assert!(AccountId::is_64_len_hex(account_id));
 
     *actor_id = account_id.clone();
 
@@ -435,7 +428,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     let mut public_key_data = Vec::with_capacity(33);
     public_key_data.push(0u8);
     public_key_data.extend(
-        hex::decode(account_id.as_bytes())
+        hex::decode(account_id.as_ref().as_bytes())
             .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
     );
     debug_assert_eq!(public_key_data.len(), 33);
@@ -520,7 +513,7 @@ pub(crate) fn action_delete_account(
             let sender_is_receiver = account_id == &delete_account.beneficiary_id;
             let is_receiver_implicit =
                 is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_account_id_64_len_hex(&delete_account.beneficiary_id);
+                    && AccountId::is_64_len_hex(&delete_account.beneficiary_id);
             let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
                 + transfer_send_fee(
                     &config.action_creation_config,
@@ -697,7 +690,7 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 if is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_account_id_64_len_hex(&account_id)
+                    && AccountId::is_64_len_hex(&account_id)
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
@@ -719,7 +712,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_the_only_action
-                    && is_account_id_64_len_hex(&account_id)
+                    && AccountId::is_64_len_hex(&account_id)
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
@@ -774,7 +767,7 @@ mod tests {
             &RuntimeFeesConfig::default(),
             &AccountCreationConfig {
                 min_allowed_top_level_account_length: length,
-                registrar_account_id: AccountId::from("registrar"),
+                registrar_account_id: "registrar".parse().unwrap(),
             },
             &mut account,
             &mut actor_id,
@@ -793,32 +786,32 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_top_level_long() {
-        let account_id = AccountId::from("bob_near_long_name");
-        let predecessor_id = AccountId::from("alice.near");
+        let account_id = "bob_near_long_name".parse().unwrap();
+        let predecessor_id = "alice.near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_top_level_by_registrar() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("registrar");
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "registrar".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_sub_account() {
-        let account_id = AccountId::from("alice.near");
-        let predecessor_id = AccountId::from("near");
+        let account_id = "alice.near".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_invalid_sub_account() {
-        let account_id = AccountId::from("alice.near");
-        let predecessor_id = AccountId::from("bob");
+        let account_id = "alice.near".parse::<AccountId>().unwrap();
+        let predecessor_id = "bob".parse::<AccountId>().unwrap();
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
@@ -826,8 +819,8 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountNotAllowed {
-                    account_id: account_id.clone(),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    predecessor_id: predecessor_id,
                 },
             })
         );
@@ -835,8 +828,8 @@ mod tests {
 
     #[test]
     fn test_create_account_invalid_short_top_level() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("near");
+        let account_id = "bob".parse::<AccountId>().unwrap();
+        let predecessor_id = "near".parse::<AccountId>().unwrap();
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
@@ -844,9 +837,9 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id.clone(),
-                    registrar_account_id: AccountId::from("registrar"),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    registrar_account_id: "registrar".parse().unwrap(),
+                    predecessor_id: predecessor_id,
                 },
             })
         );
@@ -854,10 +847,9 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_short_top_level_len_allowed() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("near");
-        let action_result =
-            test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
+        let action_result = test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
     }
 
@@ -870,7 +862,7 @@ mod tests {
         let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
         let action_receipt = match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => action_receipt,
             _ => unreachable!("Balance refund should be an action receipt"),
@@ -883,7 +875,7 @@ mod tests {
             &action_receipt,
             &mut action_result,
             account_id,
-            &DeleteAccountAction { beneficiary_id: "bob".to_string() },
+            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             ProtocolFeature::DeleteActionRestriction.protocol_version(),
             &RuntimeFeesConfig::default(),
         );
@@ -896,7 +888,7 @@ mod tests {
         let tries = create_tries();
         let mut state_update = tries.new_trie_update(0, CryptoHash::default());
         let action_result = test_delete_large_account(
-            &"alice".to_string(),
+            &"alice".parse().unwrap(),
             &CryptoHash::default(),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
             &mut state_update,
@@ -906,7 +898,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".to_string()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         )
@@ -915,7 +907,7 @@ mod tests {
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = create_tries();
         let mut state_update = tries.new_trie_update(0, CryptoHash::default());
-        let account_id = "alice".to_string();
+        let account_id = "alice".parse::<AccountId>().unwrap();
         let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
         let empty_contract = [0; 10_000].to_vec();
         let contract_hash = hash(&empty_contract);
@@ -939,7 +931,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".to_string()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         );

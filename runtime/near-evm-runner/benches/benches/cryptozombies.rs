@@ -40,10 +40,10 @@ pub fn deploy_code(c: &mut Criterion) {
 }
 
 fn alice_account() -> AccountId {
-    "alice.near".to_string()
+    "alice.near".parse().unwrap()
 }
 fn bob_account() -> AccountId {
-    "bob.near".to_string()
+    "bob.near".parse().unwrap()
 }
 
 pub fn transfer_erc721(c: &mut Criterion) {

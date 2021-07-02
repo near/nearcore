@@ -106,7 +106,7 @@ impl RemoteNode {
         let url = format!("http://{}", addr);
         let signers: Vec<_> = signers_accs
             .iter()
-            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.clone(), KeyType::ED25519, s.as_ref())))
             .collect();
         let nonces = vec![0; signers.len()];
 
@@ -148,7 +148,7 @@ impl RemoteNode {
     pub fn update_accounts(&mut self, signers_accs: &[AccountId]) {
         let signers: Vec<_> = signers_accs
             .iter()
-            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.clone(), KeyType::ED25519, s.as_ref())))
             .collect();
         self.signers = signers;
         self.get_nonces(signers_accs);
@@ -161,7 +161,7 @@ impl RemoteNode {
     ) -> Result<AccessKeyView, Box<dyn std::error::Error>> {
         let user = RpcUser::new(
             &self.addr.to_string(),
-            account_id.to_string(),
+            account_id.clone(),
             self.signers.first().unwrap().clone(),
         );
         let access_key = user.get_access_key(account_id, public_key)?;

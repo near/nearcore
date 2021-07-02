@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "core/chain-configs",
     "core/crypto",
+    "core/account-id",
     "core/primitives",
     "core/primitives-core",
     "core/store",

@@ -11,6 +11,7 @@ pub use crate::meta_parsing::{
     encode_address, encode_string, near_erc712_domain, parse_meta_call, prepare_meta_call_args,
 };
 use crate::types::{DataKey, FunctionCallArgs, RawAddress, RawHash, RawU256, ViewCallArgs};
+use near_primitives::types::AccountId;
 
 pub fn saturating_next_address(addr: &RawAddress) -> RawAddress {
     let mut expanded_addr = [255u8; 32];
@@ -35,8 +36,8 @@ pub fn near_account_bytes_to_evm_address(addr: &[u8]) -> Address {
     Address::from_slice(&keccak(addr)[12..])
 }
 
-pub fn near_account_id_to_evm_address(account_id: &str) -> Address {
-    near_account_bytes_to_evm_address(&account_id.as_bytes().to_vec())
+pub fn near_account_id_to_evm_address(account_id: &AccountId) -> Address {
+    near_account_bytes_to_evm_address(account_id.as_ref().as_bytes())
 }
 
 pub fn encode_call_function_args(address: Address, input: Vec<u8>) -> Vec<u8> {

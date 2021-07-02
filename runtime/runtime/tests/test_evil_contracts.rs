@@ -17,13 +17,13 @@ pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 const MAX_GAS: u64 = 300_000_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
-    let node = RuntimeNode::new(&"alice.near".to_string());
+    let node = RuntimeNode::new(&"alice.near".parse().unwrap());
     let account_id = node.account_id().unwrap();
     let node_user = node.user();
     let transaction_result = node_user
         .create_account(
             account_id.clone(),
-            "test_contract".to_string(),
+            "test_contract".parse().unwrap(),
             node.signer().public_key(),
             TESTING_INIT_BALANCE / 2,
         )
@@ -32,7 +32,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
 
     let transaction_result =
-        node_user.deploy_contract("test_contract".to_string(), wasm_binary.to_vec()).unwrap();
+        node_user.deploy_contract("test_contract".parse().unwrap(), wasm_binary.to_vec()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts_outcome.len(), 1);
 
@@ -52,8 +52,8 @@ fn test_evil_deep_trie() {
         let res = node
             .user()
             .function_call(
-                "alice.near".to_string(),
-                "test_contract".to_string(),
+                "alice.near".parse().unwrap(),
+                "test_contract".parse().unwrap(),
                 "insert_strings",
                 input_data.to_vec(),
                 MAX_GAS,
@@ -73,8 +73,8 @@ fn test_evil_deep_trie() {
         let res = node
             .user()
             .function_call(
-                "alice.near".to_string(),
-                "test_contract".to_string(),
+                "alice.near".parse().unwrap(),
+                "test_contract".parse().unwrap(),
                 "delete_strings",
                 input_data.to_vec(),
                 MAX_GAS,
@@ -96,8 +96,8 @@ fn test_evil_deep_recursion() {
         let res = node
             .user()
             .function_call(
-                "alice.near".to_string(),
-                "test_contract".to_string(),
+                "alice.near".parse().unwrap(),
+                "test_contract".parse().unwrap(),
                 "recurse",
                 n_bytes.clone(),
                 MAX_GAS,
@@ -123,8 +123,8 @@ fn test_evil_abort() {
     let res = node
         .user()
         .function_call(
-            "alice.near".to_string(),
-            "test_contract".to_string(),
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
             "abort_with_zero",
             vec![],
             MAX_GAS,

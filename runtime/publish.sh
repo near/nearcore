@@ -19,7 +19,7 @@ pwd=$(pwd)
 
 set -x
 
-for pkg in near-runtime-utils near-vm-errors near-vm-logic near-vm-runner \
+for pkg in near-vm-errors near-vm-logic near-vm-runner \
            near-vm-runner-standalone; do
 	cd "$pwd/$pkg"
 	cargo publish $dry_run_arg

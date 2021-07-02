@@ -42,7 +42,7 @@ fn test_invalid_view_args() {
 
 #[test]
 fn test_invalid_raw_call_args() {
-    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let signer = InMemorySigner::from_seed("doesnt".parse().unwrap(), KeyType::SECP256K1, "a");
     let mut signed_transaction = sign_eth_transaction(
         &signer,
         CHAIN_ID,
@@ -83,7 +83,7 @@ fn test_wrong_meta_tx() {
     let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
     let err = prepare_meta_call_args(
         &domain_separator,
-        &"evm".to_string(),
+        &"evm".parse().unwrap(),
         U256::from(14),
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
@@ -96,7 +96,7 @@ fn test_wrong_meta_tx() {
     assert_eq!(err.to_string(), "EvmError(InvalidMetaTransactionMethodName)");
     let err = prepare_meta_call_args(
         &domain_separator,
-        &"evm".to_string(),
+        &"evm".parse().unwrap(),
         U256::from(14),
         U256::from(6),
         Address::from_slice(&[0u8; 20]),
@@ -111,7 +111,7 @@ fn test_wrong_meta_tx() {
 
 #[test]
 fn wrong_signed_meta_tx() {
-    let signer = InMemorySigner::from_seed("doesnt", KeyType::SECP256K1, "a");
+    let signer = InMemorySigner::from_seed("doesnt".parse().unwrap(), KeyType::SECP256K1, "a");
     let domain_separator = near_erc712_domain(U256::from(CHAIN_ID));
     let meta_tx = encode_meta_call_function_args(
         &signer,
@@ -126,7 +126,7 @@ fn wrong_signed_meta_tx() {
     );
     let err = parse_meta_call(
         &domain_separator,
-        &"evm".to_string(),
+        &"evm".parse().unwrap(),
         meta_tx[..meta_tx.len() - 1].to_vec(),
     )
     .unwrap_err();

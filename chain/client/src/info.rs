@@ -176,11 +176,7 @@ impl InfoHelper {
             },
             chain: TelemetryChainInfo {
                 node_id: node_id.to_string(),
-                account_id: self
-                    .validator_signer
-                    .clone()
-                    .map(|bp| bp.validator_id().clone())
-                    .unwrap_or_else(String::new),
+                account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),
