@@ -20,6 +20,7 @@ is the pure function of Docker image used, Rust compiler version and the NEAR im
 We build and run the cost estimator in the Docker container to make sure config is fully reproducible.
 Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resouce consuming.
 Note that for Mac the limit is configured in the desktop client, and default value most likely will be very low.
+
 First fetch appropriate base image, with `docker pull rust`.
 Then create a Docker image with `build.sh`, it will create a Docker image with additional build deps.
 
@@ -42,7 +43,7 @@ Now start the estimator under QEMU with the counter plugin enabled (note, that R
          ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
 
 Note that it may take some time, as we execute instrumented code under the binary translator.
-
+Also note that results in different launches may differ, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations. To improve estimation, you can launch it several times and take the worst result. 
 
 ## IO cost calibration
 
