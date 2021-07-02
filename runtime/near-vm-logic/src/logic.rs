@@ -2181,6 +2181,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If account is not UTF-8 encoded then returns `BadUtf8`;
+    /// * If account is not valid then returns `InvalidAccountId`.
     ///
     /// # Cost
     ///
@@ -2191,7 +2192,9 @@ impl<'a> VMLogic<'a> {
         let buf = self.get_vec_from_memory_or_register(ptr, len)?;
         self.gas_counter.pay_base(utf8_decoding_base)?;
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
-        let account_id = AccountId::try_from(buf.as_slice()).map_err(|_| HostError::BadUTF8)?;
+        let account_id =
+            AccountId::try_from(String::from_utf8(buf).map_err(|_| HostError::BadUTF8)?)
+                .map_err(|_| HostError::InvalidAccountId)?;
         Ok(account_id)
     }
 
