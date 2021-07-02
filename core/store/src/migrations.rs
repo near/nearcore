@@ -842,8 +842,10 @@ pub fn fill_col_outcomes_with_metadata(store: &Store) {
 
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for (key, value) in store.iter(DBCol::ColTransactionResult) {
+        println!("deser key: {:?}", key.as_ref());
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value)
             .expect("BorshDeserialize should not fail");
+        println!("done deser key: {:?}, outcomes: {}", key.as_ref(), old_outcomes.len());
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
             old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
         store_update
