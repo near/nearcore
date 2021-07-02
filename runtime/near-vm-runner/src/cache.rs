@@ -30,6 +30,13 @@ enum ContractCacheKey {
         vm_kind: VMKind,
         vm_hash: u64,
     },
+    // bump to depreciate bincode/serde-bench based wasmer 0.x cache
+    Version3 {
+        code_hash: CryptoHash,
+        vm_config_non_crypto_hash: u64,
+        vm_kind: VMKind,
+        vm_hash: u64,
+    },
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -52,7 +59,7 @@ pub fn get_contract_cache_key(
     config: &VMConfig,
 ) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
-    let key = ContractCacheKey::Version2 {
+    let key = ContractCacheKey::Version3 {
         code_hash: code.hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind,
