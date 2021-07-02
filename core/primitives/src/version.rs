@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 24;
+pub const DB_VERSION: DbVersion = 23;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -87,6 +87,18 @@ pub enum ProtocolFeature {
     FixApplyChunks,
     LowerStorageCost,
     DeleteActionRestriction,
+    /// Add versions to `Account` data structure
+    AccountVersions,
+    TransactionSizeLimit,
+    /// Delete account can create implicit accounts
+    AllowCreateAccountOnDelete,
+    /// Fix a bug in `storage_usage` for account caused by #3824
+    FixStorageUsage,
+    /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
+    CapMaxGasPrice,
+    CountRefundReceiptsInGasLimit,
+    /// Add `ripemd60` and `ecrecover` host function
+    MathExtension,
 
     // nightly features
     #[cfg(feature = "protocol_feature_evm")]
@@ -95,29 +107,15 @@ pub enum ProtocolFeature {
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    AccountVersions,
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
-    TransactionSizeLimit,
-    #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-    AllowCreateAccountOnDelete,
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
-    FixStorageUsage,
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     RestoreReceiptsAfterFix,
-    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
-    CapMaxGasPrice,
-    #[cfg(feature = "protocol_feature_count_refund_receipts_in_gas_limit")]
-    CountRefundReceiptsInGasLimit,
-    #[cfg(feature = "protocol_feature_math_extension")]
-    MathExtension,
 }
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 45;
+pub const PROTOCOL_VERSION: ProtocolVersion = 46;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -133,30 +131,23 @@ impl ProtocolFeature {
             ProtocolFeature::ForwardChunkParts => 45,
             ProtocolFeature::RectifyInflation => 45,
             ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::AccountVersions => 46,
+            ProtocolFeature::TransactionSizeLimit => 46,
+            ProtocolFeature::AllowCreateAccountOnDelete => 46,
+            ProtocolFeature::FixStorageUsage => 46,
+            ProtocolFeature::CapMaxGasPrice => 46,
+            ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
+            ProtocolFeature::MathExtension => 46,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_evm")]
             ProtocolFeature::EVM => 103,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
-            #[cfg(feature = "protocol_feature_add_account_versions")]
-            ProtocolFeature::AccountVersions => 107,
-            #[cfg(feature = "protocol_feature_tx_size_limit")]
-            ProtocolFeature::TransactionSizeLimit => 108,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-            #[cfg(feature = "protocol_feature_allow_create_account_on_delete")]
-            ProtocolFeature::AllowCreateAccountOnDelete => 110,
-            #[cfg(feature = "protocol_feature_fix_storage_usage")]
-            ProtocolFeature::FixStorageUsage => 111,
             #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
-            #[cfg(feature = "protocol_feature_cap_max_gas_price")]
-            ProtocolFeature::CapMaxGasPrice => 113,
-            #[cfg(feature = "protocol_feature_count_refund_receipts_in_gas_limit")]
-            ProtocolFeature::CountRefundReceiptsInGasLimit => 114,
-            #[cfg(feature = "protocol_feature_math_extension")]
-            ProtocolFeature::MathExtension => 114,
         }
     }
 }

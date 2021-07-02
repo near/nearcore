@@ -285,7 +285,7 @@ impl Default for ExecutionStatus {
     }
 }
 
-/// ExecutionOutcome for proof. Excludes logs and metadata
+/// ExecutionOutcome for proof. Excludes logs.
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
 struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
@@ -348,20 +348,6 @@ pub struct ExecutionOutcome {
     /// NOTE: Should be the latest field since it contains unparsable by light client
     /// ExecutionStatus::Failure
     pub status: ExecutionStatus,
-    /// Execution metadata, versioned
-    pub metadata: ExecutionMetadata,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
-pub enum ExecutionMetadata {
-    // V1: Empty Metadata
-    ExecutionMetadataV1,
-}
-
-impl Default for ExecutionMetadata {
-    fn default() -> Self {
-        ExecutionMetadata::ExecutionMetadataV1
-    }
 }
 
 impl ExecutionOutcome {
@@ -384,7 +370,6 @@ impl fmt::Debug for ExecutionOutcome {
             .field("burnt_gas", &self.gas_burnt)
             .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
-            .field("meatdata", &self.metadata)
             .finish()
     }
 }
@@ -523,7 +508,6 @@ mod tests {
             gas_burnt: 123,
             tokens_burnt: 1234000,
             executor_id: "alice".to_string(),
-            metadata: ExecutionMetadata::ExecutionMetadataV1,
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

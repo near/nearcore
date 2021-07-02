@@ -22,8 +22,8 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    SignedTransaction, TransferAction,
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
+    TransferAction,
 };
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -726,7 +726,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         gas_burnt: 0,
                         tokens_burnt: 0,
                         executor_id: to.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
                     },
                 });
             }
