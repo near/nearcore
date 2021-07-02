@@ -36,6 +36,7 @@ import struct
 import time
 import logging
 
+from configured_logger import logger
 from messages import schema
 from messages.crypto import PublicKey, Signature
 from messages.network import PeerIdOrHash, PeerMessage
@@ -123,10 +124,10 @@ class ProxyHandler:
                 if raw_message[ser.offset] in [3, 4, 5, 7]:
                     # Allow the handler determine if the message should be passed even when it couldn't be deserialized
                     return await self.handle(None, sender_ordinal, receiver_ordinal) is not False
-                print("ERROR 13", int(raw_message[ser.offset]))
+                logger.info(f"ERROR 13 {int(raw_message[ser.offset])}")
 
             else:
-                print("ERROR", int(raw_message[0]))
+                logger.info(f"ERROR {int(raw_message[0])}")
 
             raise
 
@@ -143,7 +144,7 @@ class ProxyHandler:
     async def send_binary(self, raw_message, to, fr=None):
         writer = self.get_writer(to, fr)
         if writer is None:
-            print(
+            logger.info(
                 f"Writer not known: to={to}, fr={fr}, send={self.send_to_map.keys()}, recv={self.recv_from_map.keys()}")
         else:
             writer.write(struct.pack('I', len(raw_message)))

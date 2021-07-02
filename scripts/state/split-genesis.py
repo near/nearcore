@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Splits given genesis.json into 2 files:
 # - genesis_config.json - that contains all fields except for the records
