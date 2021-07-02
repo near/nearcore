@@ -44,12 +44,18 @@ pub(crate) struct InitConfigArgs {
     /// Genesis file to use when initialize testnet (including downloading)
     #[clap(short, long)]
     pub genesis: Option<String>,
-    #[clap(short, long)]
+    #[clap(long)]
     /// Download the verified NEAR genesis file automatically.
-    pub download: bool,
+    pub download_genesis: bool,
     /// Specify a custom download URL for the genesis-file.
     #[clap(long)]
     pub download_genesis_url: Option<String>,
+    #[clap(long)]
+    /// Download the verified NEAR config file automatically.
+    pub download_config: bool,
+    /// Specify a custom download URL for the config file.
+    #[clap(long)]
+    pub download_config_url: Option<String>,
     /// Specify a custom max_gas_burnt_view limit.
     #[clap(long)]
     pub max_gas_burnt_view: Option<Gas>,
@@ -74,8 +80,10 @@ impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
             num_shards: config_args.num_shards,
             fast: config_args.fast,
             genesis: config_args.genesis,
-            download: config_args.download,
+            download_genesis: config_args.download_genesis,
             download_genesis_url: config_args.download_genesis_url,
+            download_config: config_args.download_config,
+            download_config_url: config_args.download_config_url,
             max_gas_burnt_view: config_args.max_gas_burnt_view,
         }
     }
