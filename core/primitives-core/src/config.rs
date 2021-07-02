@@ -330,7 +330,7 @@ pub struct ExtCostsConfig {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     pub alt_bn128_pairing_check_byte: Gas,
 }
-protocol_feature_restore_receipts_after_fix
+
 // We multiply the actual computed costs by the fixed factor to ensure we
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
