@@ -3712,9 +3712,6 @@ impl<'a> ChainUpdate<'a> {
                 receipt_proof_response.1,
             );
         }
-        if !apply_result.receipts_to_restore.is_empty() {
-            self.chain_store_update.save_receipts(&apply_result.receipts_to_restore);
-        }
         Ok(())
     }
 
