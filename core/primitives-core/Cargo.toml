@@ -26,3 +26,4 @@ lazy_static = "1.4"
 default = []
 protocol_feature_evm = []
 protocol_feature_alt_bn128 = []
+protocol_feature_precompile_contracts = []
