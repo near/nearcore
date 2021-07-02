@@ -37,9 +37,13 @@ pub struct InitConfigArgs {
     /// Genesis file to use when initializing testnet (including downloading)
     pub genesis: Option<String>,
     /// Download the verified NEAR genesis file automatically.
-    pub download: bool,
-    /// Specify a custom download URL for the genesis-file.
+    pub download_genesis: bool,
+    /// Specify a custom download URL for the genesis file.
     pub download_genesis_url: Option<String>,
+    /// Download the verified NEAR config file automtically.
+    pub download_config: bool,
+    /// Specify a custom download URL for the config file.
+    pub download_config_url: Option<String>,
     /// Specify a custom max_gas_burnt_view limit.
     pub max_gas_burnt_view: Option<Gas>,
 }
@@ -136,8 +140,10 @@ pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
         params.num_shards,
         params.fast,
         params.genesis.as_deref(),
-        params.download,
+        params.download_genesis,
         params.download_genesis_url.as_deref(),
+        params.download_config,
+        params.download_config_url.as_deref(),
         params.max_gas_burnt_view,
     )
 }
