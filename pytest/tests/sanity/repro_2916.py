@@ -4,7 +4,7 @@
 # respond to exactly one of the requests, for the shard it tracks (for the
 # shard it doesn't track it will only have the receipts to the shard it does
 # track).
-# 
+#
 # We then kill both nodes, and restart the first node, and do the same
 # requests. We expect it to resond the same way. Before 2916 is fixed, it
 # fails to respond to the request it was previously responding to due to
@@ -17,6 +17,7 @@ import nacl.signing, hashlib
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from peer import *
 from utils import obj_to_string
 
@@ -83,10 +84,10 @@ async def main():
                 response = None
 
             if response is not None:
-                print("Received response for shard %s" % shard_ord)
+                logger.info("Received response for shard %s" % shard_ord)
                 received_response = True
             else:
-                print("Didn't receive response for shard %s" % shard_ord)
+                logger.info("Didn't receive response for shard %s" % shard_ord)
 
             if step == 0:
                 received_responses[shard_ord] = received_response
@@ -97,7 +98,7 @@ async def main():
         assert received_responses[0] != received_responses[1], received_responses
 
         if step == 0:
-            print("Killing and restarting nodes")
+            logger.info("Killing and restarting nodes")
             nodes[1].kill()
             nodes[0].kill()
             nodes[0].start(None, None)
@@ -105,4 +106,3 @@ async def main():
 
 
 asyncio.run(main())
-
