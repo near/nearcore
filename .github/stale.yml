@@ -1,6 +1,6 @@
 issues:
   # Number of days of inactivity before an issue or PR becomes stale
-  daysUntilStale: 60
+  daysUntilStale: 90
 
   # Number of days of inactivity before a stale issue or PR is closed
   daysUntilClose: 7
@@ -8,6 +8,7 @@ issues:
   # Issues or PRs with these labels will never be considered stale
   exemptLabels:
     - S-pinned
+    - S-blocked
     - A-security
 
   # Label to use when marking an issue as stale
@@ -38,6 +39,7 @@ pulls:
   # Issues or PRs with these labels will never be considered stale
   exemptLabels:
     - S-pinned
+    - S-blocked
     - A-security
 
   # Label to use when marking an issue as stale
@@ -46,7 +48,7 @@ pulls:
   # Comment to post when marking an issue as stale. Set to `false` to disable
   markComment: >
     This PR has been automatically marked as stale because it has not had
-    recent activity in the 2 weeks. 
+    recent activity in the 2 weeks.
 
     It will be closed in 3 days if no further activity occurs.
 
