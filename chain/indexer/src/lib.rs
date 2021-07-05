@@ -44,6 +44,8 @@ pub struct InitConfigArgs {
     pub download_config: bool,
     /// Specify a custom download URL for the config file.
     pub download_config_url: Option<String>,
+    /// Specify the boot nodes to bootstrap the network
+    pub boot_nodes: Option<String>,
     /// Specify a custom max_gas_burnt_view limit.
     pub max_gas_burnt_view: Option<Gas>,
 }
@@ -144,6 +146,7 @@ pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
         params.download_genesis_url.as_deref(),
         params.download_config,
         params.download_config_url.as_deref(),
+        params.boot_nodes.as_deref(),
         params.max_gas_burnt_view,
     )
 }
