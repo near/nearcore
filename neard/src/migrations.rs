@@ -2,7 +2,7 @@ use crate::{NearConfig, NightshadeRuntime};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter, ReceiptResult};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
@@ -274,10 +274,10 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     if &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let restored_receipts = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
-            .expect("File with receipts restored after apply_chunks fix have to be correct").get(&0u64);
+        let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct");
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        chain_store_update.save_receipts(restored_receipts);
+        chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
     }
     set_store_version(&store, 23);
 }
