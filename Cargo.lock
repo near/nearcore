@@ -3577,6 +3577,7 @@ version = "2.2.0"
 dependencies = [
  "bencher",
  "borsh",
+ "bs58",
  "byteorder",
  "bytesize",
  "cached",

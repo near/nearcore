@@ -842,7 +842,9 @@ pub fn fill_col_outcomes_with_metadata(store: &Store) {
 
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for (key, value) in store.iter(DBCol::ColTransactionResult) {
-        println!("deser key: {:?}", key.as_ref());
+        let filename = bs58::encode(key.as_ref()).into_string();
+        println!("deser key: {}", &filename);
+        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value)
             .expect("BorshDeserialize should not fail");
         println!("done deser key: {:?}, outcomes: {}", key.as_ref(), old_outcomes.len());
