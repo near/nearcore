@@ -102,6 +102,9 @@ pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
     download_genesis: bool,
+    /// Download the verified NEAR config file automatically.
+    #[clap(long)]
+    download_config: bool,
     /// Makes block production fast (TESTING ONLY).
     #[clap(long)]
     fast: bool,
@@ -111,9 +114,12 @@ pub(super) struct InitCmd {
     /// Chain ID, by default creates new random.
     #[clap(long)]
     chain_id: Option<String>,
-    /// Specify a custom download URL for the genesis-file.
+    /// Specify a custom download URL for the genesis file.
     #[clap(long)]
     download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the config file.
+    #[clap(long)]
+    download_config_url: Option<String>,
     /// Genesis file to use when initializing testnet (including downloading).
     #[clap(long)]
     genesis: Option<String>,
@@ -149,6 +155,8 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.download_config,
+            self.download_config_url.as_deref(),
             self.max_gas_burnt_view,
         );
     }

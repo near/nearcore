@@ -34,7 +34,6 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::checked_feature;
 
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
@@ -2381,16 +2380,7 @@ fn test_refund_receipts_processing() {
     }
 
     let ending_block_height = block_height - 1;
-    let count_refund_receipts_in_gas_limit = checked_feature!(
-        "protocol_feature_count_refund_receipts_in_gas_limit",
-        CountRefundReceiptsInGasLimit,
-        genesis.config.protocol_version
-    );
-    let begin_block_height = if count_refund_receipts_in_gas_limit {
-        ending_block_height - refund_receipt_ids.len() as u64 + 1
-    } else {
-        ending_block_height
-    };
+    let begin_block_height = ending_block_height - refund_receipt_ids.len() as u64 + 1;
     let mut processed_refund_receipt_ids = HashSet::new();
     for i in begin_block_height..=ending_block_height {
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
@@ -2404,12 +2394,8 @@ fn test_refund_receipts_processing() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
         });
         let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
-        if count_refund_receipts_in_gas_limit {
-            assert_eq!(execution_outcomes_from_block.len(), 1);
-            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
-        } else {
-            assert_eq!(chunk_extra.gas_used(), 0);
-        }
+        assert_eq!(execution_outcomes_from_block.len(), 1);
+        assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     }
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
@@ -3182,8 +3168,10 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     }
 }
 
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise `get_mut` for block header will panic.
 #[cfg(test)]
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod storage_usage_fix_tests {
     use super::*;
     use borsh::BorshDeserialize;
@@ -3267,7 +3255,6 @@ mod storage_usage_fix_tests {
     }
 }
 
-#[cfg(feature = "protocol_feature_cap_max_gas_price")]
 #[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;

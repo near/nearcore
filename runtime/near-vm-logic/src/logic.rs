@@ -5,7 +5,6 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
-#[cfg(feature = "protocol_feature_math_extension")]
 use near_crypto::Secp256K1Signature;
 use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
@@ -965,7 +964,6 @@ impl<'a> VMLogic<'a> {
     ///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
-    #[cfg(feature = "protocol_feature_math_extension")]
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ripemd160_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1005,7 +1003,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * 64 + ecrecover_base`
-    #[cfg(feature = "protocol_feature_math_extension")]
     pub fn ecrecover(
         &mut self,
         hash_len: u64,
@@ -1877,11 +1874,7 @@ impl<'a> VMLogic<'a> {
             ActionCosts::delete_account,
         )?;
 
-        if checked_feature!(
-            "protocol_feature_allow_create_account_on_delete",
-            AllowCreateAccountOnDelete,
-            self.current_protocol_version
-        ) {
+        if checked_feature!("stable", AllowCreateAccountOnDelete, self.current_protocol_version) {
             let receiver_id = self.get_account_by_receipt(&receipt_idx);
             let sir = receiver_id == &beneficiary_id;
             let is_receiver_implicit =

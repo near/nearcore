@@ -194,11 +194,8 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
-    #[cfg(feature = "protocol_feature_math_extension")]
     ripemd160_10b_10k,
-    #[cfg(feature = "protocol_feature_math_extension")]
     ripemd160_10kib_10k,
-    #[cfg(feature = "protocol_feature_math_extension")]
     ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
@@ -561,9 +558,9 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         keccak256_10kib_10k => keccak256_10kib_10k,
         keccak512_10b_10k => keccak512_10b_10k,
         keccak512_10kib_10k => keccak512_10kib_10k,
-        #["protocol_feature_math_extension"] ripemd160_10b_10k => ripemd160_10b_10k,
-        #["protocol_feature_math_extension"] ripemd160_10kib_10k => ripemd160_10kib_10k,
-        #["protocol_feature_math_extension"] ecrecover_10k => ecrecover_10k,
+        ripemd160_10b_10k => ripemd160_10b_10k,
+        ripemd160_10kib_10k => ripemd160_10kib_10k,
+        ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -746,11 +743,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        #[cfg(feature = "protocol_feature_math_extension")]
         ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
-        #[cfg(feature = "protocol_feature_math_extension")]
         ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
-        #[cfg(feature = "protocol_feature_math_extension")]
         ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
