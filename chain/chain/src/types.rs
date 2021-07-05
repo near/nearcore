@@ -172,8 +172,7 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if checked_feature!("protocol_feature_cap_max_gas_price", CapMaxGasPrice, protocol_version)
-        {
+        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
             std::cmp::min(
                 self.max_gas_price,
                 Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
@@ -727,7 +726,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
-    use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
+    use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
@@ -779,7 +778,6 @@ mod tests {
                 gas_burnt: 100,
                 tokens_burnt: 10000,
                 executor_id: "alice".to_string(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -791,7 +789,6 @@ mod tests {
                 gas_burnt: 0,
                 tokens_burnt: 0,
                 executor_id: "bob".to_string(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
         let outcomes = vec![outcome1, outcome2];
