@@ -258,6 +258,9 @@ impl RunCmd {
         let sys = actix::System::new();
         sys.block_on(async move {
             nearcore::start_with_config(home_dir, near_config);
+            tokio::signal::ctrl_c().await.unwrap();
+            info!("Got Ctrl+C, stopping");
+            actix::System::current().stop();
         });
         sys.run().unwrap();
     }
