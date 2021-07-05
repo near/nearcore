@@ -767,7 +767,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_gas_burnt: 0,
             total_balance_burnt: 0,
             proof: None,
-            receipts_to_restore: vec![],
         })
     }
 

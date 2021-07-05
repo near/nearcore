@@ -349,6 +349,20 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 23);
 }
 
+/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
+pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
+    let store = create_store(path);
+    if &near_config.genesis.config.chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.config.genesis_height;
+        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let restored_receipts = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct").get(&0u64);
+        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        chain_store_update.save_receipts(restored_receipts);
+    }
+    set_store_version(&store, 24);
+}
+
 lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,

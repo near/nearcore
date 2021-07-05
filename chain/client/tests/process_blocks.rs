@@ -3126,9 +3126,6 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             height += 1;
         }
 
-        // Recompute restored receipt hashes to compare with remaining receipts set.
-        // Then check correctness of sets of receipts which were executed and receipts put into storage.
-        let restored_receipt_hashes = get_restored_receipt_hashes(&migration_data);
         if should_be_restored {
             assert!(
                 receipt_hashes_to_restore.is_empty(),
@@ -3138,18 +3135,9 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         } else {
             assert_eq!(
                 receipt_hashes_to_restore,
-                restored_receipt_hashes,
+                get_restored_receipt_hashes(&migration_data),
                 "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
             );
-        }
-
-        for receipt_id in restored_receipt_hashes.iter() {
-            assert_eq!(env.clients[0]
-                .chain
-                .mut_store()
-                .get_receipt(receipt_id)
-                .unwrap()
-                .is_some(), should_be_restored);
         }
     }
 
