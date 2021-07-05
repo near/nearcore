@@ -102,6 +102,9 @@ Note: `EpochManager` is constructed in `NightshadeRuntime` rather than in `Chain
 ### `chain/jsonrpc`
 
 This crate implements [JSON-RPC](https://www.jsonrpc.org/) API server to enable submission of new transactions and inspection of the blockchain data, the network state, and the node status.
+When a request is processed, it generates a message to either `Client` or `ViewClient` to interact with the blockchain.
+For queries of blockchain data, such as block, chunk, account, etc, the request usually generates a message to `ViewClient`.
+Transactions, on the other hand, are sent to `Client` for further processing.
 
 ### `runtime/runtime`
 
