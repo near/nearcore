@@ -16,7 +16,7 @@ lazy_static_include::lazy_static_include_bytes! {
     /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
     /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
     /// See https://github.com/near/nearcore/pull/4248/ for more details.
-    MAINNET_RESTORED_RECEIPTS => "/Users/Shared/OldLaptop/Programming/nearcore/mainnet_restored_receipts.json",
+    MAINNET_RESTORED_RECEIPTS => "../../../mainnet_restored_receipts.json",
 }
 
 fn main() -> Result<()> {
@@ -43,6 +43,7 @@ fn main() -> Result<()> {
     eprintln!("22222");
     let receipts = restored_receipts.get(&0u64).unwrap();
     for receipt in receipts {
+        eprintln!("{}", receipt.get_hash());
         chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
     }
 
