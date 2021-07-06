@@ -238,7 +238,10 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
             } else if let Ok(Some(receipt)) = chain_store.get_receipt(&id) {
                 unimplemented!();
             } else {
-                panic!("Outcome not from tx or a receipt")
+                panic!(
+                    "Outcome not from tx or a receipt {}",
+                    bs58::encode(key.as_ref()).into_string()
+                )
             }
         };
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
