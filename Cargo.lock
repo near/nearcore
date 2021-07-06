@@ -855,6 +855,7 @@ version = "0.1.0"
 dependencies = [
  "clap 3.0.0-beta.2",
  "lazy-static-include",
+ "lazy_static",
  "near-chain",
  "near-jsonrpc",
  "near-primitives",

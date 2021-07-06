@@ -16,7 +16,7 @@ lazy_static_include::lazy_static_include_bytes! {
     /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
     /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
     /// See https://github.com/near/nearcore/pull/4248/ for more details.
-    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+    MAINNET_RESTORED_RECEIPTS => "/Users/Shared/OldLaptop/Programming/nearcore/mainnet_restored_receipts.json",
 }
 
 fn main() -> Result<()> {
@@ -33,12 +33,14 @@ fn main() -> Result<()> {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let near_config = load_config(&home_dir);
     let store = create_store(&get_store_path(&home_dir));
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store = ChainStore::new(store.clone(), 9820210);
 
-    let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+    eprintln!("11111");
+    let bytes = include_bytes!("../../../mainnet_restored_receipts.json");
+    let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
         .expect("File with receipts restored after apply_chunks fix have to be correct");
+    eprintln!("22222");
     let receipts = restored_receipts.get(&0u64).unwrap();
     for receipt in receipts {
         chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
