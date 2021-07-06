@@ -2106,7 +2106,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.1.0"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "clap 2.33.3",
  "indicatif 0.15.0",
@@ -2816,7 +2816,7 @@ checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
 name = "loadtester"
 version = "0.1.0"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "clap 2.33.3",
  "env_logger 0.8.3",
@@ -3076,7 +3076,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "cached",
  "chrono",
  "delay-detector",
@@ -3133,7 +3133,7 @@ name = "near-chunks"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "cached",
  "chrono",
  "futures",
@@ -3157,7 +3157,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "ansi_term 0.12.1",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "cached",
  "chrono",
  "delay-detector",
@@ -3218,7 +3218,7 @@ version = "0.1.0"
 dependencies = [
  "arrayref",
  "blake2",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
@@ -3242,7 +3242,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "cached",
  "chrono",
  "log",
@@ -3265,7 +3265,7 @@ name = "near-evm-runner"
 version = "0.1.0"
 dependencies = [
  "bn",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "criterion",
  "derivative",
@@ -3328,7 +3328,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "awc",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "easy-ext",
  "futures",
  "lazy_static",
@@ -3423,7 +3423,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "bencher",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "bytes",
  "bytesize",
@@ -3488,7 +3488,7 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "near-crypto",
  "near-primitives",
  "rand 0.7.3",
@@ -3500,7 +3500,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.13.0",
  "bencher",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "bs58",
  "byteorder",
  "chrono",
@@ -3530,7 +3530,7 @@ name = "near-primitives-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.11.0",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "bs58",
  "derive_more",
  "hex",
@@ -3621,7 +3621,7 @@ name = "near-store"
 version = "2.2.0"
 dependencies = [
  "bencher",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "bytesize",
  "cached",
@@ -3669,7 +3669,7 @@ dependencies = [
 name = "near-vm-errors"
 version = "3.0.0"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "hex",
  "near-rpc-error-macro",
  "serde",
@@ -3680,7 +3680,7 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "bs58",
  "byteorder",
  "near-crypto",
@@ -3704,7 +3704,7 @@ dependencies = [
  "assert_matches",
  "base64 0.13.0",
  "bencher",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "cached",
  "near-evm-runner",
  "near-primitives",
@@ -3756,7 +3756,7 @@ dependencies = [
  "actix-rt",
  "actix_derive",
  "awc",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "chrono",
  "delay-detector",
@@ -3833,7 +3833,7 @@ version = "3.0.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "ethereum-types 0.11.0",
  "hex",
@@ -4907,7 +4907,7 @@ dependencies = [
 name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "cfg-if 1.0.0",
  "clap 2.33.3",
  "csv",
@@ -5343,7 +5343,7 @@ name = "state-viewer"
 version = "0.1.0"
 dependencies = [
  "ansi_term 0.12.1",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "clap 2.33.3",
  "near-chain",
  "near-chain-configs",
@@ -5599,7 +5599,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
- "borsh 0.9.0",
+ "borsh 0.8.1",
  "byteorder",
  "clap 2.33.3",
  "ethabi",

@@ -31,7 +31,7 @@ hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"]}
 primitive-types = "0.9"
 
-borsh = "0.9.0"
+borsh = "0.8.1"
 
 near-primitives-core = { path = "../primitives-core" }
 near-crypto = { path = "../crypto" }

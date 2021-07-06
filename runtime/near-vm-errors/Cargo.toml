@@ -16,7 +16,7 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 
-borsh = "0.9.0"
+borsh = "0.8.1"
 
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
 

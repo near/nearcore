@@ -14,7 +14,7 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 base64 = "0.13"
-borsh = "0.9.0"
+borsh = "0.8.1"
 bs58 = "0.4"
 byteorder = "1.2"
 ripemd160 = "0.9.0"

@@ -8,7 +8,7 @@ repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
 
 [dependencies]
-borsh = "0.9.0"
+borsh = "0.8.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
