@@ -1,20 +1,27 @@
 use crate::{NearConfig, NightshadeRuntime};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
+use futures::stream::Cycle;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::Gas;
+use near_primitives::transaction::{
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, LogEntry,
+};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::migrations::set_store_version;
-use near_store::{create_store, DBCol, StoreUpdate};
+use near_store::migrations::{set_store_version, BatchedStoreUpdate};
+use near_store::{create_store, DBCol, Store, StoreUpdate};
+use std::convert::TryFrom;
 use std::path::Path;
 
 fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
@@ -135,6 +142,114 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         }
     }
     set_store_version(&store, 13);
+}
+
+pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
+    let store = create_store(&path);
+
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq, Debug)]
+    pub struct OldExecutionOutcome {
+        pub logs: Vec<LogEntry>,
+        pub receipt_ids: Vec<CryptoHash>,
+        pub gas_burnt: Gas,
+        pub tokens_burnt: Balance,
+        pub executor_id: AccountId,
+        pub status: ExecutionStatus,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithId {
+        pub id: CryptoHash,
+        pub outcome: OldExecutionOutcome,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+        pub outcome_with_id: OldExecutionOutcomeWithId,
+    }
+
+    impl Into<ExecutionOutcomeWithIdAndProof> for OldExecutionOutcomeWithIdAndProof {
+        fn into(self) -> ExecutionOutcomeWithIdAndProof {
+            ExecutionOutcomeWithIdAndProof {
+                proof: self.proof,
+                block_hash: self.block_hash,
+                outcome_with_id: ExecutionOutcomeWithId {
+                    id: self.outcome_with_id.id,
+                    outcome: ExecutionOutcome {
+                        logs: self.outcome_with_id.outcome.logs,
+                        receipt_ids: self.outcome_with_id.outcome.receipt_ids,
+                        gas_burnt: self.outcome_with_id.outcome.gas_burnt,
+                        tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
+                        executor_id: self.outcome_with_id.outcome.executor_id,
+                        status: self.outcome_with_id.outcome.status,
+                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                    },
+                },
+            }
+        }
+    }
+
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    for (key, value) in store.iter(DBCol::ColTransactionResult) {
+        if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
+            // has success in previous attempt of this migration
+            continue;
+        }
+        //        let filename = bs58::encode(key.as_ref()).into_string();
+        //        println!("deser key: {}", &filename);
+        //        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
+        let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
+        let old_outcomes = if old_outcomes.is_ok() {
+            old_outcomes.unwrap()
+        } else {
+            store_update.finish().expect("Failed to commit");
+            store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+            let genesis_height = near_config.genesis.config.genesis_height;
+            let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+            let head = chain_store.head().expect("head must exist");
+            let runtime = NightshadeRuntime::new(
+                &Path::new(path),
+                store.clone(),
+                &near_config.genesis,
+                near_config.client_config.tracked_accounts.clone(),
+                near_config.client_config.tracked_shards.clone(),
+                None,
+                None,
+            );
+
+            let id = CryptoHash::try_from(key.as_ref()).unwrap();
+            if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
+                let block_hash = tx.transaction.block_hash;
+                let block_height = chain_store.get_block_height(&block_hash).unwrap();
+                println!("{}", block_height);
+                let mut store_update = store.store_update();
+                apply_block_at_height(
+                    &mut store_update,
+                    &mut chain_store,
+                    &runtime,
+                    block_height,
+                    0,
+                )
+                .unwrap();
+                store_update.commit().unwrap();
+                continue;
+            } else if let Ok(Some(receipt)) = chain_store.get_receipt(&id) {
+                unimplemented!();
+            } else {
+                panic!("Outcome not from tx or a receipt")
+            }
+        };
+        let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
+            old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
+        store_update
+            .set_ser(DBCol::ColTransactionResult, key.as_ref(), &outcomes)
+            .expect("BorshSerialize should not fail");
+    }
+    store_update.finish().expect("Failed to migrate");
+
+    set_store_version(&store, 24);
 }
 
 pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
