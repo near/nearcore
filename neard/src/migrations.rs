@@ -270,6 +270,7 @@ lazy_static_include::lazy_static_include_bytes! {
 
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
 pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
+    eprintln!("migrate_22_to_23");
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
@@ -278,6 +279,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
+        chain_store_update.commit()?;
     }
     set_store_version(&store, 23);
 }

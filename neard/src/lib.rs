@@ -71,6 +71,7 @@ pub fn get_default_home() -> String {
 
 /// Function checks current version of the database and applies migrations to the database.
 pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
+    eprintln!("apply_store_migrations");
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
