@@ -279,7 +279,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
-        chain_store_update.commit()?;
+        chain_store_update.commit().expect("");
     }
     set_store_version(&store, 23);
 }
