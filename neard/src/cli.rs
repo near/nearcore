@@ -277,7 +277,7 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!("Got {}, stopping", sig);
+            info!(target: "neard", "Got {}, stopping", sig);
             actix::System::current().stop();
         });
         sys.run().unwrap();
