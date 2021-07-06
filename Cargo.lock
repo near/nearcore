@@ -3713,6 +3713,7 @@ dependencies = [
  "actix_derive",
  "awc",
  "borsh",
+ "bs58",
  "byteorder",
  "chrono",
  "delay-detector",
