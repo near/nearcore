@@ -284,7 +284,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
         chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
         chain_store_update.commit().expect("");
 
-        let bytes = include_bytes!("../../mainnet_restored_receipts.json");
+        let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
         let restored_receipts: ReceiptResult = serde_json::from_slice(bytes)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         eprintln!("22222");

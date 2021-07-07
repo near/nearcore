@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     let mut chain_store = ChainStore::new(store.clone(), 9820210);
 
     eprintln!("11111");
-    let bytes = include_bytes!("../../../mainnet_restored_receipts.json");
+    let bytes = include_bytes!("../../../neard/res/mainnet_restored_receipts.json");
     let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
         .expect("File with receipts restored after apply_chunks fix have to be correct");
     eprintln!("22222");
