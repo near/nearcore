@@ -214,7 +214,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         set_store_version(&store, 22);
     }
     info!(target: "near", "{}", near_config.genesis.config.genesis_height);
-    if db_version <= 28 {
+    if db_version <= 29 {
         info!(target: "near", "Migrate DB from version 22 to 23");
         migrate_test(&path, near_config);
     }
@@ -246,6 +246,15 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<
         apply_store_migrations(&path, near_config);
     }
     let store = create_store(&path);
+    let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
+    let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
+        .expect("File with receipts restored after apply_chunks fix have to be correct");
+    eprintln!("22222");
+    let receipts = restored_receipts.get(&0u64).unwrap();
+    for receipt in receipts {
+        // eprintln!("{}", receipt.get_hash());
+        chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
+    }
     if !store_exists {
         set_store_version(&store, near_primitives::version::DB_VERSION);
     }
@@ -257,17 +266,6 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
     let store = init_and_migrate_store(home_dir, &config);
-
-    let mut chain_store = ChainStore::new(store.clone(), 9820210);
-    let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
-    let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
-        .expect("File with receipts restored after apply_chunks fix have to be correct");
-    eprintln!("22222");
-    let receipts = restored_receipts.get(&0u64).unwrap();
-    for receipt in receipts {
-        // eprintln!("{}", receipt.get_hash());
-        chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
-    }
 
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
