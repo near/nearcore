@@ -280,7 +280,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
         let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        info!(target: "near", "{:?}", restored_receipts.get(&0u64));
+        // info!(target: "near", "{:?}", restored_receipts.get(&0u64));
         chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
         chain_store_update.commit().expect("");
 
@@ -290,9 +290,9 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
         eprintln!("22222");
         let receipts = restored_receipts.get(&0u64).unwrap();
         for receipt in receipts {
-            eprintln!("{}", receipt.get_hash());
+            // eprintln!("{}", receipt.get_hash());
             chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
         }
     }
-    set_store_version(&store, 25);
+    set_store_version(&store, 26);
 }
