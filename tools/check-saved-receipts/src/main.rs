@@ -6,7 +6,6 @@ use std::path::Path;
 use clap::{App, Arg};
 
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;
 use near_primitives::types::ShardId;
