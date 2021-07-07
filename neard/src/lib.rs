@@ -6,7 +6,7 @@ use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use tracing::{error, info, trace};
 
-use near_chain::ChainGenesis;
+use near_chain::{ChainGenesis, ChainStore};
 #[cfg(feature = "adversarial")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
@@ -32,6 +32,9 @@ use near_store::migrations::{
 use near_store::migrations::migrate_18_to_new_validator_stake;
 
 use near_store::migrations::migrate_20_to_21;
+use std::collections::HashMap;
+use near_primitives::types::ShardId;
+use near_primitives::receipt::Receipt;
 
 pub mod config;
 pub mod genesis_validate;
@@ -212,7 +215,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         set_store_version(&store, 22);
     }
     info!(target: "near", "{}", near_config.genesis.config.genesis_height);
-    if db_version <= 26 {
+    if db_version <= 27 {
         info!(target: "near", "Migrate DB from version 22 to 23");
         migrate_22_to_23(&path, near_config);
     }
@@ -255,6 +258,18 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
     let store = init_and_migrate_store(home_dir, &config);
+
+    let store_2 = create_store(&path);
+    let mut chain_store = ChainStore::new(store_2.clone(), 9820210);
+    let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
+    let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
+        .expect("File with receipts restored after apply_chunks fix have to be correct");
+    eprintln!("22222");
+    let receipts = restored_receipts.get(&0u64).unwrap();
+    for receipt in receipts {
+        // eprintln!("{}", receipt.get_hash());
+        chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
+    }
 
     let runtime = Arc::new(NightshadeRuntime::new(
         home_dir,
