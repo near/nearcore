@@ -213,7 +213,7 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
             let filename = bs58::encode(key.as_ref()).into_string();
             println!("not okay deser key: {}", &filename);
             std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
-            let old_outcome = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value);
+            let old_outcome = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
             vec![old_outcome]
             //
             //            store_update.finish().expect("Failed to commit");
