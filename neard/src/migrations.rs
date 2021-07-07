@@ -272,6 +272,7 @@ lazy_static_include::lazy_static_include_bytes! {
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
 pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     info!(target: "near", "Migrate DB from version 22 to 23");
+    info!(target: "near", "path = {}", path);
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
@@ -293,5 +294,5 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
         }
     }
-    set_store_version(&store, 24);
+    set_store_version(&store, 25);
 }
