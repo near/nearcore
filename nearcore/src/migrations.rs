@@ -201,10 +201,6 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
 
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for (key, value) in store.iter(DBCol::ColTransactionResult) {
-        let filename = bs58::encode(key.as_ref()).into_string();
-        println!("deser key: {}", &filename);
-        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
-
         if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
             // has success in previous attempt of this migration, or by previous iter that apply_block_at_height
             continue;
@@ -214,45 +210,51 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
         let old_outcomes = if old_outcomes.is_ok() {
             old_outcomes.unwrap()
         } else {
-            store_update.finish().expect("Failed to commit");
-            store_update = BatchedStoreUpdate::new(&store, 10_000_000);
-            let genesis_height = near_config.genesis.config.genesis_height;
-            let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-            let head = chain_store.head().expect("head must exist");
-            let runtime = NightshadeRuntime::new(
-                &Path::new(path),
-                store.clone(),
-                &near_config.genesis,
-                near_config.client_config.tracked_accounts.clone(),
-                near_config.client_config.tracked_shards.clone(),
-                None,
-                None,
-            );
-
-            let id = CryptoHash::try_from(key.as_ref()).unwrap();
-            let block_hash = if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
-                tx.transaction.block_hash
-            } else {
-                // A receipt, could be a local one that not in chain_store.get_receipt
-                // Even for those we can get from chain_store.get_receipt, we don't know the block hash
-                let mut buf = value.as_ref().into();
-                let len: i32 = BorshDeserialize::deserialize(&mut buf).unwrap();
-                if len != 1 {
-                    println!("unable to handle more than one execution outcome {}", len);
-                    println!("!!! key {}", bs58::encode(key.as_ref()).into_string());
-                    continue;
-                }
-                let p: PartialExecutionOutcomeWithIdAndProof =
-                    BorshDeserialize::deserialize(&mut buf).unwrap();
-                p.block_hash
-            };
-            let block_height = chain_store.get_block_height(&block_hash).unwrap();
-            println!("{}", &block_hash);
-            let mut store_update = store.store_update();
-            apply_block_at_height(&mut store_update, &mut chain_store, &runtime, block_height, 0)
-                .unwrap();
-            store_update.commit().unwrap();
-            continue;
+            let filename = bs58::encode(key.as_ref()).into_string();
+            println!("not okay deser key: {}", &filename);
+            std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
+            old_outcome = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value);
+            vec![old_outcome]
+            //
+            //            store_update.finish().expect("Failed to commit");
+            //            store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+            //            let genesis_height = near_config.genesis.config.genesis_height;
+            //            let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+            //            let head = chain_store.head().expect("head must exist");
+            //            let runtime = NightshadeRuntime::new(
+            //                &Path::new(path),
+            //                store.clone(),
+            //                &near_config.genesis,
+            //                near_config.client_config.tracked_accounts.clone(),
+            //                near_config.client_config.tracked_shards.clone(),
+            //                None,
+            //                None,
+            //            );
+            //
+            //            let id = CryptoHash::try_from(key.as_ref()).unwrap();
+            //            let block_hash = if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
+            //                tx.transaction.block_hash
+            //            } else {
+            //                // A receipt, could be a local one that not in chain_store.get_receipt
+            //                // Even for those we can get from chain_store.get_receipt, we don't know the block hash
+            //                let mut buf = value.as_ref().into();
+            //                let len: i32 = BorshDeserialize::deserialize(&mut buf).unwrap();
+            //                if len != 1 {
+            //                    println!("unable to handle more than one execution outcome {}", len);
+            //                    println!("!!! key {}", bs58::encode(key.as_ref()).into_string());
+            //                    continue;
+            //                }
+            //                let p: PartialExecutionOutcomeWithIdAndProof =
+            //                    BorshDeserialize::deserialize(&mut buf).unwrap();
+            //                p.block_hash
+            //            };
+            //            let block_height = chain_store.get_block_height(&block_hash).unwrap();
+            //            println!("{}", &block_hash);
+            //            let mut store_update = store.store_update();
+            //            apply_block_at_height(&mut store_update, &mut chain_store, &runtime, block_height, 0)
+            //                .unwrap();
+            //            store_update.commit().unwrap();
+            //            continue;
         };
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
             old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
