@@ -23,6 +23,7 @@ openssl-probe = "0.1.2"
 near-rust-allocator-proxy = { version = "0.2.8", optional = true }
 lazy_static = "1.4"
 tokio = "1.1"
+futures = "0.3"
 
 nearcore = { path = "../nearcore" }
 near-primitives = { path = "../core/primitives" }
