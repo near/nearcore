@@ -162,7 +162,7 @@ impl CompiledContractCache for MockCompiledContractCache {
     }
 }
 
-fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
+pub(crate) fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
     let n = xs.len();
     let n128 = n as i128;
 
