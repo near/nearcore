@@ -296,5 +296,5 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
             chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
         }
     }
-    set_store_version(&store, 30);
+    set_store_version(&store, 31);
 }
