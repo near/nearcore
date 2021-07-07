@@ -201,13 +201,15 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
 
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for (key, value) in store.iter(DBCol::ColTransactionResult) {
+        let filename = bs58::encode(key.as_ref()).into_string();
+        println!("deser key: {}", &filename);
+        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
+
         if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
             // has success in previous attempt of this migration, or by previous iter that apply_block_at_height
             continue;
         }
-        //        let filename = bs58::encode(key.as_ref()).into_string();
-        //        println!("deser key: {}", &filename);
-        //        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
+
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
         let old_outcomes = if old_outcomes.is_ok() {
             old_outcomes.unwrap()
