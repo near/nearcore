@@ -246,6 +246,7 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<
         apply_store_migrations(&path, near_config);
     }
     let store = create_store(&path);
+    let mut chain_store = ChainStore::new(store.clone(), 9820210);
     let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
     let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
         .expect("File with receipts restored after apply_chunks fix have to be correct");
