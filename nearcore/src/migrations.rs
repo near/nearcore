@@ -170,6 +170,14 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
         pub outcome_with_id: OldExecutionOutcomeWithId,
     }
 
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    // In the case of old execution outcome hadn't migrated and failed to deserialize (inside
+    // error enums in ExecutionOutcome, so we can still get the first block_hash)
+    pub struct PartialExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+    }
+
     impl Into<ExecutionOutcomeWithIdAndProof> for OldExecutionOutcomeWithIdAndProof {
         fn into(self) -> ExecutionOutcomeWithIdAndProof {
             ExecutionOutcomeWithIdAndProof {
@@ -194,7 +202,7 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
     for (key, value) in store.iter(DBCol::ColTransactionResult) {
         if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
-            // has success in previous attempt of this migration
+            // has success in previous attempt of this migration, or by previous iter that apply_block_at_height
             continue;
         }
         //        let filename = bs58::encode(key.as_ref()).into_string();
@@ -220,29 +228,27 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
             );
 
             let id = CryptoHash::try_from(key.as_ref()).unwrap();
-            if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
-                let block_hash = tx.transaction.block_hash;
-                let block_height = chain_store.get_block_height(&block_hash).unwrap();
-                println!("{}", block_height);
-                let mut store_update = store.store_update();
-                apply_block_at_height(
-                    &mut store_update,
-                    &mut chain_store,
-                    &runtime,
-                    block_height,
-                    0,
-                )
-                .unwrap();
-                store_update.commit().unwrap();
-                continue;
-            } else if let Ok(Some(receipt)) = chain_store.get_receipt(&id) {
-                unimplemented!();
+            let block_hash = if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
+                tx.transaction.block_hash
             } else {
-                panic!(
-                    "Outcome not from tx or a receipt {}",
-                    bs58::encode(key.as_ref()).into_string()
-                )
-            }
+                // A receipt, could be a local one that not in chain_store.get_receipt
+                // Even for those we can get from chain_store.get_receipt, we don't know the block hash
+                let mut buf = value.as_ref().into();
+                let len: i32 = BorshDeserialize::deserialize(&mut buf).unwrap();
+                if len != 1 {
+                    unimplemented!("unable to handle more than one execution outcome");
+                }
+                let p: PartialExecutionOutcomeWithIdAndProof =
+                    BorshDeserialize::deserialize(&mut buf).unwrap();
+                p.block_hash
+            };
+            let block_height = chain_store.get_block_height(&block_hash).unwrap();
+            println!("{}", &block_hash);
+            let mut store_update = store.store_update();
+            apply_block_at_height(&mut store_update, &mut chain_store, &runtime, block_height, 0)
+                .unwrap();
+            store_update.commit().unwrap();
+            continue;
         };
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
             old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
