@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
+use tracing::{error, info, trace};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
@@ -2246,6 +2247,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn gc_col(&mut self, col: DBCol, key: &Vec<u8>) {
+        info!(target: "near", "gc_col!");
         assert!(SHOULD_COL_GC[col as usize]);
         let mut store_update = self.store().store_update();
         match col {
@@ -2306,6 +2308,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store.transactions.cache_remove(key);
             }
             DBCol::ColReceipts => {
+                info!(target: "near", "gc_col_receipts!");
                 // store_update.update_refcount(col, key, &[], -1);
                 // self.chain_store.receipts.cache_remove(key);
             }

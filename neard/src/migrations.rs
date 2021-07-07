@@ -294,5 +294,5 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
         }
     }
-    set_store_version(&store, 26);
+    set_store_version(&store, 27);
 }
