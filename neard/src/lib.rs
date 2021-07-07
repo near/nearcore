@@ -211,6 +211,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         let store = create_store(&path);
         set_store_version(&store, 22);
     }
+    info!(target: "near", "{}", near_config.genesis.config.genesis_height);
     if db_version <= 25 {
         info!(target: "near", "Migrate DB from version 22 to 23");
         migrate_22_to_23(&path, near_config);

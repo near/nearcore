@@ -32,7 +32,9 @@ fn main() -> Result<()> {
         .get_matches();
 
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
-    let store = create_store(&get_store_path(&home_dir));
+    let path = get_store_path(&home_dir);
+    eprintln!("{}", path);
+    let store = create_store(&path);
     let mut chain_store = ChainStore::new(store.clone(), 9820210);
 
     eprintln!("11111");
