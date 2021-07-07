@@ -38,6 +38,7 @@ fn test_gas_metering_cost(metric: GasMetric) {
         }
     }
 
+    // Regression analysis only makes sense for additive metrics.
     if metric == GasMetric::Time {
         return
     }
@@ -74,6 +75,15 @@ fn test_gas_metering_cost_icount() {
     test_gas_metering_cost(GasMetric::ICount)
 }
 
+/*
+fn dump_prepared(code: &String) {
+    let config = VMConfig::default();
+    let result = prepare_contract(wabt::wat2wasm(code.as_bytes()).unwrap().as_slice(), &config);
+    let prepared = result.unwrap();
+    println!("original {}", code);
+    println!("prepared {}", wabt::wasm2wat(prepared.as_slice()).unwrap());
+}*/
+
 fn make_deeply_nested_blocks_contact(depth: i32) -> ContractCode {
     // Build nested blocks structure.
     let mut blocks = String::new();
@@ -82,19 +92,23 @@ fn make_deeply_nested_blocks_contact(depth: i32) -> ContractCode {
             &mut blocks,
             "
             block
-            local.get 0
-            drop
-        "
+            "
         )
         .unwrap();
     }
+    // Conditional branch forces 1 gas metering injection per block.
     for _ in 0..depth {
         write!(
             &mut blocks,
             "
-            br 0
+            local.get 0
+            i32.const 2
+            i32.gt_s
+            br_if 0
+            local.get 0
+            drop
             end
-        "
+            "
         )
         .unwrap();
     }
@@ -145,7 +159,9 @@ fn make_simple_loop_contact(depth: i32) -> ContractCode {
 }
 
 /**
- *
+ * We compute the cost of gas metering operations in forward and backward branching contracts by
+ * running contracts with and without gas metering and comparing the difference induced by gas
+ * metering.
  */
 pub fn compute_gas_metering_cost(
     gas_metric: GasMetric,
