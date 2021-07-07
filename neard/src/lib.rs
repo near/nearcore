@@ -19,7 +19,7 @@ use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
-use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_22_to_23};
+use crate::migrations::{migrate_12_to_13, migrate_18_to_19, migrate_test};
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
@@ -214,9 +214,9 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         set_store_version(&store, 22);
     }
     info!(target: "near", "{}", near_config.genesis.config.genesis_height);
-    if db_version <= 27 {
+    if db_version <= 28 {
         info!(target: "near", "Migrate DB from version 22 to 23");
-        migrate_22_to_23(&path, near_config);
+        migrate_test(&path, near_config);
     }
 
     #[cfg(feature = "nightly_protocol")]
