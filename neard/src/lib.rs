@@ -5,8 +5,7 @@ use std::sync::Arc;
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
 use tracing::{error, info, trace};
-
-use near_chain::{ChainGenesis, ChainStore};
+use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess};
 #[cfg(feature = "adversarial")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
