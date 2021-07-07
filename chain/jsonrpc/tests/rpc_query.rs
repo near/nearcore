@@ -4,7 +4,7 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 use serde_json::json;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
@@ -383,7 +383,7 @@ fn test_status() {
 fn test_status_fail() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
@@ -408,7 +408,7 @@ fn test_status_fail() {
 fn test_health_fail() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let client = new_client(&"http://127.0.0.1:12322/health");
         actix::spawn(client.health().then(|res| {
             assert!(res.is_err());
@@ -423,7 +423,7 @@ fn test_health_fail() {
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
