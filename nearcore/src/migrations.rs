@@ -236,7 +236,7 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
                 let mut buf = value.as_ref().into();
                 let len: i32 = BorshDeserialize::deserialize(&mut buf).unwrap();
                 if len != 1 {
-                    unimplemented!("unable to handle more than one execution outcome");
+                    unimplemented!("unable to handle more than one execution outcome {}", len);
                 }
                 let p: PartialExecutionOutcomeWithIdAndProof =
                     BorshDeserialize::deserialize(&mut buf).unwrap();
