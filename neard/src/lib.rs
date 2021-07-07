@@ -258,8 +258,7 @@ pub fn start_with_config(
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
     let store = init_and_migrate_store(home_dir, &config);
 
-    let store_2 = create_store(&get_store_path(home_dir));
-    let mut chain_store = ChainStore::new(store_2.clone(), 9820210);
+    let mut chain_store = ChainStore::new(store.clone(), 9820210);
     let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
     let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
         .expect("File with receipts restored after apply_chunks fix have to be correct");
