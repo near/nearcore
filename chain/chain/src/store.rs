@@ -2306,8 +2306,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store.transactions.cache_remove(key);
             }
             DBCol::ColReceipts => {
-                store_update.update_refcount(col, key, &[], -1);
-                self.chain_store.receipts.cache_remove(key);
+                // store_update.update_refcount(col, key, &[], -1);
+                // self.chain_store.receipts.cache_remove(key);
             }
             DBCol::ColChunks => {
                 store_update.delete(col, key);
