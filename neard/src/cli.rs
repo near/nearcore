@@ -189,6 +189,12 @@ pub(super) struct RunCmd {
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
+    /// Export prometheus metrics on an additional listening address, which is useful
+    /// for having separate access restrictions for the RPC and prometheus endpoints.
+    /// Ignored if RPC http server is disabled, see 'rpc_addr'.
+    #[cfg(feature = "json_rpc")]
+    #[clap(long)]
+    rpc_monitoring_addr: Option<String>,
     /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
     /// RPC endpoint.
     #[clap(long)]
@@ -232,8 +238,13 @@ impl RunCmd {
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
             near_config.rpc_config = None;
-        } else if let Some(rpc_addr) = self.rpc_addr {
+        } else {
+          if let Some(rpc_addr) = self.rpc_addr {
             near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+          }
+          if let Some(rpc_monitoring_addr) = self.rpc_monitoring_addr {
+            near_config.rpc_config.get_or_insert(Default::default()).monitoring_addr = Some(rpc_monitoring_addr);
+          }
         }
         if let Some(telemetry_url) = self.telemetry_url {
             if !telemetry_url.is_empty() {

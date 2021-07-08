@@ -67,6 +67,7 @@ impl Default for RpcLimitsConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
+    pub monitoring_addr: Option<String>,
     pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
     #[serde(default)]
@@ -77,6 +78,7 @@ impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
+            monitoring_addr: None,
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
             limits_config: Default::default(),
@@ -199,6 +201,21 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+}
+
+#[derive(Debug)]
+struct NoopHandler { }
+
+impl NoopHandler {
+    pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
+        // Gather metrics and return them as a String
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
+
+        String::from_utf8(buffer)
+    }
+
 }
 
 impl JsonRpcHandler {
@@ -1183,9 +1200,19 @@ fn network_info_handler(
     response.boxed()
 }
 
-fn prometheus_handler(
-    handler: web::Data<JsonRpcHandler>,
-) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+fn prometheus_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    near_metrics::inc_counter(&metrics::PROMETHEUS_REQUEST_COUNT);
+
+    let response = async move {
+        match handler.metrics().await {
+            Ok(value) => Ok(HttpResponse::Ok().body(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed()
+}
+
+fn prometheus_for_noop_handler(handler: web::Data<NoopHandler>) -> impl Future<Output = Result<HttpResponse, HttpError>> {
     near_metrics::inc_counter(&metrics::PROMETHEUS_REQUEST_COUNT);
 
     let response = async move {
@@ -1216,15 +1243,18 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RpcConfig { addr, cors_allowed_origins, polling_config, limits_config } = config;
+    let c2 : RpcConfig = config.clone();
+    let RpcConfig { addr, monitoring_addr, cors_allowed_origins, polling_config, limits_config } = config;
+    let run_monitoring_server = monitoring_addr.is_some() && monitoring_addr.as_ref().unwrap() != &addr;
     info!(target:"network", "Starting http server at {}", addr);
+
     HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
-                polling_config,
+                polling_config: polling_config,
                 genesis_config: genesis_config.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
@@ -1248,4 +1278,22 @@ pub fn start_http(
     .workers(4)
     .shutdown_timeout(5)
     .run();
+
+    if run_monitoring_server {
+      let monitoring_addr = monitoring_addr.unwrap();
+      let cors_allowed_origins = c2.cors_allowed_origins;
+      info!(target:"network", "Starting http monitoring server at {}", monitoring_addr);
+      HttpServer::new(move || {
+          App::new()
+            .wrap(get_cors(&cors_allowed_origins))
+            .data(NoopHandler{})
+          .wrap(middleware::Logger::default())
+          .service(web::resource("/metrics").route(web::get().to(prometheus_for_noop_handler)))
+          })
+      .bind(monitoring_addr)
+        .unwrap()
+        .workers(2)
+        .shutdown_timeout(5)
+        .run();
+    }
 }
