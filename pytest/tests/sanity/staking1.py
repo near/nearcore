@@ -7,6 +7,7 @@ import sys, time, base58, random, datetime
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_staking_tx
 
 TIMEOUT = 150
@@ -43,7 +44,7 @@ nodes[0].send_tx(tx)
 
 max_height = 0
 
-print("Initial stakes: %s" % get_stakes())
+logger.info("Initial stakes: %s" % get_stakes())
 
 while True:
     assert time.time() - started < TIMEOUT
@@ -52,13 +53,13 @@ while True:
     height = status['sync_info']['latest_block_height']
 
     if 'test2' in get_validators():
-        print("Normalin, normalin")
+        logger.info("Normalin, normalin")
         assert 20 <= height <= 25
         break
 
     if height > max_height:
         max_height = height
-        print("..Reached height %s, no luck yet" % height)
+        logger.info("..Reached height %s, no luck yet" % height)
     time.sleep(0.1)
 
 tx = sign_staking_tx(nodes[2].signer_key, nodes[2].validator_key, 0, 3,
@@ -73,11 +74,11 @@ while True:
     hash_ = status['sync_info']['latest_block_hash']
 
     if 'test2' not in get_validators():
-        print("DONE")
+        logger.info("DONE")
         assert 40 <= height <= 45
         break
 
     if height > max_height:
         max_height = height
-        print("..Reached height %s, no luck yet" % height)
+        logger.info("..Reached height %s, no luck yet" % height)
     time.sleep(0.1)

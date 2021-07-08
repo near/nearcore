@@ -757,9 +757,9 @@ dependencies = [
 
 [[package]]
 name = "c2-chacha"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb6b83fa00a7c53f420893670940c8fdfaa89f9dd9adb52062cca39482a31ab6"
+checksum = "7e6002dbb7c65a76e516625443949a8b7bb0d0845fe6a3dc39e2dd7ae39dcb9c"
 dependencies = [
  "cipher",
  "ppv-lite86",
@@ -3179,6 +3179,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
+ "ethereum-types 0.11.0",
  "hex-literal",
  "lazy_static",
  "libc",
@@ -3637,10 +3638,12 @@ dependencies = [
  "borsh",
  "bs58",
  "byteorder",
+ "near-crypto",
  "near-primitives",
  "near-primitives-core",
  "near-runtime-utils",
  "near-vm-errors",
+ "ripemd160",
  "serde",
  "serde_json",
  "sha2 0.9.3",
@@ -3755,6 +3758,7 @@ version = "1.2.0"
 dependencies = [
  "actix",
  "clap 3.0.0-beta.2",
+ "futures",
  "git-version",
  "lazy_static",
  "near-performance-metrics",
@@ -3762,6 +3766,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "nearcore",
  "openssl-probe",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3813,6 +3818,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -6419,9 +6425,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core-near"
-version = "0.17.3"
+version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c65db7e27877fb7499a5af9d7ab763bb0ddc78c3d1a6310a8ca6e86e71e532f9"
+checksum = "08ff9059d479dbff357e1953edbde198453d5421274119230c50754e61e8ec9f"
 dependencies = [
  "bincode",
  "blake3",

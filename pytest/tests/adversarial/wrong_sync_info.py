@@ -8,6 +8,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from utils import LogTracker
 
 TIMEOUT = 300
@@ -25,7 +26,7 @@ nodes[2].kill()
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 time.sleep(2)
 
-print("Waiting for %s blocks..." % BLOCKS)
+logger.info("Waiting for %s blocks..." % BLOCKS)
 
 while True:
     assert time.time() - started < TIMEOUT
@@ -35,7 +36,7 @@ while True:
         break
     time.sleep(1)
 
-print("Got to %s blocks, getting to fun stuff" % BLOCKS)
+logger.info("Got to %s blocks, getting to fun stuff" % BLOCKS)
 
 res = nodes[1].json_rpc('adv_set_weight', 1000)
 assert 'result' in res, res
@@ -55,4 +56,4 @@ while True:
 
 assert tracker.check('ban a fraudulent peer')
 
-print("Epic")
+logger.info("Epic")

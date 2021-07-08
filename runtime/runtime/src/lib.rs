@@ -56,7 +56,6 @@ use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -218,7 +217,10 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+        let _span =
+            tracing::debug_span!(target: "runtime", "Runtime::process_transaction").entered();
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
+
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
@@ -264,7 +266,6 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
                     },
                 };
                 Ok((receipt, outcome))
@@ -561,7 +562,7 @@ impl Runtime {
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
             if !checked_feature!(
-                "protocol_feature_count_refund_receipts_in_gas_limit",
+                "stable",
                 CountRefundReceiptsInGasLimit,
                 apply_state.current_protocol_version
             ) {
@@ -733,7 +734,6 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         })
     }
@@ -820,6 +820,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt").entered();
+
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1097,12 +1099,7 @@ impl Runtime {
         migration_flags: &MigrationFlags,
         protocol_version: ProtocolVersion,
     ) -> Result<(Gas, Vec<Receipt>), StorageError> {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         let mut gas_used: Gas = 0;
-
-        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        let gas_used: Gas = 0;
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         if ProtocolFeature::FixStorageUsage.protocol_version() == protocol_version
             && migration_flags.is_first_block_of_version
         {
@@ -1141,8 +1138,6 @@ impl Runtime {
             vec![]
         };
 
-        #[cfg(not(feature = "protocol_feature_fix_storage_usage"))]
-        (state_update, migration_data, migration_flags, protocol_version);
         Ok((gas_used, receipts_to_restore))
     }
 
@@ -1166,9 +1161,12 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
+        let _span = tracing::debug_span!(target: "runtime", "Runtime::apply").entered();
+
         if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
             panic!("Can only patch state in sandbox mode");
         }
+
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);
@@ -1477,7 +1475,6 @@ mod tests {
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
     use near_vm_runner::{get_contract_cache_key, VMKind};
-    use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     const GAS_PRICE: Balance = 5000;
@@ -1672,17 +1669,7 @@ mod tests {
             store_update.commit().unwrap();
             let state = tries.new_trie_update(0, root);
             let account = get_account(&state, &alice_account()).unwrap().unwrap();
-            // Check that refund receipts are delayed if CountRefundReceiptsInGasLimit is enabled,
-            // and otherwise processed all at once
-            let capped_i = if checked_feature!(
-                "protocol_feature_count_refund_receipts_in_gas_limit",
-                CountRefundReceiptsInGasLimit,
-                apply_state.current_protocol_version
-            ) {
-                std::cmp::min(i, n)
-            } else {
-                n
-            };
+            let capped_i = std::cmp::min(i, n);
             assert_eq!(
                 account.amount(),
                 initial_balance

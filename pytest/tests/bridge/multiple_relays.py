@@ -5,6 +5,7 @@
 # Wait at the end for 60 seconds more to make sure balances are not chaning.
 
 import sys, time
+from configured_logger import logger
 
 add_relay_while_tx = False
 if 'add_relay_while_tx' in sys.argv:
@@ -24,7 +25,7 @@ e2n.append(Eth2NearBlockRelay(bridge.config))
 e2n[0].start()
 # TODO redirect stderr/stdout
 e2n[1].start()
-print('=== E2N RELAYS ARE STARTED')
+logger.info('=== E2N RELAYS ARE STARTED')
 
 n2e = []
 n2e.append(Near2EthBlockRelay(bridge.config))
@@ -32,7 +33,7 @@ n2e.append(Near2EthBlockRelay(bridge.config))
 n2e[0].start()
 # TODO redirect stderr/stdout
 n2e[1].start()
-print('=== N2E RELAYS ARE STARTED')
+logger.info('=== N2E RELAYS ARE STARTED')
 
 tx = bridge.transfer_eth2near(alice, 1000)
 
@@ -45,10 +46,10 @@ tx.join()
 
 assert tx.exitcode == 0
 bridge.check_balances(alice)
-print('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
+logger.info('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
 bridge.check_balances(alice)
-print('=== BALANCES ARE OK AFTER SLEEPING')
+logger.info('=== BALANCES ARE OK AFTER SLEEPING')
 
 tx = bridge.transfer_near2eth(alice, 1)
 if add_relay_while_tx:
@@ -60,10 +61,10 @@ tx.join()
 
 assert tx.exitcode == 0
 bridge.check_balances(alice)
-print('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
+logger.info('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
 bridge.check_balances(alice)
-print('=== BALANCES ARE OK AFTER SLEEPING')
+logger.info('=== BALANCES ARE OK AFTER SLEEPING')
 
 
-print('EPIC')
+logger.info('EPIC')
