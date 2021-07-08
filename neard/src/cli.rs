@@ -1,5 +1,6 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
+use futures::future::FutureExt;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use nearcore::get_store_path;
 use std::net::SocketAddr;
@@ -102,6 +103,9 @@ pub(super) struct InitCmd {
     /// Download the verified NEAR genesis file automatically.
     #[clap(long)]
     download_genesis: bool,
+    /// Download the verified NEAR config file automatically.
+    #[clap(long)]
+    download_config: bool,
     /// Makes block production fast (TESTING ONLY).
     #[clap(long)]
     fast: bool,
@@ -111,12 +115,19 @@ pub(super) struct InitCmd {
     /// Chain ID, by default creates new random.
     #[clap(long)]
     chain_id: Option<String>,
-    /// Specify a custom download URL for the genesis-file.
+    /// Specify a custom download URL for the genesis file.
     #[clap(long)]
     download_genesis_url: Option<String>,
+    /// Specify a custom download URL for the config file.
+    #[clap(long)]
+    download_config_url: Option<String>,
     /// Genesis file to use when initializing testnet (including downloading).
     #[clap(long)]
     genesis: Option<String>,
+    /// Initialize boots nodes in <node_key>@<ip_addr> format seperated by commas
+    /// to bootstrap the network and store them in config.json
+    #[clap(long)]
+    boot_nodes: Option<String>,
     /// Number of shards to initialize the chain with.
     #[clap(long, default_value = "1")]
     num_shards: NumShards,
@@ -149,6 +160,9 @@ impl InitCmd {
             self.genesis.as_deref(),
             self.download_genesis,
             self.download_genesis_url.as_deref(),
+            self.download_config,
+            self.download_config_url.as_deref(),
+            self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
         );
     }
@@ -250,6 +264,21 @@ impl RunCmd {
         let sys = actix::System::new();
         sys.block_on(async move {
             nearcore::start_with_config(home_dir, near_config);
+
+            let sig = if cfg!(unix) {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigint = signal(SignalKind::interrupt()).unwrap();
+                let mut sigterm = signal(SignalKind::terminate()).unwrap();
+                futures::select! {
+                    _ = sigint .recv().fuse() => "SIGINT",
+                    _ = sigterm.recv().fuse() => "SIGTERM"
+                }
+            } else {
+                tokio::signal::ctrl_c().await.unwrap();
+                "Ctrl+C"
+            };
+            info!(target: "neard", "Got {}, stopping", sig);
+            actix::System::current().stop();
         });
         sys.run().unwrap();
     }

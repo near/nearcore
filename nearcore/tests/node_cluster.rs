@@ -1,6 +1,6 @@
 use futures::future;
 
-use near_actix_test_utils::{run_actix_until_stop, spawn_interruptible};
+use near_actix_test_utils::{run_actix, spawn_interruptible};
 use near_client::{ClientActor, ViewClientActor};
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use testlib::{start_nodes, test_helpers::heavy_test};
@@ -74,7 +74,7 @@ impl NodeCluster {
             self.genesis_height.expect("cluster config: [genesis_height] undefined"),
         );
         heavy_test(|| {
-            run_actix_until_stop(async {
+            run_actix(async {
                 let (genesis, rpc_addrs, clients) = start_nodes(
                     num_shards,
                     &self.dirs,

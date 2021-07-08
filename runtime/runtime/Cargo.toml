@@ -9,6 +9,7 @@ byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
+tracing = "0.1"
 rand = "0.7"
 lazy_static = "1.4"
 num-rational = "0.3"
@@ -53,17 +54,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_tx_size_limit = []
-protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "near-vm-logic/protocol_feature_allow_create_account_on_delete"]
-protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
 protocol_feature_restore_receipts_after_fix = []
-protocol_feature_count_refund_receipts_in_gas_limit = ["near-primitives/protocol_feature_count_refund_receipts_in_gas_limit"]
-protocol_feature_math_extension = [
-    "near-primitives/protocol_feature_math_extension",
-    "near-vm-logic/protocol_feature_math_extension",
-    "near-vm-runner/protocol_feature_math_extension",
-    "near-vm-errors/protocol_feature_math_extension"
-]
 sandbox = []
 
 [dev-dependencies]

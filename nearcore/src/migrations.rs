@@ -11,7 +11,6 @@ use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
 use near_primitives::types::Gas;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
@@ -350,7 +349,6 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 23);
 }
 
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
 lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
@@ -361,7 +359,6 @@ lazy_static_include::lazy_static_include_bytes! {
 
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take
 /// between 4 and 4.5s. We do not want to process any receipts in this block
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
 
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
@@ -373,24 +370,13 @@ lazy_static_include::lazy_static_include_bytes! {
 }
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
-    #[cfg(not(any(
-        feature = "protocol_feature_fix_storage_usage",
-        feature = "protocol_feature_restore_receipts_after_fix"
-    )))]
-    let _ = chain_id;
-    #[cfg(any(
-        feature = "protocol_feature_fix_storage_usage",
-        feature = "protocol_feature_restore_receipts_after_fix"
-    ))]
     let is_mainnet = chain_id == "mainnet";
     MigrationData {
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         storage_usage_delta: if is_mainnet {
             serde_json::from_slice(&MAINNET_STORAGE_USAGE_DELTA).unwrap()
         } else {
             Vec::new()
         },
-        #[cfg(feature = "protocol_feature_fix_storage_usage")]
         storage_usage_fix_gas: if is_mainnet {
             GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION
         } else {
@@ -408,24 +394,11 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(any(
-        feature = "protocol_feature_fix_storage_usage",
-        feature = "protocol_feature_restore_receipts_after_fix"
-    ))]
     use super::*;
-    #[cfg(any(
-        feature = "protocol_feature_fix_storage_usage",
-        feature = "protocol_feature_restore_receipts_after_fix"
-    ))]
     use near_primitives::hash::hash;
-    #[cfg(any(
-        feature = "protocol_feature_fix_storage_usage",
-        feature = "protocol_feature_restore_receipts_after_fix"
-    ))]
     use near_primitives::serialize::to_base;
 
     #[test]
-    #[cfg(feature = "protocol_feature_fix_storage_usage")]
     fn test_migration_data() {
         assert_eq!(
             to_base(&hash(&MAINNET_STORAGE_USAGE_DELTA)),
