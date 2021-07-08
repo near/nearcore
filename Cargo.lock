@@ -3791,6 +3791,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
