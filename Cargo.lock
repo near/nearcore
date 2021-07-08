@@ -3766,6 +3766,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "nearcore",
  "openssl-probe",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -6423,9 +6424,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core-near"
-version = "0.17.3"
+version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c65db7e27877fb7499a5af9d7ab763bb0ddc78c3d1a6310a8ca6e86e71e532f9"
+checksum = "08ff9059d479dbff357e1953edbde198453d5421274119230c50754e61e8ec9f"
 dependencies = [
  "bincode",
  "blake3",

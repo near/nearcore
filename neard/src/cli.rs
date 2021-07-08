@@ -123,6 +123,10 @@ pub(super) struct InitCmd {
     /// Genesis file to use when initializing testnet (including downloading).
     #[clap(long)]
     genesis: Option<String>,
+    /// Initialize boots nodes in <node_key>@<ip_addr> format seperated by commas
+    /// to bootstrap the network and store them in config.json
+    #[clap(long)]
+    boot_nodes: Option<String>,
     /// Number of shards to initialize the chain with.
     #[clap(long, default_value = "1")]
     num_shards: NumShards,
@@ -157,6 +161,7 @@ impl InitCmd {
             self.download_genesis_url.as_deref(),
             self.download_config,
             self.download_config_url.as_deref(),
+            self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
         );
     }
@@ -258,6 +263,9 @@ impl RunCmd {
         let sys = actix::System::new();
         sys.block_on(async move {
             nearcore::start_with_config(home_dir, near_config);
+            tokio::signal::ctrl_c().await.unwrap();
+            info!("Got Ctrl+C, stopping");
+            actix::System::current().stop();
         });
         sys.run().unwrap();
     }
