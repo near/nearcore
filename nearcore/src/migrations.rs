@@ -417,12 +417,14 @@ pub fn migrate_23_to_24(path: &String) {
         }
 
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
-        let old_outcomes = if old_outcomes.is_ok() {
-            old_outcomes.unwrap()
-        } else {
-            // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
-            let old_outcome = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
-            vec![old_outcome]
+        let old_outcomes = match old_outcomes {
+            Ok(old_outcomes) => old_outcomes,
+            _ => {
+                // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
+                let old_outcome =
+                    OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                vec![old_outcome]
+            }
         };
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
             old_outcomes.into_iter().map(|outcome| outcome.into()).collect();

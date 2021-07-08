@@ -25,7 +25,6 @@ tracing = "0.1.13"
 num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = "0.2.8"
 lazy-static-include = "3"
-bs58 = "0.4.0"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
