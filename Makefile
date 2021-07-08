@@ -13,7 +13,7 @@ release:
 	cargo build -p store-validator --release
 
 debug:
-	cargo build -p neard
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard
 	cargo build -p near-vm-runner-standalone
 	cargo build -p state-viewer
 	cargo build -p store-validator
@@ -25,7 +25,7 @@ perf-release:
 	cargo build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats
 
 perf-debug:
-	cargo build -p neard --features performance_stats,memory_stats
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --features performance_stats,memory_stats
 	cargo build -p near-vm-runner-standalone
 	cargo build -p state-viewer --features nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --features nearcore/performance_stats,nearcore/memory_stats
@@ -37,7 +37,7 @@ nightly-release:
 	cargo build -p store-validator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 nightly-debug:
-	cargo build -p neard --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
 	cargo build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
