@@ -88,3 +88,13 @@ Once your change ends up in master, it will be released with the rest of the cha
 You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes.
 Releases to the `stable` branch are manual, but generally contain a contiguous prefix of commits from `beta` branch.
 Note, that the goal is to maintain `beta` as stable as possible and `stable` completely stable. Hence if your change is breaking something that gets detected down the line - it will rolled back and requested to address the issue with additional test coverage.
+
+
+## Issue Labels
+
+Issue labels are of the following format `<type>-<content>` where `<type>` is a capital letter indicating the type of the label and `<content>` is a hyphened phrase indicating what is label is about.
+For example, in the label `C-bug`, `C` means category and `bug` means that the label is about bugs.
+Common types include `C`, which means category, `A`, which means area, `T`, which means team.
+
+An issue can have multiple labels including which area it touches, which team should be responsible for the issue, and so on.
+Each issue should have at least one label attached to it after it is triaged and the label could be a general one, such as `C-enhancement` or `C-bug`.
