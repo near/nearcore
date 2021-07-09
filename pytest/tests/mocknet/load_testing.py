@@ -67,7 +67,7 @@ def measure_tps_bps(nodes):
         'in_tps': input_tps,
         'out_tps': measurement['tps']
     }
-    logger.info(f'INFO: {result}')
+    logger.info(f'{result}')
     return result
 
 
@@ -83,7 +83,7 @@ def check_tps(measurement, expected_in, expected_out=None, tolarance=0.05):
 def check_memory_usage(node):
     metrics = mocknet.get_metrics(node)
     mem_usage = metrics.memory_usage / 1e6
-    logger.info(f'INFO: Memory usage (MB) = {mem_usage}')
+    logger.info(f'Memory usage (MB) = {mem_usage}')
     return mem_usage < 4500
 
 
@@ -92,18 +92,18 @@ def check_slow_blocks(initial_metrics, final_metrics):
     slow_process_blocks = delta.block_processing_time[
         'le +Inf'] - delta.block_processing_time['le 1']
     logger.info(
-        f'INFO: Number of blocks processing for more than 1s: {slow_process_blocks}'
+        f'Number of blocks processing for more than 1s: {slow_process_blocks}'
     )
     return slow_process_blocks == 0
 
 
 if __name__ == '__main__':
-    logger.info('INFO: Starting Load test.')
+    logger.info('Starting Load test.')
     nodes = mocknet.get_nodes()
     initial_validator_accounts = mocknet.list_validators(nodes[0])
     test_passed = True
 
-    logger.info('INFO: Performing baseline block time measurement')
+    logger.info('Performing baseline block time measurement')
     # We do not include tps here because there are no transactions on mocknet normally.
     time.sleep(120)
     baseline_measurement = mocknet.chain_measure_bps_and_tps(
@@ -111,22 +111,22 @@ if __name__ == '__main__':
     baseline_measurement['in_tps'] = 0.0
     # quit test early if the baseline is poor.
     assert baseline_measurement['bps'] > 1.0
-    logger.info(f'INFO: {baseline_measurement}')
-    logger.info('INFO: Baseline block time measurement complete')
+    logger.info(f'{baseline_measurement}')
+    logger.info('Baseline block time measurement complete')
 
-    logger.info('INFO: Setting remote python environments.')
+    logger.info('Setting remote python environments.')
     mocknet.setup_python_environments(nodes, wasm_contract())
-    logger.info('INFO: Starting transaction spamming scripts.')
+    logger.info('Starting transaction spamming scripts.')
     mocknet.start_load_test_helpers(nodes, 'load_testing_helper.py')
 
     initial_metrics = mocknet.get_metrics(nodes[-1])
-    logger.info('INFO: Waiting for transfer only period to complete.')
+    logger.info('Waiting for transfer only period to complete.')
     time.sleep(TRANSFER_ONLY_TIMEOUT)
     transfer_final_metrics = mocknet.get_metrics(nodes[-1])
 
     # wait before doing measurement to ensure tx_events written by helpers
     time.sleep(5)
-    logger.info('INFO: Transfer-only results:')
+    logger.info('Transfer-only results:')
     transfer_only_measurement = measure_tps_bps(nodes)
     test_passed = (transfer_only_measurement['bps'] > 0.5) and test_passed
     test_passed = check_tps(transfer_only_measurement, MAX_TPS) and test_passed
@@ -134,17 +134,17 @@ if __name__ == '__main__':
     test_passed = check_slow_blocks(initial_metrics,
                                     transfer_final_metrics) and test_passed
 
-    logger.info('INFO: Waiting for contracts to be deployed.')
+    logger.info('Waiting for contracts to be deployed.')
     measurement_duration = transfer_final_metrics.timestamp - time.time()
     time.sleep(CONTRACT_DEPLOY_TIME - measurement_duration)
 
-    logger.info('INFO: Waiting for random transactions period to complete.')
+    logger.info('Waiting for random transactions period to complete.')
     all_tx_initial_metrics = mocknet.get_metrics(nodes[-1])
     time.sleep(ALL_TX_TIMEOUT)
     final_metrics = mocknet.get_metrics(nodes[-1])
 
     time.sleep(5)
-    logger.info('INFO: All transaction types results:')
+    logger.info('All transaction types results:')
     all_tx_measurement = measure_tps_bps(nodes)
     test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
     test_passed = check_memory_usage(nodes[0]) and test_passed
@@ -156,4 +156,4 @@ if __name__ == '__main__':
 
     assert test_passed
 
-    logger.info('INFO: Load test complete.')
+    logger.info('Load test complete.')
