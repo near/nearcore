@@ -423,10 +423,6 @@ pub fn migrate_23_to_24(path: &String) {
                 // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
                 let old_outcome =
                     OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
-                println!(
-                    "outcome id: {}, block hash: {}",
-                    old_outcome.outcome_with_id.id, old_outcome.block_hash
-                );
                 vec![old_outcome]
             }
         };
