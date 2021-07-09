@@ -1,15 +1,21 @@
-from transaction import sign_payment_tx
-import random, base58
+import base58
+import hashlib
+import json
+import os
+import pathlib
+import random
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
 from retrying import retry
+from rc import gcloud
+
 from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
 from configured_logger import logger
-import sys
-from rc import run, gcloud
-import os
-import tempfile
-import json
-import hashlib
-import time
+from transaction import sign_payment_tx
 
 
 class TxContext:
@@ -190,24 +196,27 @@ def load_test_contract(filename='test_contract_rs.wasm'):
 
 
 def compile_rust_contract(content):
-    empty_contract_rs = os.path.join(os.path.dirname(__file__),
-                                     '../empty-contract-rs')
-    run('mkdir -p /tmp/near')
-    tmp_contract = tempfile.TemporaryDirectory(dir='/tmp/near').name
-    p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
-    if p.returncode != 0:
-        raise Exception(p.stderr)
-
-    with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
-        f.write(content)
-
-    p = run('bash', input=f'''
-cd {tmp_contract}
-./build.sh
-''')
-    if p.returncode != 0:
-        raise Exception(p.stderr)
-    return f'{tmp_contract}/target/release/empty_contract_rs.wasm'
+    tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
+    tempdir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=tempdir) as build_dir:
+        build_dir = pathlib.Path(build_dir) / 'empty-contract-rs'
+        shutil.copytree(
+            pathlib.Path(__file__).parent.parent / 'empty-contract-rs',
+            build_dir, symlinks=True)
+        (build_dir / 'src').mkdir(parents=True, exist_ok=True)
+        with open(build_dir / 'src' / 'lib.rs', 'w') as wr:
+            wr.write(content)
+        subprocess.check_call(('cargo', 'build', '--release', '--target',
+                               'wasm32-unknown-unknown'), cwd=build_dir)
+        wasm_src = (build_dir / 'target' / 'wasm32-unknown-unknown' /
+                    'release' / 'empty_contract_rs.wasm')
+        # Yes, we are leaving this file in /tmp/near and there’s no automatic
+        # cleanup.  Yes, we probably should fix that at some point so that this
+        # temporary is deleted once the test finishes.
+        wasm_fno, wasm_path = tempfile.mkstemp(suffix='.wasm')
+        with open(wasm_src, mode='rb') as rd, open(wasm_fno, mode='wb') as wr:
+            shutil.copyfileobj(rd, wr)
+    return wasm_path
 
 
 def user_name():
@@ -239,7 +248,6 @@ class Unbuffered(object):
 
 
 def collect_gcloud_config(num_nodes):
-    import pathlib
     keys = []
     for i in range(num_nodes):
         if not os.path.exists(f'/tmp/near/node{i}'):

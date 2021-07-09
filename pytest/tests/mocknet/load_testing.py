@@ -18,39 +18,39 @@ from configured_logger import logger
 
 def wasm_contract():
     return utils.compile_rust_contract('''
-const N: u32 = 100;
-
-metadata! {
-    #[near_bindgen]
-    #[derive(Default, BorshSerialize, BorshDeserialize)]
-    pub struct LoadContract {}
+extern "C" {
+    fn log_utf8(len: u64, ptr: u64);
 }
 
-#[near_bindgen]
-impl LoadContract {
-    pub fn do_work(&self) {
-        // Do some pointless work.
-        // In this case we bubble sort a reversed list.
-        // Thus, this is O(N) in space and O(N^2) in time.
-        let xs: Vec<u32> = (0..N).rev().collect();
-        let _ = Self::bubble_sort(xs);
-        env::log(b"Done.");
-    }
+const N: u32 = 100;
 
-    fn bubble_sort(mut xs: Vec<u32>) -> Vec<u32> {
-        let n = xs.len();
-        for i in 0..n {
-            for j in 1..(n - i) {
-                if xs[j - 1] > xs[j] {
-                    let tmp = xs[j - 1];
-                    xs[j - 1] = xs[j];
-                    xs[j] = tmp;
-                }
+#[no_mangle]
+pub fn do_work() {
+    // Do some pointless work.
+    // In this case we bubble sort a reversed list.
+    // Thus, this is O(N) in space and O(N^2) in time.
+    let xs: Vec<u32> = (0..N).rev().collect();
+    let _ = bubble_sort(xs);
+    let msg = b"Done.";
+    unsafe {
+        log_utf8(msg.len() as u64, msg.as_ptr() as _);
+    }
+}
+
+fn bubble_sort(mut xs: Vec<u32>) -> Vec<u32> {
+    let n = xs.len();
+    for i in 0..n {
+        for j in 1..(n - i) {
+            if xs[j - 1] > xs[j] {
+                let tmp = xs[j - 1];
+                xs[j - 1] = xs[j];
+                xs[j] = tmp;
             }
         }
-        xs
     }
-}''')
+    xs
+}
+''')
 
 
 def measure_tps_bps(nodes):
