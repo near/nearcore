@@ -14,6 +14,8 @@ use std::path::Path;
 use tracing::{error, info, trace};
 use std::collections::HashMap;
 use near_primitives::receipt::Receipt;
+use near_store::db::DBCol::ColReceipts;
+use near_primitives::borsh::BorshSerialize;
 
 fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
     let store = chain_store.store();
@@ -281,10 +283,16 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
+        let receipts = restored_receipts.get(&0u64).unwrap();
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+        // let mut store_update = chain_store_update.store().store_update();
         // info!(target: "near", "{:?}", restored_receipts.get(&0u64));
-        chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
+        // chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
         chain_store_update.commit().expect("");
+        for receipt in receipts.iter() {
+            let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+            store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
+        }
 
         let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
         let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
@@ -296,5 +304,5 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
             chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
         }
     }
-    set_store_version(&store, 31);
+    set_store_version(&store, 32);
 }
