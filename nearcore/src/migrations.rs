@@ -1,5 +1,5 @@
 use crate::{NearConfig, NightshadeRuntime};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
@@ -13,10 +13,10 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::Gas;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
-use near_store::db::DBCol::ColReceipts;
 
 fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
     let store = chain_store.store();
@@ -350,22 +350,21 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 23);
 }
 
-
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
 pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let restored_receipts = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
-            .expect("File with receipts restored after apply_chunks fix have to be correct").get(&0u64);
+        let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct");
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let mut store_update = chain_store_update.store().store_update();
-        for receipt in receipts.iter() {
+        for receipt in restored_receipts.get(&0u64).unwrap().iter() {
             let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
             store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
         }
-        store_update.commit().expect("");
+        store_update.commit().expect("Failed to commit restored receipts into store");
     }
     set_store_version(&store, 24);
 }
