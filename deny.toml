@@ -22,7 +22,6 @@ deny = [
 
 skip = [
     { name = "clap", version = "=2.33.3" },
-    { name = "env_logger", version = "=0.7.1" },
     { name = "humantime", version = "=2.1.0" },
     { name = "socket2", version = "=0.3.19" },
     { name = "textwrap", version = "=0.12.1" },
@@ -116,11 +115,9 @@ skip = [
     { name = "cranelift-codegen-shared", version = "=0.68.0" },
     { name = "cranelift-entity", version = "=0.68.0" },
     { name = "cranelift-frontend", version = "=0.68.0" },
-    { name = "libloading", version = "=0.5.2" },
     { name = "wasmparser", version = "=0.65.0" },
-    { name = "which", version = "=3.1.1" },
     { name = "object", version = "=0.22.0" },
-   
+
     # cached uses an older version
     { name = "strsim", version = "=0.9.3" },
     { name = "darling", version = "=0.10.2" },
@@ -135,4 +132,9 @@ skip = [
     { name = "borsh-derive", version = "=0.8.1" },
     { name = "borsh-derive-internal", version = "=0.8.1" },
     { name = "borsh-schema-derive-internal", version = "=0.8.1" },
+
+    # rocksdb (transitively through clang-sys) uses this as a build
+    # dependency which conflicts with 0.6.7 that wasmer-engine-native
+    # uses.
+    { name = "libloading", version = "=0.7.0" },
 ]
