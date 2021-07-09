@@ -239,12 +239,13 @@ impl RunCmd {
         if self.disable_rpc {
             near_config.rpc_config = None;
         } else {
-          if let Some(rpc_addr) = self.rpc_addr {
-            near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
-          }
-          if let Some(rpc_monitoring_addr) = self.rpc_monitoring_addr {
-            near_config.rpc_config.get_or_insert(Default::default()).monitoring_addr = Some(rpc_monitoring_addr);
-          }
+            if let Some(rpc_addr) = self.rpc_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+            }
+            if let Some(rpc_monitoring_addr) = self.rpc_monitoring_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).monitoring_addr =
+                    Some(rpc_monitoring_addr);
+            }
         }
         if let Some(telemetry_url) = self.telemetry_url {
             if !telemetry_url.is_empty() {
