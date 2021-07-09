@@ -6,11 +6,9 @@ use std::marker::PhantomPinned;
 use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "single_thread_rocksdb")]
-use rocksdb::Env;
 use rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
-    Options, ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction,
+    Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use strum::EnumIter;
 use tracing::warn;
@@ -675,7 +673,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
@@ -751,13 +749,15 @@ impl PreWriteCheckErr {
     }
 }
 
-#[cfg(feature = "single_thread_rocksdb")]
 impl Drop for RocksDB {
     fn drop(&mut self) {
-        // RocksDB with only one thread stuck on wait some condition var
-        // Turn on additional threads to proceed
-        let mut env = Env::default().unwrap();
-        env.set_background_threads(4);
+        if cfg!(feature = "single_thread_rocksdb") {
+            // RocksDB with only one thread stuck on wait some condition var
+            // Turn on additional threads to proceed
+            let mut env = Env::default().unwrap();
+            env.set_background_threads(4);
+        }
+        self.db.cancel_all_background_work(true);
     }
 }
 
@@ -777,10 +777,10 @@ mod tests {
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
-            self.db.compact_range_cf::<&[u8], &[u8]>(
+            self.db.compact_range_cf(
                 unsafe { &*self.cfs[col as usize] },
-                None,
-                None,
+                Option::<&[u8]>::None,
+                Option::<&[u8]>::None,
             );
         }
 
