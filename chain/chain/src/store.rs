@@ -1725,17 +1725,13 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
     }
 
-    pub fn save_receipts(&mut self, receipts: &[Receipt]) {
-        for receipt in receipts {
-            self.chain_store_cache_update.receipts.insert(receipt.receipt_id, receipt.clone());
-        }
-    }
-
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
         for transaction in chunk.transactions() {
             self.chain_store_cache_update.transactions.insert(transaction.clone());
         }
-        self.save_receipts(chunk.receipts());
+        for receipt in chunk.receipts() {
+            self.chain_store_cache_update.receipts.insert(receipt.receipt_id, receipt.clone());
+        }
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), chunk);
     }
 

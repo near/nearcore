@@ -2205,7 +2205,6 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
-
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
     let expected_chunk_extra =
@@ -3062,6 +3061,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             1,
             vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
         );
+
         let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
             HashSet::from_iter(
                 migration_data

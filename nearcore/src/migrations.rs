@@ -16,6 +16,7 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
+use near_store::db::DBCol::ColReceipts;
 
 fn get_chunk(chain_store: &ChainStore, chunk_hash: ChunkHash) -> ShardChunkV1 {
     let store = chain_store.store();
@@ -349,6 +350,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 23);
 }
 
+
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
 pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
@@ -358,7 +360,12 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
         let restored_receipts = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
             .expect("File with receipts restored after apply_chunks fix have to be correct").get(&0u64);
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        chain_store_update.save_receipts(restored_receipts);
+        let mut store_update = chain_store_update.store().store_update();
+        for receipt in receipts.iter() {
+            let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+            store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
+        }
+        store_update.commit().expect("");
     }
     set_store_version(&store, 24);
 }
