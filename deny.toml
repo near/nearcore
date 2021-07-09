@@ -29,9 +29,6 @@ skip = [
     # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
     { name = "subtle", version = "=1.0.0" },
 
-    # wabt 0.9.0 (dev dependency) still uses it
-    { name = "glob", version = "=0.2.11" },
-
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha

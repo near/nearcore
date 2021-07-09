@@ -6,7 +6,6 @@ mod ts_contract;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
-use wabt::Wat2Wasm;
 
 use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -91,10 +90,6 @@ fn make_simple_contract_call_vm(
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
-}
-
-fn wat2wasm_no_validate(wat: &str) -> Vec<u8> {
-    Wat2Wasm::new().validate(false).convert(wat).unwrap().as_ref().to_vec()
 }
 
 fn make_cached_contract_call_vm(

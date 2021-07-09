@@ -1,10 +1,10 @@
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
 
-use crate::tests::{make_simple_contract_call_vm, wat2wasm_no_validate, with_vm_variants};
+use crate::tests::{make_simple_contract_call_vm, with_vm_variants};
 use crate::VMKind;
 
 fn initializer_wrong_signature_contract() -> Vec<u8> {
-    wat2wasm_no_validate(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func (param i32)))
@@ -13,6 +13,7 @@ fn initializer_wrong_signature_contract() -> Vec<u8> {
               (export "hello" (func 0))
             )"#,
     )
+    .unwrap()
 }
 
 #[test]
@@ -31,12 +32,13 @@ fn test_initializer_wrong_signature_contract() {
 }
 
 fn function_not_defined_contract() -> Vec<u8> {
-    wat2wasm_no_validate(
+    wat::parse_str(
         r#"
             (module
               (export "hello" (func 0))
             )"#,
     )
+    .unwrap()
 }
 
 #[test]
@@ -56,7 +58,7 @@ fn test_function_not_defined_contract() {
 }
 
 fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
-    wat2wasm_no_validate(&format!(
+    wat::parse_str(&format!(
         r#"
             (module
               (func (;0;) (type {}))
@@ -64,6 +66,7 @@ fn function_type_not_defined_contract(bad_type: u64) -> Vec<u8> {
             )"#,
         bad_type
     ))
+    .unwrap()
 }
 
 #[test]
@@ -113,7 +116,7 @@ fn test_garbage_contract() {
 }
 
 fn evil_function_index() -> Vec<u8> {
-    wat2wasm_no_validate(
+    wat::parse_str(
         r#"
           (module
             (type (;0;) (func))
@@ -122,6 +125,7 @@ fn evil_function_index() -> Vec<u8> {
             (export "abort_with_zero" (func 0))
           )"#,
     )
+    .unwrap()
 }
 
 #[test]

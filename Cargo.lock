@@ -882,7 +882,7 @@ version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "853eda514c284c2287f4bf20ae614f8781f40a81d32ecda6e91449304dfe077c"
 dependencies = [
- "glob 0.3.0",
+ "glob",
  "libc",
  "libloading 0.7.0",
 ]
@@ -941,15 +941,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.45"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb6210b637171dfba4cda12e579ac6dc73f5165ad56133e5d72ef3131f320855"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -1025,7 +1016,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44919ecaf6f99e8e737bc239408931c9a01e9a6c74814fee8242dd2506b65390"
 dependencies = [
  "cfg-if 1.0.0",
- "glob 0.3.0",
+ "glob",
 ]
 
 [[package]]
@@ -2131,12 +2122,6 @@ dependencies = [
 
 [[package]]
 name = "glob"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
-
-[[package]]
-name = "glob"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
@@ -2692,7 +2677,7 @@ checksum = "5da125e1c0f22c7cae785982115523a0738728498547f415c9054cb17c7e89f9"
 dependencies = [
  "bindgen",
  "cc",
- "glob 0.3.0",
+ "glob",
  "libc",
 ]
 
@@ -3644,7 +3629,6 @@ dependencies = [
  "serde",
  "threadpool",
  "tracing",
- "wabt",
  "wasmer",
  "wasmer-compiler-cranelift",
  "wasmer-compiler-singlepass",
@@ -3654,6 +3638,7 @@ dependencies = [
  "wasmer-types",
  "wasmer-vm",
  "wasmtime",
+ "wat",
 ]
 
 [[package]]
@@ -4840,7 +4825,7 @@ dependencies = [
  "ethabi-contract",
  "ethabi-derive",
  "ethereum-types 0.11.0",
- "glob 0.3.0",
+ "glob",
  "gnuplot",
  "hex",
  "indicatif 0.15.0",
@@ -4864,8 +4849,8 @@ dependencies = [
  "state-viewer",
  "tempfile",
  "testlib",
- "wabt",
  "walrus",
+ "wat",
 ]
 
 [[package]]
@@ -6078,29 +6063,6 @@ name = "void"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
-
-[[package]]
-name = "wabt"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94b5f5d6984ca42df66280baa8a15ac188a173ddaf4580b574a98931c01920e7"
-dependencies = [
- "serde",
- "serde_derive",
- "serde_json",
- "wabt-sys",
-]
-
-[[package]]
-name = "wabt-sys"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b064c81821100adb4b71923cecfc67fef083db21c3bbd454b0162c7ffe63eeaa"
-dependencies = [
- "cc",
- "cmake",
- "glob 0.2.11",
-]
 
 [[package]]
 name = "walkdir"

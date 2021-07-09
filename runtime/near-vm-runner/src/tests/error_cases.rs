@@ -23,7 +23,7 @@ fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
 }
 
 fn infinite_initializer_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -67,7 +67,7 @@ fn test_infinite_initializer_export_not_found() {
 }
 
 fn simple_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -157,7 +157,7 @@ fn test_empty_method() {
 }
 
 fn trap_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -190,7 +190,7 @@ fn test_trap_contract() {
 }
 
 fn trap_initializer() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -225,7 +225,7 @@ fn test_trap_initializer() {
 }
 
 fn div_by_zero_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -277,7 +277,7 @@ fn float_to_int_contract(index: usize) -> Vec<u8> {
             )"#,
         ops[index]
     );
-    wabt::wat2wasm(&code).unwrap()
+    wat::parse_str(&code).unwrap()
 }
 
 #[test]
@@ -304,7 +304,7 @@ fn test_float_to_int_contract() {
 }
 
 fn indirect_call_to_null_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -344,7 +344,7 @@ fn test_indirect_call_to_null_contract() {
 }
 
 fn indirect_call_to_wrong_signature_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -392,7 +392,7 @@ fn test_indirect_call_to_wrong_signature_contract() {
 }
 
 fn wrong_signature_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func (param i32)))
@@ -419,7 +419,7 @@ fn test_wrong_signature_contract() {
 }
 
 fn export_wrong_type() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (global (;0;) i32 (i32.const 123))
@@ -445,7 +445,7 @@ fn test_export_wrong_type() {
 }
 
 fn guest_panic() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -473,7 +473,7 @@ fn test_guest_panic() {
 }
 
 fn stack_overflow() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -505,7 +505,7 @@ fn test_stack_overflow() {
 }
 
 fn memory_grow() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -539,7 +539,7 @@ fn test_memory_grow() {
 }
 
 fn bad_import_global(env: &str) -> Vec<u8> {
-    wabt::wat2wasm(format!(
+    wat::parse_str(format!(
         r#"
             (module
               (type (;0;) (func))
@@ -553,7 +553,7 @@ fn bad_import_global(env: &str) -> Vec<u8> {
 }
 
 fn bad_import_func(env: &str) -> Vec<u8> {
-    wabt::wat2wasm(format!(
+    wat::parse_str(format!(
         r#"
             (module
               (type (;0;) (func))
@@ -637,7 +637,7 @@ fn test_bad_import_4() {
 }
 
 fn some_initializer_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (type (;0;) (func))
@@ -679,7 +679,7 @@ fn bad_many_imports() -> Vec<u8> {
             i, i
         ));
     }
-    wabt::wat2wasm(format!(
+    wat::parse_str(format!(
         r#"
             (module
               (type (;0;) (func))
@@ -706,7 +706,7 @@ fn test_bad_many_imports() {
 }
 
 fn external_call_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
               (import "env" "prepaid_gas" (func (;0;) (result i64)))
@@ -745,17 +745,17 @@ fn test_external_call_error() {
 }
 
 fn external_indirect_call_contract() -> Vec<u8> {
-    wabt::wat2wasm(
+    wat::parse_str(
         r#"
             (module
-              (import "env" "prepaid_gas" (func $prepaid_gas (result i64)))
-              (type $prepaid_gas_t (func (result i64)))
+              (import "env" "prepaid_gas" (func $lol (result i64)))
+              (type $lol_t (func (result i64)))
 
               (table 1 funcref)
-              (elem (i32.const 0) $prepaid_gas)
+              (elem (i32.const 0) $lol)
 
               (func (export "main")
-                (call_indirect (type $prepaid_gas_t) (i32.const 0))
+                (call_indirect (type $lol_t) (i32.const 0))
                 drop
               )
             )"#,
@@ -775,7 +775,7 @@ fn test_external_call_indirect() {
         let (outcome, err) =
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
         assert_eq!(err, None);
-        assert_eq!(outcome, Some(vm_outcome_with_gas(329123187)));
+        assert_eq!(outcome, Some(vm_outcome_with_gas(332374437)));
     });
 }
 
