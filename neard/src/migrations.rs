@@ -288,11 +288,12 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
         let mut store_update = chain_store_update.store().store_update();
         // info!(target: "near", "{:?}", restored_receipts.get(&0u64));
         // chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
-        chain_store_update.commit().expect("");
+        // chain_store_update.commit().expect("");
         for receipt in receipts.iter() {
             let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
             store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
         }
+        store_update.commit().expect("");
 
         let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
         let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
@@ -304,5 +305,5 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
             chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
         }
     }
-    set_store_version(&store, 32);
+    set_store_version(&store, 33);
 }
