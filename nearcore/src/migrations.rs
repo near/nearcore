@@ -370,7 +370,7 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
             let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
             store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
         }
-        store_update.commit().expect("Failed to commit restored receipts into store");
+        store_update.commit().unwrap();
     }
     set_store_version(&store, 24);
 }
