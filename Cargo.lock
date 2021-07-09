@@ -6468,8 +6468,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core-near"
-version = "0.17.3"
-source = "git+https://github.com/near/wasmer?rev=f1d5f06a3b42215524290652af52d079da9f5b22#f1d5f06a3b42215524290652af52d079da9f5b22"
+version = "0.18.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8fded879b6f353dd4a8e61878fcef2870dab48b9b460eca18b690993aeeb1d3"
 dependencies = [
  "bincode",
  "blake3",
@@ -6497,8 +6498,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-near"
-version = "0.17.1"
-source = "git+https://github.com/near/wasmer?rev=f1d5f06a3b42215524290652af52d079da9f5b22#f1d5f06a3b42215524290652af52d079da9f5b22"
+version = "0.18.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ed9e2c5c1bd20b59ee675050c06b5a30d9e3ab42a84b87a8a0619c1bf0270b0"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -6510,8 +6512,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-singlepass-backend-near"
-version = "0.17.1"
-source = "git+https://github.com/near/wasmer?rev=f1d5f06a3b42215524290652af52d079da9f5b22#f1d5f06a3b42215524290652af52d079da9f5b22"
+version = "0.18.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a862b84bb6ea961893808bcc179f1f4a152f6d7ad1da9a97173d7316a7e7709e"
 dependencies = [
  "bincode",
  "borsh 0.9.0",
