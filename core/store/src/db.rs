@@ -673,7 +673,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
@@ -777,10 +777,10 @@ mod tests {
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
-            self.db.compact_range_cf::<&[u8], &[u8]>(
+            self.db.compact_range_cf(
                 unsafe { &*self.cfs[col as usize] },
-                None,
-                None,
+                Option::<&[u8]>::None,
+                Option::<&[u8]>::None,
             );
         }
 
