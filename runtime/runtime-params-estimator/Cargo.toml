@@ -30,7 +30,7 @@ near-primitives = { path = "../../core/primitives" }
 testlib = { path = "../../test-utils/testlib" }
 state-viewer = { path = "../../test-utils/state-viewer" }
 nearcore = { path = "../../nearcore" }
-rocksdb = "0.15.0"
+rocksdb = "0.16.0"
 glob = "0.3.0"
 walrus = "0.18.0"
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
