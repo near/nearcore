@@ -15,9 +15,9 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 borsh = "0.8.1"
 serde = { version = "1", features = ["derive"] }
-wasmer-runtime = { git = "https://github.com/near/wasmer", rev = "f1d5f06a3b42215524290652af52d079da9f5b22", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
+wasmer-runtime = { version = "0.18.0-pre.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 # Always used even for wasmer 1.0 for validating wasm, will be replaced when refactor prepare.rs
-wasmer-runtime-core = {git = "https://github.com/near/wasmer", rev = "f1d5f06a3b42215524290652af52d079da9f5b22",  package = "wasmer-runtime-core-near" }
+wasmer-runtime-core = { version = "0.18.0-pre.1", package = "wasmer-runtime-core-near" }
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
 wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-features = false, features = ["std", "enable-serde"] } # disable `rayon` feature.

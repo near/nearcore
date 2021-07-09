@@ -24,12 +24,8 @@ enum ContractCacheKey {
         vm_config_non_crypto_hash: u64,
         vm_kind: VMKind,
     },
-    Version2 {
-        code_hash: CryptoHash,
-        vm_config_non_crypto_hash: u64,
-        vm_kind: VMKind,
-        vm_hash: u64,
-    },
+    // unused
+    _Version2,
     // bump to depreciate bincode/serde-bench based wasmer 0.x cache
     Version3 {
         code_hash: CryptoHash,
