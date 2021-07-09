@@ -285,7 +285,7 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
             .expect("File with receipts restored after apply_chunks fix have to be correct");
         let receipts = restored_receipts.get(&0u64).unwrap();
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        // let mut store_update = chain_store_update.store().store_update();
+        let mut store_update = chain_store_update.store().store_update();
         // info!(target: "near", "{:?}", restored_receipts.get(&0u64));
         // chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
         chain_store_update.commit().expect("");
