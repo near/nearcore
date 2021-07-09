@@ -281,29 +281,15 @@ pub fn migrate_test(path: &String, near_config: &NearConfig) {
     if &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
-            .expect("File with receipts restored after apply_chunks fix have to be correct");
-        let receipts = restored_receipts.get(&0u64).unwrap();
+        let restored_receipts = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct").get(&0u64);
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let mut store_update = chain_store_update.store().store_update();
-        // info!(target: "near", "{:?}", restored_receipts.get(&0u64));
-        // chain_store_update.save_receipts(restored_receipts.get(&0u64).unwrap());
-        // chain_store_update.commit().expect("");
         for receipt in receipts.iter() {
             let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
             store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
         }
         store_update.commit().expect("");
-
-        let bytes = include_bytes!("../../neard/res/mainnet_restored_receipts.json");
-        let restored_receipts: HashMap<ShardId, Vec<Receipt>> = serde_json::from_slice(bytes)
-            .expect("File with receipts restored after apply_chunks fix have to be correct");
-        eprintln!("22222");
-        let receipts = restored_receipts.get(&0u64).unwrap();
-        for receipt in receipts {
-            // eprintln!("{}", receipt.get_hash());
-            chain_store.get_receipt(&receipt.get_hash()).unwrap().unwrap();
-        }
     }
-    set_store_version(&store, 33);
+    set_store_version(&store, 34);
 }
