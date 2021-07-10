@@ -899,7 +899,7 @@ pub mod epoch_info {
                         let mut buffer = [0u8; 40]; // 32 bytes from epoch_seed, 8 bytes from height
                         buffer[0..32].copy_from_slice(&v3.rng_seed);
                         buffer[32..40].copy_from_slice(&height.to_le_bytes());
-                        (hash(&buffer).0).0
+                        hash(&buffer).0
                     };
                     v3.block_producers_settlement[v3.block_producers_sampler.sample(seed)]
                 }
@@ -926,7 +926,7 @@ pub mod epoch_info {
                         buffer[0..32].copy_from_slice(&v3.rng_seed);
                         buffer[32..40].copy_from_slice(&height.to_le_bytes());
                         buffer[40..48].copy_from_slice(&shard_id.to_le_bytes());
-                        (hash(&buffer).0).0
+                        hash(&buffer).0
                     };
                     let shard_id = shard_id as usize;
                     v3.chunk_producers_settlement[shard_id]

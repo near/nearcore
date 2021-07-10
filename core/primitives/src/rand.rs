@@ -142,7 +142,7 @@ mod aliases {
 
 #[cfg(test)]
 mod test {
-    use crate::hash::{self, CryptoHash, Digest};
+    use crate::hash;
     use crate::rand::WeightedIndex;
 
     #[test]
@@ -182,7 +182,6 @@ mod test {
     }
 
     fn hash(input: &[u8]) -> [u8; 32] {
-        let CryptoHash(Digest(result)) = hash::hash(input);
-        result
+        hash::hash(input).0
     }
 }

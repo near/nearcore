@@ -191,6 +191,12 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+                minimum_validators_per_shard: config.minimum_validators_per_shard,
+                minimum_stake_ratio: config.minimum_stake_ratio,
+            },
         }
     }
 }
@@ -272,6 +278,8 @@ impl GenesisConfig {
                         .try_into()
                         .expect("Failed to deserialize validator public key"),
                     account_info.amount,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
             })
             .collect()
