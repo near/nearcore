@@ -9,8 +9,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use tracing::{trace, warn};
+use tracing::{error, info, trace, warn};
 
+#[cfg(test)]
+use near_crypto::KeyType;
 use near_crypto::{SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
@@ -22,6 +24,9 @@ use near_store::{
     StoreUpdate,
 };
 
+use crate::ibf::{Ibf, IbfElem};
+use crate::ibf_peer_set::{IbfPeerSet, SimpleEdge};
+use crate::ibf_set::IbfSet;
 use crate::metrics;
 use crate::{
     cache::RouteBackCache,
@@ -31,6 +36,7 @@ use crate::{
 use conqueue::{QueueReceiver, QueueSender};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use std::hash::{Hash, Hasher};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -90,6 +96,14 @@ pub struct Edge {
     removal_info: Option<(bool, Signature)>,
 }
 
+impl Hash for Edge {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.peer0.0.try_to_vec().unwrap());
+        state.write(&self.peer1.0.try_to_vec().unwrap());
+        state.write_u64(self.nonce)
+    }
+}
+
 impl Edge {
     /// Create an addition edge.
     pub fn new(
@@ -106,6 +120,18 @@ impl Edge {
         };
 
         Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
+    }
+
+    #[cfg(test)]
+    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
+        Self {
+            peer0,
+            peer1,
+            nonce,
+            signature0: Signature::empty(KeyType::ED25519),
+            signature1: Signature::empty(KeyType::ED25519),
+            removal_info: None,
+        }
     }
 
     /// Build a new edge with given information from the other party.
@@ -289,7 +315,7 @@ pub struct RoutingTable {
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
-    raw_graph: Graph,
+    pub raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -304,6 +330,8 @@ pub struct RoutingTable {
     last_ping_nonce: SizedCache<PeerId, usize>,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
+    /// Data structure used for exchanging routing tables.
+    pub peer_ibf_set: IbfPeerSet,
 }
 
 #[derive(Debug)]
@@ -340,7 +368,40 @@ impl RoutingTable {
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             component_nonce,
+            peer_ibf_set: Default::default(),
         }
+    }
+
+    pub fn exchange_routing_tables_using_ibf(
+        &self,
+        peer_id: &PeerId,
+        ibf_set: Arc<Mutex<IbfSet<SimpleEdge>>>,
+        ibf_level: usize,
+        ibf_vec: &Vec<IbfElem>,
+        seed: u64,
+    ) -> (Vec<Edge>, Vec<u64>, u64) {
+        let ibf = ibf_set.lock().unwrap().get_ibf(ibf_level);
+
+        let mut new_ibf = Ibf::from_vec(ibf_vec.clone(), seed ^ (ibf_level as u64));
+
+        if !new_ibf.merge(&ibf.data, seed ^ (ibf_level as u64)) {
+            error!(target: "network", "exchange routing tables failed with peer {}", peer_id);
+            return (Default::default(), Default::default(), 0);
+        }
+
+        let (edge_hashes, unknown_edges_count) = new_ibf.try_recover();
+
+        let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
+
+        (known, unknown_edges, unknown_edges_count)
+    }
+
+    pub fn split_edges_for_peer(
+        &self,
+        peer_id: &PeerId,
+        unknown_edges: &[u64],
+    ) -> (Vec<Edge>, Vec<u64>) {
+        self.peer_ibf_set.split_edges_for_peer(peer_id, unknown_edges, &self.edges_info)
     }
 
     fn peer_id(&self) -> &PeerId {
@@ -349,6 +410,18 @@ impl RoutingTable {
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peer_forwarding.keys()
+    }
+
+    pub fn add_peer(&mut self, peer_id: PeerId, seed: u64) -> Arc<Mutex<IbfSet<SimpleEdge>>> {
+        self.peer_ibf_set.add_peer(peer_id, seed, &mut self.edges_info)
+    }
+
+    pub fn get_ibf_set(&mut self, peer_id: &PeerId) -> Option<Arc<Mutex<IbfSet<SimpleEdge>>>> {
+        self.peer_ibf_set.get(peer_id)
+    }
+
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        self.peer_ibf_set.remove_peer(peer_id);
     }
 
     /// Find peer that is connected to `source` and belong to the shortest path
@@ -511,6 +584,14 @@ impl RoutingTable {
                     self.raw_graph.remove_edge(&key.0, &key.1);
                 }
             }
+            // Remove old edge from IbfPeerSet
+            if let Some(old_edge) = self.edges_info.get(&key) {
+                let old_se = SimpleEdge { key: key.clone(), nonce: old_edge.nonce };
+                self.peer_ibf_set.remove_edge(&old_se);
+            }
+
+            let se = SimpleEdge { key: key.clone(), nonce: edge.nonce };
+            self.peer_ibf_set.add_edge(&se);
             self.edges_info.insert(key, edge);
             true
         }
@@ -552,6 +633,10 @@ impl RoutingTable {
 
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
+    }
+
+    pub fn get_edges_len(&self) -> u64 {
+        self.edges_info.len() as u64
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
@@ -715,6 +800,11 @@ impl RoutingTable {
         self.account_peers.value_order().cloned().collect()
     }
 
+    /// Get number of accounts
+    pub fn get_announce_accounts_size(&mut self) -> usize {
+        self.account_peers.cache_size()
+    }
+
     /// Get account announce from
     pub fn get_announce(&mut self, account_id: &AccountId) -> Option<AnnounceAccount> {
         if let Some(announce_account) = self.account_peers.cache_get(&account_id) {
@@ -770,11 +860,11 @@ pub struct Graph {
     source_id: u32,
     p2id: HashMap<PeerId, u32>,
     id2p: Vec<PeerId>,
-    used: Vec<bool>,
-    unused: Vec<u32>,
+    pub used: Vec<bool>,
+    pub unused: Vec<u32>,
     adjacency: Vec<Vec<u32>>,
 
-    total_active_edges: u64,
+    pub total_active_edges: u64,
 }
 
 impl Graph {

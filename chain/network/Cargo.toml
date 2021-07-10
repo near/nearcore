@@ -22,6 +22,7 @@ strum = { version = "0.20", features = ["derive"] }
 near-rust-allocator-proxy = "0.2.9"
 bytesize = "1.0.1"
 conqueue = "0.4.0"
+bs58 = "0.4.0"
 
 borsh = "0.8.1"
 cached = "0.23"
@@ -36,6 +37,8 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
+
+actix-web = { version = "4.0.0-beta.1", features = [ "openssl" ] }
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}

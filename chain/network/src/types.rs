@@ -48,6 +48,7 @@ use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
+use crate::ibf::IbfElem;
 use conqueue::QueueSender;
 use near_primitives::merkle::combine_hash;
 
@@ -171,7 +172,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 }
 
 /// Peer type.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum PeerType {
     /// Inbound session
     Inbound,
@@ -768,6 +769,21 @@ pub enum PeerMessage {
     EpochSyncResponse(EpochSyncResponse),
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+
+    RoutingTableSyncV2(RoutingSyncV2),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutingSyncV2 {
+    pub version: u64,
+    pub known_edges: u64,
+    pub ibf_level: u64,
+    pub ibf: Vec<IbfElem>,
+    pub request_all_edges: bool,
+    pub seed: u64,
+    pub edges: Vec<Edge>,
+    pub requested_edges: Vec<u64>,
+    pub done: bool,
 }
 
 impl fmt::Display for PeerMessage {
@@ -1025,6 +1041,18 @@ pub struct InboundTcpConnect {
     pub stream: TcpStream,
 }
 
+pub struct GetPeerId {}
+
+impl Message for GetPeerId {
+    type Result = GetPeerIdResult;
+}
+
+pub struct GetNetworkStats {}
+
+impl Message for GetNetworkStats {
+    type Result = GetNetworkStatsResult;
+}
+
 impl InboundTcpConnect {
     /// Method to create a new InboundTcpConnect message from a TCP stream
     pub fn new(stream: TcpStream) -> InboundTcpConnect {
@@ -1038,6 +1066,12 @@ impl InboundTcpConnect {
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
     pub peer_info: PeerInfo,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct AcceptConnectionFrom {
+    pub addr: IpAddr,
 }
 
 #[derive(Message, Clone, Debug)]
@@ -1059,10 +1093,38 @@ pub struct Consolidate {
     pub this_edge_info: Option<EdgeInfo>,
     // Edge information from other node.
     pub other_edge_info: EdgeInfo,
+    pub protocol_version: ProtocolVersion,
 }
 
 impl Message for Consolidate {
     type Result = ConsolidateResponse;
+}
+
+#[derive(MessageResponse, Debug, Serialize)]
+pub struct GetPeerIdResult {
+    pub peer_id: PeerId,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActivePeerInfo {
+    pub peer_info: PeerInfo,
+    pub protocol_version: ProtocolVersion,
+    /// Number of bytes we've received from the peer.
+    pub received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    pub sent_bytes_per_sec: u64,
+    /// Who started connection. Inbound (other) or Outbound (us).
+    pub peer_type: PeerType,
+}
+
+#[derive(MessageResponse, Debug, Serialize)]
+pub struct GetNetworkStatsResult {
+    pub peer_id: PeerId,
+    pub active_peers: Vec<ActivePeerInfo>,
+    pub peers: Vec<PeerInfo>,
+    pub peer_while_list: Vec<IpAddr>,
+    pub min_protocol_level: u32,
+    pub edges_info_len: u64,
 }
 
 #[derive(MessageResponse, Debug)]
@@ -1081,7 +1143,8 @@ pub struct Unregister {
     pub remove_from_peer_store: bool,
 }
 
-pub struct PeerList {
+#[derive(Serialize)]
+pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
 
@@ -1105,10 +1168,20 @@ pub enum PeerResponse {
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
+#[derive(Copy, Clone)]
 pub struct PeersRequest {}
 
 impl Message for PeersRequest {
-    type Result = PeerList;
+    type Result = PeerRequestResult;
+}
+
+#[derive(Copy, Clone)]
+pub struct SetMinProtocolVersion {
+    pub min_protocol_version: u32,
+}
+
+impl Message for SetMinProtocolVersion {
+    type Result = ();
 }
 
 /// Received new peers from another peer.
@@ -1118,10 +1191,10 @@ pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
 
-impl<A, M> MessageResponse<A, M> for PeerList
+impl<A, M> MessageResponse<A, M> for PeerRequestResult
 where
     A: Actor,
-    M: Message<Result = PeerList>,
+    M: Message<Result = PeerRequestResult>,
 {
     fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
         if let Some(tx) = tx {
@@ -1159,7 +1232,7 @@ pub struct Ban {
 }
 
 // TODO(#1313): Use Box
-#[derive(Debug, Clone, PartialEq, strum::AsRefStr)]
+#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
@@ -1268,6 +1341,12 @@ pub enum NetworkRequests {
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
+
+    // IbfMessage
+    IbfMessage {
+        peer_id: PeerId,
+        ibf_msg: RoutingSyncV2,
+    },
 }
 
 /// Messages from PeerManager to Peer
@@ -1792,7 +1871,7 @@ mod tests {
         assert_size!(SendMessage);
         assert_size!(Consolidate);
         assert_size!(Unregister);
-        assert_size!(PeerList);
+        assert_size!(PeerRequestResult);
         assert_size!(PeersRequest);
         assert_size!(PeersResponse);
         assert_size!(Ban);

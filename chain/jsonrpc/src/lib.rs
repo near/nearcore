@@ -19,22 +19,27 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
 };
+use near_crypto::{ED25519PublicKey, PublicKey};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
+use near_network::types::{
+    AcceptConnectionFrom, GetNetworkStats, GetPeerId, OutboundTcpConnect, PeersRequest,
+    SetMinProtocolVersion,
+};
 #[cfg(feature = "adversarial")]
 use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
-use near_network::{NetworkClientMessages, NetworkClientResponses};
+use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo, PeerManagerActor};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
-
+use near_rust_allocator_proxy::allocator::get_tid;
 mod metrics;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -199,6 +204,7 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+    peer_manager_addr: Addr<PeerManagerActor>,
 }
 
 impl JsonRpcHandler {
@@ -1210,11 +1216,138 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
+fn get_peer_list(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let response = async move {
+        let result = handler.peer_manager_addr.send(PeersRequest {}).await.unwrap();
+        let v: std::result::Result<HttpResponse, _> = Ok(HttpResponse::Ok().json(&result));
+        v
+    };
+    response.boxed()
+}
+
+#[derive(Deserialize)]
+struct AcceptConnectionFromInfo {
+    address: String,
+}
+
+fn accept_connection_from(
+    query: web::Query<AcceptConnectionFromInfo>,
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    if let Ok(address) = query.address.parse() {
+        let result = async move {
+            match handler
+                .peer_manager_addr
+                .clone()
+                .send(AcceptConnectionFrom { addr: address })
+                .await
+            {
+                Ok(_) => Ok(HttpResponse::Ok().json(&"success")),
+                Err(_) => Ok(HttpResponse::Ok().json(&"failure")),
+            }
+        };
+        return result.boxed();
+    }
+    let response = format!("can't parse {}", query.address);
+    let result = async move { Ok(HttpResponse::Ok().json(&response)) };
+    result.boxed()
+}
+
+#[derive(Deserialize)]
+struct ConnectToInfo {
+    seed: String,
+    address: String,
+}
+
+fn connect_to(
+    query: web::Query<ConnectToInfo>,
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let seed = query.seed.clone();
+    let dec = bs58::decode(seed);
+    //SecretKey::ED25519(secret_key) => bs58::encode(&secret_key.0[..]).into_string(),
+    let vec = dec.into_vec().unwrap();
+    let mut d = [0u8; 32];
+    for i in 0..32 {
+        d[i] = vec[i];
+    }
+
+    let pk = PublicKey::ED25519(ED25519PublicKey(d));
+    let id = pk.into();
+
+    let result = async move {
+        if let Ok(addr) = query.address.parse() {
+            let peer_info = PeerInfo::new(id, addr);
+            return match handler
+                .peer_manager_addr
+                .clone()
+                .send(OutboundTcpConnect { peer_info })
+                .await
+            {
+                Ok(_) => Ok(HttpResponse::Ok().json(&"success")),
+                Err(_) => Ok(HttpResponse::Ok().json(&"failure")),
+            };
+        } else {
+            Ok(HttpResponse::Ok().json(&"can't parse"))
+        }
+    };
+    result.boxed()
+}
+
+#[derive(Deserialize)]
+struct SetMinProtocolVersionInfo {
+    pub min_protocol_version: u32,
+}
+
+fn set_min_protocol_version(
+    query: web::Query<SetMinProtocolVersionInfo>,
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let result = async move {
+        match handler
+            .peer_manager_addr
+            .send(SetMinProtocolVersion { min_protocol_version: query.min_protocol_version })
+            .await
+        {
+            Ok(_) => Ok(HttpResponse::Ok().json("ok")),
+            Err(_) => Ok(HttpResponse::Ok().json(&"failure")),
+        }
+    };
+    result.boxed()
+}
+
+fn get_peer_id(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let result = async move {
+        match handler.peer_manager_addr.send(GetPeerId {}).await {
+            Ok(val) => Ok(HttpResponse::Ok().json(&val)),
+            Err(_) => Ok(HttpResponse::Ok().json(&"failure")),
+        }
+    };
+    result.boxed()
+}
+
+fn get_network_stats(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Output = Result<HttpResponse, HttpError>> {
+    let result = async move {
+        match handler.peer_manager_addr.send(GetNetworkStats {}).await {
+            Ok(val) => Ok(HttpResponse::Ok().json(&val)),
+            Err(_) => Ok(HttpResponse::Ok().json(&"failure")),
+        }
+    };
+    result.boxed()
+}
+
 pub fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    peer_manager_addr: Addr<PeerManagerActor>,
 ) {
     let RpcConfig { addr, cors_allowed_origins, polling_config, limits_config } = config;
     info!(target:"network", "Starting http server at {}", addr);
@@ -1226,6 +1359,7 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
+                peer_manager_addr: peer_manager_addr.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
@@ -1242,6 +1376,18 @@ pub fn start_http(
             )
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+            .service(web::resource("/network/get_peer_list").route(web::get().to(get_peer_list)))
+            .service(
+                web::resource("/network/accept_connection_from")
+                    .route(web::get().to(accept_connection_from)),
+            )
+            .service(
+                web::resource("/network/set_min_protocol_version")
+                    .route(web::get().to(set_min_protocol_version)),
+            )
+            .service(web::resource("/network/connect_to").route(web::get().to(connect_to)))
+            .service(web::resource("/network/get_peer_id").route(web::get().to(get_peer_id)))
+            .service(web::resource("/network/stats").route(web::get().to(get_network_stats)))
     })
     .bind(addr)
     .unwrap()

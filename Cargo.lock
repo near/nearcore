@@ -3257,6 +3257,7 @@ dependencies = [
  "actix-web",
  "awc",
  "borsh",
+ "bs58",
  "easy-ext",
  "futures",
  "lazy_static",
@@ -3272,6 +3273,7 @@ dependencies = [
  "near-performance-metrics",
  "near-primitives",
  "near-rpc-error-macro",
+ "near-rust-allocator-proxy",
  "prometheus",
  "serde",
  "serde_json",
@@ -3350,8 +3352,10 @@ name = "near-network"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "actix-web",
  "bencher",
  "borsh",
+ "bs58",
  "byteorder",
  "bytes",
  "bytesize",

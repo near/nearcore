@@ -573,6 +573,7 @@ impl Peer {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::RoutingTableSync(_)
+            | PeerMessage::RoutingTableSyncV2(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -894,6 +895,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         chain_info: handshake.chain_info.clone(),
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
+                        protocol_version: self.protocol_version,
                     })
                     .into_actor(self)
                     .then(move |res, act, ctx| {
@@ -1009,6 +1011,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
                 self.peer_manager_addr
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
+            }
+            //(_, PeerStatus::Ready, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+            (_, state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+                self.peer_manager_addr.do_send(NetworkRequests::IbfMessage {
+                    peer_id: self.peer_id().unwrap(),
+                    ibf_msg: ibf_message,
+                });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
