@@ -335,12 +335,19 @@ pub struct ExtCostsConfig {
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
 
+// Helper multiplier to shift compilation costs from function call runtime to the deploy action cost
+// at execution.
+#[cfg(not(feature = "protocol_feature_precompile_contracts"))]
+const PRECOMPILE_MULTIPLIER: u64 = 0;
+#[cfg(feature = "protocol_feature_precompile_contracts")]
+const PRECOMPILE_MULTIPLIER: u64 = 1;
+
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
-            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
-            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            contract_compile_base: SAFETY_MULTIPLIER * PRECOMPILE_MULTIPLIER * 11815321,
+            contract_compile_bytes: SAFETY_MULTIPLIER * PRECOMPILE_MULTIPLIER * 72250,
             read_memory_base: SAFETY_MULTIPLIER * 869954400,
             read_memory_byte: SAFETY_MULTIPLIER * 1267111,
             write_memory_base: SAFETY_MULTIPLIER * 934598287,
