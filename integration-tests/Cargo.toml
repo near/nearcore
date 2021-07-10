@@ -1,0 +1,27 @@
+[package]
+name = "integration-tests"
+version = "1.2.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
+rand = "0.7"
+
+near-logger-utils = { path = "../test-utils/logger" }
+near-chain-configs = { path = "../core/chain-configs" }
+near-crypto = { path = "../core/crypto" }
+near-primitives = { path = "../core/primitives" }
+near-network = { path = "../chain/network" }
+nearcore = { path = "../nearcore" }
+testlib = { path = "../test-utils/testlib" }
+
+[features]
+performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
+regression_tests = []
+adversarial = ["nearcore/adversarial"]
+protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm"]
+protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features", "testlib/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
+nightly_protocol = ["nearcore/nightly_protocol", "testlib/nightly_protocol"]
+protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]

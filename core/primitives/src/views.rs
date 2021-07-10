@@ -317,8 +317,9 @@ pub struct StatusResponse {
     pub protocol_version: u32,
     /// Latest protocol version that this client supports.
     pub latest_protocol_version: u32,
-    /// Address for RPC server.
-    pub rpc_addr: String,
+    /// Address for RPC server.  None if node doesn’t have RPC endpoint enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rpc_addr: Option<String>,
     /// Current epoch validators.
     pub validators: Vec<ValidatorInfo>,
     /// Sync status of the node.
@@ -446,13 +447,8 @@ impl From<BlockHeaderView> for BlockHeader {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = Some(
-            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-                .unwrap()
-                .clone()
-                - 1,
-        );
+        let last_header_v2_version =
+            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
         if view.latest_protocol_version <= 29 {
             #[cfg(feature = "protocol_feature_block_header_v3")]
             let validator_proposals = view
@@ -1070,7 +1066,7 @@ impl From<ExecutionOutcomeWithIdAndProof> for ExecutionOutcomeWithIdView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcome(FinalExecutionOutcomeView),
@@ -1106,7 +1102,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
 
 /// Final execution outcome of the transaction and all of subsequent the receipts. Also includes
 /// the generated receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct FinalExecutionOutcomeWithReceiptView {
     /// Final outcome view without receipts
     #[serde(flatten)]
@@ -1379,8 +1375,10 @@ pub struct EpochValidatorInfo {
     pub current_proposals: Vec<ValidatorStakeView>,
     /// Kickout in the previous epoch
     pub prev_epoch_kickout: Vec<ValidatorKickoutView>,
-    /// Epoch start height
+    /// Epoch start block height
     pub epoch_start_height: BlockHeight,
+    /// Epoch height
+    pub epoch_height: EpochHeight,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -1534,6 +1532,7 @@ pub enum StateChangeCauseView {
     PostponedReceipt { receipt_hash: CryptoHash },
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
+    Migration,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -1558,6 +1557,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             }
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
+            StateChangeCause::Migration => Self::Migration,
         }
     }
 }

@@ -3,6 +3,7 @@ import subprocess
 
 import semver
 import sys
+from configured_logger import logger
 from github import Github
 
 
@@ -86,15 +87,16 @@ def compile_current():
 def download_binary(uname, branch):
     """Download binary for given platform and branch."""
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/near'
-    print(f'Downloading near & state-viewer for {branch}@{uname}')
+    proto = '"=https"' if uname == 'Darwin' else '=https'
+    logger.info(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
-        'curl', '--proto', '=https', '--tlsv1.2', '-sSfL', url, '-o',
+        'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/near-{branch}'
     ])
     subprocess.check_output(['chmod', '+x', f'../target/debug/near-{branch}'])
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/state-viewer'
     subprocess.check_output([
-        'curl', '--proto', '=https', '--tlsv1.2', '-sSfL', url, '-o',
+        'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/state-viewer-{branch}'
     ])
     subprocess.check_output(
@@ -119,6 +121,6 @@ def prepare_ab_test(other_branch):
         if not os.getenv('NAYDUCK'):
             compile_binary(str(other_branch))
         else:
-            print('RC binary should be downloaded for NayDuck.')
+            logger.critical('RC binary should be downloaded for NayDuck.')
             sys.exit(1)
     return '../target/debug/', [other_branch, escaped(current_branch())]

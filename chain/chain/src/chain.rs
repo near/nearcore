@@ -11,20 +11,6 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use tracing::{debug, error, info, warn};
 
-use crate::lightclient::get_epoch_block_producers_view;
-use crate::missing_chunks::{BlockLike, MissingChunksPool};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
-use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
-    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
-};
-use crate::validate::{
-    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
-    validate_transactions_order,
-};
-use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
-use crate::{metrics, DoomslugThresholdMode};
-
 use near_chain_primitives::error::{Error, ErrorKind, LogTransientStorageError};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::challenge::{
@@ -54,7 +40,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::version::{ProtocolFeature, PROTOCOL_FEATURES_TO_VERSION_MAPPING};
+use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -62,6 +48,22 @@ use near_primitives::views::{
 };
 use near_store::{ColState, ColStateHeaders, ColStateParts, ShardTries, StoreUpdate};
 
+use near_primitives::state_record::StateRecord;
+
+use crate::lightclient::get_epoch_block_producers_view;
+use crate::migrations::check_if_block_is_first_with_chunk_of_version;
+use crate::missing_chunks::{BlockLike, MissingChunksPool};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
+use crate::types::{
+    AcceptedBlock, ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader,
+    BlockHeaderInfo, BlockStatus, ChainGenesis, Provenance, RuntimeAdapter,
+};
+use crate::validate::{
+    validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
+    validate_transactions_order,
+};
+use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
+use crate::{metrics, DoomslugThresholdMode};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 
@@ -203,6 +205,7 @@ pub struct Chain {
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
+    pending_states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl Chain {
@@ -239,6 +242,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            pending_states_to_patch: None,
         })
     }
 
@@ -353,6 +357,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
+            pending_states_to_patch: None,
         })
     }
 
@@ -379,9 +384,8 @@ impl Chain {
         #[cfg(feature = "protocol_feature_block_header_v3")]
         {
             let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-            let block_header_v3_version =
-                PROTOCOL_FEATURES_TO_VERSION_MAPPING.get(&ProtocolFeature::BlockHeaderV3).unwrap();
-            if &protocol_version < block_header_v3_version {
+            let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
+            if protocol_version < block_header_v3_version {
                 let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
                 Chain::compute_collection_hash(validator_stakes)
             } else {
@@ -601,7 +605,7 @@ impl Chain {
             }
             let mut chain_store_update = self.store.store_update();
             if let Ok(blocks_current_height) =
-                chain_store_update.get_all_block_hashes_by_height(height)
+                chain_store_update.get_chain_store().get_all_block_hashes_by_height(height)
             {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
@@ -1055,6 +1059,8 @@ impl Chain {
             Ok((head, needs_to_start_fetching_state)) => {
                 chain_update.chain_store_update.save_block_height_processed(block_height);
                 chain_update.commit()?;
+
+                self.pending_states_to_patch = None;
 
                 if needs_to_start_fetching_state {
                     debug!(target: "chain", "Downloading state for block {}", block.hash());
@@ -1764,15 +1770,19 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
+        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
             let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+
             self.runtime_adapter.apply_state_part(
                 shard_id,
                 &state_root,
                 part_id,
                 num_parts,
                 &part,
+                &epoch_id,
             )?;
         }
 
@@ -2028,14 +2038,7 @@ impl Chain {
         block_hash: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
-        let block_height = block.header().height();
-        let chunk_headers = block
-            .chunks()
-            .iter()
-            .filter_map(
-                |h| if h.height_included() == block_height { Some(h.clone()) } else { None },
-            )
-            .collect::<Vec<_>>();
+        let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
 
         let mut res = HashMap::new();
         for chunk_header in chunk_headers {
@@ -2085,6 +2088,7 @@ impl Chain {
             self.doomslug_threshold_mode,
             &self.genesis,
             self.transaction_validity_period,
+            self.pending_states_to_patch.take(),
         )
     }
 
@@ -2474,6 +2478,24 @@ impl Chain {
     }
 }
 
+/// Sandbox node specific operations
+#[cfg(feature = "sandbox")]
+impl Chain {
+    pub fn patch_state(&mut self, records: Vec<StateRecord>) {
+        match self.pending_states_to_patch.take() {
+            None => self.pending_states_to_patch = Some(records),
+            Some(mut pending) => {
+                pending.extend_from_slice(&records);
+                self.pending_states_to_patch = Some(pending);
+            }
+        }
+    }
+
+    pub fn patch_state_in_progress(&self) -> bool {
+        self.pending_states_to_patch.is_some()
+    }
+}
+
 /// Chain update helper, contains information that is needed to process block
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
@@ -2489,6 +2511,7 @@ pub struct ChainUpdate<'a> {
     genesis: &'a Block,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
+    states_to_patch: Option<Vec<StateRecord>>,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -2502,6 +2525,7 @@ impl<'a> ChainUpdate<'a> {
         doomslug_threshold_mode: DoomslugThresholdMode,
         genesis: &'a Block,
         transaction_validity_period: BlockHeightDelta,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Self {
         let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
         ChainUpdate {
@@ -2514,6 +2538,7 @@ impl<'a> ChainUpdate<'a> {
             doomslug_threshold_mode,
             genesis,
             transaction_validity_period,
+            states_to_patch,
         }
     }
 
@@ -2696,6 +2721,12 @@ impl<'a> ChainUpdate<'a> {
             Some(&block.hash()),
         )?;
         let prev_chunk_inner = prev_chunk.cloned_header().take_inner();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            &mut self.chain_store_update,
+            self.runtime_adapter.as_ref(),
+            &prev_block.hash(),
+            chunk_shard_id,
+        )?;
         let apply_result = self
             .runtime_adapter
             .apply_transactions_with_optional_storage_proof(
@@ -2713,6 +2744,9 @@ impl<'a> ChainUpdate<'a> {
                 &challenges_result,
                 *block.header().random_value(),
                 true,
+                true,
+                is_first_block_with_chunk_of_version,
+                None,
             )
             .unwrap();
         let partial_state = apply_result.proof.unwrap().nodes;
@@ -2799,7 +2833,6 @@ impl<'a> ChainUpdate<'a> {
                             Err(err) => err,
                         }
                     })?;
-
                     let receipt_proof_response: Vec<ReceiptProofResponse> =
                         self.chain_store_update.get_incoming_receipts_for_shard(
                             shard_id,
@@ -2807,7 +2840,6 @@ impl<'a> ChainUpdate<'a> {
                             prev_chunk_header.height_included(),
                         )?;
                     let receipts = collect_receipts_from_response(&receipt_proof_response);
-
                     let chunk = self
                         .chain_store_update
                         .get_chunk_clone_from_header(&chunk_header.clone())?;
@@ -2826,27 +2858,34 @@ impl<'a> ChainUpdate<'a> {
                         ))));
                     }
 
-                    checked_feature!(
-                        "protocol_feature_access_key_nonce_range",
-                        AccessKeyNonceRange,
-                        protocol_version,
-                        {
-                            let transaction_validity_period = self.transaction_validity_period;
-                            for transaction in transactions {
-                                self.chain_store_update
-                                    .get_chain_store()
-                                    .check_transaction_validity_period(
-                                        prev_block.header(),
-                                        &transaction.transaction.block_hash,
-                                        transaction_validity_period,
-                                    )
-                                    .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
-                            }
+                    if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+                        let transaction_validity_period = self.transaction_validity_period;
+                        for transaction in transactions {
+                            self.chain_store_update
+                                .get_chain_store()
+                                .check_transaction_validity_period(
+                                    prev_block.header(),
+                                    &transaction.transaction.block_hash,
+                                    transaction_validity_period,
+                                )
+                                .map_err(|_| Error::from(ErrorKind::InvalidTransactions))?;
                         }
-                    );
+                    };
 
                     let chunk_inner = chunk.cloned_header().take_inner();
                     let gas_limit = chunk_inner.gas_limit();
+
+                    // This variable is responsible for checking to which block we can apply receipts previously lost in apply_chunks
+                    // (see https://github.com/near/nearcore/pull/4248/)
+                    // We take the first block with existing chunk in the first epoch in which protocol feature
+                    // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
+                    let is_first_block_with_chunk_of_version =
+                        check_if_block_is_first_with_chunk_of_version(
+                            &mut self.chain_store_update,
+                            self.runtime_adapter.as_ref(),
+                            &prev_block.hash(),
+                            shard_id,
+                        )?;
 
                     // Apply transactions and receipts.
                     let apply_result = self
@@ -2865,6 +2904,12 @@ impl<'a> ChainUpdate<'a> {
                             gas_limit,
                             &block.header().challenges_result(),
                             *block.header().random_value(),
+                            true,
+                            is_first_block_with_chunk_of_version,
+                            #[cfg(feature = "sandbox")]
+                            self.states_to_patch.take(),
+                            #[cfg(not(feature = "sandbox"))]
+                            None,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -2919,6 +2964,9 @@ impl<'a> ChainUpdate<'a> {
                             new_extra.gas_limit(),
                             &block.header().challenges_result(),
                             *block.header().random_value(),
+                            false,
+                            false,
+                            self.states_to_patch.take(),
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -3229,6 +3277,7 @@ impl<'a> ChainUpdate<'a> {
         // If we do - send out double sign challenge and keep going as double signed blocks are valid blocks.
         if let Ok(epoch_id_to_blocks) = self
             .chain_store_update
+            .get_chain_store()
             .get_all_block_hashes_by_height(header.height())
             .map(Clone::clone)
         {
@@ -3598,6 +3647,13 @@ impl<'a> ChainUpdate<'a> {
 
         let chunk_header = chunk.cloned_header();
         let gas_limit = chunk_header.gas_limit();
+        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
+            &mut self.chain_store_update,
+            self.runtime_adapter.as_ref(),
+            &chunk_header.prev_block_hash(),
+            shard_id,
+        )?;
+
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
             &chunk_header.prev_state_root(),
@@ -3612,6 +3668,9 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             &block_header.challenges_result(),
             *block_header.random_value(),
+            true,
+            is_first_block_with_chunk_of_version,
+            None,
         )?;
 
         let (outcome_root, outcome_proofs) =
@@ -3690,6 +3749,9 @@ impl<'a> ChainUpdate<'a> {
             chunk_extra.gas_limit(),
             &block_header.challenges_result(),
             *block_header.random_value(),
+            false,
+            false,
+            None,
         )?;
 
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);

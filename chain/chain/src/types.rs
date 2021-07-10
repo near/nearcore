@@ -13,12 +13,13 @@ use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -35,6 +36,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -76,9 +78,6 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-/// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
-
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -118,7 +117,6 @@ pub struct BlockHeaderInfo {
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     pub timestamp_nanosec: u64,
 }
 
@@ -136,7 +134,6 @@ impl BlockHeaderInfo {
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
             timestamp_nanosec: header.raw_timestamp(),
         }
     }
@@ -151,6 +148,8 @@ pub struct BlockEconomicsConfig {
 }
 
 impl BlockEconomicsConfig {
+    /// Set max gas price to be this multiplier * min_gas_price
+    const MAX_GAS_MULTIPLIER: u128 = 20;
     /// Compute min gas price according to protocol version and genesis protocol version.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
@@ -172,8 +171,15 @@ impl BlockEconomicsConfig {
         }
     }
 
-    pub fn max_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
-        self.max_gas_price
+    pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
+        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
+            std::cmp::min(
+                self.max_gas_price,
+                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
+            )
+        } else {
+            self.max_gas_price
+        }
     }
 
     pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {
@@ -515,6 +521,9 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -531,6 +540,9 @@ pub trait RuntimeAdapter: Send + Sync {
             challenges_result,
             random_seed,
             false,
+            is_new_chunk,
+            is_first_block_with_chunk_of_version,
+            states_to_patch,
         )
     }
 
@@ -550,6 +562,9 @@ pub trait RuntimeAdapter: Send + Sync {
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -568,6 +583,8 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -615,6 +632,7 @@ pub trait RuntimeAdapter: Send + Sync {
         part_id: u64,
         num_parts: u64,
         part: &[u8],
+        epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
@@ -649,6 +667,12 @@ pub trait RuntimeAdapter: Send + Sync {
     fn evm_chain_id(&self) -> u64;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Get previous epoch id by hash of previous block.
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error>;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`

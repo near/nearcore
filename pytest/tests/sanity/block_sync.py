@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 BLOCKS = 10
 TIMEOUT = 25
@@ -40,7 +41,7 @@ nodes = start_cluster(
      ["num_block_producer_seats_per_shard", [25, 25, 25, 25]],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ], ["total_supply", "3060000000000000000000000000000000"]], {
          0: consensus_config0,
@@ -54,11 +55,11 @@ while node0_height < BLOCKS:
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(0.5)
 
-print("kill node 0")
+logger.info("kill node 0")
 nodes[0].kill()
 nodes[0].reset_data()
 
-print("restart node 0")
+logger.info("restart node 0")
 nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
 time.sleep(3)
 

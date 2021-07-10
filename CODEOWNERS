@@ -1,28 +1,31 @@
 # CODEOWNERS: https://help.github.com/articles/about-codeowners/
 
-/chain/ @SkidanovAlex @bowenwang1996
+/chain/ @bowenwang1996
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
 /chain/network/ @mfornet @bowenwang1996 @pmnoxx
-/chain/epoch_manager/ @bowenwang1996 @mikhailOK
+/chain/epoch_manager/ @bowenwang1996
 /chain/jsonrpc/ @frol @khorolets @chefsale
 /chain/jsonrpc-primitives/ @frol @khorolets @chefsale
 /chain/indexer/ @khorolets @frol
 /chain/rosetta-rpc/ @frol
 
-/runtime/ @evgenykuzyakov @bowenwang1996
-/runtime/runtime-params-estimator/ @olonho @willemneal
+/runtime/ @bowenwang1996 @EgorKulikov
+/runtime/runtime-params-estimator/ @olonho @matklad
 /runtime/near-evm-runner/ @ailisp @artob @frankbraun
-/runtime/near-vm-runner-standalone/ @olonho @ailisp
-/runtime/near-vm-runner/ @olonho @ailisp
+/runtime/near-test-contracts/ @olonho @ailisp @matklad
+/runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad
+/runtime/near-vm-runner/ @olonho @ailisp @matklad
 
-/genesis-tools/ @evgenykuzyakov @ailisp
+/genesis-tools/ @ailisp
 /tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
-/core/  @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
-/core/store/trie @mikhailOK
-/neard/ @bowenwang1996 @frol @evgenykuzyakov @nearmax @SkidanovAlex
+/core/  @bowenwang1996 @frol @nearmax
+/neard/ @bowenwang1996 @frol
+/nearcore/ @bowenwang1996 @frol
 
 /.buildkite/ @chefsale @mhalambek
 /scripts/ @chefsale @mhalambek
+
+/docs/ @bowenwang1996 @matklad

@@ -55,17 +55,14 @@ pub fn validate_transaction(
         return Err(InvalidTxError::InvalidSignature.into());
     }
 
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
-    {
-        let transaction_size = signed_transaction.get_size();
-        let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
-        if transaction_size > max_transaction_size {
-            return Err(InvalidTxError::TransactionSizeExceeded {
-                size: transaction_size,
-                limit: max_transaction_size,
-            }
-            .into());
+    let transaction_size = signed_transaction.get_size();
+    let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
+    if transaction_size > max_transaction_size {
+        return Err(InvalidTxError::TransactionSizeExceeded {
+            size: transaction_size,
+            limit: max_transaction_size,
         }
+        .into());
     }
 
     validate_actions(&config.wasm_config.limit_config, &transaction.actions)
@@ -131,24 +128,19 @@ pub fn verify_and_charge_transaction(
         }
         .into());
     }
-    checked_feature!(
-        "protocol_feature_access_key_nonce_range",
-        AccessKeyNonceRange,
-        current_protocol_version,
-        {
-            if let Some(height) = block_height {
-                let upper_bound =
-                    height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-                if transaction.nonce >= upper_bound {
-                    return Err(InvalidTxError::NonceTooLarge {
-                        tx_nonce: transaction.nonce,
-                        upper_bound,
-                    }
-                    .into());
+    if checked_feature!("stable", AccessKeyNonceRange, current_protocol_version) {
+        if let Some(height) = block_height {
+            let upper_bound =
+                height * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            if transaction.nonce >= upper_bound {
+                return Err(InvalidTxError::NonceTooLarge {
+                    tx_nonce: transaction.nonce,
+                    upper_bound,
                 }
+                .into());
             }
         }
-    );
+    };
 
     access_key.nonce = transaction.nonce;
 
@@ -1193,7 +1185,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
     fn test_validate_transaction_exceeding_tx_size_limit() {
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));

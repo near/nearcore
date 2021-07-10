@@ -13,7 +13,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
-use neard::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
+use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 
 pub mod fees_utils;
 pub mod node;
@@ -34,7 +34,8 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
-    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None, None));
     let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
 }
@@ -44,7 +45,8 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     let chain_genesis = ChainGenesis::from(genesis);
-    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![]));
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store, genesis, vec![], vec![], None, None));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()
 }
@@ -80,7 +82,7 @@ pub fn start_nodes_with_validator_selection_config(
     init_integration_logger();
 
     let num_nodes = dirs.len();
-    let num_tracking_nodes = dirs.len() - num_lightclient;
+    let num_tracking_nodes = num_nodes - num_lightclient;
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis = Genesis::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
@@ -104,7 +106,7 @@ pub fn start_nodes_with_validator_selection_config(
             if i == 0 { first_node } else { open_port() },
             genesis.clone(),
         );
-        rpc_addrs.push(near_config.rpc_config.addr.clone());
+        rpc_addrs.push(near_config.rpc_addr().unwrap().clone());
         near_config.client_config.min_num_peers = num_nodes - 1;
         if i > 0 {
             near_config.network_config.boot_nodes =

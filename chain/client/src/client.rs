@@ -50,7 +50,6 @@ use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
@@ -789,7 +788,6 @@ impl Client {
         self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
     }
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn process_partial_encoded_chunk_forward(
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
@@ -1673,6 +1671,7 @@ mod test {
 
     use cached::Cached;
 
+    use near_chain::Provenance;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_chunks::test_utils::ChunkForwardingTestFixture;
@@ -1681,13 +1680,13 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
-    use neard::config::GenesisExt;
+    use nearcore::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
@@ -1696,19 +1695,25 @@ mod test {
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
     use near_primitives::utils::MaybeValidated;
 
-    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+    pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         (0..n)
             .map(|_| {
-                Arc::new(neard::NightshadeRuntime::new(
+                Arc::new(nearcore::NightshadeRuntime::new(
                     Path::new("."),
                     create_test_store(),
                     &genesis,
                     vec![],
                     vec![],
+                    None,
+                    None,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect()
+    }
+
+    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+        create_nightshade_runtimes(&genesis, n)
     }
 
     #[test]
@@ -1757,6 +1762,36 @@ mod test {
     }
 
     #[test]
+    fn test_cap_max_gas_price() {
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let epoch_length = 5;
+        genesis.config.min_gas_price = 1_000;
+        genesis.config.max_gas_price = 1_000_000;
+        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes = create_nightshade_runtimes(&genesis, 1);
+        let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+
+        for i in 1..epoch_length {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+
+        let last_block =
+            env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap().clone();
+        let protocol_version = env.clients[0]
+            .runtime_adapter
+            .get_epoch_protocol_version(last_block.header().epoch_id())
+            .unwrap();
+        let min_gas_price =
+            env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+        let max_gas_price =
+            env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
+        assert!(max_gas_price <= 20 * min_gas_price);
+    }
+
+    #[test]
     fn test_process_partial_encoded_chunk_with_missing_block() {
         let runtimes = create_runtimes(1);
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
@@ -1787,7 +1822,6 @@ mod test {
             }
         }
 
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
         let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &mock_chunk.header,
             mock_chunk.parts.clone(),
@@ -1815,13 +1849,10 @@ mod test {
 
         // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
         // a missing block.
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-        {
-            let result = client.process_partial_encoded_chunk_forward(mock_forward);
-            assert!(matches!(
-                result,
-                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
-            ));
-        }
+        let result = client.process_partial_encoded_chunk_forward(mock_forward);
+        assert!(matches!(
+            result,
+            Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+        ));
     }
 }

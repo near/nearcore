@@ -3,12 +3,14 @@ use byteorder::{ByteOrder, LittleEndian};
 use near_chain_configs::Genesis;
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::{AccountId, StateRoot};
 use near_store::test_utils::create_tries;
 use near_store::{ShardTries, TrieUpdate};
-use neard::config::GenesisExt;
+use nearcore::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
+
+use std::collections::HashSet;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -23,8 +25,8 @@ pub fn evm_account() -> AccountId {
     "evm".to_string()
 }
 
-pub fn default_code_hash() -> CryptoHash {
-    hash(&near_test_contracts::rs_contract())
+pub fn implicit_account() -> AccountId {
+    "3885505359911f2493f0c40a2bf042981936ec5dddd59708581b155a047864d8".to_string()
 }
 
 lazy_static::lazy_static! {
@@ -56,7 +58,11 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
 pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
     let tries = create_tries();
     let runtime = Runtime::new();
-    let (store_update, genesis_root) = runtime.apply_genesis_state(
+    let mut account_ids: HashSet<AccountId> = HashSet::new();
+    genesis.for_each_record(|record: &StateRecord| {
+        account_ids.insert(state_record_to_account_id(record).clone());
+    });
+    let genesis_root = runtime.apply_genesis_state(
         tries.clone(),
         0,
         &genesis
@@ -71,10 +77,10 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
                 )
             })
             .collect::<Vec<_>>(),
-        &genesis.records.as_ref(),
+        &genesis,
         &genesis.config.runtime_config,
+        account_ids,
     );
-    store_update.commit().unwrap();
     (runtime, tries, genesis_root)
 }
 
@@ -86,7 +92,7 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, tries, root) = get_runtime_and_trie();
-    let trie_viewer = TrieViewer::new();
+    let trie_viewer = TrieViewer::default();
     let state_update = tries.new_trie_update(0, root);
     (trie_viewer, state_update)
 }

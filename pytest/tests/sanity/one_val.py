@@ -8,6 +8,7 @@ import sys, time, base58, random
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from utils import TxContext
 from transaction import sign_payment_tx
 
@@ -23,7 +24,7 @@ nodes = start_cluster(
      ["chunk_producer_kickout_threshold", 60],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ], ["total_supply", "4060000000000000000000000000000000"]], {})
 time.sleep(3)
@@ -48,11 +49,11 @@ while True:
     hash_ = status['sync_info']['latest_block_hash']
 
     if height > max_height:
-        print("Got to height", height)
+        logger.info(f"Got to height {height}")
         max_height = height
 
     if ctx.get_balances() == ctx.expected_balances:
-        print("Balances caught up, took %s blocks, moving on" %
+        logger.info("Balances caught up, took %s blocks, moving on" %
               (height - sent_height))
         ctx.send_moar_txs(hash_, 10, use_routing=True)
         sent_height = height

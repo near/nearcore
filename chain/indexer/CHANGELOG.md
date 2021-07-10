@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.2
+
+* Optimize the delayed receipts tracking process introduced in previous version to avoid indexer stuck.
+
+## 0.9.1
+
+* Introduce a hot-fix. Execution outcome for local receipt might appear not in the same block as the receipt. Local receipts are not saved in database and unable to be fetched. To include a receipt in `IndexerExecutionOutcomeWithReceipt` and prevent NEAR Indexer Framework from panic we fetch previous blocks to find corresponding local receipt to include.
+
+## 0.9.0 (do not use this version, it contains a bug)
+
+* Introduce `IndexerShard` structure which contains corresponding chunks and `IndexerExecutionOutcomeWithReceipt`
+* `receipt` field in `IndexerExecutionOutcomeWithReceipt` is no longer optional as it used to be always set anyway, 
+so now we explicitly communicate this relation ("every outcome has a corresponding receipt") through the type system
+* Introduce `IndexerExecutionOutcomeWithOptionalReceipt` which is the same as `IndexerExecutionOutcomeWithReceipt`
+but with optional `receipt` field.
+
+## Breaking changes
+
+* `IndexerChunkView` doesn't contain field `receipt_execution_outcomes` anymore, this field has been moved to `IndexerShard`
+* `StreamerMessage` structure was aligned more with NEAR Protocol specification and now looks like:
+  ```
+  StreamerMessage {
+    block: BlockView,
+    shards: Vec<IndexerShard>,
+    state_changes: StateChangesView,  
+  }
+  ```
+
 ## 0.8.1
 
 * Add `InitConfigArgs` and `indexer_init_configs`

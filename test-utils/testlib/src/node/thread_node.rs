@@ -5,7 +5,7 @@ use near_actix_test_utils::ShutdownableThread;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
-use neard::{start_with_config, NearConfig};
+use nearcore::{start_with_config, NearConfig};
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
@@ -70,7 +70,7 @@ impl Node for ThreadNode {
 
     fn user(&self) -> Box<dyn User> {
         let account_id = self.signer.account_id.clone();
-        Box::new(RpcUser::new(&self.config.rpc_config.addr, account_id, self.signer.clone()))
+        Box::new(RpcUser::new(self.config.rpc_addr().unwrap(), account_id, self.signer.clone()))
     }
 
     fn as_thread_ref(&self) -> &ThreadNode {

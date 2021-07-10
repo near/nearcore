@@ -7,6 +7,7 @@ import sys, time, base58, random
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from utils import TxContext
 from transaction import sign_payment_tx
 
@@ -26,7 +27,7 @@ status = nodes[0].get_status()
 latest_block_hash = status['sync_info']['latest_block_hash']
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', token_transfer, 1,
                      base58.b58decode(latest_block_hash.encode('utf8')))
-print(nodes[0].send_tx_and_wait(tx, timeout=20))
+logger.info(nodes[0].send_tx_and_wait(tx, timeout=20))
 
 # wait for doomslug finality
 time.sleep(5)

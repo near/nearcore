@@ -8,13 +8,13 @@ use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
 use wabt::Wat2Wasm;
 
-use crate::run_vm;
+use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -81,7 +81,7 @@ fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
-        ProfileData::new_disabled(),
+        ProfileData::new(),
     )
 }
 
@@ -123,6 +123,6 @@ fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
-        ProfileData::new_disabled(),
+        ProfileData::new(),
     )
 }

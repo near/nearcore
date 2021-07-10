@@ -4,12 +4,14 @@ import os
 import datetime
 from rc import gcloud, run
 
-import sys
 sys.path.append('lib')
+from configured_logger import logger
+
 
 additional_flags = ''
 
-toolchain = open(os.path.join(os.path.dirname(__file__), '../../../../rust-toolchain')).read().strip()
+toolchain = open(os.path.join(os.path.dirname(__file__),
+                              '../../../../rust-toolchain')).read().strip()
 
 try:
     image_name = sys.argv[1]
@@ -22,7 +24,7 @@ except:
 
 machine_name = f'{image_name}-image-builder'
 
-print("Creating machine:", machine_name)
+logger.info(f"Creating machine: {machine_name}")
 
 m = gcloud.create(
     name=machine_name,
@@ -35,7 +37,7 @@ m = gcloud.create(
     min_cpu_platform='Intel Skylake'
 )
 
-print('machine created:', image_name)
+logger.info(f'machine created: {image_name}')
 
 p = m.run('bash', input=f'''
 for i in `seq 1 3`; do
@@ -56,16 +58,16 @@ cargo build -p neard --release {additional_flags}
 
 assert p.returncode == 0
 
-print('near built')
+logger.info('near built')
 
 m.shutdown()
 
-print('machine stopped')
+logger.info('machine stopped')
 
 m.save_image(image=image_name)
 
-print('image saved')
+logger.info('image saved')
 
 m.delete()
 
-print('machine deleted')
+logger.info('machine deleted')

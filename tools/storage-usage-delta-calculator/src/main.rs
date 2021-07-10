@@ -1,0 +1,39 @@
+use log::{debug, LevelFilter};
+use near_chain_configs::Genesis;
+use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::state_record::StateRecord;
+use node_runtime::Runtime;
+use std::fs::File;
+use std::io::Error;
+
+/// Calculates delta between actual storage usage and one saved in state
+/// output.json should contain dump of current state,
+/// run state-viewer --home ~/.near/mainnet/ dump_state
+/// to get it
+fn main() -> Result<(), Error> {
+    env_logger::Builder::new().filter(None, LevelFilter::Debug).init();
+
+    debug!("Start");
+
+    let genesis = Genesis::from_file("output.json");
+    debug!("Genesis read");
+
+    let storage_usage =
+        Runtime::new().compute_storage_usage(&genesis.records.0[..], &RuntimeConfig::default());
+    debug!("Storage usage calculated");
+
+    let mut result = Vec::new();
+    for record in genesis.records.0 {
+        if let StateRecord::Account { account_id, account } = record {
+            let actual_storage_usage = storage_usage.get(account_id.as_str()).unwrap();
+            let saved_storage_usage = account.storage_usage();
+            let delta = actual_storage_usage - saved_storage_usage;
+            if delta != 0 {
+                debug!("{},{}", account_id, delta);
+                result.push((account_id.clone(), delta));
+            }
+        }
+    }
+    serde_json::to_writer_pretty(&File::create("storage_usage_delta.json")?, &result)?;
+    Ok(())
+}

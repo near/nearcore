@@ -6,7 +6,9 @@ use near_primitives::{
 };
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{External, VMContext, VMOutcome};
+
+use crate::VMKind;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -60,7 +62,7 @@ pub fn run_vm(
     cache: Option<&dyn CompiledContractCache>,
     profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!("run_vm").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_vm").entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;

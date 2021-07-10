@@ -7,7 +7,6 @@ use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
 use crate::version::ProtocolVersion;
-use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 
 /// The structure that holds the parameters of the runtime, mostly economics.
@@ -60,19 +59,11 @@ impl RuntimeConfig {
         genesis_runtime_config: &Arc<RuntimeConfig>,
         protocol_version: ProtocolVersion,
     ) -> Arc<Self> {
-        if checked_feature!(
-            "protocol_feature_lower_storage_cost",
-            LowerStorageCost,
-            protocol_version
-        ) {
+        if checked_feature!("stable", LowerStorageCost, protocol_version) {
             let mut config = LOWER_STORAGE_COST_CONFIG.lock().unwrap();
-            if let Some(config) = config.deref_mut() {
-                config.clone()
-            } else {
-                let upgraded_config = Arc::new(genesis_runtime_config.decrease_storage_cost());
-                *config = Some(upgraded_config.clone());
-                upgraded_config
-            }
+            config
+                .get_or_insert_with(|| Arc::new(genesis_runtime_config.decrease_storage_cost()))
+                .clone()
         } else {
             genesis_runtime_config.clone()
         }

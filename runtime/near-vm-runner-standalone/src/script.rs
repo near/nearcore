@@ -7,8 +7,8 @@ use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMKind, VMOutcome};
-use near_vm_runner::{run_vm, MockCompiledContractCache, VMError};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_runner::{run_vm, MockCompiledContractCache, VMError, VMKind};
 
 use crate::State;
 
@@ -49,7 +49,7 @@ impl Default for Script {
             vm_kind: VMKind::default(),
             vm_config: VMConfig::default(),
             protocol_version: ProtocolVersion::MAX,
-            profile: ProfileData::new_disabled(),
+            profile: ProfileData::new(),
             contract_cache: None,
             initial_state: None,
             steps: Vec::new(),
@@ -88,10 +88,6 @@ impl Script {
         self.protocol_version = protocol_version;
     }
 
-    pub(crate) fn profile(&mut self, yes: bool) {
-        self.profile = if yes { ProfileData::new_enabled() } else { ProfileData::new_disabled() }
-    }
-
     #[allow(unused)]
     pub(crate) fn contract_cache(&mut self, yes: bool) {
         self.contract_cache =
@@ -100,6 +96,12 @@ impl Script {
 
     pub(crate) fn initial_state(&mut self, state: State) {
         self.initial_state = Some(state);
+    }
+
+    pub(crate) fn initial_state_from_file(&mut self, path: &Path) {
+        let data = fs::read(path).unwrap();
+        let state = serde_json::from_slice(&data).unwrap();
+        self.initial_state(state)
     }
 
     pub(crate) fn step(&mut self, contract: Contract, method: &str) -> &mut Step {
@@ -216,4 +218,32 @@ fn vm_script_smoke_test() {
 
     let expected = ReturnData::Value(4950u64.to_le_bytes().to_vec());
     assert_eq!(ret, expected);
+}
+
+#[cfg(feature = "no_cache")]
+#[test]
+fn test_evm_slow_deserialize_repro() {
+    fn evm_slow_deserialize_repro(vm_kind: VMKind) {
+        println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
+        crate::tracing_timings::enable();
+
+        let mut script = Script::default();
+        script.vm_kind(vm_kind);
+        script.contract_cache(true);
+
+        // From near-evm repo, the version of when slow issue reported
+        let contract =
+            script.contract_from_file(Path::new("../near-test-contracts/res/near_evm.wasm"));
+
+        let input =
+            hex::decode(&include_bytes!("../../near-test-contracts/res/ZombieOwnership.bin"))
+                .unwrap();
+
+        script.step(contract, "deploy_code").input(input).repeat(3);
+        let res = script.run();
+        assert_eq!(res.outcomes[0].1, None);
+    }
+
+    evm_slow_deserialize_repro(VMKind::Wasmer0);
+    evm_slow_deserialize_repro(VMKind::Wasmer1);
 }

@@ -9,6 +9,7 @@ byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
+tracing = "0.1"
 rand = "0.7"
 lazy_static = "1.4"
 num-rational = "0.3"
@@ -16,10 +17,12 @@ num-bigint = "0.3"
 num-traits = "0.2.11"
 hex = "0.4.2"
 ethereum-types = "0.11.0"
+rayon = "1.5"
 thiserror = "1.0"
 
 borsh = "0.8.1"
 
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
@@ -34,14 +37,13 @@ near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
-protocol_feature_access_key_nonce_range = ["near-primitives/protocol_feature_access_key_nonce_range"]
 protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers"]
 wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
 wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
 wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
-wasmer1_default = ["wasmer1_vm", "near-vm-logic/wasmer1_default"]
-wasmer0_default = ["wasmer0_vm", "near-vm-logic/wasmer0_default"]
-wasmtime_default = ["wasmtime_vm", "near-vm-logic/wasmtime_default"]
+wasmer1_default = ["wasmer1_vm", "near-vm-runner/wasmer1_default"]
+wasmer0_default = ["wasmer0_vm", "near-vm-runner/wasmer0_default"]
+wasmtime_default = ["wasmtime_vm", "near-vm-runner/wasmtime_default"]
 
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 
@@ -53,7 +55,8 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_tx_size_limit = []
+protocol_feature_restore_receipts_after_fix = []
+sandbox = []
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,6 +1,4 @@
 use num_rational::Ratio;
-#[cfg(feature = "protocol_feature_evm")]
-use num_traits::cast::FromPrimitive;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -16,15 +14,13 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 
-#[cfg(feature = "protocol_feature_evm")]
-use crate::evm_estimator::cost_of_evm;
 use crate::ext_costs_generator::ExtCostsGenerator;
 use crate::runtime_fees_generator::RuntimeFeesGenerator;
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{cost_per_op, cost_to_compile, load_and_compile};
+use crate::vm_estimator::{compute_compile_cost_vm, cost_per_op, load_and_compile};
 use crate::TestContract;
 
 use near_primitives::runtime::config::RuntimeConfig;
@@ -198,6 +194,9 @@ pub enum Metric {
     keccak256_10kib_10k,
     keccak512_10b_10k,
     keccak512_10kib_10k,
+    ripemd160_10b_10k,
+    ripemd160_10kib_10k,
+    ecrecover_10k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     alt_bn128_g1_multiexp_1_1k,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -236,37 +235,12 @@ pub enum Metric {
 }
 
 #[allow(unused_variables)]
-pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeConfig {
+pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     let mut m = Measurements::new(config.metric);
     if only_compile {
-        let (contract_compile_cost, contract_compile_base_cost) =
-            cost_to_compile(config.metric, config.vm_kind, true);
-        let contract_byte_cost = ratio_to_gas(config.metric, contract_compile_cost);
-        println!(
-            "{}, {}",
-            contract_byte_cost,
-            ratio_to_gas(config.metric, contract_compile_base_cost)
-        );
+        let (contract_compile_base_cost, contract_per_byte_cost) =
+            compute_compile_cost_vm(config.metric, config.vm_kind, true);
         process::exit(0);
-    } else {
-        #[cfg(feature = "protocol_feature_evm")]
-        if only_evm {
-            config.block_sizes = vec![100];
-            let cost = cost_of_evm(&config, true);
-            println!(
-                "EVM base deploy (and init evm instance) cost: {}, deploy cost per EVM gas: {}, deploy cost per byte: {}",
-                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.2).unwrap()),
-                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.0).unwrap()),
-                ratio_to_gas(config.metric, Ratio::<u64>::from_f64(cost.deploy_cost.1).unwrap()),
-            );
-            println!(
-                "EVM base function call cost: {}, function call cost per EVM gas: {}",
-                ratio_to_gas(config.metric, cost.funcall_cost.1),
-                ratio_to_gas(config.metric, cost.funcall_cost.0),
-            );
-
-            process::exit(0);
-        }
     }
     config.block_sizes = vec![100];
     let mut nonces: HashMap<usize, u64> = HashMap::new();
@@ -584,6 +558,9 @@ pub fn run(mut config: Config, only_compile: bool, only_evm: bool) -> RuntimeCon
         keccak256_10kib_10k => keccak256_10kib_10k,
         keccak512_10b_10k => keccak512_10b_10k,
         keccak512_10kib_10k => keccak512_10kib_10k,
+        ripemd160_10b_10k => ripemd160_10b_10k,
+        ripemd160_10kib_10k => ripemd160_10kib_10k,
+        ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -648,6 +625,23 @@ fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
         Ratio::<u128>::new(
             (*value.numer() as u128) * GAS_IN_MEASURE_UNIT,
             (*value.denom() as u128) * divisor,
+        )
+        .to_integer(),
+    )
+    .unwrap()
+}
+
+pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> i64 {
+    let divisor = match gas_metric {
+        // We use factor of 8 to approximately match the price of SHA256 operation between
+        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+        GasMetric::ICount => 8i128,
+        GasMetric::Time => 1i128,
+    };
+    i64::try_from(
+        Ratio::<i128>::new(
+            (*value.numer() as i128) * (GAS_IN_MEASURE_UNIT as i128),
+            (*value.denom() as i128) * divisor,
         )
         .to_integer(),
     )
@@ -725,7 +719,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
-    let (contract_compile_bytes_, contract_compile_base_) = get_compile_cost(config, false);
+    let (contract_compile_bytes_, contract_compile_base_) =
+        compute_compile_cost_vm(config.metric, config.vm_kind, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
         contract_compile_base: contract_compile_base_,
@@ -748,6 +743,9 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
         keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
         keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
+        ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
+        ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
+        ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
         log_base: measured_to_gas(metric, &measured, log_base),
         log_byte: measured_to_gas(metric, &measured, log_byte),
         storage_write_base: measured_to_gas(metric, &measured, storage_write_base),
@@ -840,12 +838,11 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     )
     .unwrap();
 
-    // let test_contract_compilation_cost = ratio_to_gas(config.metric, compile_cost.1);
-
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
 
     // Shifting compilation costs from function call runtime to the deploy action cost at execution
-    // time.
+    // time. Contract used in deploy action testing is very small, so we have to use more complex
+    // technique to compute the actual coefficients.
     runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
         runtime_config.wasm_config.ext_costs.contract_compile_base;
     runtime_config
@@ -857,9 +854,4 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
 
     runtime_config
-}
-
-fn get_compile_cost(config: &Config, verbose: bool) -> (u64, u64) {
-    let (a, b) = cost_to_compile(config.metric, config.vm_kind, verbose);
-    (ratio_to_gas(config.metric, a), ratio_to_gas(config.metric, b))
 }

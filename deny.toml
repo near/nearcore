@@ -21,6 +21,11 @@ deny = [
 ]
 
 skip = [
+    { name = "clap", version = "=2.33.3" },
+    { name = "humantime", version = "=2.1.0" },
+    { name = "socket2", version = "=0.3.19" },
+    { name = "textwrap", version = "=0.12.1" },
+
     # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
     { name = "subtle", version = "=1.0.0" },
 
@@ -72,9 +77,6 @@ skip = [
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
 
-    # tokia via actix and actix-server
-    { name = "miow", version = "=0.3.6" },
-
     # crossbeam-epoch and wasmtime-runtime
     { name = "memoffset", version = "=0.6.1" },
 
@@ -113,11 +115,9 @@ skip = [
     { name = "cranelift-codegen-shared", version = "=0.68.0" },
     { name = "cranelift-entity", version = "=0.68.0" },
     { name = "cranelift-frontend", version = "=0.68.0" },
-    { name = "libloading", version = "=0.5.2" },
     { name = "wasmparser", version = "=0.65.0" },
-    { name = "which", version = "=3.1.1" },
     { name = "object", version = "=0.22.0" },
-   
+
     # cached uses an older version
     { name = "strsim", version = "=0.9.3" },
     { name = "darling", version = "=0.10.2" },
@@ -126,4 +126,9 @@ skip = [
 
     # hashbrown uses an older version
     { name = "ahash", version = "=0.4.7" },
+
+    # rocksdb (transitively through clang-sys) uses this as a build
+    # dependency which conflicts with 0.6.7 that wasmer-engine-native
+    # uses.
+    { name = "libloading", version = "=0.7.0" },
 ]

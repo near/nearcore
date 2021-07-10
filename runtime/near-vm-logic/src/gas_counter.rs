@@ -144,18 +144,18 @@ impl GasCounter {
         self.deduct_gas(value, value)
     }
 
-    /// A helper function to pay per byte gas
-    pub fn pay_per_byte(&mut self, cost: ExtCosts, num_bytes: u64) -> Result<()> {
-        let use_gas = num_bytes
+    /// A helper function to pay a multiple of a cost.
+    pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
+        let use_gas = num
             .checked_mul(cost.value(&self.ext_costs_config))
             .ok_or(HostError::IntegerOverflow)?;
 
-        self.inc_ext_costs_counter(cost, num_bytes);
+        self.inc_ext_costs_counter(cost, num);
         self.update_profile_host(cost, use_gas);
         self.deduct_gas(use_gas, use_gas)
     }
 
-    /// A helper function to pay base cost gas
+    /// A helper function to pay base cost gas.
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.value(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn test_deduct_gas() {
         let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new_disabled());
+            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new());
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -250,7 +250,7 @@ mod tests {
     #[should_panic]
     fn test_prepaid_gas_min() {
         let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new_disabled());
+            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new());
         counter.deduct_gas(10, 5).unwrap();
     }
 }

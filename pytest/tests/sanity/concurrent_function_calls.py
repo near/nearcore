@@ -8,8 +8,9 @@ import multiprocessing
 
 sys.path.append('lib')
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
-from utils import load_binary_file, compile_rust_contract
+from utils import load_test_contract
 
 nodes = start_cluster(
     4, 0, 4, None,
@@ -19,10 +20,8 @@ nodes = start_cluster(
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
-tx = sign_deploy_contract_tx(
-    nodes[0].signer_key,
-    load_binary_file(
-        '../runtime/near-test-contracts/res/test_contract_rs.wasm'), 10, hash_)
+tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
+                             hash_)
 nodes[0].send_tx(tx)
 
 time.sleep(3)
@@ -50,7 +49,7 @@ def process():
         res = nodes[1].call_function(acc_id, 'read_value', base64.b64encode(bytes(key)).decode("ascii"))
         res = int.from_bytes(res["result"]["result"], byteorder='little')
         assert res == (i % 10)
-    print("all done")
+    logger.info("all done")
 
 ps = [ multiprocessing.Process(target=process, args=()) for i in range(6) ]
 for p in ps:

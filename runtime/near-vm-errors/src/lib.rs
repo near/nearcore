@@ -1,11 +1,11 @@
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 
-use near_rpc_error_macro::RpcError;
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
+// TODO: remove serialization derives, once fix compilation caching.
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
     /// Serialized external error from External trait implementation.
@@ -17,10 +17,34 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+// TODO(4217): remove serialization derives, once fix compilation caching.
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
 pub enum FunctionCallError {
+    /// Wasm compilation error
+    CompilationError(CompilationError),
+    /// Wasm binary env link error
+    LinkError {
+        msg: String,
+    },
+    /// Import/export resolve error
+    MethodResolveError(MethodResolveError),
+    /// A trap happened during execution of a binary
+    WasmTrap(WasmTrap),
+    WasmUnknownError {
+        debug_message: String,
+    },
+    HostError(HostError),
+    EvmError(EvmError),
+    /// Non-deterministic error.
+    Nondeterministic(String),
+}
+
+/// Serializable version of `FunctionCallError`. Must never reorder/remove elements, can only
+/// add new variants at the end (but do that very carefully). This type must be never used
+/// directly, and must be converted to `ContractCallError` instead using `into()` converter.
+/// It describes stable serialization format, and only used by serialization logic.
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
     /// Wasm binary env link error
@@ -34,13 +58,9 @@ pub enum FunctionCallError {
     WasmUnknownError,
     HostError(HostError),
     EvmError(EvmError),
-    /// An error message when wasmer 1.0 returns a wasmer::RuntimeError
-    WasmerRuntimeError(String),
-    /// A trap in Wasmer 1.0, not same as WasmTrap above, String is a machine readable form like "stk_ovf"
-    /// String is used instead of wasmer internal enum is because of BorshSerializable.
-    /// It can be convert back by wasmer_vm::TrapCode::from_str
-    Wasmer1Trap(String),
+    ExecutionError(String),
 }
+
 #[derive(
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
@@ -67,8 +87,8 @@ pub enum WasmTrap {
     IllegalArithmetic,
     /// Misaligned atomic access trap.
     MisalignedAtomicAccess,
-    /// Breakpoint trap.
-    BreakpointTrap,
+    /// Indirect call to null.
+    IndirectCallToNull,
     /// Stack overflow.
     StackOverflow,
     /// Generic trap.
@@ -186,6 +206,8 @@ pub enum HostError {
     ContractSizeExceeded { size: u64, limit: u64 },
     /// The host function was deprecated.
     Deprecated { method_name: String },
+    /// General errors for ECDSA recover.
+    ECRecoverError { msg: String },
     /// Deserialization error for alt_bn128 functions
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128DeserializationError { msg: String },
@@ -363,12 +385,13 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::HostError(e) => e.fmt(f),
             FunctionCallError::LinkError { msg } => write!(f, "{}", msg),
             FunctionCallError::WasmTrap(trap) => write!(f, "WebAssembly trap: {}", trap),
-            FunctionCallError::WasmUnknownError => {
-                write!(f, "Unknown error during Wasm contract execution")
+            FunctionCallError::WasmUnknownError { debug_message } => {
+                write!(f, "Unknown error during Wasm contract execution: {}", debug_message)
             }
             FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
-            FunctionCallError::WasmerRuntimeError(e) => write!(f, "Wasmer Runtime: {}", e),
-            FunctionCallError::Wasmer1Trap(e) => write!(f, "Wasmer 1.0 trap: {}", e),
+            FunctionCallError::Nondeterministic(msg) => {
+                write!(f, "Nondeterministic error during contract execution: {}", msg)
+            }
         }
     }
 }
@@ -387,8 +410,8 @@ impl fmt::Display for WasmTrap {
             }
             WasmTrap::MisalignedAtomicAccess => write!(f, "Misaligned atomic access trap."),
             WasmTrap::GenericTrap => write!(f, "Generic trap."),
-            WasmTrap::BreakpointTrap => write!(f, "Breakpoint trap."),
             WasmTrap::StackOverflow => write!(f, "Stack overflow."),
+            WasmTrap::IndirectCallToNull => write!(f, "Indirect call to null."),
         }
     }
 }
@@ -477,6 +500,7 @@ impl std::fmt::Display for HostError {
             AltBn128DeserializationError { msg } => write!(f, "AltBn128 deserialization error: {}", msg),
             #[cfg(feature = "protocol_feature_alt_bn128")]
             AltBn128SerializationError { msg } => write!(f, "AltBn128 serialization error: {}", msg),
+            ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
         }
     }
 }

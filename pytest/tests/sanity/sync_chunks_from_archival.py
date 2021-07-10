@@ -12,6 +12,7 @@ import multiprocessing
 sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
+from configured_logger import logger
 from utils import TxContext, LogTracker
 from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2
 from transaction import sign_staking_tx
@@ -40,7 +41,7 @@ class Handler(ProxyHandler):
                 shard_id = header.inner.shard_id
                 hash_ = header.chunk_hash()
                 hash_to_metadata[hash_] = (height, shard_id)
-            
+
             if msg_kind == 'VersionedPartialEncodedChunk':
                 header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header()
                 height = header.height_created
@@ -56,14 +57,14 @@ class Handler(ProxyHandler):
                 if fr == 4:
                     hash_ = msg.Routed.body.PartialEncodedChunkRequest.chunk_hash
                     (height, shard_id) = hash_to_metadata[hash_]
-                    print("REQ %s %s %s %s" % (height, shard_id, fr, to))
+                    logger.info("REQ %s %s %s %s" % (height, shard_id, fr, to))
                     requests[(height, shard_id, to)] = 1
 
             if msg_kind == 'PartialEncodedChunkResponse':
                 if to == 4:
                     hash_ = msg.Routed.body.PartialEncodedChunkResponse.chunk_hash
                     (height, shard_id) = hash_to_metadata[hash_]
-                    print("RESP %s %s %s %s" % (height, shard_id, fr, to))
+                    logger.info("RESP %s %s %s %s" % (height, shard_id, fr, to))
                     responses[(height, shard_id, fr)] = 1
 
         return True
@@ -84,12 +85,12 @@ near_root, node_dirs = init_cluster(
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      ["validators", 1, "amount", "110000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ],
      # each validator account is two records, thus the index of a record for the second is 2, not 1
      [
-         "records", 2, "Account", "account", "AccountV1", "locked",
+         "records", 2, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ],
      ["total_supply", "6120000000000000000000000000000000"]], {4: {

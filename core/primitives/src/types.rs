@@ -152,6 +152,9 @@ pub enum StateChangeCause {
     /// State change that happens when we update validator accounts. Not associated with with any
     /// specific transaction or receipt.
     ValidatorAccountsUpdate,
+    /// State change that is happens due to migration that happens in first block of an epoch
+    /// after protocol upgrade
+    Migration,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -684,6 +687,11 @@ pub mod validator_stake {
         }
 
         #[inline]
+        pub fn into_v1(self) -> ValidatorStakeV1 {
+            self
+        }
+
+        #[inline]
         pub fn take_account_id(self) -> AccountId {
             self.account_id
         }
@@ -1018,7 +1026,7 @@ pub enum ValidatorKickoutReason {
     DidNotGetASeat,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TransactionOrReceiptId {
     Transaction { transaction_hash: CryptoHash, sender_id: AccountId },

@@ -4,15 +4,21 @@
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 use std::marker::PhantomData;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::{fmt, io};
 
 use chrono::{DateTime, Utc};
 use num_rational::Rational;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Serializer;
 use smart_default::SmartDefault;
 
+use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -24,6 +30,8 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
+use sha2::digest::Digest;
+use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -165,6 +173,28 @@ pub struct GenesisConfig {
     pub minimum_stake_ratio: Rational,
 }
 
+impl From<&GenesisConfig> for EpochConfig {
+    fn from(config: &GenesisConfig) -> Self {
+        EpochConfig {
+            epoch_length: config.epoch_length,
+            num_shards: config.num_block_producer_seats_per_shard.len() as NumShards,
+            num_block_producer_seats: config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard.clone(),
+            avg_hidden_validator_seats_per_shard: config
+                .avg_hidden_validator_seats_per_shard
+                .clone(),
+            block_producer_kickout_threshold: config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
+            fishermen_threshold: config.fishermen_threshold,
+            online_min_threshold: config.online_min_threshold,
+            online_max_threshold: config.online_max_threshold,
+            protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
+            protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: config.minimum_stake_divisor,
+        }
+    }
+}
+
 /// Records in storage at genesis (get split into shards at genesis creation).
 #[derive(
     Debug,
@@ -183,6 +213,12 @@ pub struct Genesis {
     #[serde(flatten)]
     pub config: GenesisConfig,
     pub records: GenesisRecords,
+    /// Genesis object may not contain records.
+    /// In this case records can be found in records_file.
+    /// The idea is that all records consume too much memory,
+    /// so they should be processed in streaming fashion with for_each_record.
+    #[serde(skip)]
+    pub records_file: PathBuf,
     /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
     /// without calling `new` method, which has some initialization routine.
     #[serde(skip)]
@@ -222,6 +258,24 @@ impl GenesisConfig {
         )
         .expect("Failed to create / write a genesis config file.");
     }
+
+    /// Get validators from genesis config
+    pub fn validators(&self) -> Vec<ValidatorStake> {
+        self.validators
+            .iter()
+            .map(|account_info| {
+                ValidatorStake::new(
+                    account_info.account_id.clone(),
+                    account_info
+                        .public_key
+                        .clone()
+                        .try_into()
+                        .expect("Failed to deserialize validator public key"),
+                    account_info.amount,
+                )
+            })
+            .collect()
+    }
 }
 
 impl GenesisRecords {
@@ -251,11 +305,115 @@ impl GenesisRecords {
     }
 }
 
+/// Visitor for records.
+/// Reads records one by one and passes them to sink.
+/// If full genesis file is passed, reads records from "records" field and
+/// IGNORES OTHER FIELDS.
+struct RecordsProcessor<F> {
+    sink: F,
+}
+
+impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str(
+            "either:\
+        1. array of StateRecord\
+        2. map with records field which is array of StateRecord",
+        )
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        while let Some(record) = seq.next_element::<StateRecord>()? {
+            (self.sink)(record)
+        }
+        Ok(())
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "records" => {
+                    map.next_value_seed(self)?;
+                    return Ok(());
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        Err(de::Error::custom("missing field: records"))
+    }
+}
+
+impl<'de, F: FnMut(StateRecord)> DeserializeSeed<'de> for RecordsProcessor<&'_ mut F> {
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+fn stream_records_from_file(
+    reader: impl Read,
+    mut callback: impl FnMut(StateRecord),
+) -> serde_json::Result<()> {
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    let records_processor = RecordsProcessor { sink: &mut callback };
+    deserializer.deserialize_any(records_processor)
+}
+
+pub struct GenesisJsonHasher {
+    digest: sha2::Sha256,
+}
+
+impl GenesisJsonHasher {
+    pub fn new() -> Self {
+        Self { digest: sha2::Sha256::new() }
+    }
+
+    pub fn process_config(&mut self, config: &GenesisConfig) {
+        let mut ser = Serializer::pretty(&mut self.digest);
+        config.serialize(&mut ser).expect("Error serializing the genesis config.");
+    }
+
+    pub fn process_record(&mut self, record: &StateRecord) {
+        let mut ser = Serializer::pretty(&mut self.digest);
+        record.serialize(&mut ser).expect("Error serializing the genesis record.");
+    }
+
+    pub fn process_genesis(&mut self, genesis: &Genesis) {
+        self.process_config(&genesis.config);
+        genesis.for_each_record(|record: &StateRecord| {
+            self.process_record(record);
+        });
+    }
+
+    pub fn finalize(self) -> CryptoHash {
+        CryptoHash(self.digest.finalize().into())
+    }
+}
+
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis = Self { config, records, phantom: PhantomData };
+        let mut genesis =
+            Self { config, records, records_file: PathBuf::new(), phantom: PhantomData };
         genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
         genesis
+    }
+
+    pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
+        Self { config, records: GenesisRecords(vec![]), records_file, phantom: PhantomData }
     }
 
     /// Reads Genesis from a single file.
@@ -287,11 +445,30 @@ impl Genesis {
     /// Hash of the json-serialized input.
     /// DEVNOTE: the representation is not unique, and could change on upgrade.
     pub fn json_hash(&self) -> CryptoHash {
-        use sha2::digest::Digest;
-        let mut digest = sha2::Sha256::new();
-        serde_json::to_writer_pretty(&mut digest, self)
-            .expect("Error serializing the genesis config.");
-        CryptoHash(near_primitives::hash::Digest(digest.finalize().into()))
+        let mut hasher = GenesisJsonHasher::new();
+        hasher.process_genesis(self);
+        hasher.finalize()
+    }
+
+    fn stream_records_with_callback(&self, callback: impl FnMut(StateRecord)) -> io::Result<()> {
+        let reader = BufReader::new(File::open(&self.records_file)?);
+        stream_records_from_file(reader, callback).map_err(io::Error::from)
+    }
+
+    /// If records vector is empty processes records stream from records_file.
+    /// May panic if records_file is removed or is in wrong format.
+    pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
+        if self.records.as_ref().is_empty() {
+            let callback_move = |record: StateRecord| {
+                callback(&record);
+            };
+            self.stream_records_with_callback(callback_move)
+                .expect("error while streaming records");
+        } else {
+            for record in self.records.as_ref() {
+                callback(record);
+            }
+        }
     }
 }
 

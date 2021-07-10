@@ -13,7 +13,7 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../../neard/res/genesis_config.json"));
+        GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"));
 }
 
 pub enum NodeType {
@@ -54,7 +54,7 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        near_actix_test_utils::run_actix_until_stop(async {
+        near_actix_test_utils::run_actix(async {
             let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
             let $client = new_client(&format!("http://{}", addr));
@@ -71,7 +71,7 @@ type RpcRequest<T> = LocalBoxFuture<'static, Result<T, near_jsonrpc_primitives::
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
 pub fn call_method<R>(
-    client: &actix_web::client::Client,
+    client: &awc::Client,
     server_addr: &str,
     method: &str,
     params: serde_json::Value,
@@ -91,7 +91,10 @@ where
         .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
         .map_err(|err| {
-            near_jsonrpc_primitives::errors::RpcError::server_error(Some(format!("{:?}", err)))
+            near_jsonrpc_primitives::errors::RpcError::new_internal_error(
+                None,
+                format!("{:?}", err),
+            )
         })
         .and_then(|mut response| {
             response.body().map(|body| match body {
@@ -117,7 +120,9 @@ where
                         ))
                     })
                 }),
-                _ => Err(near_jsonrpc_primitives::errors::RpcError::invalid_request()),
+                _ => Err(near_jsonrpc_primitives::errors::RpcError::parse_error(format!(
+                    "Failed to parse JSON RPC response"
+                ))),
             })
         })
         .boxed_local()

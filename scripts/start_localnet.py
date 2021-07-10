@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import os
@@ -44,7 +44,7 @@ if __name__ == "__main__":
                   not args.debug,
                   args.image,
                   args.home,
-                  init_flags=['--chain-id='],
+                  init_flags=[],
                   boot_nodes='',
                   telemetry_url='',
                   verbose=args.verbose)

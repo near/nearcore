@@ -7,13 +7,14 @@ use borsh::BorshDeserialize;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
-use neard::get_store_path;
+use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
 
@@ -78,7 +79,7 @@ impl RuntimeTestbed {
 
         let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_index: 0,
+            block_index: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -91,9 +92,12 @@ impl RuntimeTestbed {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
         Self {
             workdir,
@@ -122,6 +126,7 @@ impl RuntimeTestbed {
                 &self.prev_receipts,
                 transactions,
                 &self.epoch_info_provider,
+                None,
             )
             .unwrap();
 

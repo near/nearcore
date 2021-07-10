@@ -4,11 +4,14 @@ use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
-use near_primitives::errors::{ActionError, ActionErrorKind, ExternalError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
+};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptEnum;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -17,8 +20,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, EpochInfoProvider};
 use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-    IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION, PROTOCOL_FEATURES_TO_VERSION_MAPPING,
+    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
+    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_runtime_utils::{
     is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
@@ -37,6 +40,7 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
 /// Precompiles:
@@ -192,10 +196,45 @@ pub(crate) fn action_function_call(
         false,
     );
     let execution_succeeded = match err {
-        Some(VMError::FunctionCallError(err)) => {
-            result.result = Err(ActionErrorKind::FunctionCallError(err).into());
-            false
-        }
+        Some(VMError::FunctionCallError(err)) => match err {
+            FunctionCallError::Nondeterministic(msg) => {
+                panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
+            }
+            FunctionCallError::WasmUnknownError { debug_message } => {
+                panic!("Wasmer returned unknown message: {}", debug_message)
+            }
+            FunctionCallError::CompilationError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::CompilationError(err).into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::LinkError { msg } => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: format!("Link Error: {}", msg) }
+                        .into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::MethodResolveError(err) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::MethodResolveError(err).into(),
+                )
+                .into());
+                false
+            }
+            FunctionCallError::WasmTrap(_)
+            | FunctionCallError::HostError(_)
+            | FunctionCallError::EvmError(_) => {
+                result.result = Err(ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: err.to_string() }.into(),
+                )
+                .into());
+                false
+            }
+        },
         Some(VMError::ExternalError(serialized_error)) => {
             let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
                 .expect("External error deserialization shouldn't fail");
@@ -424,6 +463,7 @@ pub(crate) fn action_deploy_contract(
     account: &mut Account,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
+    apply_state: &ApplyState,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -439,6 +479,10 @@ pub(crate) fn action_deploy_contract(
     );
     account.set_code_hash(code.get_hash());
     set_code(state_update, account_id.clone(), &code);
+    // Precompile the contract and store result (compiled code or error) in the database.
+    // Note, that contract compilation costs are already accounted in deploy cost using
+    // special logic in estimator (see get_runtime_config() function).
+    precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref()).ok();
     Ok(())
 }
 
@@ -447,14 +491,14 @@ pub(crate) fn action_delete_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
+    action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
+    config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
-    if current_protocol_version
-        >= PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction]
-    {
+    if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
         let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -475,9 +519,43 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        if checked_feature!("stable", AllowCreateAccountOnDelete, current_protocol_version) {
+            let sender_is_receiver = account_id == &delete_account.beneficiary_id;
+            let is_receiver_implicit =
+                is_implicit_account_creation_enabled(current_protocol_version)
+                    && is_account_id_64_len_hex(&delete_account.beneficiary_id);
+            let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
+                + transfer_send_fee(
+                    &config.action_creation_config,
+                    sender_is_receiver,
+                    is_receiver_implicit,
+                );
+            result.gas_burnt += exec_gas;
+            result.gas_used += exec_gas
+                + config.action_receipt_creation_config.exec_fee()
+                + transfer_exec_fee(&config.action_creation_config, is_receiver_implicit);
+
+            result.new_receipts.push(Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id: delete_account.beneficiary_id.clone(),
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: action_receipt.signer_id.clone(),
+                    signer_public_key: action_receipt.signer_public_key.clone(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![Action::Transfer(TransferAction { deposit: account_balance })],
+                }),
+            });
+        } else {
+            result
+                .new_receipts
+                .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        }
     }
     remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id.clone();
@@ -536,30 +614,19 @@ pub(crate) fn action_add_key(
         .into());
         return Ok(());
     }
-    checked_feature!(
-        "protocol_feature_access_key_nonce_range",
-        AccessKeyNonceRange,
-        apply_state.current_protocol_version,
-        {
-            let mut access_key = add_key.access_key.clone();
-            access_key.nonce = (apply_state.block_index - 1)
-                * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-            set_access_key(
-                state_update,
-                account_id.clone(),
-                add_key.public_key.clone(),
-                &access_key,
-            );
-        },
-        {
-            set_access_key(
-                state_update,
-                account_id.clone(),
-                add_key.public_key.clone(),
-                &add_key.access_key,
-            );
-        }
-    );
+    if checked_feature!("stable", AccessKeyNonceRange, apply_state.current_protocol_version) {
+        let mut access_key = add_key.access_key.clone();
+        access_key.nonce = (apply_state.block_index - 1)
+            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+        set_access_key(state_update, account_id.clone(), add_key.public_key.clone(), &access_key);
+    } else {
+        set_access_key(
+            state_update,
+            account_id.clone(),
+            add_key.public_key.clone(),
+            &add_key.access_key,
+        );
+    };
     let storage_config = &apply_state.config.transaction_costs.storage_usage_config;
     account.set_storage_usage(
         account
@@ -642,7 +709,7 @@ pub(crate) fn check_account_existence(
                 }
                 .into());
             } else {
-                if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_account_id_64_len_hex(&account_id)
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
@@ -663,7 +730,7 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if current_protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+                return if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_the_only_action
                     && is_account_id_64_len_hex(&account_id)
                     && !is_refund
@@ -711,11 +778,11 @@ pub(crate) fn check_account_existence(
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::hash::hash;
+    use near_primitives::trie_key::TrieKey;
     use near_store::test_utils::create_tries;
 
     use super::*;
-    use near_primitives::hash::hash;
-    use near_primitives::trie_key::TrieKey;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -826,15 +893,21 @@ mod tests {
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
+        let action_receipt = match &receipt.receipt {
+            ReceiptEnum::Action(action_receipt) => action_receipt,
+            _ => unreachable!("Balance refund should be an action receipt"),
+        };
         let res = action_delete_account(
             state_update,
             &mut account,
             &mut actor_id,
             &receipt,
+            &action_receipt,
             &mut action_result,
             account_id,
             &DeleteAccountAction { beneficiary_id: "bob".to_string() },
-            PROTOCOL_FEATURES_TO_VERSION_MAPPING[&ProtocolFeature::DeleteActionRestriction],
+            ProtocolFeature::DeleteActionRestriction.protocol_version(),
+            &RuntimeFeesConfig::default(),
         );
         assert!(res.is_ok());
         action_result

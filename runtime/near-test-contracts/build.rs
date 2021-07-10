@@ -1,5 +1,7 @@
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
-use std::{fs, io, process};
+use std::{env, fs, io, process};
 
 fn main() {
     if let Err(err) = try_main() {
@@ -9,11 +11,9 @@ fn main() {
 }
 
 fn try_main() -> io::Result<()> {
-    let status =
-        Command::new("rustup").args(&["target", "add", "wasm32-unknown-unknown"]).status()?;
-    if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "rustup target add failed"));
-    }
+    let mut cmd = Command::new("rustup");
+    cmd.args(&["target", "add", "wasm32-unknown-unknown"]);
+    check_status(cmd)?;
 
     build_contract("./test-contract-rs", &[], "test_contract_rs")?;
     build_contract(
@@ -29,12 +29,11 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> io::Result<()> {
     let mut cmd = cargo_build_cmd();
     cmd.args(args);
     cmd.current_dir(dir);
-    let status = cmd.status()?;
-    if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "cargo build failed"));
-    }
+    check_status(cmd)?;
+
+    let target_dir = shared_target_dir().unwrap_or_else(|| format!("./{}/target", dir).into());
     fs::copy(
-        format!("./{}/target/wasm32-unknown-unknown/release/{}.wasm", dir, dir.replace('-', "_")),
+        target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_"))),
         format!("./res/{}.wasm", output),
     )?;
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
@@ -45,6 +44,34 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> io::Result<()> {
 fn cargo_build_cmd() -> Command {
     let mut res = Command::new("cargo");
     res.env("RUSTFLAGS", "-C link-arg=-s");
+    if let Some(target_dir) = shared_target_dir() {
+        res.env("CARGO_TARGET_DIR", target_dir);
+    }
+
     res.args(&["build", "--target=wasm32-unknown-unknown", "--release"]);
     res
+}
+
+fn check_status(mut cmd: Command) -> io::Result<()> {
+    let status = cmd.status().map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("command `{:?}` failed to run: {}", cmd, err))
+    })?;
+    if !status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("command `{:?}` exited with non-zero status: {:?}", cmd, status),
+        ));
+    }
+    Ok(())
+}
+
+fn shared_target_dir() -> Option<PathBuf> {
+    let target_dir = env::var("CARGO_TARGET_DIR").ok()?;
+    // Avoid sharing the same target directory with the patent Cargo
+    // invocation, to avoid deadlock on the target dir.
+    //
+    // That is, this logic is needed for the case like the following:
+    //
+    //    CARGO_TARGET_DIR=/tmp cargo build -p near-test-contracts --release
+    Some(Path::new(&target_dir).join("near-test-contracts"))
 }

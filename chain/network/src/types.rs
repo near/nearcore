@@ -27,6 +27,8 @@ use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
     PartialEncodedChunkWithArcReceipts, ReceiptProof, ShardChunkHeader,
 };
+#[cfg(feature = "sandbox")]
+use near_primitives::state_record::StateRecord;
 use near_primitives::syncing::{
     EpochSyncFinalizationResponse, EpochSyncResponse, ShardStateSyncResponse,
     ShardStateSyncResponseV1,
@@ -47,7 +49,6 @@ use std::fmt::{Debug, Error, Formatter};
 use std::io;
 
 use conqueue::QueueSender;
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_primitives::merkle::combine_hash;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
@@ -460,7 +461,8 @@ pub enum RoutedMessageBody {
         response: Result<QueryResponse, String>,
     },
     ReceiptOutcomeRequest(CryptoHash),
-    ReceiptOutComeResponse(ExecutionOutcomeWithIdAndProof),
+    /// Not used, but needed to preserve backward compatibility.
+    Unused,
     StateRequestHeader(ShardId, CryptoHash),
     StateRequestPart(ShardId, CryptoHash, u64),
     StateResponse(StateResponseInfoV1),
@@ -472,7 +474,6 @@ pub enum RoutedMessageBody {
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     VersionedStateResponse(StateResponseInfo),
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 }
 
@@ -508,9 +509,6 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::QueryRequest { .. } => write!(f, "QueryRequest"),
             RoutedMessageBody::QueryResponse { .. } => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
-            RoutedMessageBody::ReceiptOutComeResponse(response) => {
-                write!(f, "ReceiptResponse({})", response.outcome_with_id.id)
-            }
             RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                 write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
             }
@@ -541,7 +539,6 @@ impl Debug for RoutedMessageBody {
                 response.shard_id(),
                 response.sync_hash()
             ),
-            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
@@ -550,6 +547,7 @@ impl Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
+            RoutedMessageBody::Unused => write!(f, "Unused"),
         }
     }
 }
@@ -805,7 +803,6 @@ impl PeerMessage {
                 | RoutedMessageBody::StateResponse(_)
                 | RoutedMessageBody::VersionedPartialEncodedChunk(_)
                 | RoutedMessageBody::VersionedStateResponse(_) => true,
-                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                 RoutedMessageBody::PartialEncodedChunkForward(_) => true,
                 _ => false,
             },
@@ -821,7 +818,6 @@ impl PeerMessage {
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::TxStatusResponse(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                | RoutedMessageBody::ReceiptOutComeResponse(_)
                 | RoutedMessageBody::StateRequestHeader(_, _)
                 | RoutedMessageBody::StateRequestPart(_, _, _) => true,
                 _ => false,
@@ -1234,7 +1230,6 @@ pub enum NetworkRequests {
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward {
         account_id: AccountId,
         forward: PartialEncodedChunkForwardMsg,
@@ -1416,12 +1411,22 @@ pub enum NetworkAdversarialMessage {
     AdvSetSyncInfo(u64),
 }
 
+#[cfg(feature = "sandbox")]
+#[derive(Debug)]
+pub enum NetworkSandboxMessage {
+    SandboxPatchState(Vec<StateRecord>),
+    SandboxPatchStateStatus,
+}
+
 #[derive(Debug, strum::AsRefStr, AsStaticStr)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     #[cfg(feature = "adversarial")]
     Adversarial(NetworkAdversarialMessage),
+
+    #[cfg(feature = "sandbox")]
+    Sandbox(NetworkSandboxMessage),
 
     /// Received transaction.
     Transaction {
@@ -1451,7 +1456,6 @@ pub enum NetworkClientMessages {
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunk(PartialEncodedChunk),
     /// Forwarding parts to those tracking the shard (so they don't need to send requests)
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
 
     /// A challenge to invalidate the block.
@@ -1468,6 +1472,10 @@ pub enum NetworkClientResponses {
     #[cfg(feature = "adversarial")]
     AdvResult(u64),
 
+    /// Sandbox controls
+    #[cfg(feature = "sandbox")]
+    SandboxResult(SandboxResponse),
+
     /// No response.
     NoResponse,
     /// Valid transaction inserted into mempool as response to Transaction.
@@ -1481,6 +1489,12 @@ pub enum NetworkClientResponses {
     DoesNotTrackShard,
     /// Ban peer for malicious behavior.
     Ban { ban_reason: ReasonForBan },
+}
+
+#[cfg(feature = "sandbox")]
+#[derive(Eq, PartialEq, Debug)]
+pub enum SandboxResponse {
+    SandboxPatchStateFinished(bool),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
@@ -1633,7 +1647,6 @@ pub struct PartialEncodedChunkResponseMsg {
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,
@@ -1645,7 +1658,6 @@ pub struct PartialEncodedChunkForwardMsg {
     pub parts: Vec<PartialEncodedChunkPart>,
 }
 
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 impl PartialEncodedChunkForwardMsg {
     pub fn from_header_and_parts(
         header: &ShardChunkHeader,
@@ -1789,5 +1801,34 @@ mod tests {
         assert_size!(StateResponseInfoV1);
         assert_size!(QueryPeerStats);
         assert_size!(PartialEncodedChunkRequestMsg);
+    }
+
+    #[test]
+    fn routed_message_body_compatibility_smoke_test() {
+        #[track_caller]
+        fn check(msg: RoutedMessageBody, expected: &[u8]) {
+            let actual = msg.try_to_vec().unwrap();
+            assert_eq!(actual.as_slice(), expected);
+        }
+
+        check(
+            RoutedMessageBody::TxStatusRequest("x".to_string(), CryptoHash([42; 32])),
+            &[
+                2, 1, 0, 0, 0, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+            ],
+        );
+
+        check(
+            RoutedMessageBody::VersionedStateResponse(StateResponseInfo::V1(StateResponseInfoV1 {
+                shard_id: 62,
+                sync_hash: CryptoHash([92; 32]),
+                state_response: ShardStateSyncResponseV1 { header: None, part: None },
+            })),
+            &[
+                17, 0, 62, 0, 0, 0, 0, 0, 0, 0, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92,
+                92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 0, 0,
+            ],
+        );
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::iter::FromIterator;
 use std::path::Path;
 use std::str::FromStr;
@@ -9,7 +9,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -34,48 +34,143 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
+
 use near_primitives::errors::InvalidTxError;
-use near_primitives::hash::{hash, CryptoHash, Digest};
+use near_primitives::errors::TxExecutionError;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
+use near_primitives::receipt::DelayedReceiptIndices;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
-
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction, Transaction,
+    Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
+    Transaction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{BlockHeaderView, QueryRequest, QueryResponseKind};
+use near_primitives::views::{
+    BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
+};
+use near_store::get;
 use near_store::test_utils::create_test_store;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use neard::NEAR_BASE;
+use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use nearcore::migrations::load_migration_data;
+use nearcore::NEAR_BASE;
+
+fn set_block_protocol_version(
+    block: &mut Block,
+    block_producer: &str,
+    protocol_version: ProtocolVersion,
+) {
+    let validator_signer =
+        InMemoryValidatorSigner::from_seed(block_producer, KeyType::ED25519, block_producer);
+    block.mut_header().get_mut().inner_rest.latest_protocol_version = protocol_version;
+    block.mut_header().resign(&validator_signer);
+}
 
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(neard::NightshadeRuntime::new(
+            Arc::new(nearcore::NightshadeRuntime::new(
                 Path::new("."),
                 create_test_store(),
                 genesis,
                 vec![],
                 vec![],
+                None,
+                None,
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
+}
+
+/// Create environment and set of transactions which cause congestion on the chain.
+fn prepare_env_with_congestion(
+    protocol_version: ProtocolVersion,
+    gas_price_adjustment_rate: Option<Rational>,
+    number_of_transactions: u64,
+) -> (TestEnv, Vec<CryptoHash>) {
+    init_test_logger();
+    let epoch_length = 100;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.protocol_version = protocol_version;
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.gas_limit = 10_000_000_000_000;
+    if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
+        genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+    }
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+
+    // Deploy contract to test0.
+    let tx = SignedTransaction::from_actions(
+        1,
+        "test0".to_string(),
+        "test0".to_string(),
+        &signer,
+        vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::rs_contract().to_vec(),
+        })],
+        *genesis_block.hash(),
+    );
+    env.clients[0].process_tx(tx, false, false);
+    for i in 1..3 {
+        env.produce_block(0, i);
+    }
+
+    // Create function call transactions that generate promises.
+    let gas_1 = 9_000_000_000_000;
+    let gas_2 = gas_1 / 3;
+    let mut tx_hashes = vec![];
+
+    for i in 0..number_of_transactions {
+        let data = serde_json::json!([
+            {"create": {
+            "account_id": "test0",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": gas_2,
+            }, "id": 0 }
+        ]);
+
+        let signed_transaction = SignedTransaction::from_actions(
+            i + 10,
+            "test0".to_string(),
+            "test0".to_string(),
+            &signer,
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "call_promise".to_string(),
+                args: serde_json::to_vec(&data).unwrap(),
+                gas: gas_1,
+                deposit: 0,
+            })],
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(signed_transaction.get_hash());
+        env.clients[0].process_tx(signed_transaction, false, false);
+    }
+
+    (env, tx_hashes)
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
 fn produce_two_blocks() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
             vec!["test"],
@@ -103,7 +198,7 @@ fn produce_two_blocks() {
 fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) = setup_mock(
             vec!["test"],
             "test",
@@ -168,7 +263,7 @@ fn produce_blocks_with_tx() {
 #[test]
 fn receive_network_block() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
@@ -235,7 +330,7 @@ fn produce_block_with_approvals() {
     let validators = vec![
         "test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10",
     ];
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) = setup_mock(
             validators.clone(),
             "test1",
@@ -329,7 +424,7 @@ fn produce_block_with_approvals_arrived_early() {
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut approval_counter = 0;
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -341,7 +436,7 @@ fn produce_block_with_approvals_arrived_early() {
             key_pairs,
             1,
             true,
-            100,
+            2000,
             false,
             false,
             100,
@@ -392,7 +487,7 @@ fn produce_block_with_approvals_arrived_early() {
                 }
             });
 
-        near_network::test_utils::wait_or_panic(5000);
+        near_network::test_utils::wait_or_panic(10000);
     });
 }
 
@@ -400,7 +495,7 @@ fn produce_block_with_approvals_arrived_early() {
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut ban_counter = 0;
         let (client, view_client) = setup_mock(
             vec!["test"],
@@ -543,7 +638,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut ban_counter = 0;
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -571,8 +666,9 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                 match msg {
                     NetworkRequests::Block { block } => {
                         if block.header().height() >= 4 && !sent_bad_blocks {
-                            let block_producer = validators[0]
-                                [block.header().height() as usize % validators[0].len()];
+                            let block_producer_idx =
+                                block.header().height() as usize % validators[0].len();
+                            let block_producer = validators[0][block_producer_idx];
                             let validator_signer1 = InMemoryValidatorSigner::from_seed(
                                 block_producer,
                                 KeyType::ED25519,
@@ -616,7 +712,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
 
                             for (i, (client, _)) in conns.clone().into_iter().enumerate() {
-                                if i > 0 {
+                                if i != block_producer_idx {
                                     client.do_send(NetworkClientMessages::Block(
                                         block_mut.clone(),
                                         PeerInfo::random().id,
@@ -682,7 +778,7 @@ fn test_ban_peer_for_ill_formed_block() {
 #[test]
 fn skip_block_production() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         setup_mock(
             vec!["test1", "test2"],
             "test2",
@@ -708,7 +804,7 @@ fn skip_block_production() {
 #[test]
 fn client_sync_headers() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
         let (client, _) = setup_mock(
@@ -982,8 +1078,8 @@ fn test_bad_orphan() {
     {
         // Orphan block with unknown epoch
         let mut block = env.clients[0].produce_block(6).unwrap().unwrap();
-        block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash(Digest([1; 32])));
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
+        block.mut_header().get_mut().inner_lite.epoch_id = EpochId(CryptoHash([1; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
         assert_eq!(
@@ -994,7 +1090,7 @@ fn test_bad_orphan() {
     {
         // Orphan block with invalid signature
         let mut block = env.clients[0].produce_block(7).unwrap().unwrap();
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([1; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([1; 32]);
         block.mut_header().get_mut().init();
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidSignature);
@@ -1019,23 +1115,19 @@ fn test_bad_orphan() {
             };
             #[cfg(not(feature = "protocol_feature_block_header_v3"))]
             {
-                chunk.inner.outcome_root = CryptoHash(Digest([1; 32]));
+                chunk.inner.outcome_root = CryptoHash([1; 32]);
                 chunk.hash = ShardChunkHeaderV2::compute_hash(&chunk.inner);
             }
             #[cfg(feature = "protocol_feature_block_header_v3")]
             {
                 match &mut chunk.inner {
-                    ShardChunkHeaderInner::V1(inner) => {
-                        inner.outcome_root = CryptoHash(Digest([1; 32]))
-                    }
-                    ShardChunkHeaderInner::V2(inner) => {
-                        inner.outcome_root = CryptoHash(Digest([1; 32]))
-                    }
+                    ShardChunkHeaderInner::V1(inner) => inner.outcome_root = CryptoHash([1; 32]),
+                    ShardChunkHeaderInner::V2(inner) => inner.outcome_root = CryptoHash([1; 32]),
                 }
                 chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
             }
         }
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::InvalidChunkHeadersRoot);
@@ -1045,7 +1137,7 @@ fn test_bad_orphan() {
         let mut block = env.clients[0].produce_block(9).unwrap().unwrap();
         let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
         block.mut_header().get_mut().inner_rest.approvals = vec![Some(some_signature)];
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
 
@@ -1079,7 +1171,7 @@ fn test_bad_orphan() {
                 chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
             }
         }
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([4; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([4; 32]);
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
         assert_eq!(res.as_ref().unwrap_err().kind(), ErrorKind::Orphan);
@@ -1087,7 +1179,7 @@ fn test_bad_orphan() {
     {
         // Orphan block that's too far ahead: 20 * epoch_length
         let mut block = block.clone();
-        block.mut_header().get_mut().prev_hash = CryptoHash(Digest([3; 32]));
+        block.mut_header().get_mut().prev_hash = CryptoHash([3; 32]);
         block.mut_header().get_mut().inner_lite.height += 2000;
         block.mut_header().resign(&*signer);
         let (_, res) = env.clients[0].process_block(block, Provenance::NONE);
@@ -1406,9 +1498,10 @@ fn test_process_block_after_state_sync() {
         assert!(env.clients[0].chain.runtime_adapter.get_epoch_start_height(&block_hash).is_ok());
     }
     env.clients[0].chain.reset_data_pre_state_sync(sync_hash).unwrap();
+    let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part)
+        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
@@ -1573,8 +1666,8 @@ fn test_gc_tail_update() {
     let prev_sync_block = blocks[blocks.len() - 3].clone();
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
+    env.clients[1].chain.save_block(&prev_sync_block).unwrap();
     let mut store_update = env.clients[1].chain.mut_store().store_update();
-    store_update.save_block(prev_sync_block.clone());
     store_update.inc_block_refcount(&prev_sync_block.hash()).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();
@@ -1710,12 +1803,14 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0", "test1"], 2);
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
         create_test_store(),
         &genesis,
         vec![],
         vec![],
+        None,
+        None,
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "seed"));
     let mut config = ClientConfig::test(true, 10, 20, 2, false, true);
@@ -2207,6 +2302,112 @@ fn test_block_execution_outcomes() {
 }
 
 #[test]
+fn test_refund_receipts_processing() {
+    init_test_logger();
+
+    let epoch_length = 5;
+    let min_gas_price = 10000;
+    let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = min_gas_price;
+    // set gas limit to be small
+    genesis.config.gas_limit = 1_000_000;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let mut tx_hashes = vec![];
+    // send transactions to a non-existing account to generate refund
+    for i in 0..3 {
+        // send transaction to the same account to generate local receipts
+        let tx = SignedTransaction::send_money(
+            i + 1,
+            "test0".to_string(),
+            "random_account".to_string(),
+            &signer,
+            1,
+            *genesis_block.hash(),
+        );
+        tx_hashes.push(tx.get_hash());
+        env.clients[0].process_tx(tx, false, false);
+    }
+
+    env.produce_block(0, 3);
+    env.produce_block(0, 4);
+    let mut block_height = 5;
+    loop {
+        env.produce_block(0, block_height);
+        let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
+        let prev_block =
+            env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+        let state_update = env.clients[0]
+            .runtime_adapter
+            .get_tries()
+            .new_trie_update(0, *chunk_extra.state_root());
+        let delayed_indices =
+            get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
+        let finished_all_delayed_receipts = match delayed_indices {
+            None => false,
+            Some(delayed_indices) => {
+                delayed_indices.next_available_index > 0
+                    && delayed_indices.first_index == delayed_indices.next_available_index
+            }
+        };
+        let chunk =
+            env.clients[0].chain.get_chunk(&block.chunks()[0].chunk_hash()).unwrap().clone();
+        if chunk.receipts().len() == 0
+            && chunk.transactions().len() == 0
+            && finished_all_delayed_receipts
+        {
+            break;
+        }
+        block_height += 1;
+    }
+
+    let mut refund_receipt_ids = HashSet::new();
+    for (_, id) in tx_hashes.into_iter().enumerate() {
+        let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+        assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
+        match execution_outcome.outcome_with_id.outcome.status {
+            ExecutionStatus::SuccessReceiptId(id) => {
+                let receipt_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
+                assert!(matches!(
+                    receipt_outcome.outcome_with_id.outcome.status,
+                    ExecutionStatus::Failure(TxExecutionError::ActionError(_))
+                ));
+                receipt_outcome.outcome_with_id.outcome.receipt_ids.iter().for_each(|id| {
+                    refund_receipt_ids.insert(id.clone());
+                });
+            }
+            _ => assert!(false),
+        };
+    }
+
+    let ending_block_height = block_height - 1;
+    let begin_block_height = ending_block_height - refund_receipt_ids.len() as u64 + 1;
+    let mut processed_refund_receipt_ids = HashSet::new();
+    for i in begin_block_height..=ending_block_height {
+        let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+        let execution_outcomes_from_block = env.clients[0]
+            .chain
+            .get_block_execution_outcomes(block.hash())
+            .unwrap()
+            .remove(&0)
+            .unwrap();
+        execution_outcomes_from_block.iter().for_each(|outcome| {
+            processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
+        });
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
+        assert_eq!(execution_outcomes_from_block.len(), 1);
+        assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
+    }
+    assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
+}
+
+#[test]
 fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
@@ -2256,14 +2457,11 @@ fn test_epoch_protocol_version_change() {
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
-            let validator_signer = InMemoryValidatorSigner::from_seed(
-                &format!("test{}", index),
-                KeyType::ED25519,
-                &format!("test{}", index),
+            set_block_protocol_version(
+                &mut block,
+                &block_producer.to_string(),
+                PROTOCOL_VERSION + 1,
             );
-
-            block.mut_header().get_mut().inner_rest.latest_protocol_version = PROTOCOL_VERSION + 1;
-            block.mut_header().resign(&validator_signer);
         }
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
@@ -2638,7 +2836,72 @@ fn test_block_ordinal() {
     assert_eq!(next_block.header().block_ordinal(), ordinal);
 }
 
-#[cfg(feature = "protocol_feature_access_key_nonce_range")]
+fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
+    let chunk_headers = vec![prev_block.chunks()[0].clone()];
+    block.set_chunks(chunk_headers.clone());
+    block.mut_header().get_mut().inner_rest.chunk_headers_root =
+        Block::compute_chunk_headers_root(&chunk_headers).0;
+    block.mut_header().get_mut().inner_rest.chunk_tx_root =
+        Block::compute_chunk_tx_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
+        Block::compute_chunk_receipts_root(&chunk_headers);
+    block.mut_header().get_mut().inner_lite.prev_state_root =
+        Block::compute_state_root(&chunk_headers);
+    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
+    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
+    let validator_signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    block.mut_header().resign(&validator_signer);
+}
+
+#[test]
+fn test_congestion_receipt_execution() {
+    let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
+
+    // Produce block with no new chunk.
+    env.produce_block(0, 3);
+    let height = 4;
+    env.produce_block(0, height);
+    let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+    let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+    assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
+    let state_update =
+        env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
+    let delayed_indices =
+        get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
+            .unwrap()
+            .unwrap();
+    assert!(delayed_indices.next_available_index > 0);
+    let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
+    set_no_chunk_in_block(&mut block, &prev_block);
+    env.process_block(0, block.clone(), Provenance::NONE);
+
+    // let all receipts finish
+    for i in height + 2..height + 7 {
+        env.produce_block(0, i);
+    }
+
+    for tx_hash in &tx_hashes {
+        let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        assert!(matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_)));
+
+        // Check that all receipt ids have corresponding execution outcomes. This means that all receipts generated are executed.
+        let transaction_outcome = env.clients[0].chain.get_execution_outcome(tx_hash).unwrap();
+        let mut receipt_ids: VecDeque<_> =
+            transaction_outcome.outcome_with_id.outcome.receipt_ids.into();
+        while !receipt_ids.is_empty() {
+            let receipt_id = receipt_ids.pop_front().unwrap();
+            let receipt_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
+            match receipt_outcome.outcome_with_id.outcome.status {
+                ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => {}
+                ExecutionStatus::Failure(_) | ExecutionStatus::Unknown => {
+                    panic!("unexpected receipt execution outcome")
+                }
+            }
+            receipt_ids.extend(receipt_outcome.outcome_with_id.outcome.receipt_ids);
+        }
+    }
+}
+
 #[cfg(test)]
 mod access_key_nonce_range_tests {
     use super::*;
@@ -2770,5 +3033,570 @@ mod access_key_nonce_range_tests {
             res,
             NetworkClientResponses::InvalidTx(InvalidTxError::InvalidAccessKeyError(_))
         ));
+    }
+}
+
+#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+#[cfg(test)]
+mod protocol_feature_restore_receipts_after_fix_tests {
+    use super::*;
+    use near_primitives::runtime::migration_data::MigrationData;
+    use near_primitives::version::ProtocolFeature;
+
+    const EPOCH_LENGTH: u64 = 5;
+    const HEIGHT_TIMEOUT: u64 = 10;
+
+    fn run_test(
+        chain_id: &str,
+        low_height_with_no_chunk: BlockHeight,
+        high_height_with_no_chunk: BlockHeight,
+        should_be_restored: bool,
+    ) {
+        init_test_logger();
+
+        let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.chain_id = String::from(chain_id);
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.protocol_version = protocol_version;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtime = nearcore::NightshadeRuntime::new(
+            Path::new("."),
+            create_test_store(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
+        // TODO #4305: get directly from NightshadeRuntime
+        let migration_data = load_migration_data(&genesis.config.chain_id);
+
+        let mut env = TestEnv::new_with_runtime(
+            chain_genesis.clone(),
+            1,
+            1,
+            vec![Arc::new(runtime) as Arc<dyn RuntimeAdapter>],
+        );
+
+        let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
+            HashSet::from_iter(
+                migration_data
+                    .restored_receipts
+                    .get(&0u64)
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|receipt| receipt.receipt_id),
+            )
+        };
+
+        let mut receipt_hashes_to_restore = get_restored_receipt_hashes(&migration_data);
+        let mut height: BlockHeight = 1;
+        let mut last_update_height: BlockHeight = 0;
+
+        // Simulate several blocks to guarantee that they are produced successfully.
+        // Stop block production if all receipts were restored. Or, if some receipts are still not
+        // applied, upgrade already happened, and no new receipt was applied in some last blocks,
+        // consider the process stuck to avoid any possibility of infinite loop.
+        while height < 15
+            || (!receipt_hashes_to_restore.is_empty()
+                && height - last_update_height < HEIGHT_TIMEOUT)
+        {
+            let mut block = env.clients[0].produce_block(height).unwrap().unwrap();
+            if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
+                let prev_block =
+                    env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
+                set_no_chunk_in_block(&mut block, &prev_block);
+            }
+            set_block_protocol_version(
+                &mut block,
+                "test0",
+                ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+            );
+
+            env.process_block(0, block, Provenance::PRODUCED);
+
+            let last_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(last_block.header().epoch_id())
+                .unwrap();
+
+            for receipt_id in receipt_hashes_to_restore.clone().iter() {
+                if env.clients[0].chain.get_execution_outcome(receipt_id).is_ok() {
+                    assert!(
+                        protocol_version
+                            >= ProtocolFeature::RestoreReceiptsAfterFix.protocol_version(),
+                        "Restored receipt {} was executed before protocol upgrade",
+                        receipt_id
+                    );
+                    receipt_hashes_to_restore.remove(receipt_id);
+                    last_update_height = height;
+                };
+            }
+
+            // Update last updated height anyway if upgrade did not happen
+            if protocol_version < ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() {
+                last_update_height = height;
+            }
+            height += 1;
+        }
+
+        if should_be_restored {
+            assert!(
+                receipt_hashes_to_restore.is_empty(),
+                "Some of receipts were not executed, hashes: {:?}",
+                receipt_hashes_to_restore
+            );
+        } else {
+            assert_eq!(
+                receipt_hashes_to_restore,
+                get_restored_receipt_hashes(&migration_data),
+                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+            );
+        }
+    }
+
+    #[test]
+    fn test_no_chunks_missing() {
+        // If there are no chunks missing, all receipts should be applied
+        run_test("mainnet", 1, 0, true);
+    }
+
+    #[test]
+    fn test_first_chunk_in_epoch_missing() {
+        // If the first chunk in the first epoch with needed protocol version is missing,
+        // all receipts should still be applied
+        run_test("mainnet", 8, 12, true);
+    }
+
+    #[test]
+    fn test_all_chunks_in_epoch_missing() {
+        // If all chunks are missing in the first epoch, no receipts should be applied
+        run_test("mainnet", 11, 11 + EPOCH_LENGTH, false);
+    }
+
+    #[test]
+    fn test_run_for_testnet() {
+        // Run the same process for chain other than mainnet to ensure that blocks are produced
+        // successfully during the protocol upgrade.
+        run_test("testnet", 1, 0, true);
+    }
+}
+
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise `get_mut` for block header will panic.
+#[cfg(test)]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+mod storage_usage_fix_tests {
+    use super::*;
+    use borsh::BorshDeserialize;
+    use near_primitives::types::AccountId;
+    use near_primitives::version::ProtocolFeature;
+    use near_store::TrieUpdate;
+    use std::rc::Rc;
+
+    fn process_blocks_with_storage_usage_fix(
+        chain_id: String,
+        check_storage_usage: fn(AccountId, u64, u64),
+    ) {
+        let epoch_length = 5;
+        let mut genesis = Genesis::test(vec!["test0", "near"], 1);
+        genesis.config.chain_id = chain_id;
+        genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let mut env =
+            TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
+        for i in 1..=16 {
+            // We cannot just use TestEnv::produce_block as we are updating protocol version
+            let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
+            set_block_protocol_version(
+                &mut block,
+                "test0",
+                ProtocolFeature::FixStorageUsage.protocol_version(),
+            );
+
+            let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
+            assert!(res.is_ok());
+            env.clients[0].run_catchup(&vec![]).unwrap();
+
+            let root =
+                env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().state_root().clone();
+            let trie = Rc::new(env.clients[0].runtime_adapter.get_trie_for_shard(0));
+            let state_update = TrieUpdate::new(trie.clone(), root);
+            use near_primitives::account::Account;
+            let mut account_near_raw = state_update
+                .get(&TrieKey::Account { account_id: "near".to_string() })
+                .unwrap()
+                .unwrap()
+                .clone();
+            let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
+            let mut account_test0_raw = state_update
+                .get(&TrieKey::Account { account_id: "test0".to_string() })
+                .unwrap()
+                .unwrap()
+                .clone();
+            let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
+            check_storage_usage("near".to_string(), i, account_near.storage_usage());
+            check_storage_usage("test0".to_string(), i, account_test0.storage_usage());
+        }
+    }
+
+    #[test]
+    fn test_fix_storage_usage_migration() {
+        init_test_logger();
+        process_blocks_with_storage_usage_fix(
+            "mainnet".to_string(),
+            |account_id: AccountId, block_height: u64, storage_usage: u64| {
+                if account_id == "test0" {
+                    assert_eq!(storage_usage, 182);
+                } else if block_height >= 11 {
+                    assert_eq!(storage_usage, 4560);
+                } else {
+                    assert_eq!(storage_usage, 364);
+                }
+            },
+        );
+        process_blocks_with_storage_usage_fix(
+            "testnet".to_string(),
+            |account_id: AccountId, _: u64, storage_usage: u64| {
+                if account_id == "test0" {
+                    assert_eq!(storage_usage, 182);
+                } else {
+                    assert_eq!(storage_usage, 364);
+                }
+            },
+        );
+    }
+}
+
+#[cfg(test)]
+mod cap_max_gas_price_tests {
+    use super::*;
+    use near_primitives::version::ProtocolFeature;
+
+    fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
+        let mut env =
+            prepare_env_with_congestion(protocol_version, Some(Rational::new_raw(2, 1)), 7).0;
+        let mut was_congested = false;
+        let mut price_exceeded_limit = false;
+
+        for i in 3..20 {
+            env.produce_block(0, i);
+            let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
+            let protocol_version = env.clients[0]
+                .runtime_adapter
+                .get_epoch_protocol_version(block.header().epoch_id())
+                .unwrap();
+            let min_gas_price =
+                env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+            was_congested |= block.chunks()[0].gas_used() >= block.chunks()[0].gas_limit();
+            price_exceeded_limit |= block.header().gas_price() > 20 * min_gas_price;
+        }
+
+        assert!(was_congested);
+        price_exceeded_limit
+    }
+
+    #[test]
+    fn test_not_capped_gas_price() {
+        assert!(does_gas_price_exceed_limit(
+            ProtocolFeature::CapMaxGasPrice.protocol_version() - 1
+        ));
+    }
+
+    #[test]
+    fn test_capped_gas_price() {
+        assert!(!does_gas_price_exceed_limit(ProtocolFeature::CapMaxGasPrice.protocol_version()));
+    }
+}
+
+#[cfg(test)]
+mod contract_precompilation_tests {
+    use super::*;
+    use near_primitives::contract::ContractCode;
+    use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_primitives::types::CompiledContractCache;
+    use near_primitives::views::ViewApplyState;
+    use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
+    use near_vm_runner::{get_contract_cache_key, VMKind};
+    #[cfg(feature = "protocol_feature_evm")]
+    use nearcore::config::TESTNET_EVM_CHAIN_ID;
+    use node_runtime::state_viewer::TrieViewer;
+    use std::rc::Rc;
+
+    const EPOCH_LENGTH: u64 = 5;
+
+    fn produce_epochs(env: &mut TestEnv, epoch_number: u64, height: BlockHeight) -> BlockHeight {
+        let next_height = height + epoch_number * EPOCH_LENGTH;
+        for i in height..next_height {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            env.process_block(1, block, Provenance::NONE);
+        }
+        next_height
+    }
+
+    fn deploy_contract(
+        env: &mut TestEnv,
+        account_id: &str,
+        wasm_code: &Vec<u8>,
+        height: BlockHeight,
+    ) -> BlockHeight {
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+        let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id);
+
+        let tx = SignedTransaction::from_actions(
+            height,
+            account_id.to_string(),
+            account_id.to_string(),
+            &signer,
+            vec![Action::DeployContract(DeployContractAction { code: wasm_code.clone() })],
+            *block.hash(),
+        );
+        env.clients[0].process_tx(tx, false, false);
+        produce_epochs(env, 1, height)
+    }
+
+    fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
+        let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+        let sync_hash = *sync_block.hash();
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+        let epoch_id =
+            env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
+        let state_part = env.clients[0]
+            .runtime_adapter
+            .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+            .unwrap();
+        env.clients[1]
+            .runtime_adapter
+            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+            .unwrap();
+    }
+
+    #[test]
+    fn test_sync_and_call_cached_contract() {
+        let num_clients = 2;
+        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        let genesis_config = genesis.config.clone();
+        let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
+            .iter()
+            .map(|store| {
+                Arc::new(nearcore::NightshadeRuntime::new(
+                    Path::new("."),
+                    store.clone(),
+                    &genesis,
+                    vec![],
+                    vec![],
+                    None,
+                    None,
+                ))
+            })
+            .collect();
+        let runtime_adapters =
+            runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
+
+        let mut env =
+            TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
+        let start_height = 1;
+
+        // Process test contract deployment on the first client.
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
+        let height = deploy_contract(&mut env, "test0", &wasm_code, start_height);
+
+        // Perform state sync for the second client.
+        state_sync_on_height(&mut env, height - 1);
+
+        // Check existence of contract in both caches.
+        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
+            .iter()
+            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
+            .collect();
+        let contract_code = ContractCode::new(wasm_code.clone(), None);
+        let key = get_contract_cache_key(
+            &contract_code,
+            VMKind::default(),
+            &genesis_config.runtime_config.wasm_config,
+        );
+        for i in 0..num_clients {
+            caches[i]
+                .get(&key.0)
+                .unwrap_or_else(|_| panic!("Failed to get cached result for client {}", i))
+                .unwrap_or_else(|| {
+                    panic!("Compilation result should be non-empty for client {}", i)
+                });
+        }
+
+        // Check that contract function may be successfully called on the second client.
+        // Note that we can't test that behaviour is the same on two clients, because
+        // compile_module_cached_wasmer0 is cached by contract key via macro.
+        let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap().clone();
+        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap();
+        let state_root = chunk_extra.state_root().clone();
+
+        let viewer = TrieViewer::default();
+        let trie = Rc::new(env.clients[1].runtime_adapter.get_trie_for_shard(0));
+        let state_update = TrieUpdate::new(trie, state_root);
+
+        let mut logs = vec![];
+        let view_state = ViewApplyState {
+            block_height: EPOCH_LENGTH,
+            prev_block_hash: block.header().prev_hash().clone(),
+            block_hash: block.hash().clone(),
+            epoch_id: block.header().epoch_id().clone(),
+            epoch_height: 1,
+            block_timestamp: block.header().raw_timestamp(),
+            current_protocol_version: PROTOCOL_VERSION,
+            cache: Some(caches[1].clone()),
+            #[cfg(feature = "protocol_feature_evm")]
+            evm_chain_id: TESTNET_EVM_CHAIN_ID,
+        };
+        viewer
+            .call_function(
+                state_update,
+                view_state,
+                &AccountId::from("test0"),
+                "log_something",
+                &[],
+                &mut logs,
+                &MockEpochInfoProvider::default(),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn test_two_deployments() {
+        let num_clients = 2;
+        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        let genesis_config = genesis.config.clone();
+        let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
+            .iter()
+            .map(|store| {
+                Arc::new(nearcore::NightshadeRuntime::new(
+                    Path::new("."),
+                    store.clone(),
+                    &genesis,
+                    vec![],
+                    vec![],
+                    None,
+                    None,
+                ))
+            })
+            .collect();
+        let runtime_adapters =
+            runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
+
+        let mut env =
+            TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
+        let mut height = 1;
+
+        // Process tiny contract deployment on the first client.
+        let tiny_wasm_code = near_test_contracts::tiny_contract().to_vec();
+        height = deploy_contract(&mut env, "test0", &tiny_wasm_code, height);
+
+        // Wait 3 epochs.
+        height = produce_epochs(&mut env, 3, height);
+
+        // Process test contract deployment on the first client.
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
+        height = deploy_contract(&mut env, "test0", &wasm_code, height);
+
+        // Perform state sync for the second client on the last produced height.
+        state_sync_on_height(&mut env, height - 1);
+
+        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
+            .iter()
+            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
+            .collect();
+        let tiny_contract_key = get_contract_cache_key(
+            &ContractCode::new(tiny_wasm_code.clone(), None),
+            VMKind::default(),
+            &genesis_config.runtime_config.wasm_config,
+        );
+        let test_contract_key = get_contract_cache_key(
+            &ContractCode::new(wasm_code.clone(), None),
+            VMKind::default(),
+            &genesis_config.runtime_config.wasm_config,
+        );
+
+        // Check that both deployed contracts are presented in cache for client 0.
+        assert!(caches[0].get(&tiny_contract_key.0).unwrap().is_some());
+        assert!(caches[0].get(&test_contract_key.0).unwrap().is_some());
+
+        // Check that only last contract is presented in cache for client 1.
+        assert!(caches[1].get(&tiny_contract_key.0).unwrap().is_none());
+        assert!(caches[1].get(&test_contract_key.0).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_sync_after_delete_account() {
+        let num_clients = 3;
+        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
+        genesis.config.epoch_length = EPOCH_LENGTH;
+        let genesis_config = genesis.config.clone();
+        let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
+            .iter()
+            .map(|store| {
+                Arc::new(nearcore::NightshadeRuntime::new(
+                    Path::new("."),
+                    store.clone(),
+                    &genesis,
+                    vec![],
+                    vec![],
+                    None,
+                    None,
+                ))
+            })
+            .collect();
+        let runtime_adapters =
+            runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
+
+        let mut env =
+            TestEnv::new_with_runtime(ChainGenesis::test(), num_clients, 1, runtime_adapters);
+        let mut height = 1;
+
+        // Process test contract deployment on the first client.
+        let wasm_code = near_test_contracts::rs_contract().to_vec();
+        height = deploy_contract(&mut env, "test2", &wasm_code, height);
+
+        // Delete account on which test contract is stored.
+        let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
+        let signer = InMemorySigner::from_seed("test2", KeyType::ED25519, "test2");
+        let delete_account_tx = SignedTransaction::delete_account(
+            2,
+            "test2".to_string(),
+            "test2".to_string(),
+            "test0".to_string(),
+            &signer,
+            *block.hash(),
+        );
+        env.clients[0].process_tx(delete_account_tx, false, false);
+        height = produce_epochs(&mut env, 1, height);
+
+        // Perform state sync for the second client.
+        state_sync_on_height(&mut env, height - 1);
+
+        let caches: Vec<Arc<StoreCompiledContractCache>> = stores
+            .iter()
+            .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
+            .collect();
+        let contract_key = get_contract_cache_key(
+            &ContractCode::new(wasm_code.clone(), None),
+            VMKind::default(),
+            &genesis_config.runtime_config.wasm_config,
+        );
+
+        // Check that contract is cached for client 0 despite account deletion.
+        assert!(caches[0].get(&contract_key.0).unwrap().is_some());
+
+        // Check that contract is not cached for client 1 because of late state sync.
+        assert!(caches[1].get(&contract_key.0).unwrap().is_none());
     }
 }

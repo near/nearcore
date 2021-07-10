@@ -9,7 +9,7 @@ use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
-use neard::{get_default_home, get_store_path, load_config};
+use nearcore::{get_default_home, get_store_path, load_config};
 
 fn main() {
     init_integration_logger();
@@ -31,12 +31,14 @@ fn main() {
 
     let store = create_store(&get_store_path(&home_dir));
 
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(neard::NightshadeRuntime::new(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
         &home_dir,
         store.clone(),
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
         near_config.client_config.tracked_shards.clone(),
+        None,
+        None,
     ));
 
     let mut store_validator = StoreValidator::new(

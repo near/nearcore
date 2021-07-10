@@ -12,8 +12,8 @@ mod tracing_timings;
 use crate::script::Script;
 use clap::{App, Arg};
 use near_vm_logic::mocks::mock_external::Receipt;
-use near_vm_logic::{VMKind, VMOutcome};
-use near_vm_runner::VMError;
+use near_vm_logic::VMOutcome;
+use near_vm_runner::{VMError, VMKind};
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
@@ -115,6 +115,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("state-file")
+                .long("state-file")
+                .value_name("STATE_FILE")
+                .help("Reads the state from the file")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("promise-results")
                 .long("promise-results")
                 .value_name("PROMISE-RESULTS")
@@ -154,11 +161,6 @@ fn main() {
                 .possible_values(&["wasmer", "wasmer1", "wasmtime"]),
         )
         .arg(
-            Arg::with_name("profile-gas")
-                .long("profile-gas")
-                .help("Profiles gas consumption.")
-        )
-        .arg(
             Arg::with_name("timings")
                 .long("timings")
                 .help("Prints execution times of various components.")
@@ -192,11 +194,12 @@ fn main() {
     if let Some(version) = matches.value_of("protocol-version") {
         script.protocol_version(version.parse().unwrap())
     }
-    let profile_gas = matches.is_present("profile-gas");
-    script.profile(profile_gas);
 
     if let Some(state_str) = matches.value_of("state") {
         script.initial_state(serde_json::from_str(state_str).unwrap());
+    }
+    if let Some(path) = matches.value_of("state-file") {
+        script.initial_state_from_file(Path::new(path));
     }
 
     let code = fs::read(matches.value_of("wasm-file").unwrap()).unwrap();
@@ -241,8 +244,6 @@ fn main() {
         .unwrap()
     );
 
-    if profile_gas {
-        assert_eq!(all_gas, results.profile.all_gas());
-        println!("{:#?}", results.profile);
-    }
+    assert_eq!(all_gas, results.profile.all_gas());
+    println!("{:#?}", results.profile);
 }

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use actix::{Actor, Addr, Context, Handler, Message};
-use actix_web::client::{Client, Connector};
+use awc::{Client, Connector};
 use futures::FutureExt;
 use near_performance_metrics_macros::perf;
 use serde::{Deserialize, Serialize};
@@ -46,12 +46,7 @@ impl TelemetryActor {
 
         let client = Client::builder()
             .timeout(CONNECT_TIMEOUT)
-            .connector(
-                Connector::new()
-                    .conn_lifetime(Duration::from_secs(u64::max_value()))
-                    .conn_keep_alive(Duration::from_secs(30))
-                    .finish(),
-            )
+            .connector(Connector::new().max_http_version(actix_web::http::Version::HTTP_11))
             .finish();
         Self { config, client }
     }

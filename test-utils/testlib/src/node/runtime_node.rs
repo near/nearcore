@@ -6,7 +6,7 @@ use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
+use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
 
 use crate::node::Node;
 use crate::runtime_utils::{

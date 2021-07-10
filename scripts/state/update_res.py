@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# update_res.py: update neard/res/genesis_config.json to be current `near init` without records
-# update_res.py check: check neard/res/genesis_config.json matches current `near init`
+# update_res.py: update nearcore/res/genesis_config.json to be current `near init` without records
+# update_res.py check: check nearcore/res/genesis_config.json matches current `near init`
 
 import subprocess
 import sys
@@ -21,7 +21,7 @@ def main():
 
 
 genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                   '../../neard/res/genesis_config.json')
+                                   '../../nearcore/res/genesis_config.json')
 
 
 def near_init_genesis():
@@ -34,7 +34,7 @@ def near_init_genesis():
     genesis = json.load(open('/tmp/near/update_res/genesis.json'),
                         object_pairs_hook=OrderedDict)
     genesis['records'] = []
-    # To avoid neard/res/genesis_config.json doesn't change everytime
+    # To avoid nearcore/res/genesis_config.json doesn't change everytime
     genesis['genesis_time'] = '1970-01-01T00:00:00.000000000Z'
     # secret key is seed from test.near
     genesis['validators'][0][
@@ -45,7 +45,7 @@ def near_init_genesis():
 def update_res():
     genesis = near_init_genesis()
     json.dump(genesis, open(genesis_config_path, 'w'), indent=2)
-    print('neard/res/genesis_config.json updated')
+    print('nearcore/res/genesis_config.json updated')
 
 
 def check_res():
@@ -54,7 +54,7 @@ def check_res():
                                    object_pairs_hook=OrderedDict)
     if genesis != res_genesis_config:
         print(
-            'neard/res/genesis_config.json does not match `near init` generated'
+            'nearcore/res/genesis_config.json does not match `near init` generated'
         )
         print('Please update by run scripts/state/update_res.py')
         exit(1)

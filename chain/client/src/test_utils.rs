@@ -36,7 +36,7 @@ use near_primitives::types::{
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind};
+use near_primitives::views::{AccountView, QueryRequest, QueryResponseKind, StateItem};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -558,7 +558,6 @@ pub fn setup_mock_all_validators(
                                 create_msg,
                             );
                         }
-                        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                         NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                             let create_msg = || {
                                 NetworkClientMessages::PartialEncodedChunkForward(forward.clone())
@@ -1007,6 +1006,8 @@ pub fn setup_client(
     )
 }
 
+/// An environment for writing integration tests with multiple clients.
+/// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
     validators: Vec<AccountId>,
@@ -1015,6 +1016,7 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
+    /// Create a `TestEnv` with `KeyValueRuntime`.
     pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i)).collect();
@@ -1038,6 +1040,7 @@ impl TestEnv {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
+    /// Create a `TestEnv` with custom runtime adapters. This allows us to construct `TestEnv` with `NightshadeRuntime`.
     pub fn new_with_runtime(
         chain_genesis: ChainGenesis,
         num_clients: usize,
@@ -1055,6 +1058,7 @@ impl TestEnv {
         )
     }
 
+    /// Create a `TestEnv` with custom runtime adapters and `MockNetworkAdapter`s.
     pub fn new_with_runtime_and_network_adapter(
         chain_genesis: ChainGenesis,
         num_clients: usize,
@@ -1079,6 +1083,8 @@ impl TestEnv {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
+    /// Process a given block in the client with index `id`.
+    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
@@ -1093,8 +1099,8 @@ impl TestEnv {
         }
     }
 
-    /// Produces block by given client, which kicks of creation of chunk.
-    /// Which means that transactions added before this call, will be included in the next block of this validator.
+    /// Produces block by given client, which may kick off chunk production.
+    /// This means that transactions added before this call will be included in the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
@@ -1132,6 +1138,29 @@ impl TestEnv {
             .unwrap();
         match response.kind {
             QueryResponseKind::ViewAccount(account_view) => account_view,
+            _ => panic!("Wrong return value"),
+        }
+    }
+
+    pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {
+        let head = self.clients[0].chain.head().unwrap();
+        let last_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+        let last_chunk_header = &last_block.chunks()[0];
+        let response = self.clients[0]
+            .runtime_adapter
+            .query(
+                0,
+                &last_chunk_header.prev_state_root(),
+                last_block.header().height(),
+                last_block.header().raw_timestamp(),
+                last_block.header().prev_hash(),
+                last_block.header().hash(),
+                last_block.header().epoch_id(),
+                &QueryRequest::ViewState { account_id, prefix: vec![].into() },
+            )
+            .unwrap();
+        match response.kind {
+            QueryResponseKind::ViewState(view_state_result) => view_state_result.values,
             _ => panic!("Wrong return value"),
         }
     }
@@ -1180,6 +1209,8 @@ pub fn create_chunk_with_transactions(
     create_chunk(client, Some(transactions), None)
 }
 
+/// Create a chunk with specified transactions and possibly a new state root.
+/// Useful for writing tests with challenges.
 pub fn create_chunk(
     client: &mut Client,
     replace_transactions: Option<Vec<SignedTransaction>>,

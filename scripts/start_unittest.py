@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import os
@@ -37,7 +37,7 @@ if __name__ == "__main__":
                   args.image,
                   home_dir,
                   init_flags=[
-                      '--chain-id=', '--test-seed=alice.near',
+                      '--test-seed=alice.near',
                       '--account-id=test.near', '--fast'
                   ],
                   boot_nodes='',

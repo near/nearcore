@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TARGET_HEIGHT = 60
 TIMEOUT = 30
@@ -35,14 +36,14 @@ nodes = start_cluster(
      ["chunk_producer_kickout_threshold", 80],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
-         "records", 0, "Account", "account", "AccountV1", "locked",
+         "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ], ["total_supply", "3060000000000000000000000000000000"]], {
          0: consensus_config,
          1: consensus_config
      })
 
-print('Kill node 1')
+logger.info('Kill node 1')
 nodes[1].kill()
 
 node0_height = 0
@@ -51,7 +52,7 @@ while node0_height < TARGET_HEIGHT:
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
-print('Restart node 1')
+logger.info('Restart node 1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(3)
 

@@ -7,7 +7,7 @@ mod tests {
     use actix::{Addr, System};
     use rand::{thread_rng, Rng};
 
-    use near_actix_test_utils::run_actix_until_stop;
+    use near_actix_test_utils::run_actix;
     use near_chain::Block;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
@@ -27,7 +27,7 @@ mod tests {
 
         const HEIGHT_GOAL: u64 = 120;
 
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
             let connectors1 = connectors.clone();
@@ -276,9 +276,9 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            // We only check the terminating condition once every 20 heights, thus extra 20 to
+            // We only check the terminating condition once every 20 heights, thus extra 80 to
             // account for possibly going beyond the HEIGHT_GOAL.
-            near_network::test_utils::wait_or_panic(3000 * (20 + HEIGHT_GOAL));
+            near_network::test_utils::wait_or_panic(3000 * (80 + HEIGHT_GOAL));
         });
     }
 }

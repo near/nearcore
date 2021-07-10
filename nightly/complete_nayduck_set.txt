@@ -104,6 +104,8 @@ pytest contracts/deploy_call_smart_contract.py
 pytest contracts/deploy_call_smart_contract.py --features nightly_protocol --features nightly_protocol_features
 pytest --timeout=240 contracts/gibberish.py
 pytest --timeout=240 contracts/gibberish.py --features nightly_protocol --features nightly_protocol_features
+pytest --timeout=400 contracts/infinite_loops.py
+pytest --timeout=400 contracts/infinite_loops.py --features nightly_protocol --features nightly_protocol_features
 
 # python stress tests
 pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions
@@ -146,6 +148,9 @@ pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py doomslug_off --features nightly_protocol --features nightly_protocol_features
 pytest adversarial/start_from_genesis.py overtake doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off --features nightly_protocol --features nightly_protocol_features
+
+# python sandbox node tests
+pytest sandbox/patch_state.py
 
 # python upgradable test
 # upgradable.py moves `near` binary, and must be the last python test in the set

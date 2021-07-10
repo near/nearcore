@@ -19,9 +19,10 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofResponse, GetBlockWithMerkleTree,
-    GetChunkError, GetExecutionOutcome, GetExecutionOutcomesForBlock, GetGasPrice,
-    GetGasPriceError, GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError,
+    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
+    GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
+    GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetNextLightClientBlockError,
+    GetProtocolConfig, GetProtocolConfigError, GetReceipt, GetReceiptError, GetStateChangesError,
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
@@ -629,7 +630,17 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetValidatorInfo, _: &mut Self::Context) -> Self::Result {
         let epoch_identifier = match msg.epoch_reference {
-            EpochReference::EpochId(id) => ValidatorInfoIdentifier::EpochId(id),
+            EpochReference::EpochId(id) => {
+                // By `EpochId` we can get only cached epochs.
+                // Request for not finished epoch by `EpochId` will return an error because epoch has not been cached yet
+                // If the requested one is current ongoing we need to handle it like `Latest`
+                let tip = self.chain.header_head()?;
+                if tip.epoch_id == id {
+                    ValidatorInfoIdentifier::BlockHash(tip.last_block_hash)
+                } else {
+                    ValidatorInfoIdentifier::EpochId(id)
+                }
+            }
             EpochReference::BlockId(block_id) => {
                 let block_header = match block_id {
                     BlockId::Hash(h) => self.chain.get_block_header(&h)?.clone(),
@@ -658,11 +669,12 @@ impl Handler<GetValidatorInfo> for ViewClientActor {
 }
 
 impl Handler<GetValidatorOrdered> for ViewClientActor {
-    type Result = Result<Vec<ValidatorStakeView>, String>;
+    type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
 
     #[perf]
     fn handle(&mut self, msg: GetValidatorOrdered, _: &mut Self::Context) -> Self::Result {
-        self.maybe_block_id_to_block_hash(msg.block_id)
+        Ok(self
+            .maybe_block_id_to_block_hash(msg.block_id)
             .and_then(|block_hash| self.chain.get_block_header(&block_hash).map(|h| h.clone()))
             .and_then(|header| {
                 get_epoch_block_producers_view(
@@ -670,41 +682,44 @@ impl Handler<GetValidatorOrdered> for ViewClientActor {
                     header.prev_hash(),
                     &*self.runtime_adapter,
                 )
-            })
-            .map_err(|err| err.to_string())
+            })?)
     }
 }
 /// Returns a list of change kinds per account in a store for a given block.
 impl Handler<GetStateChangesInBlock> for ViewClientActor {
-    type Result = Result<StateChangesKindsView, String>;
+    type Result = Result<StateChangesKindsView, GetStateChangesError>;
 
     #[perf]
     fn handle(&mut self, msg: GetStateChangesInBlock, _: &mut Self::Context) -> Self::Result {
-        self.chain
+        Ok(self
+            .chain
             .store()
-            .get_state_changes_in_block(&msg.block_hash)
-            .map(|state_changes_kinds| state_changes_kinds.into_iter().map(Into::into).collect())
-            .map_err(|e| e.to_string())
+            .get_state_changes_in_block(&msg.block_hash)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 }
 
 /// Returns a list of changes in a store for a given block filtering by the state changes request.
 impl Handler<GetStateChanges> for ViewClientActor {
-    type Result = Result<StateChangesView, String>;
+    type Result = Result<StateChangesView, GetStateChangesError>;
 
     #[perf]
     fn handle(&mut self, msg: GetStateChanges, _: &mut Self::Context) -> Self::Result {
-        self.chain
+        Ok(self
+            .chain
             .store()
-            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())
-            .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
-            .map_err(|e| e.to_string())
+            .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 }
 
 /// Returns a list of changes in a store with causes for a given block.
 impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
-    type Result = Result<StateChangesView, String>;
+    type Result = Result<StateChangesView, GetStateChangesError>;
 
     #[perf]
     fn handle(
@@ -712,11 +727,13 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
         msg: GetStateChangesWithCauseInBlock,
         _: &mut Self::Context,
     ) -> Self::Result {
-        self.chain
+        Ok(self
+            .chain
             .store()
-            .get_state_changes_with_cause_in_block(&msg.block_hash)
-            .map(|state_changes| state_changes.into_iter().map(Into::into).collect())
-            .map_err(|e| e.to_string())
+            .get_state_changes_with_cause_in_block(&msg.block_hash)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 }
 
@@ -729,28 +746,23 @@ impl Handler<GetStateChangesWithCauseInBlock> for ViewClientActor {
 ///  3. Otherwise, return the last final block in the epoch that follows that of the last block known
 ///     to the light client
 impl Handler<GetNextLightClientBlock> for ViewClientActor {
-    type Result = Result<Option<LightClientBlockView>, String>;
+    type Result = Result<Option<LightClientBlockView>, GetNextLightClientBlockError>;
 
     #[perf]
     fn handle(&mut self, msg: GetNextLightClientBlock, _: &mut Self::Context) -> Self::Result {
-        let last_block_header =
-            self.chain.get_block_header(&msg.last_block_hash).map_err(|err| err.to_string())?;
+        let last_block_header = self.chain.get_block_header(&msg.last_block_hash)?;
         let last_epoch_id = last_block_header.epoch_id().clone();
         let last_next_epoch_id = last_block_header.next_epoch_id().clone();
         let last_height = last_block_header.height();
-        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let head = self.chain.head()?;
 
         if last_epoch_id == head.epoch_id || last_next_epoch_id == head.epoch_id {
-            let head_header = self
-                .chain
-                .get_block_header(&head.last_block_hash)
-                .map_err(|err| err.to_string())?;
+            let head_header = self.chain.get_block_header(&head.last_block_hash)?;
             let ret = Chain::create_light_client_block(
                 &head_header.clone(),
                 &*self.runtime_adapter,
                 self.chain.mut_store(),
-            )
-            .map_err(|err| err.to_string())?;
+            )?;
 
             if ret.inner_lite.height <= last_height {
                 Ok(None)
@@ -764,7 +776,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
                     if let ErrorKind::DBNotFoundErr(_) = e.kind() {
                         Ok(None)
                     } else {
-                        Err(e.to_string())
+                        Err(e.into())
                     }
                 }
             }
@@ -773,7 +785,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActor {
 }
 
 impl Handler<GetExecutionOutcome> for ViewClientActor {
-    type Result = Result<GetExecutionOutcomeResponse, String>;
+    type Result = Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>;
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
@@ -790,8 +802,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let mut outcome_proof = outcome.clone();
                 let next_block_hash = self
                     .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)
-                    .map_err(|e| e.to_string())?
+                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
                     .cloned();
                 match next_block_hash {
                     Some(h) => {
@@ -800,14 +811,16 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                         // should be fast
                         let outcome_roots = self
                             .chain
-                            .get_block(&h)
-                            .map_err(|e| e.to_string())?
+                            .get_block(&h)?
                             .chunks()
                             .iter()
                             .map(|header| header.outcome_root())
                             .collect::<Vec<_>>();
                         if target_shard_id >= (outcome_roots.len() as u64) {
-                            return Err(format!("Inconsistent state. Total number of shards is {} but the execution outcome is in shard {}", outcome_roots.len(), target_shard_id));
+                            return Err(GetExecutionOutcomeError::InconsistentState {
+                                number_or_shards: outcome_roots.len(),
+                                execution_outcome_shard_id: target_shard_id,
+                            });
                         }
                         Ok(GetExecutionOutcomeResponse {
                             outcome_proof: outcome_proof.into(),
@@ -816,7 +829,9 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                                 .clone(),
                         })
                     }
-                    None => Err(format!("{} has not been confirmed", id)),
+                    None => Err(GetExecutionOutcomeError::NotConfirmed {
+                        transaction_or_receipt_id: id,
+                    }),
                 }
             }
             Err(e) => match e.kind() {
@@ -828,12 +843,17 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                         target_shard_id,
                         true,
                     ) {
-                        Err(format!("{} does not exist", id))
+                        Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
+                            transaction_or_receipt_id: id,
+                        })
                     } else {
-                        Err(format!("Node doesn't track the shard where {} is executed", id))
+                        Err(GetExecutionOutcomeError::UnavailableShard {
+                            transaction_or_receipt_id: id,
+                            shard_id: target_shard_id,
+                        })
                     }
                 }
-                _ => Err(e.to_string()),
+                _ => Err(e.into()),
             },
         }
     }
@@ -870,20 +890,14 @@ impl Handler<GetReceipt> for ViewClientActor {
 }
 
 impl Handler<GetBlockProof> for ViewClientActor {
-    type Result = Result<GetBlockProofResponse, String>;
+    type Result = Result<GetBlockProofResponse, GetBlockProofError>;
 
     #[perf]
     fn handle(&mut self, msg: GetBlockProof, _: &mut Self::Context) -> Self::Result {
-        self.chain.check_block_final_and_canonical(&msg.block_hash).map_err(|e| e.to_string())?;
-        self.chain
-            .check_block_final_and_canonical(&msg.head_block_hash)
-            .map_err(|e| e.to_string())?;
-        let block_header_lite =
-            self.chain.get_block_header(&msg.block_hash).map_err(|e| e.to_string())?.clone().into();
-        let block_proof = self
-            .chain
-            .get_block_proof(&msg.block_hash, &msg.head_block_hash)
-            .map_err(|e| e.to_string())?;
+        self.chain.check_block_final_and_canonical(&msg.block_hash)?;
+        self.chain.check_block_final_and_canonical(&msg.head_block_hash)?;
+        let block_header_lite = self.chain.get_block_header(&msg.block_hash)?.clone().into();
+        let block_proof = self.chain.get_block_proof(&msg.block_hash, &msg.head_block_hash)?;
         Ok(GetBlockProofResponse { block_header_lite, proof: block_proof })
     }
 }

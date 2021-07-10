@@ -1,15 +1,14 @@
 use std::time::Duration;
 
-use actix_web::client::{Client, Connector};
+use awc::{Client, Connector};
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde::Deserialize;
 use serde::Serialize;
 
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{from_slice, Message};
-use near_jsonrpc_primitives::rpc::{
-    RpcStateChangesRequest, RpcStateChangesResponse, RpcValidatorsOrderedRequest,
-};
+use near_jsonrpc_primitives::types::changes::{RpcStateChangesRequest, RpcStateChangesResponse};
+use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
@@ -28,6 +27,10 @@ pub enum ChunkId {
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Max size of the payload JsonRpcClient can receive. Be careful adjusting this value since
+/// smaller values can raise overflow messages.
+const PAYLOAD_LIMIT: usize = 100 * 1024 * 1024;
+
 type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 
@@ -44,9 +47,9 @@ where
         .post(server_addr)
         .insert_header(("Content-Type", "application/json"))
         .send_json(&request)
-        .map_err(|err| RpcError::server_error(Some(format!("{:?}", err))))
+        .map_err(|err| RpcError::new_internal_error(None, format!("{:?}", err)))
         .and_then(|mut response| {
-            response.body().map(|body| match body {
+            response.body().limit(PAYLOAD_LIMIT).map(|body| match body {
                 Ok(bytes) => from_slice(&bytes).map_err(|err| {
                     RpcError::parse_error(format!("Error {:?} in {:?}", err, bytes))
                 }),
@@ -61,7 +64,7 @@ where
                     serde_json::from_value(x)
                         .map_err(|err| RpcError::parse_error(format!("Failed to parse: {:?}", err)))
                 }),
-                _ => Err(RpcError::invalid_request()),
+                _ => Err(RpcError::parse_error(format!("Failed to parse JSON RPC response"))),
             })
         })
         .boxed_local()
@@ -185,6 +188,10 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn EXPERIMENTAL_check_tx(&self, tx: String) -> RpcRequest<serde_json::Value>;
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_broadcast_tx_sync(&self, tx: String) -> RpcRequest<serde_json::Value>;
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<serde_json::Value>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn tx(&self, hash: String, account_id: String) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
@@ -257,8 +264,7 @@ fn create_client() -> Client {
         .connector(
             Connector::new()
                 .conn_lifetime(Duration::from_secs(u64::max_value()))
-                .conn_keep_alive(Duration::from_secs(30))
-                .finish(),
+                .conn_keep_alive(Duration::from_secs(30)),
         )
         .finish()
 }

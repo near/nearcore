@@ -53,6 +53,7 @@ use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_chain_configs::ProtocolConfig;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::state_record::StateRecord;
 
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
@@ -89,7 +90,7 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
+    u64::from((hash(&account_id.clone().into_bytes()).0)[0]) % num_shards
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize)]
@@ -605,7 +606,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         _challenges: &ChallengesResult,
         _random_seed: CryptoHash,
         generate_storage_proof: bool,
+        _is_new_chunk: bool,
+        _is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
+        assert!(states_to_patch.is_none(), "KeyValueRuntime does not support patch states.");
         assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
@@ -783,6 +788,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _challenges: &ChallengesResult,
         _random_value: CryptoHash,
+        _is_new_chunk: bool,
+        _is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         unimplemented!();
     }
@@ -892,6 +899,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         part_id: u64,
         _num_parts: u64,
         data: &[u8],
+        _epoch_id: &EpochId,
     ) -> Result<(), Error> {
         if part_id != 0 {
             return Ok(());
@@ -1028,6 +1036,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             current_proposals: vec![],
             prev_epoch_kickout: vec![],
             epoch_start_height: 0,
+            epoch_height: 1,
         })
     }
 
@@ -1096,6 +1105,22 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_protocol_config(&self, _epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         unreachable!("get_protocol_config should not be called in KeyValueRuntime");
+    }
+
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut candidate_hash = prev_block_hash.clone();
+        loop {
+            let header = self
+                .get_block_header(&candidate_hash)?
+                .ok_or_else(|| ErrorKind::DBNotFoundErr(to_base(&candidate_hash)))?;
+            candidate_hash = header.prev_hash().clone();
+            if self.is_next_block_epoch_start(&candidate_hash)? {
+                break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
+            }
+        }
     }
 }
 

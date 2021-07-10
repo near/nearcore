@@ -1,8 +1,10 @@
+use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::state_record::StateRecord;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
@@ -11,7 +13,7 @@ use near_store::test_utils::create_tries;
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -51,10 +53,21 @@ impl StandaloneRuntime {
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
+        let genesis =
+            Genesis::new(GenesisConfig::default(), GenesisRecords(state_records.to_vec()));
 
-        let (store_update, root) =
-            runtime.apply_genesis_state(tries.clone(), 0, &[], state_records, &runtime_config);
-        store_update.commit().unwrap();
+        let mut account_ids: HashSet<AccountId> = HashSet::new();
+        genesis.for_each_record(|record: &StateRecord| {
+            account_ids.insert(state_record_to_account_id(record).clone());
+        });
+        let root = runtime.apply_genesis_state(
+            tries.clone(),
+            0,
+            &[],
+            &genesis,
+            &runtime_config,
+            account_ids,
+        );
 
         let apply_state = ApplyState {
             block_index: 1,
@@ -69,9 +82,12 @@ impl StandaloneRuntime {
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
             cache: None,
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
 
         Self {
@@ -99,6 +115,7 @@ impl StandaloneRuntime {
                 receipts,
                 transactions,
                 &self.epoch_info_provider,
+                None,
             )
             .unwrap();
 

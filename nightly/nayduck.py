@@ -1,5 +1,24 @@
 #!/usr/bin/env python
 
+# This script runs integration tests in the cloud.  You can see the runs here:
+#
+#     http://nayduck.eastus.cloudapp.azure.com:3000/
+#
+# To request a run, use the following command:
+#
+#    python3 nightly/nayduck.py      \
+#        --branch    <your_branch>   \
+#        --test_file <test_file>.txt
+#
+# See the `.txt` files in this directory for examples of test suites. Note that
+# you must be a *public* memeber of the near org on GitHub to authenticate:
+#
+#    https://github.com/orgs/near/people
+#
+# The source code for nayduck itself is here:
+#
+#    https://github.com/utka/nayduck
+
 import argparse
 import subprocess
 import requests
@@ -10,13 +29,16 @@ import os
 from colorama import Fore
 
 
+DEFAULT_TEST_FILE = 'tests_for_nayduck.txt'
+DEFAULT_TEST_PATH = os.path.join(os.path.dirname(__file__), DEFAULT_TEST_FILE)
+
 parser = argparse.ArgumentParser(description='Run tests.')
 parser.add_argument('--branch', '-b', dest='branch',
                     help='Branch to test. By default gets current one.' )
 parser.add_argument('--sha', '-s', dest='sha',
                     help='Sha to test. By default gets current one.')
-parser.add_argument('--test_file', '-t', dest='test_file', default='tests_for_nayduck.txt',
-                    help='Test file with list of tests. By default nayduck.txt')
+parser.add_argument('--test_file', '-t', dest='test_file', default=DEFAULT_TEST_PATH,
+                    help=f'Test file with list of tests. By default {DEFAULT_TEST_FILE}')
 parser.add_argument('--run_type', '-r', dest='run_type', default='custom',
                     help='The type of the run. When triggered by user, the type is custom.')
 

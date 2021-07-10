@@ -3,11 +3,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc::ServerError;
+use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash};
@@ -18,9 +19,9 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
-use neard::config::MIN_GAS_PRICE;
+use nearcore::config::MIN_GAS_PRICE;
 #[cfg(feature = "protocol_feature_evm")]
-use neard::config::TESTNET_EVM_CHAIN_ID;
+use nearcore::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -60,7 +61,7 @@ impl RuntimeUser {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
-            trie_viewer: TrieViewer::new(),
+            trie_viewer: TrieViewer::default(),
             account_id: account_id.to_string(),
             client,
             transaction_results: Default::default(),
@@ -94,6 +95,7 @@ impl RuntimeUser {
                     &receipts,
                     &txs,
                     &self.epoch_info_provider,
+                    None,
                 )
                 .map_err(|e| match e {
                     RuntimeError::InvalidTxError(e) => {
@@ -139,9 +141,12 @@ impl RuntimeUser {
             current_protocol_version: PROTOCOL_VERSION,
             config: self.runtime_config.clone(),
             cache: None,
+            is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
             profile: Default::default(),
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         }
     }
 

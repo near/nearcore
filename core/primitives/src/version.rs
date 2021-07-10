@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
 use crate::types::Balance;
@@ -16,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 18;
+pub const DB_VERSION: DbVersion = 23;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -70,6 +67,10 @@ impl ProtocolVersionRange {
     }
 }
 
+pub fn is_implicit_account_creation_enabled(protocol_version: ProtocolVersion) -> bool {
+    protocol_version >= IMPLICIT_ACCOUNT_CREATION_PROTOCOL_VERSION
+}
+
 /// New Protocol features should go here. Features are guarded by their corresponding feature flag.
 /// For example, if we have `ProtocolFeature::EVM` and a corresponding feature flag `evm`, it will look
 /// like
@@ -79,108 +80,90 @@ impl ProtocolVersionRange {
 ///
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProtocolFeature {
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
+    // stable features
     ForwardChunkParts,
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     RectifyInflation,
+    AccessKeyNonceRange,
+    FixApplyChunks,
+    LowerStorageCost,
+    DeleteActionRestriction,
+    /// Add versions to `Account` data structure
+    AccountVersions,
+    TransactionSizeLimit,
+    /// Delete account can create implicit accounts
+    AllowCreateAccountOnDelete,
+    /// Fix a bug in `storage_usage` for account caused by #3824
+    FixStorageUsage,
+    /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
+    CapMaxGasPrice,
+    CountRefundReceiptsInGasLimit,
+    /// Add `ripemd60` and `ecrecover` host function
+    MathExtension,
+
+    // nightly features
     #[cfg(feature = "protocol_feature_evm")]
     EVM,
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
-    /// Decreases the storage cost of 1 byte by 10X.
-    #[cfg(feature = "protocol_feature_lower_storage_cost")]
-    LowerStorageCost,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_access_key_nonce_range")]
-    AccessKeyNonceRange,
-    DeleteActionRestriction,
-    #[cfg(feature = "protocol_feature_add_account_versions")]
-    AccountVersions,
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
-    TransactionSizeLimit,
+    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+    RestoreReceiptsAfterFix,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
 }
 
 /// Current latest stable version of the protocol.
+/// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
+/// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 43;
+pub const PROTOCOL_VERSION: ProtocolVersion = 46;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 110;
+pub const PROTOCOL_VERSION: ProtocolVersion = 115;
 
-lazy_static! {
-    static ref STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
-        vec![
-            #[cfg(feature = "protocol_feature_lower_storage_cost")]
-            (ProtocolFeature::LowerStorageCost, 42),
-            (ProtocolFeature::DeleteActionRestriction, 43),
-        ]
-        .into_iter()
-        .collect();
-}
+impl ProtocolFeature {
+    pub const fn protocol_version(self) -> ProtocolVersion {
+        match self {
+            // Stable features
+            ProtocolFeature::LowerStorageCost => 42,
+            ProtocolFeature::DeleteActionRestriction => 43,
+            ProtocolFeature::FixApplyChunks => 44,
+            ProtocolFeature::ForwardChunkParts => 45,
+            ProtocolFeature::RectifyInflation => 45,
+            ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::AccountVersions => 46,
+            ProtocolFeature::TransactionSizeLimit => 46,
+            ProtocolFeature::AllowCreateAccountOnDelete => 46,
+            ProtocolFeature::FixStorageUsage => 46,
+            ProtocolFeature::CapMaxGasPrice => 46,
+            ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
+            ProtocolFeature::MathExtension => 46,
 
-#[cfg(not(feature = "nightly_protocol"))]
-lazy_static! {
-    /// Map of feature to the minimal protocol version that introduces the feature. We can determine
-    /// whether to apply the new feature by comparing the current protocol version of the network to
-    /// `PROTOCOL_FEATURES_TO_VERSION_MAPPING[feature]`.
-    pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> =
-        STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.clone();
-}
-
-#[cfg(feature = "nightly_protocol")]
-lazy_static! {
-    pub static ref PROTOCOL_FEATURES_TO_VERSION_MAPPING: HashMap<ProtocolFeature, ProtocolVersion> = {
-        let mut nightly_protocol_features_to_version_mapping: HashMap<
-            ProtocolFeature,
-            ProtocolVersion,
-        > = vec![
-            #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-            (ProtocolFeature::ForwardChunkParts, 101),
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
-            (ProtocolFeature::RectifyInflation, 102),
+            // Nightly features
             #[cfg(feature = "protocol_feature_evm")]
-            (ProtocolFeature::EVM, 103),
+            ProtocolFeature::EVM => 103,
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            (ProtocolFeature::AltBn128, 105),
-            #[cfg(feature = "protocol_feature_access_key_nonce_range")]
-            (ProtocolFeature::AccessKeyNonceRange, 106),
-            #[cfg(feature = "protocol_feature_add_account_versions")]
-            (ProtocolFeature::AccountVersions, 107),
-            #[cfg(feature = "protocol_feature_tx_size_limit")]
-            (ProtocolFeature::TransactionSizeLimit, 108),
+            ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            (ProtocolFeature::BlockHeaderV3, 109),
+            ProtocolFeature::BlockHeaderV3 => 109,
+            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+            ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
-            (ProtocolFeature::ChunkOnlyProducers, 110),
-        ]
-        .into_iter()
-        .collect();
-        for (stable_protocol_feature, stable_protocol_version) in
-            STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter()
-        {
-            assert!(
-                *nightly_protocol_features_to_version_mapping
-                    .get(&stable_protocol_feature)
-                    .unwrap_or(&stable_protocol_version)
-                    >= *stable_protocol_version
-            );
+            ProtocolFeature::ChunkOnlyProducers => 115,
         }
-        nightly_protocol_features_to_version_mapping
-            .extend(STABLE_PROTOCOL_FEATURES_TO_VERSION_MAPPING.iter());
-        nightly_protocol_features_to_version_mapping
-    };
+    }
 }
 
 #[macro_export]
 macro_rules! checked_feature {
+    ("stable", $feature:ident, $current_protocol_version:expr) => {{
+        $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version
+    }};
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
-        let is_feature_enabled = $crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-            [&$crate::version::ProtocolFeature::$feature]
+        let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
             <= $current_protocol_version;
         #[cfg(not(feature = $feature_name))]
         let is_feature_enabled = {

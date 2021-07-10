@@ -6,6 +6,7 @@ import multiprocessing
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
 
@@ -19,9 +20,9 @@ class Handler(ProxyHandler):
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
             h = msg.Block.BlockV2.header.inner_lite().height
-            print("Height:", h)
+            logger.info(f"Height: {h}")
             if h >= 10:
-                print('SUCCESS')
+                logger.info('SUCCESS')
                 success.value = 1
         return True
 

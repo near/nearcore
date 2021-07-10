@@ -1,16 +1,22 @@
+use crate::{actions::execute_function_call, ext::RuntimeExt};
 use log::debug;
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::BorshDeserialize,
+    config::VMLimitConfig,
     contract::ContractCode,
     hash::CryptoHash,
     receipt::ActionReceipt,
-    runtime::{apply_state::ApplyState, config::RuntimeConfig},
+    runtime::{
+        apply_state::ApplyState,
+        config::RuntimeConfig,
+        migration_data::{MigrationData, MigrationFlags},
+    },
     serialize::to_base64,
     transaction::FunctionCallAction,
     trie_key::trie_key_parsers,
-    types::{AccountId, EpochInfoProvider},
+    types::{AccountId, EpochInfoProvider, Gas},
     views::{StateItem, ViewApplyState, ViewStateResult},
 };
 use near_runtime_utils::is_valid_account_id;
@@ -18,18 +24,29 @@ use near_store::{get_access_key, get_account, get_code, TrieUpdate};
 use near_vm_logic::ReturnData;
 use std::{str, sync::Arc, time::Instant};
 
-use crate::{actions::execute_function_call, ext::RuntimeExt};
-
 pub mod errors;
 
-pub struct TrieViewer {}
+pub struct TrieViewer {
+    /// Upper bound of the byte size of contract state that is still viewable. None is no limit
+    state_size_limit: Option<u64>,
+    /// Gas limit used when when handling call_function queries.
+    max_gas_burnt_view: Gas,
+}
+
+impl Default for TrieViewer {
+    fn default() -> Self {
+        Self {
+            state_size_limit: None,
+            max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt_view,
+        }
+    }
+}
 
 impl TrieViewer {
-    /// Upper bound of the size of contract state that is still viewable.
-    const CONTRACT_STATE_SIZE_LIMIT: u64 = 50_000;
-
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(state_size_limit: Option<u64>, max_gas_burnt_view: Option<Gas>) -> Self {
+        let max_gas_burnt_view =
+            max_gas_burnt_view.unwrap_or_else(|| TrieViewer::default().max_gas_burnt_view);
+        Self { state_size_limit, max_gas_burnt_view }
     }
 
     pub fn view_account(
@@ -132,10 +149,12 @@ impl TrieViewer {
                 let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
                     .map(|c| c.code.len() as u64)
                     .unwrap_or_default();
-                if account.storage_usage() > Self::CONTRACT_STATE_SIZE_LIMIT + code_len {
-                    return Err(errors::ViewStateError::AccountStateTooLarge {
-                        requested_account_id: account_id.clone(),
-                    });
+                if let Some(limit) = self.state_size_limit {
+                    if account.storage_usage().saturating_sub(code_len) > limit {
+                        return Err(errors::ViewStateError::AccountStateTooLarge {
+                            requested_account_id: account_id.clone(),
+                        });
+                    }
                 }
             }
             None => {
@@ -204,7 +223,11 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = Arc::new(RuntimeConfig::default());
+        let config = Arc::new({
+            let mut cfg = RuntimeConfig::default();
+            cfg.wasm_config.limit_config.max_gas_burnt_view = self.max_gas_burnt_view;
+            cfg
+        });
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
@@ -219,9 +242,12 @@ impl TrieViewer {
             current_protocol_version: view_state.current_protocol_version,
             config: config.clone(),
             cache: view_state.cache,
+            is_new_chunk: false,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
             profile: Default::default(),
+            migration_data: Arc::new(MigrationData::default()),
+            migration_flags: MigrationFlags::default(),
         };
         let action_receipt = ActionReceipt {
             signer_id: originator_id.clone(),
@@ -264,12 +290,12 @@ impl TrieViewer {
             Err(errors::CallFunctionError::VMError { error_message: message })
         } else {
             let outcome = outcome.unwrap();
-            debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
+            debug!(target: "runtime", "(exec time {}) result of execution: {:?}", time_str, outcome);
             logs.extend(outcome.logs);
-            let mut result = vec![];
-            if let ReturnData::Value(buf) = &outcome.return_data {
-                result = buf.clone();
-            }
+            let result = match outcome.return_data {
+                ReturnData::Value(buf) => buf,
+                ReturnData::ReceiptIndex(_) | ReturnData::None => vec![],
+            };
             Ok(result)
         }
     }
@@ -446,7 +472,7 @@ mod tests {
         db_changes.commit().unwrap();
 
         let state_update = tries.new_trie_update(0, new_root);
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::default();
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(result.proof, Vec::<String>::new());
         assert_eq!(
@@ -484,9 +510,9 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+            &Account::new(0, 0, CryptoHash::default(), 50_001),
         );
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::new(Some(50_000), None);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
         assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
     }
@@ -498,13 +524,13 @@ mod tests {
         set_account(
             &mut state_update,
             alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), TrieViewer::CONTRACT_STATE_SIZE_LIMIT + 1),
+            &Account::new(0, 0, CryptoHash::default(), 50_001),
         );
         state_update.set(
             TrieKey::ContractCode { account_id: alice_account() },
             [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec(),
         );
-        let trie_viewer = TrieViewer::new();
+        let trie_viewer = TrieViewer::new(Some(50_000), None);
         let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
         assert!(result.is_ok());
     }
