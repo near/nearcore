@@ -342,7 +342,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
             )"#,
             index
         );
-        let code = ContractCode::new(wabt::wat2wasm(&code_str).unwrap(), None);
+        let code = ContractCode::new(wat::parse_str(&code_str).unwrap(), None);
         contracts.push(code);
     }
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
