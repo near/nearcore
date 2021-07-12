@@ -3436,7 +3436,6 @@ dependencies = [
  "easy-ext",
  "hex",
  "jemallocator",
- "lazy_static",
  "near-crypto",
  "near-primitives-core",
  "near-rpc-error-macro",
