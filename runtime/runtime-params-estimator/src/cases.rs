@@ -593,17 +593,17 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
+        // testbed = measure_function(
+        //     metric,
+        //     method_name,
+        //     &mut m,
+        //     testbed,
+        //     &ad,
+        //     &mut nonces,
+        //     &config,
+        //     false,
+        //     vec![],
+        // );
         let start = start_count(GasMetric::ICount);
         let measured = end_count(GasMetric::ICount, &start);
         m.record_measurement(metric.clone(), 0, measured);
