@@ -276,20 +276,18 @@ lazy_static_include::lazy_static_include_bytes! {
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
 pub fn migrate_test(path: &String, near_config: &NearConfig) {
     info!(target: "near", "Migrate DB from version 22 to 23");
-    info!(target: "near", "path = {}", path);
+
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
-        let genesis_height = near_config.genesis.config.genesis_height;
-        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let mut store_update = store.store_update();
         let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
             .expect("File with receipts restored after apply_chunks fix have to be correct");
-        let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-        let mut store_update = chain_store_update.store().store_update();
         for receipt in restored_receipts.get(&0u64).unwrap().iter() {
             let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
             store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
         }
-        store_update.commit().expect("");
+        info!(target: "near", "UPDATED");
+        store_update.commit().unwrap();
     }
-    set_store_version(&store, 34);
+    set_store_version(&store, 35);
 }
