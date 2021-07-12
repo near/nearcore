@@ -502,17 +502,19 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
+        // testbed = measure_function(
+        //     metric,
+        //     method_name,
+        //     &mut m,
+        //     testbed,
+        //     &ad,
+        //     &mut nonces,
+        //     &config,
+        //     false,
+        //     vec![],
+        // );
+        m.record_measurement(metric.clone(), 1, 10);
+        m.print();
     }
 
     get_runtime_config(&m, &config)

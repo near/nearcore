@@ -19,7 +19,12 @@ impl ExtCostsGenerator {
         let Self { agg, result: _ } = self;
         let base = &agg[&Metric::noop];
         let agg = &agg[&metric];
-        let multiplier = agg.ext_costs[&ext_cost];
+        let multiplier = if agg.ext_costs.contains_key(&ext_cost) {
+            agg.ext_costs[&ext_cost]
+        } else {
+            eprintln!("missing ext_cost {}", ext_cost);
+            1
+        };
         Ratio::new(agg.upper_with_base(base), multiplier)
     }
 
