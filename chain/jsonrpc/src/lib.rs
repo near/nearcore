@@ -66,6 +66,7 @@ impl Default for RpcLimitsConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
+    // If provided, will start an http server exporting only Prometheus metrics on that address.
     pub monitoring_addr: Option<String>,
     pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
@@ -1212,14 +1213,13 @@ pub fn start_http(
     let monitoring_addr = monitoring_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
-
     HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
-                polling_config: polling_config,
+                polling_config,
                 genesis_config: genesis_config.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
@@ -1246,6 +1246,8 @@ pub fn start_http(
 
     if let Some(monitoring_addr) = monitoring_addr {
         info!(target:"network", "Starting http monitoring server at {}", monitoring_addr);
+        // Export only the /metrics service. It's a read-only service and can have very relaxed
+        // access restrictions.
         HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
