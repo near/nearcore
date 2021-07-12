@@ -1,3 +1,4 @@
+use crate::cases::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::config::VMConfig;
@@ -11,7 +12,6 @@ use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
-use crate::cases::ratio_to_gas_signed;
 
 #[allow(dead_code)]
 fn test_gas_metering_cost(metric: GasMetric) {
@@ -24,7 +24,8 @@ fn test_gas_metering_cost(metric: GasMetric) {
         if true {
             // Here we test gas metering costs for forward branch cases.
             let nested_contract = make_deeply_nested_blocks_contact(depth);
-            let cost = compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &nested_contract);
+            let cost =
+                compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &nested_contract);
             println!("nested {} {}", depth, cost / (REPEATS as u64));
             xs1.push(depth as u64);
             ys1.push(cost);
@@ -40,19 +41,21 @@ fn test_gas_metering_cost(metric: GasMetric) {
 
     // Regression analysis only makes sense for additive metrics.
     if metric == GasMetric::Time {
-        return
+        return;
     }
 
     let (cost1_base, cost1_op, _) = least_squares_method(&xs1, &ys1);
     let (cost2_base, cost2_op, _) = least_squares_method(&xs2, &ys2);
 
-    println!("forward branches: {} gas base {} gas per op",
-             ratio_to_gas_signed(metric, cost1_base),
-             ratio_to_gas_signed(metric, cost1_op),
+    println!(
+        "forward branches: {} gas base {} gas per op",
+        ratio_to_gas_signed(metric, cost1_base),
+        ratio_to_gas_signed(metric, cost1_op),
     );
-    println!("backward branches: {} gas base {} gas per op",
-             ratio_to_gas_signed(metric, cost2_base),
-             ratio_to_gas_signed(metric, cost2_op),
+    println!(
+        "backward branches: {} gas base {} gas per op",
+        ratio_to_gas_signed(metric, cost2_base),
+        ratio_to_gas_signed(metric, cost2_op),
     );
 }
 
