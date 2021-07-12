@@ -14,7 +14,7 @@ impl ShutdownableThread {
     {
         let (tx, rx) = std::sync::mpsc::channel();
         let join = std::thread::spawn(move || {
-            run_actix_until_stop(async move {
+            run_actix(async move {
                 f();
                 tx.send(actix_rt::System::current()).unwrap();
             });
@@ -64,7 +64,7 @@ pub fn spawn_interruptible<F: std::future::Future + 'static>(
     actix_rt::spawn(handle_interrupt!(f))
 }
 
-fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
+pub fn run_actix<F: std::future::Future>(f: F) {
     static SET_PANIC_HOOK: std::sync::Once = std::sync::Once::new();
 
     // This is a workaround to make actix/tokio runtime stop when a task panics.
@@ -72,13 +72,11 @@ fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
     SET_PANIC_HOOK.call_once(|| {
         let default_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            if !expect_panic {
-                default_hook(info);
-            }
             if actix_rt::System::is_registered() {
                 let exit_code = if CAUGHT_SIGINT.load(Ordering::SeqCst) { 130 } else { 1 };
                 actix_rt::System::current().stop_with_code(exit_code);
             }
+            default_hook(info);
         }));
     });
 
@@ -103,12 +101,4 @@ fn run_actix_until<F: std::future::Future>(f: F, expect_panic: bool) {
     let sys = actix_rt::System::new();
     sys.block_on(handle_interrupt!(f));
     sys.run().unwrap();
-}
-
-pub fn run_actix_until_stop<F: std::future::Future>(f: F) {
-    run_actix_until(f, false)
-}
-
-pub fn run_actix_until_panic<F: std::future::Future>(f: F) {
-    run_actix_until(f, true)
 }
