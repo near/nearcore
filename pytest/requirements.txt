@@ -11,6 +11,7 @@ python-rc==0.3.9
 tqdm
 deepdiff
 pynacl
+cython
 numpy
 scikit-learn==0.21.3
 PyGithub
