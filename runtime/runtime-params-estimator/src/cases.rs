@@ -606,7 +606,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         // );
         let start = start_count(GasMetric::ICount);
         let measured = end_count(GasMetric::ICount, &start) + 10;
-        m.record_measurement(metric.clone(), 0, measured);
+        m.record_measurement(metric.clone(), 1, measured);
         m.print();
     }
 
