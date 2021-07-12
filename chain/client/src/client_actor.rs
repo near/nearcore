@@ -557,8 +557,9 @@ impl Handler<Status> for ClientActor {
         self.check_triggers(ctx);
 
         let head = self.client.chain.head()?;
-        let header = self.client.chain.get_block_header(&head.last_block_hash)?;
-        let latest_block_time = header.raw_timestamp().clone();
+        let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
+        let latest_block_time = head_header.raw_timestamp().clone();
+        let latest_state_root = head_header.prev_state_root().clone().into();
         if msg.is_health_check {
             let now = Utc::now();
             let block_timestamp = from_timestamp(latest_block_time);
@@ -595,6 +596,17 @@ impl Handler<Status> for ClientActor {
         let validator_account_id =
             self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
 
+        let earliest_block_hash = self.client.chain.get_earliest_block_hash()?;
+        let mut earliest_block_time = None;
+        let mut earliest_block_height = None;
+        if let Some(earliest_block_hash_unwrapped) = earliest_block_hash {
+            if let Ok(earliest_block) =
+                self.client.chain.get_block_header(&earliest_block_hash_unwrapped)
+            {
+                earliest_block_height = Some(earliest_block.height());
+                earliest_block_time = Some(earliest_block.timestamp());
+            }
+        }
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -605,9 +617,12 @@ impl Handler<Status> for ClientActor {
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: header.prev_state_root().clone().into(),
+                latest_state_root,
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
+                earliest_block_hash,
+                earliest_block_time,
+                earliest_block_height,
             },
             validator_account_id,
         })
