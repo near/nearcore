@@ -11,7 +11,7 @@ use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{BlockHeight, Nonce};
 use near_store::test_utils::create_test_store;
-use nearcore::config::GenesisExt;
+use nearcore::{config::GenesisExt, NightshadeRuntime};
 
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +29,7 @@ pub fn run(scenario: &Scenario) -> RuntimeStats {
         ChainGenesis::from(&genesis),
         1,
         1,
-        vec![Arc::new(nearcore::NightshadeRuntime::new(
+        vec![Arc::new(NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             &genesis,
@@ -48,10 +48,8 @@ pub fn run(scenario: &Scenario) -> RuntimeStats {
         let mut block_stats = BlockStats::at_height(block.height);
 
         for tx in &block.transactions {
-            env.clients[0].process_tx(
-                tx.to_signed_transaction(&last_block),
-                false, false);
-        };
+            env.clients[0].process_tx(tx.to_signed_transaction(&last_block), false, false);
+        }
 
         let start_time = Instant::now();
 
@@ -105,10 +103,7 @@ pub struct BlockStats {
 
 impl BlockConfig {
     pub fn at_height(height: BlockHeight) -> Self {
-        Self {
-            height,
-            transactions: vec![],
-        }
+        Self { height, transactions: vec![] }
     }
 }
 
@@ -127,9 +122,6 @@ impl TransactionConfig {
 
 impl BlockStats {
     fn at_height(height: BlockHeight) -> Self {
-        Self {
-            height,
-            block_production_time: Duration::default(),
-        }
+        Self { height, block_production_time: Duration::default() }
     }
 }
