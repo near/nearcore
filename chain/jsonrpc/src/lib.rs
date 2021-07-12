@@ -66,7 +66,8 @@ impl Default for RpcLimitsConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
-    pub monitoring_addr: Option<String>,
+    // If provided, will start an http server exporting only Prometheus metrics on that address.
+    pub prometheus_addr: Option<String>,
     pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
     #[serde(default)]
@@ -77,7 +78,7 @@ impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
-            monitoring_addr: None,
+            prometheus_addr: None,
             cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
             limits_config: Default::default(),
@@ -1207,19 +1208,18 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RpcConfig { addr, monitoring_addr, cors_allowed_origins, polling_config, limits_config } =
+    let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
-    let monitoring_addr = monitoring_addr.filter(|it| it != &addr);
+    let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
-
     HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
-                polling_config: polling_config,
+                polling_config,
                 genesis_config: genesis_config.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
@@ -1244,15 +1244,17 @@ pub fn start_http(
     .shutdown_timeout(5)
     .run();
 
-    if let Some(monitoring_addr) = monitoring_addr {
-        info!(target:"network", "Starting http monitoring server at {}", monitoring_addr);
+    if let Some(prometheus_addr) = prometheus_addr {
+        info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
+        // Export only the /metrics service. It's a read-only service and can have very relaxed
+        // access restrictions.
         HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
                 .wrap(middleware::Logger::default())
                 .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
         })
-        .bind(monitoring_addr)
+        .bind(prometheus_addr)
         .unwrap()
         .workers(2)
         .shutdown_timeout(5)

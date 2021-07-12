@@ -1,5 +1,6 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
+use futures::future::FutureExt;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use nearcore::get_store_path;
 use std::net::SocketAddr;
@@ -239,12 +240,13 @@ impl RunCmd {
         if self.disable_rpc {
             near_config.rpc_config = None;
         } else {
-          if let Some(rpc_addr) = self.rpc_addr {
-            near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
-          }
-          if let Some(rpc_monitoring_addr) = self.rpc_monitoring_addr {
-            near_config.rpc_config.get_or_insert(Default::default()).monitoring_addr = Some(rpc_monitoring_addr);
-          }
+            if let Some(rpc_addr) = self.rpc_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+            }
+            if let Some(rpc_monitoring_addr) = self.rpc_monitoring_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).monitoring_addr =
+                    Some(rpc_monitoring_addr);
+            }
         }
         if let Some(telemetry_url) = self.telemetry_url {
             if !telemetry_url.is_empty() {
@@ -274,8 +276,20 @@ impl RunCmd {
         let sys = actix::System::new();
         sys.block_on(async move {
             nearcore::start_with_config(home_dir, near_config);
-            tokio::signal::ctrl_c().await.unwrap();
-            info!("Got Ctrl+C, stopping");
+
+            let sig = if cfg!(unix) {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigint = signal(SignalKind::interrupt()).unwrap();
+                let mut sigterm = signal(SignalKind::terminate()).unwrap();
+                futures::select! {
+                    _ = sigint .recv().fuse() => "SIGINT",
+                    _ = sigterm.recv().fuse() => "SIGTERM"
+                }
+            } else {
+                tokio::signal::ctrl_c().await.unwrap();
+                "Ctrl+C"
+            };
+            info!(target: "neard", "Got {}, stopping", sig);
             actix::System::current().stop();
         });
         sys.run().unwrap();
