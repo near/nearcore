@@ -153,7 +153,6 @@ pub trait ChainStoreAccess {
         // height, and use the `prev_hash` to get the reference to the earliest
         // block.
         // The earliest block can be the genesis block.
-        // Assumes that more than 1 block is available.
         let head_header_height = self.head_header()?.height();
         let tail = self.tail()?;
 
