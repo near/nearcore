@@ -1,4 +1,8 @@
-/// Lists all cases that we want to measure.
+use std::path::Path;
+
+use once_cell::sync::OnceCell;
+
+// Lists all cases that we want to measure.
 pub mod cases;
 // Generates runtime fees from the measurements.
 pub mod runtime_fees_generator;
@@ -12,11 +16,8 @@ pub mod stats;
 pub mod testbed;
 // Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
 // of nonces.
+mod gas_metering;
 pub mod testbed_runners;
-
-use std::path::Path;
-
-use once_cell::sync::OnceCell;
 
 /// Lazily loads contract's code from a directory in the source tree.
 pub(crate) struct TestContract {
