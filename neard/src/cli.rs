@@ -195,7 +195,7 @@ pub(super) struct RunCmd {
     /// Ignored if RPC http server is disabled, see 'rpc_addr'.
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
-    rpc_monitoring_addr: Option<String>,
+    rpc_prometheus_addr: Option<String>,
     /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
     /// RPC endpoint.
     #[clap(long)]
@@ -243,9 +243,9 @@ impl RunCmd {
             if let Some(rpc_addr) = self.rpc_addr {
                 near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
             }
-            if let Some(rpc_monitoring_addr) = self.rpc_monitoring_addr {
-                near_config.rpc_config.get_or_insert(Default::default()).monitoring_addr =
-                    Some(rpc_monitoring_addr);
+            if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
+                    Some(rpc_prometheus_addr);
             }
         }
         if let Some(telemetry_url) = self.telemetry_url {
