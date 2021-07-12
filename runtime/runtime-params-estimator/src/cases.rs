@@ -848,6 +848,9 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     // Shifting compilation costs from function call runtime to the deploy action cost at execution
     // time. Contract used in deploy action testing is very small, so we have to use more complex
     // technique to compute the actual coefficients.
+    eprintln!("contract_compile_base = {}", runtime_config.wasm_config.ext_costs.contract_compile_base);
+    eprintln!("contract_compile_bytes = {}", runtime_config.wasm_config.ext_costs.contract_compile_bytes);
+
     runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
         runtime_config.wasm_config.ext_costs.contract_compile_base;
     runtime_config
