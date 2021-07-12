@@ -188,7 +188,8 @@ impl DataStats {
     /// `stddev_clean^2 = stddev^2 + stddev_noop^2`
     /// and then compute upper as `mean_clean + 4*stddev_clean`
     pub fn upper_with_base(&self, base: &Self) -> u64 {
-        let mean = self.mean - base.mean;
+        // let mean = self.mean - base.mean;
+        let mean = self.mean.saturating_sub(base.mean);
         let stddev =
             (((self.stddev as u128).pow(2) + (base.stddev as u128).pow(2)) as f64).sqrt() as u64;
         mean + 4u64 * stddev
