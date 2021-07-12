@@ -5,9 +5,9 @@ use crate::checked_feature;
 use crate::config::VMConfig;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance};
+use crate::types::{AccountId, Balance, Gas};
 use crate::version::ProtocolVersion;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -38,10 +38,6 @@ impl Default for RuntimeConfig {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref LOWER_STORAGE_COST_CONFIG: Mutex<Option<Arc<RuntimeConfig>>> = Mutex::new(None);
-}
-
 impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
@@ -51,29 +47,53 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
         }
     }
+}
 
-    /// Returns a `RuntimeConfig` for the corresponding protocol version.
-    /// It uses `genesis_runtime_config` to identify the original
-    /// config and `protocol_version` for the current protocol version.
-    pub fn from_protocol_version(
-        genesis_runtime_config: &Arc<RuntimeConfig>,
-        protocol_version: ProtocolVersion,
-    ) -> Arc<Self> {
-        if checked_feature!("stable", LowerStorageCost, protocol_version) {
-            let mut config = LOWER_STORAGE_COST_CONFIG.lock().unwrap();
-            config
-                .get_or_insert_with(|| Arc::new(genesis_runtime_config.decrease_storage_cost()))
-                .clone()
-        } else {
-            genesis_runtime_config.clone()
+/// An actual runtime configuration the node will use.
+///
+/// This is constructed from the runtime configuration given in the genesis file
+/// but i) may have it’s `max_gas_burnt_view` limit adjusted and ii) provides
+/// a method which returns configuration with adjustments done through protocol
+/// version upgrades.
+pub struct ActualRuntimeConfig {
+    /// The runtime configuration taken from the genesis file but with possibly
+    /// modified `max_gas_burnt_view` limit.
+    runtime_config: Arc<RuntimeConfig>,
+
+    /// The runtime configuration with lower storage cost adjustment applied.
+    with_lower_storage_cost: Arc<RuntimeConfig>,
+}
+
+impl ActualRuntimeConfig {
+    /// Constructs a new object from specified genesis runtime config.
+    ///
+    /// If `max_gas_burnt_view` is provided, the property in wasm limit
+    /// configuration will be adjusted to given value.
+    pub fn new(genesis_runtime_config: RuntimeConfig, max_gas_burnt_view: Option<Gas>) -> Self {
+        let mut config = genesis_runtime_config;
+        if let Some(gas) = max_gas_burnt_view {
+            config.wasm_config.limit_config.max_gas_burnt_view = gas;
         }
+        let runtime_config = Arc::new(config.clone());
+
+        // Adjust as per LowerStorageCost protocol feature.
+        config.storage_amount_per_byte = 10u128.pow(19);
+        let with_lower_storage_cost = Arc::new(config);
+
+        Self { runtime_config, with_lower_storage_cost }
     }
 
-    /// Returns a new config with decreased storage cost.
-    fn decrease_storage_cost(&self) -> Self {
-        let mut config = self.clone();
-        config.storage_amount_per_byte = 10u128.pow(19);
-        config
+    /// Returns a `RuntimeConfig` for the corresponding protocol version.
+    ///
+    /// Note that even if some old version is given as the argument, this may
+    /// still return configuration which differs from configuration found in
+    /// genesis file by the `max_gas_burnt_view` limit.
+    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
+        if checked_feature!("stable", LowerStorageCost, protocol_version) {
+            &self.with_lower_storage_cost
+        } else {
+            &self.runtime_config
+        }
     }
 }
 
@@ -113,15 +133,18 @@ mod tests {
 
     #[test]
     fn test_lower_cost() {
-        let config = Arc::new(RuntimeConfig::default());
-        let config_same = RuntimeConfig::from_protocol_version(&config, 0);
-        assert_eq!(
-            config_same.as_ref().storage_amount_per_byte,
-            config.as_ref().storage_amount_per_byte
-        );
-        let config_lower = RuntimeConfig::from_protocol_version(&config, ProtocolVersion::MAX);
-        assert!(
-            config_lower.as_ref().storage_amount_per_byte < config.as_ref().storage_amount_per_byte
-        );
+        let config = RuntimeConfig::default();
+        let default_amount = config.storage_amount_per_byte;
+        let config = ActualRuntimeConfig::new(config, None);
+        let base_cfg = config.for_protocol_version(0);
+        let new_cfg = config.for_protocol_version(ProtocolVersion::MAX);
+        assert_eq!(default_amount, base_cfg.storage_amount_per_byte);
+        assert!(default_amount > new_cfg.storage_amount_per_byte);
+    }
+
+    #[test]
+    fn test_max_gas_burnt_view() {
+        let config = ActualRuntimeConfig::new(RuntimeConfig::default(), Some(42));
+        assert_eq!(42, config.for_protocol_version(0).wasm_config.limit_config.max_gas_burnt_view);
     }
 }

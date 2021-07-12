@@ -58,7 +58,7 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
@@ -129,7 +129,7 @@ pub struct NightshadeRuntime {
     /// Runtime configuration.  Note that it may be slightly different than
     /// `genesis_config.runtime_config`.  Consider `max_gas_burnt_view` value
     /// which may be configured per node.
-    runtime_config: Arc<RuntimeConfig>,
+    runtime_config: ActualRuntimeConfig,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -154,13 +154,8 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let runtime_config = Arc::new({
-            let mut cfg = genesis_config.runtime_config.clone();
-            if let Some(gas) = max_gas_burnt_view {
-                cfg.wasm_config.limit_config.max_gas_burnt_view = gas;
-            }
-            cfg
-        });
+        let runtime_config =
+            ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
         let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let reward_calculator = RewardCalculator::new(&genesis_config);
@@ -434,10 +429,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: RuntimeConfig::from_protocol_version(
-                &self.runtime_config,
-                current_protocol_version,
-            ),
+            config: self.runtime_config.for_protocol_version(current_protocol_version).clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
@@ -522,8 +514,7 @@ impl NightshadeRuntime {
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.runtime_config, protocol_version);
+        let runtime_config = self.runtime_config.for_protocol_version(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
@@ -596,15 +587,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.runtime_config, current_protocol_version);
+        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
 
         if let Some(state_root) = state_root {
             let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
             let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
 
             match verify_and_charge_transaction(
-                &runtime_config,
+                runtime_config,
                 &mut state_update,
                 gas_price,
                 &transaction,
@@ -627,7 +617,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             // Doing basic validation without a state root
             match validate_transaction(
-                &runtime_config,
+                runtime_config,
                 gas_price,
                 &transaction,
                 verify_signature,
@@ -666,8 +656,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.runtime_config, current_protocol_version);
+        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
 
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -677,7 +666,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     if chain_validate(&tx) {
                         // Verifying the validity of the transaction based on the current state.
                         match verify_and_charge_transaction(
-                            &runtime_config,
+                            runtime_config,
                             &mut state_update,
                             gas_price,
                             &tx,
@@ -1547,19 +1536,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
+        // If we were initialised with a custom max_gas_burnt_view (see
+        // ActualRuntimeConfig::new method), keep the value from genesis file.
+        // Since max_gas_burnt_view never changes as a result of protocol
+        // upgrade, we can use it when reporting protocol config.
+        let gas = config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
         // Currently only runtime config is changed through protocol upgrades.
-        let runtime_config =
-            RuntimeConfig::from_protocol_version(&self.runtime_config, protocol_version);
-        // If we were initialised with a custom max_gas_burnt_view (see new
-        // function), bring back the value from genesis configuration.  Since
-        // max_gas_burnt_view never changes as a result of protocol upgrade, we
-        // can be sure that this value will be correct.
-        config.runtime_config = {
-            let mut cfg = (*runtime_config).clone();
-            cfg.wasm_config.limit_config.max_gas_burnt_view =
-                config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
-            cfg
-        };
+        config.runtime_config =
+            (**self.runtime_config.for_protocol_version(protocol_version)).clone();
+        config.runtime_config.wasm_config.limit_config.max_gas_burnt_view = gas;
         Ok(config)
     }
 
