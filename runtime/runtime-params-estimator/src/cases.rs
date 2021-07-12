@@ -254,178 +254,178 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     // UNUSED?
     // Measure the speed of processing simple transfers.
-    // measure_actions(
-    //     Metric::ActionTransfer,
-    //     &mut m,
-    //     &config,
-    //     None,
-    //     vec![Action::Transfer(TransferAction { deposit: 1 })],
-    //     false,
-    //     false,
-    //     &mut nonces,
-    // );
-    //
-    // // Measure the speed of creating account.
-    // let mut f = || {
-    //     let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //     let account_id = get_account_id(account_idx);
-    //     let other_account_id =
-    //         format!("near_{}_{}", account_idx, rand::thread_rng().gen::<usize>());
-    //     let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-    //     let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-    //     SignedTransaction::from_actions(
-    //         nonce as u64,
-    //         account_id,
-    //         other_account_id,
-    //         &signer,
-    //         vec![
-    //             Action::CreateAccount(CreateAccountAction {}),
-    //             Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
-    //         ],
-    //         CryptoHash::default(),
-    //     )
-    // };
-    // measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
-    //
-    // // Measure the speed of deleting an account.
-    // let mut deleted_accounts = HashSet::new();
-    // let mut beneficiaries = HashSet::new();
-    // let mut f = || {
-    //     let account_idx = loop {
-    //         let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //         if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
-    //             break x;
-    //         }
-    //     };
-    //     let beneficiary_idx = loop {
-    //         let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //         if !deleted_accounts.contains(&x) && x != account_idx {
-    //             break x;
-    //         }
-    //     };
-    //     deleted_accounts.insert(account_idx);
-    //     beneficiaries.insert(beneficiary_idx);
-    //     let account_id = get_account_id(account_idx);
-    //     let beneficiary_id = get_account_id(beneficiary_idx);
-    //     let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-    //     let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-    //     SignedTransaction::from_actions(
-    //         nonce as u64,
-    //         account_id.clone(),
-    //         account_id,
-    //         &signer,
-    //         vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
-    //         CryptoHash::default(),
-    //     )
-    // };
-    // measure_transactions(Metric::ActionDeleteAccount, &mut m, &config, None, &mut f, false);
-    //
-    // // Measure the speed of adding a full access key.
-    // measure_actions(
-    //     Metric::ActionAddFullAccessKey,
-    //     &mut m,
-    //     &config,
-    //     None,
-    //     vec![Action::AddKey(AddKeyAction {
-    //         public_key: serde_json::from_str(
-    //             "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-    //         )
-    //         .unwrap(),
-    //         access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-    //     })],
-    //     true,
-    //     true,
-    //     &mut nonces,
-    // );
-    //
-    // // Measure the speed of adding a function call access key.
-    // measure_actions(
-    //     Metric::ActionAddFunctionAccessKey1Method,
-    //     &mut m,
-    //     &config,
-    //     None,
-    //     vec![Action::AddKey(AddKeyAction {
-    //         public_key: serde_json::from_str(
-    //             "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-    //         )
-    //         .unwrap(),
-    //         access_key: AccessKey {
-    //             nonce: 0,
-    //             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-    //                 allowance: Some(100),
-    //                 receiver_id: get_account_id(0),
-    //                 method_names: vec!["method1".to_string()],
-    //             }),
-    //         },
-    //     })],
-    //     true,
-    //     true,
-    //     &mut nonces,
-    // );
-    //
-    // // Measure the speed of adding an access key with 1k methods each 10bytes long.
-    // let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
-    // measure_actions(
-    //     Metric::ActionAddFunctionAccessKey1000Methods,
-    //     &mut m,
-    //     &config,
-    //     None,
-    //     vec![Action::AddKey(AddKeyAction {
-    //         public_key: serde_json::from_str(
-    //             "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
-    //         )
-    //         .unwrap(),
-    //         access_key: AccessKey {
-    //             nonce: 0,
-    //             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-    //                 allowance: Some(100),
-    //                 receiver_id: get_account_id(0),
-    //                 method_names: many_methods,
-    //             }),
-    //         },
-    //     })],
-    //     true,
-    //     true,
-    //     &mut nonces,
-    // );
-    //
-    // // Measure the speed of deleting an access key.
-    // // Accounts with deleted access keys.
-    // let mut deleted_accounts = HashSet::new();
-    // let mut f = || {
-    //     let account_idx = loop {
-    //         let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-    //         if !deleted_accounts.contains(&x) {
-    //             break x;
-    //         }
-    //     };
-    //     deleted_accounts.insert(account_idx);
-    //     let account_id = get_account_id(account_idx);
-    //     let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-    //     let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-    //     SignedTransaction::from_actions(
-    //         nonce as u64,
-    //         account_id.clone(),
-    //         account_id,
-    //         &signer,
-    //         vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
-    //         CryptoHash::default(),
-    //     )
-    // };
-    // measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
-    //
-    // // Measure the speed of staking.
-    // let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
-    // measure_actions(
-    //     Metric::ActionStake,
-    //     &mut m,
-    //     &config,
-    //     None,
-    //     vec![Action::Stake(StakeAction { stake: 1, public_key })],
-    //     true,
-    //     true,
-    //     &mut nonces,
-    // );
+    measure_actions(
+        Metric::ActionTransfer,
+        &mut m,
+        &config,
+        None,
+        vec![Action::Transfer(TransferAction { deposit: 1 })],
+        false,
+        false,
+        &mut nonces,
+    );
+
+    // Measure the speed of creating account.
+    let mut f = || {
+        let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
+        let account_id = get_account_id(account_idx);
+        let other_account_id =
+            format!("near_{}_{}", account_idx, rand::thread_rng().gen::<usize>());
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id,
+            other_account_id,
+            &signer,
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+            ],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(Metric::ActionCreateAccount, &mut m, &config, None, &mut f, false);
+
+    // Measure the speed of deleting an account.
+    let mut deleted_accounts = HashSet::new();
+    let mut beneficiaries = HashSet::new();
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
+                break x;
+            }
+        };
+        let beneficiary_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if !deleted_accounts.contains(&x) && x != account_idx {
+                break x;
+            }
+        };
+        deleted_accounts.insert(account_idx);
+        beneficiaries.insert(beneficiary_idx);
+        let account_id = get_account_id(account_idx);
+        let beneficiary_id = get_account_id(beneficiary_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(Metric::ActionDeleteAccount, &mut m, &config, None, &mut f, false);
+
+    // Measure the speed of adding a full access key.
+    measure_actions(
+        Metric::ActionAddFullAccessKey,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+        })],
+        true,
+        true,
+        &mut nonces,
+    );
+
+    // Measure the speed of adding a function call access key.
+    measure_actions(
+        Metric::ActionAddFunctionAccessKey1Method,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: get_account_id(0),
+                    method_names: vec!["method1".to_string()],
+                }),
+            },
+        })],
+        true,
+        true,
+        &mut nonces,
+    );
+
+    // Measure the speed of adding an access key with 1k methods each 10bytes long.
+    let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
+    measure_actions(
+        Metric::ActionAddFunctionAccessKey1000Methods,
+        &mut m,
+        &config,
+        None,
+        vec![Action::AddKey(AddKeyAction {
+            public_key: serde_json::from_str(
+                "\"ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847\"",
+            )
+            .unwrap(),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: get_account_id(0),
+                    method_names: many_methods,
+                }),
+            },
+        })],
+        true,
+        true,
+        &mut nonces,
+    );
+
+    // Measure the speed of deleting an access key.
+    // Accounts with deleted access keys.
+    let mut deleted_accounts = HashSet::new();
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if !deleted_accounts.contains(&x) {
+                break x;
+            }
+        };
+        deleted_accounts.insert(account_idx);
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key.clone() })],
+            CryptoHash::default(),
+        )
+    };
+    measure_transactions(Metric::ActionDeleteAccessKey, &mut m, &config, None, &mut f, false);
+
+    // Measure the speed of staking.
+    let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
+    measure_actions(
+        Metric::ActionStake,
+        &mut m,
+        &config,
+        None,
+        vec![Action::Stake(StakeAction { stake: 1, public_key })],
+        true,
+        true,
+        &mut nonces,
+    );
 
     // Measure the speed of deploying some code.
 
