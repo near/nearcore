@@ -19,6 +19,7 @@ testlib = { path = "../test-utils/testlib" }
 [features]
 performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
 regression_tests = []
+expensive_tests = []
 adversarial = ["nearcore/adversarial"]
 protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
