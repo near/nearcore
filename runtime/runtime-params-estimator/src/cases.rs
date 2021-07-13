@@ -714,7 +714,10 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     }
 }
 
-fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCostsConfig {
+fn get_ext_costs_config(
+    measurement: &Measurements,
+    #[cfg(not(feature = "protocol_feature_precompile_contracts"))] config: &Config,
+) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
@@ -815,9 +818,16 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     }
 }
 
-fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
+fn get_vm_config(
+    measurement: &Measurements,
+    #[cfg(not(feature = "protocol_feature_precompile_contracts"))] config: &Config,
+) -> VMConfig {
     VMConfig {
-        ext_costs: get_ext_costs_config(measurement, config),
+        ext_costs: get_ext_costs_config(
+            measurement,
+            #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
+            config,
+        ),
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
@@ -831,7 +841,11 @@ fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
 
 fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeConfig {
     let mut runtime_config = RuntimeConfig::default();
-    runtime_config.wasm_config = get_vm_config(measurement, config);
+    runtime_config.wasm_config = get_vm_config(
+        measurement,
+        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
+        config,
+    );
 
     // Compiling small test contract that was used for `noop` function call estimation.
     load_and_compile(
