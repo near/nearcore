@@ -720,7 +720,7 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     let metric = measurement.gas_metric;
     use ExtCosts::*;
     #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-    let (contract_compile_bytes_, contract_compile_base_) =
+    let (contract_compile_base_, contract_compile_bytes_) =
         compute_compile_cost_vm(config.metric, config.vm_kind, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
