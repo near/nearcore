@@ -72,4 +72,5 @@ protocol_feature_evm = [
     "near-primitives/protocol_feature_evm",
     "testlib/protocol_feature_evm"
 ]
+protocol_feature_precompile_contracts = []
 sandbox = ["node-runtime/sandbox", "state-viewer/sandbox"]

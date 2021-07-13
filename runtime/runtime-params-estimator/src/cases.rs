@@ -719,11 +719,14 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
+    #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
     let (contract_compile_bytes_, contract_compile_base_) =
         compute_compile_cost_vm(config.metric, config.vm_kind, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
+        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
         contract_compile_base: contract_compile_base_,
+        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
         contract_compile_bytes: contract_compile_bytes_,
         read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
         read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
@@ -843,6 +846,11 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     // Shifting compilation costs from function call runtime to the deploy action cost at execution
     // time. Contract used in deploy action testing is very small, so we have to use more complex
     // technique to compute the actual coefficients.
+    // #[cfg(feature = "protocol_feature_precompile_contracts")]
+    // let (contract_compile_bytes_, contract_compile_base_) =
+    //     compute_compile_cost_vm(config.metric, config.vm_kind, false);
+
+
     runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
         runtime_config.wasm_config.ext_costs.contract_compile_base;
     runtime_config
