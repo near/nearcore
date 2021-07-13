@@ -706,6 +706,15 @@ pub fn migrate_21_to_22(path: &String) {
     set_store_version(&store, 22);
 }
 
+pub fn migrate_23_to_24(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::ColCachedContractCode);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 24);
+}
+
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
