@@ -846,20 +846,30 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
     // Shifting compilation costs from function call runtime to the deploy action cost at execution
     // time. Contract used in deploy action testing is very small, so we have to use more complex
     // technique to compute the actual coefficients.
-    // #[cfg(feature = "protocol_feature_precompile_contracts")]
-    // let (contract_compile_bytes_, contract_compile_base_) =
-    //     compute_compile_cost_vm(config.metric, config.vm_kind, false);
-
-
-    runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
-        runtime_config.wasm_config.ext_costs.contract_compile_base;
-    runtime_config
-        .transaction_costs
-        .action_creation_config
-        .deploy_contract_cost_per_byte
-        .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes;
-    runtime_config.wasm_config.ext_costs.contract_compile_base = 0;
-    runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
+    #[cfg(feature = "protocol_feature_precompile_contracts")]
+    {
+        let (contract_compile_base, contract_compile_bytes) =
+            compute_compile_cost_vm(config.metric, config.vm_kind, false);
+        runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
+            contract_compile_base;
+        runtime_config
+            .transaction_costs
+            .action_creation_config
+            .deploy_contract_cost_per_byte
+            .execution += contract_compile_bytes;
+    }
+    #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
+    {
+        runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
+            runtime_config.wasm_config.ext_costs.contract_compile_base;
+        runtime_config
+            .transaction_costs
+            .action_creation_config
+            .deploy_contract_cost_per_byte
+            .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes;
+        runtime_config.wasm_config.ext_costs.contract_compile_base = 0;
+        runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
+    }
 
     runtime_config
 }
