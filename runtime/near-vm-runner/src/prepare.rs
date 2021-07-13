@@ -59,6 +59,10 @@ impl<'a> ContractModule<'a> {
 
     fn inject_gas_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
+        // Free config, no need for gas metering.
+        if config.regular_op_cost == 0 {
+            return Ok(Self { module, config });
+        }
         let gas_rules = rules::Set::new(1, Default::default()).with_grow_cost(config.grow_mem_cost);
         let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| PrepareError::GasInstrumentation)?;

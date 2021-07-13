@@ -18,7 +18,7 @@ is the pure function of Docker image used, Rust compiler version and the NEAR im
 ## Usage
 
 We build and run the cost estimator in the Docker container to make sure config is fully reproducible.
-Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resouce consuming.
+Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resource consuming.
 First fetch appropriate base image, with `docker pull rust`.
 Then create a Docker image with `build.sh`, it will create a Docker image with additional build deps.
 
