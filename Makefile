@@ -1,10 +1,13 @@
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1
+export CARGO_PROFILE_RELEASE_LTO = fat
+export DOCKER_BUILDKIT = 1
+export RUSTFLAGS = -D warnings
+
 docker-nearcore:
-	DOCKER_BUILDKIT=1 docker build -t nearcore -f Dockerfile --progress=plain . 
+	docker build -t nearcore -f Dockerfile --progress=plain .
 
 docker-nearcore-nightly:
-	DOCKER_BUILDKIT=1 docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain . 
-
-export RUSTFLAGS = -D warnings
+	docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain .
 
 release:
 	cargo build -p neard --release
