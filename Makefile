@@ -11,7 +11,7 @@ release:
 	cargo build -p near-vm-runner-standalone --release
 	cargo build -p state-viewer --release
 	cargo build -p store-validator --release
-	cargo build -p runtime-param-estimator --release
+	cargo build -p runtime-params-estimator --release
 	cargo build -p genesis-populate --release
 
 debug:
@@ -19,7 +19,7 @@ debug:
 	cargo build -p near-vm-runner-standalone
 	cargo build -p state-viewer
 	cargo build -p store-validator
-	cargo build -p runtime-param-estimator
+	cargo build -p runtime-params-estimator
 	cargo build -p genesis-populate
 
 perf-release:
@@ -39,7 +39,7 @@ nightly-release:
 	cargo build -p near-vm-runner-standalone --release --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p runtime-param-estimator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 nightly-debug:
@@ -47,7 +47,7 @@ nightly-debug:
 	cargo build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p runtime-param-estimator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 sandbox:
