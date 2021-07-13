@@ -37,6 +37,7 @@ serde_json = {version= "1", features= ["preserve_order"]}
 default = []
 protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
+protocol_feature_precompile_contracts = []
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

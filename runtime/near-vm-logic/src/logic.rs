@@ -2556,6 +2556,7 @@ impl<'a> VMLogic<'a> {
     }
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
+    #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
     pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)

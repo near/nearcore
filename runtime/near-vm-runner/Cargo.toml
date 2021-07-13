@@ -65,6 +65,7 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
+protocol_feature_precompile_contracts = ["near-vm-logic/protocol_feature_precompile_contracts", "near-primitives/protocol_feature_precompile_contracts"]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
