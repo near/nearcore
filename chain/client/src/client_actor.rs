@@ -596,12 +596,13 @@ impl Handler<Status> for ClientActor {
         let validator_account_id =
             self.client.validator_signer.as_ref().map(|vs| vs.validator_id()).cloned();
 
-        let earliest_block_hash = self.client.chain.get_earliest_block_hash()?;
-        let mut earliest_block_time = None;
+        let mut earliest_block_hash = None;
         let mut earliest_block_height = None;
-        if let Some(earliest_block_hash_unwrapped) = earliest_block_hash {
+        let mut earliest_block_time = None;
+        if let Some(earliest_block_hash_value) = self.client.chain.get_earliest_block_hash()? {
+            earliest_block_hash = Some(earliest_block_hash_value);
             if let Ok(earliest_block) =
-                self.client.chain.get_block_header(&earliest_block_hash_unwrapped)
+                self.client.chain.get_block_header(&earliest_block_hash_value)
             {
                 earliest_block_height = Some(earliest_block.height());
                 earliest_block_time = Some(earliest_block.timestamp());
@@ -621,8 +622,8 @@ impl Handler<Status> for ClientActor {
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
                 earliest_block_hash,
-                earliest_block_time,
                 earliest_block_height,
+                earliest_block_time,
             },
             validator_account_id,
         })
