@@ -212,7 +212,8 @@ def compile_rust_contract(content):
         wasm_src = (build_dir / 'target' / 'wasm32-unknown-unknown' /
                     'release' / 'empty_contract_rs.wasm')
         wasm_fno, wasm_path = tempfile.mkstemp(suffix='.wasm')
-        atexit.register(pathlib.Path.unlink, Path(wasm_path), missing_ok=True)
+        atexit.register(pathlib.Path.unlink, pathlib.Path(wasm_path),
+                        missing_ok=True)
         with open(wasm_src, mode='rb') as rd, open(wasm_fno, mode='wb') as wr:
             shutil.copyfileobj(rd, wr)
     return wasm_path
