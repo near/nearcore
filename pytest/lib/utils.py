@@ -1,3 +1,4 @@
+import atexit
 import base58
 import hashlib
 import json
@@ -210,10 +211,9 @@ def compile_rust_contract(content):
                                'wasm32-unknown-unknown'), cwd=build_dir)
         wasm_src = (build_dir / 'target' / 'wasm32-unknown-unknown' /
                     'release' / 'empty_contract_rs.wasm')
-        # Yes, we are leaving this file in /tmp/near and there’s no automatic
-        # cleanup.  Yes, we probably should fix that at some point so that this
-        # temporary is deleted once the test finishes.
         wasm_fno, wasm_path = tempfile.mkstemp(suffix='.wasm')
+        atexit.register(pathlib.Path.unlink, pathlib.Path(wasm_path),
+                        missing_ok=True)
         with open(wasm_src, mode='rb') as rd, open(wasm_fno, mode='wb') as wr:
             shutil.copyfileobj(rd, wr)
     return wasm_path
