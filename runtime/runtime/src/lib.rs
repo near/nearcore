@@ -431,12 +431,10 @@ impl Runtime {
                     account,
                     actor_id,
                     receipt,
-                    action_receipt,
                     &mut result,
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                    &apply_state.config.transaction_costs,
                 )?;
             }
         };
