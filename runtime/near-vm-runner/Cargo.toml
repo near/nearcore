@@ -16,8 +16,8 @@ This crate implements the specification of the interface that Near blockchain ex
 borsh = "0.8.1"
 serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
-# Always used even for wasmer 1.0 for validating wasm, will be replaced when refactor prepare.rs
-wasmer-runtime-core = {version = "0.17.4", package = "wasmer-runtime-core-near" }
+wasmer-runtime-core = {version = "0.17.4", package = "wasmer-runtime-core-near", optional = true}
+wasmparser = "0.79"
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
 wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-features = false, features = ["std", "enable-serde"] } # disable `rayon` feature.
@@ -46,7 +46,7 @@ base64 = "0.13"
 [features]
 # all vms enabled for tests, but only one default vm, specified by runtime crate
 default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
-wasmer0_vm = [ "wasmer-runtime" ]
+wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-compiler-cranelift", "wasmer-engine-native", ]
 

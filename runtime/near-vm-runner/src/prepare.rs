@@ -4,7 +4,6 @@
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
-use wasmer_runtime_core::wasmparser;
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
@@ -16,7 +15,7 @@ struct ContractModule<'a> {
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
-        wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
+        wasmparser::validate(original_code).map_err(|_| PrepareError::Deserialization)?;
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })

@@ -131,4 +131,7 @@ skip = [
     # dependency which conflicts with 0.6.7 that wasmer-engine-native
     # uses.
     { name = "libloading", version = "=0.7.0" },
+
+    # wasmtime use older wasmparser
+    { name = "wasmparser", version = "=0.76.0" },
 ]
