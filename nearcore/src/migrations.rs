@@ -8,7 +8,6 @@ use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
@@ -18,6 +17,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::db::DBCol::ColReceipts;
 use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
@@ -354,7 +354,30 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 23);
 }
 
-pub fn migrate_23_to_24(path: &String) {
+lazy_static_include::lazy_static_include_bytes! {
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+}
+
+/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
+pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
+    let store = create_store(path);
+    if &near_config.genesis.config.chain_id == "mainnet" {
+        let mut store_update = store.store_update();
+        let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct");
+        for receipt in restored_receipts.get(&0u64).unwrap().iter() {
+            let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+            store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
+        }
+        store_update.commit().unwrap();
+    }
+    set_store_version(&store, 24);
+}
+
+pub fn migrate_24_to_25(path: &String) {
     let store = create_store(&path);
 
     #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq, Debug)]
@@ -434,7 +457,7 @@ pub fn migrate_23_to_24(path: &String) {
     }
     store_update.finish().expect("Failed to migrate");
 
-    set_store_version(&store, 24);
+    set_store_version(&store, 25);
 }
 
 lazy_static_include::lazy_static_include_bytes! {
@@ -448,14 +471,6 @@ lazy_static_include::lazy_static_include_bytes! {
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
-
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-lazy_static_include::lazy_static_include_bytes! {
-    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
-    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
-    /// See https://github.com/near/nearcore/pull/4248/ for more details.
-    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
-}
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";

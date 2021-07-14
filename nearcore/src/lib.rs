@@ -21,6 +21,7 @@ use near_telemetry::TelemetryActor;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
+    migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
 use near_store::migrations::{
@@ -219,7 +220,11 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     }
     if db_version <= 23 {
         info!(target: "near", "Migrate DB from version 23 to 24");
-        migrate_23_to_24(&path);
+        migrate_23_to_24(&path, &near_config);
+    }
+    if db_version <= 24 {
+        info!(target: "near", "Migrate DB from version 23 to 24");
+        migrate_24_to_25(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {

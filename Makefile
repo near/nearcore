@@ -1,53 +1,62 @@
-docker-nearcore:
-	DOCKER_BUILDKIT=1 docker build -t nearcore -f Dockerfile --progress=plain . 
-
-docker-nearcore-nightly:
-	DOCKER_BUILDKIT=1 docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain . 
-
-RUST_OPTIONS:=$(cat rust-toolchain)
-
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1
+export CARGO_PROFILE_RELEASE_LTO = fat
+export DOCKER_BUILDKIT = 1
 export RUSTFLAGS = -D warnings
 
+docker-nearcore:
+	docker build -t nearcore -f Dockerfile --progress=plain .
+
+docker-nearcore-nightly:
+	docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain .
+
 release:
-	cargo $(RUST_OPTIONS) build -p neard --release
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release
-	cargo $(RUST_OPTIONS) build -p state-viewer --release
-	cargo $(RUST_OPTIONS) build -p store-validator --release
+	cargo build -p neard --release
+	cargo build -p near-vm-runner-standalone --release
+	cargo build -p state-viewer --release
+	cargo build -p store-validator --release
+	cargo build -p runtime-params-estimator --release
+	cargo build -p genesis-populate --release
 
 debug:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone
-	cargo $(RUST_OPTIONS) build -p state-viewer
-	cargo $(RUST_OPTIONS) build -p store-validator
+	cargo build -p neard
+	cargo build -p near-vm-runner-standalone
+	cargo build -p state-viewer
+	cargo build -p store-validator
+	cargo build -p runtime-params-estimator
+	cargo build -p genesis-populate
 
 perf-release:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --release --features performance_stats,memory_stats
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release
-	cargo $(RUST_OPTIONS) build -p state-viewer --release --features nearcore/performance_stats,nearcore/memory_stats
-	cargo $(RUST_OPTIONS) build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats,memory_stats
+	cargo build -p near-vm-runner-standalone --release
+	cargo build -p state-viewer --release --features nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p store-validator --release --features nearcore/performance_stats,nearcore/memory_stats
 
 perf-debug:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --features performance_stats,memory_stats
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone
-	cargo $(RUST_OPTIONS) build -p state-viewer --features nearcore/performance_stats,nearcore/memory_stats
-	cargo $(RUST_OPTIONS) build -p store-validator --features nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p neard --features performance_stats,memory_stats
+	cargo build -p near-vm-runner-standalone
+	cargo build -p state-viewer --features nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p store-validator --features nearcore/performance_stats,nearcore/memory_stats
 
 nightly-release:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --release --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --release --features nightly_protocol,nightly_protocol_features
-	cargo $(RUST_OPTIONS) build -p state-viewer --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo $(RUST_OPTIONS) build -p store-validator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p neard --release --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
+	cargo build -p near-vm-runner-standalone --release --features nightly_protocol,nightly_protocol_features
+	cargo build -p state-viewer --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p store-validator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p genesis-populate --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 nightly-debug:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
-	cargo $(RUST_OPTIONS) build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
-	cargo $(RUST_OPTIONS) build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo $(RUST_OPTIONS) build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p neard --features nightly_protocol,nightly_protocol_features,performance_stats,memory_stats
+	cargo build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
+	cargo build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p genesis-populate --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 sandbox:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo $(RUST_OPTIONS) build -p neard --features sandbox
+	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --features sandbox
 	mv target/debug/neard target/debug/near-sandbox
 
 sandbox-release:
-	cargo $(RUST_OPTIONS) build -p neard --features sandbox
+	cargo build -p neard --features sandbox
 	mv target/release/neard target/release/near-sandbox

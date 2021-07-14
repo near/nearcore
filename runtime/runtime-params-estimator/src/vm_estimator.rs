@@ -23,7 +23,7 @@ const SIGNER_ACCOUNT_ID: &str = "bob";
 const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
 const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
-fn create_context(input: Vec<u8>) -> VMContext {
+pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
         current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
         signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
@@ -162,7 +162,10 @@ impl CompiledContractCache for MockCompiledContractCache {
     }
 }
 
-fn least_squares_method(xs: &Vec<u64>, ys: &Vec<u64>) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
+pub(crate) fn least_squares_method(
+    xs: &Vec<u64>,
+    ys: &Vec<u64>,
+) -> (Ratio<i128>, Ratio<i128>, Vec<i128>) {
     let n = xs.len();
     let n128 = n as i128;
 
@@ -276,26 +279,22 @@ pub(crate) fn compute_compile_cost_vm(
     vm_kind: VMKind,
     verbose: bool,
 ) -> (u64, u64) {
-    let mut base = 0i64;
-    let mut per_byte = 0i64;
-    rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap().install(|| {
-        let (a, b) = precompilation_cost(metric, vm_kind);
-        base = ratio_to_gas_signed(metric, a);
-        per_byte = ratio_to_gas_signed(metric, b);
-        if verbose {
-            println!(
-                "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
-                vm_kind,
-                metric,
-                a,
-                a.to_f64().unwrap(),
-                b,
-                b.to_f64().unwrap(),
-                base,
-                per_byte
-            );
-        }
-    });
+    let (a, b) = precompilation_cost(metric, vm_kind);
+    let base = ratio_to_gas_signed(metric, a);
+    let per_byte = ratio_to_gas_signed(metric, b);
+    if verbose {
+        println!(
+            "{:?} using {:?}: in a + b * x: a = {} ({}) b = {}({}) base = {} per_byte = {}",
+            vm_kind,
+            metric,
+            a,
+            a.to_f64().unwrap(),
+            b,
+            b.to_f64().unwrap(),
+            base,
+            per_byte
+        );
+    }
     match metric {
         GasMetric::ICount => (u64::try_from(base).unwrap(), u64::try_from(per_byte).unwrap()),
         // Time metric can lead to negative coefficients.
@@ -359,24 +358,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
         assert!(result.is_ok());
     }
     let mut fake_external = MockedExternal::new();
-    let fake_context = VMContext {
-        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
-        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
-        signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
-        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
-        input: vec![],
-        block_index: 10,
-        block_timestamp: 42,
-        epoch_height: 1,
-        account_balance: 2u128,
-        account_locked_balance: 0,
-        storage_usage: 12,
-        attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(14),
-        random_seed: vec![0, 1, 2],
-        is_view: false,
-        output_data_receivers: vec![],
-    };
+    let fake_context = create_context(vec![]);
     let fees = RuntimeFeesConfig::default();
 
     let start = start_count(gas_metric);

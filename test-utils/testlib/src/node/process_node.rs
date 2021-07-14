@@ -53,7 +53,7 @@ impl Node for ProcessNode {
                 self.state = ProcessNodeState::Running(child);
                 let client_addr = format!("http://{}", self.config.rpc_addr().unwrap());
                 thread::sleep(Duration::from_secs(3));
-                near_actix_test_utils::run_actix_until_stop(async move {
+                near_actix_test_utils::run_actix(async move {
                     WaitOrTimeout::new(
                         Box::new(move |_| {
                             actix::spawn(
