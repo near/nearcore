@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -15,53 +14,53 @@ use nearcore::{config::GenesisExt, NightshadeRuntime};
 
 use serde::{Deserialize, Serialize};
 
-pub fn run_from_json(path: &str) -> Result<RuntimeStats, io::Error> {
-    let reader = io::BufReader::new(File::open(path)?);
-    let scenario: Scenario = serde_json::from_reader::<io::BufReader<File>, Scenario>(reader)?;
-    Ok(run(&scenario))
-}
-
-pub fn run(scenario: &Scenario) -> RuntimeStats {
-    let genesis =
-        Genesis::test(scenario.network_config.seeds.iter().map(|x| x.as_ref()).collect(), 1);
-
-    let mut env = TestEnv::new_with_runtime(
-        ChainGenesis::from(&genesis),
-        1,
-        1,
-        vec![Arc::new(NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-        )) as Arc<dyn RuntimeAdapter>],
-    );
-
-    let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
-
-    let mut runtime_stats = RuntimeStats::default();
-
-    for block in &scenario.blocks {
-        let mut block_stats = BlockStats::at_height(block.height);
-
-        for tx in &block.transactions {
-            env.clients[0].process_tx(tx.to_signed_transaction(&last_block), false, false);
-        }
-
-        let start_time = Instant::now();
-
-        last_block = env.clients[0].produce_block(block.height).unwrap().unwrap();
-        env.process_block(0, last_block.clone(), Provenance::PRODUCED);
-
-        block_stats.block_production_time = start_time.elapsed();
-
-        runtime_stats.blocks_stats.push(block_stats);
+impl Scenario {
+    pub fn from_file(path: &Path) -> io::Result<Scenario> {
+        serde_json::from_str::<Scenario>(&std::fs::read_to_string(path)?).map_err(io::Error::from)
     }
 
-    runtime_stats
+    pub fn run(&self) -> RuntimeStats {
+        let genesis =
+            Genesis::test(self.network_config.seeds.iter().map(|x| x.as_ref()).collect(), 1);
+
+        let mut env = TestEnv::new_with_runtime(
+            ChainGenesis::from(&genesis),
+            1,
+            1,
+            vec![Arc::new(NightshadeRuntime::new(
+                Path::new("."),
+                create_test_store(),
+                &genesis,
+                vec![],
+                vec![],
+                None,
+                None,
+            )) as Arc<dyn RuntimeAdapter>],
+        );
+
+        let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+
+        let mut runtime_stats = RuntimeStats::default();
+
+        for block in &self.blocks {
+            let mut block_stats = BlockStats::at_height(block.height);
+
+            for tx in &block.transactions {
+                env.clients[0].process_tx(tx.to_signed_transaction(&last_block), false, false);
+            }
+
+            let start_time = Instant::now();
+
+            last_block = env.clients[0].produce_block(block.height).unwrap().unwrap();
+            env.process_block(0, last_block.clone(), Provenance::PRODUCED);
+
+            block_stats.block_production_time = start_time.elapsed();
+
+            runtime_stats.blocks_stats.push(block_stats);
+        }
+
+        runtime_stats
+    }
 }
 
 #[derive(Serialize, Deserialize)]

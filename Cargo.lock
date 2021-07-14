@@ -4853,6 +4853,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-tester"
+version = "0.1.0"
+dependencies = [
+ "near-chain",
+ "near-chain-configs",
+ "near-client",
+ "near-crypto",
+ "near-primitives",
+ "near-store",
+ "nearcore",
+ "serde",
+ "serde_json",
+ "testlib",
+]
+
+[[package]]
 name = "rust-argon2"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
