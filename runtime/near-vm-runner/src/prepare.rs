@@ -10,14 +10,14 @@ use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
 
 struct ContractModule<'a> {
-    module: elements::Module,
+    module: walrus::Module,
     config: &'a VMConfig,
 }
 
 impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a VMConfig) -> Result<Self, PrepareError> {
         wasmparser::validate(original_code, None).map_err(|_| PrepareError::Deserialization)?;
-        let module = elements::deserialize_buffer(original_code)
+        let module = walrus::Module::from_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
         Ok(ContractModule { module, config })
     }

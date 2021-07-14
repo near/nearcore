@@ -3644,6 +3644,7 @@ dependencies = [
  "threadpool",
  "tracing",
  "wabt",
+ "walrus 0.19.0",
  "wasmer",
  "wasmer-compiler-cranelift",
  "wasmer-compiler-singlepass",
@@ -4864,7 +4865,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "wabt",
- "walrus",
+ "walrus 0.18.0",
 ]
 
 [[package]]
@@ -6122,8 +6123,22 @@ dependencies = [
  "id-arena",
  "leb128",
  "log",
- "walrus-macro",
+ "walrus-macro 0.18.0",
  "wasmparser 0.59.0",
+]
+
+[[package]]
+name = "walrus"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4eb08e48cde54c05f363d984bb54ce374f49e242def9468d2e1b6c2372d291f8"
+dependencies = [
+ "anyhow",
+ "id-arena",
+ "leb128",
+ "log",
+ "walrus-macro 0.19.0",
+ "wasmparser 0.77.0",
 ]
 
 [[package]]
@@ -6131,6 +6146,18 @@ name = "walrus-macro"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c2bb690b44cb1b0fdcc54d4998d21f8bdaf706b93775425e440b174f39ad16"
+dependencies = [
+ "heck",
+ "proc-macro2 1.0.24",
+ "quote 1.0.9",
+ "syn 1.0.60",
+]
+
+[[package]]
+name = "walrus-macro"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a6e5bd22c71e77d60140b0bd5be56155a37e5bd14e24f5f87298040d0cc40d7"
 dependencies = [
  "heck",
  "proc-macro2 1.0.24",
@@ -6504,6 +6531,12 @@ name = "wasmparser"
 version = "0.76.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "755a9a4afe3f6cccbbe6d7e965eef44cf260b001f93e547eba84255c1d0187d8"
+
+[[package]]
+name = "wasmparser"
+version = "0.77.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b35c86d22e720a07d954ebbed772d01180501afe7d03d464f413bb5f8914a8d6"
 
 [[package]]
 name = "wasmtime"
