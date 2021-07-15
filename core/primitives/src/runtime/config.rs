@@ -133,6 +133,7 @@ impl Default for AccountCreationConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::version::PROTOCOL_VERSION;
 
     #[test]
     fn test_max_prepaid_gas() {
@@ -160,5 +161,26 @@ mod tests {
     fn test_max_gas_burnt_view() {
         let config = ActualRuntimeConfig::new(RuntimeConfig::default(), Some(42));
         assert_eq!(42, config.for_protocol_version(0).wasm_config.limit_config.max_gas_burnt_view);
+    }
+
+    #[test]
+    fn test_after_precompile_contract() {
+        let mut config = RuntimeConfig::default();
+        config.wasm_config.ext_costs.contract_compile_base = 100;
+        config.wasm_config.ext_costs.contract_compile_bytes = 10;
+        let config = ActualRuntimeConfig::new(config, None);
+
+        let new_cfg = config.for_protocol_version(PROTOCOL_VERSION);
+        if checked_feature!(
+            "protocol_feature_precompile_contracts",
+            PrecompileContracts,
+            PROTOCOL_VERSION
+        ) {
+            assert_eq!(new_cfg.wasm_config.ext_costs.contract_compile_base, 0);
+            assert_eq!(new_cfg.wasm_config.ext_costs.contract_compile_bytes, 0);
+        } else {
+            assert_eq!(new_cfg.wasm_config.ext_costs.contract_compile_base, 100);
+            assert_eq!(new_cfg.wasm_config.ext_costs.contract_compile_bytes, 10);
+        }
     }
 }
