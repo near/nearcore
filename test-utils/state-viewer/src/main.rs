@@ -704,8 +704,6 @@ fn main() {
             println!("Storage under key {} of account {} not found", storage_key, account_id);
             std::process::exit(1);
         }
-        (_, _) => {
-            unreachable!()
-        }
+        (_, _) => unreachable!(),
     }
 }
