@@ -8,7 +8,7 @@ pub mod wasmtime_runner {
     use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
     use near_primitives::{
-        config::VMConfig, profile::ProfileData, types::CompiledContractCache,
+        checked_feature, config::VMConfig, profile::ProfileData, types::CompiledContractCache,
         version::ProtocolVersion,
     };
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap};
@@ -186,14 +186,15 @@ pub mod wasmtime_runner {
             current_protocol_version,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-        if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
-            return (
-                Some(logic.outcome()),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    near_vm_errors::HostError::GasExceeded,
-                ))),
-            );
+        if !checked_feature!("protocol_feature_precompile_contracts", PrecompileContracts, current_protocol_version) {
+            if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+                return (
+                    Some(logic.outcome()),
+                    Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                        near_vm_errors::HostError::GasExceeded,
+                    ))),
+                );
+            }
         }
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.

@@ -2,7 +2,7 @@ use crate::errors::IntoVMError;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{profile::ProfileData, types::CompiledContractCache};
+use near_primitives::{checked_feature, profile::ProfileData, types::CompiledContractCache};
 use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, WasmTrap,
 };
@@ -243,14 +243,15 @@ pub fn run_wasmer1(
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
-        return (
-            Some(logic.outcome()),
-            Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                near_vm_errors::HostError::GasExceeded,
-            ))),
-        );
+    if !checked_feature!("protocol_feature_precompile_contracts", PrecompileContracts, current_protocol_version) {
+        if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+            return (
+                Some(logic.outcome()),
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    near_vm_errors::HostError::GasExceeded,
+                ))),
+            );
+        }
     }
 
     let import_object =
