@@ -138,6 +138,7 @@ mod tests {
     #[test]
     fn test_max_prepaid_gas() {
         let config = RuntimeConfig::default();
+        eprintln!("{} {}", config.wasm_config.limit_config.max_total_prepaid_gas, config.transaction_costs.min_receipt_with_function_call_gas());
         assert!(
             config.wasm_config.limit_config.max_total_prepaid_gas
                 / config.transaction_costs.min_receipt_with_function_call_gas()
