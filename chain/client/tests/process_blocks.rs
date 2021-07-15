@@ -3272,6 +3272,7 @@ mod storage_usage_fix_tests {
     }
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;

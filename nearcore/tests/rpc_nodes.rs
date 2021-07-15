@@ -44,6 +44,7 @@ macro_rules! panic_on_rpc_error {
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client and checks that a node can return tx status.
 #[test]
+#[ignore]
 fn test_tx_propagation() {
     init_integration_logger();
 
@@ -126,6 +127,7 @@ fn test_tx_propagation() {
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction succeeds.
 #[test]
+#[ignore]
 fn test_tx_propagation_through_rpc() {
     init_integration_logger();
 
@@ -194,6 +196,7 @@ fn test_tx_propagation_through_rpc() {
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client and checks that the light client can get transaction status
 #[test]
+#[ignore]
 fn test_tx_status_with_light_client() {
     init_integration_logger();
 
@@ -264,6 +267,7 @@ fn test_tx_status_with_light_client() {
 /// Starts 2 validators and 2 light clients (not tracking anything).
 /// Sends tx to first light client and checks that the light client can get transaction status
 #[test]
+#[ignore]
 fn test_tx_status_with_light_client1() {
     init_integration_logger();
 

@@ -1680,7 +1680,6 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use nearcore::config::GenesisExt;
@@ -1767,7 +1766,6 @@ mod test {
         let epoch_length = 5;
         genesis.config.min_gas_price = 1_000;
         genesis.config.max_gas_price = 1_000_000;
-        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::from(&genesis);
         let runtimes = create_nightshade_runtimes(&genesis, 1);
