@@ -130,7 +130,7 @@ fn make_deeply_nested_blocks_contact(depth: i32) -> ContractCode {
             )",
         blocks
     );
-    ContractCode::new(wabt::wat2wasm(code.as_bytes()).unwrap(), None)
+    ContractCode::new(wat::parse_str(code).unwrap(), None)
 }
 
 fn make_simple_loop_contact(depth: i32) -> ContractCode {
@@ -158,7 +158,7 @@ fn make_simple_loop_contact(depth: i32) -> ContractCode {
             )",
         depth
     );
-    ContractCode::new(wabt::wat2wasm(code.as_bytes()).unwrap(), None)
+    ContractCode::new(wat::parse_str(code).unwrap(), None)
 }
 
 /**

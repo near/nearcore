@@ -17,6 +17,10 @@ release:
 	cargo build -p runtime-params-estimator --release
 	cargo build -p genesis-populate --release
 
+neard:
+	cargo build -p neard --release --bin neard
+	@echo 'neard binary ready in ./target/release/neard'
+
 debug:
 	cargo build -p neard
 	cargo build -p near-vm-runner-standalone
@@ -42,7 +46,7 @@ nightly-release:
 	cargo build -p near-vm-runner-standalone --release --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p runtime-params-estimator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --release --features nightly_protocol,nightly_protocol_features,nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 nightly-debug:
@@ -50,7 +54,7 @@ nightly-debug:
 	cargo build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p runtime-params-estimator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --features nightly_protocol,nightly_protocol_features,nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 sandbox:
@@ -60,3 +64,8 @@ sandbox:
 sandbox-release:
 	cargo build -p neard --features sandbox
 	mv target/release/neard target/release/near-sandbox
+
+
+.PHONY: docker-nearcore docker-nearcore-nightly release neard debug
+.PHONY: perf-release perf-debug nightly-release nightly-debug sandbox
+.PHONY: sandbox-release
