@@ -18,6 +18,7 @@ pub mod testbed;
 // of nonces.
 mod gas_metering;
 pub mod testbed_runners;
+mod function_call;
 
 /// Lazily loads contract's code from a directory in the source tree.
 pub(crate) struct TestContract {
