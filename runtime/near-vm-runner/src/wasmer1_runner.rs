@@ -243,7 +243,11 @@ pub fn run_wasmer1(
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    if !checked_feature!("protocol_feature_precompile_contracts", PrecompileContracts, current_protocol_version) {
+    if !checked_feature!(
+        "protocol_feature_precompile_contracts",
+        PrecompileContracts,
+        current_protocol_version
+    ) {
         if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
             return (
                 Some(logic.outcome()),

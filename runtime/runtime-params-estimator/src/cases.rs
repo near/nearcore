@@ -714,23 +714,15 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     }
 }
 
-fn get_ext_costs_config(
-    measurement: &Measurements,
-    #[cfg(not(feature = "protocol_feature_precompile_contracts"))] config: &Config,
-) -> ExtCostsConfig {
+fn get_ext_costs_config(measurement: &Measurements) -> ExtCostsConfig {
     let mut generator = ExtCostsGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
     use ExtCosts::*;
-    #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-    let (contract_compile_base_, contract_compile_bytes_) =
-        compute_compile_cost_vm(config.metric, config.vm_kind, false);
     ExtCostsConfig {
         base: measured_to_gas(metric, &measured, base),
-        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-        contract_compile_base: contract_compile_base_,
-        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-        contract_compile_bytes: contract_compile_bytes_,
+        contract_compile_base: 0,
+        contract_compile_bytes: 0,
         read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
         read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
         write_memory_base: measured_to_gas(metric, &measured, write_memory_base),
@@ -818,16 +810,9 @@ fn get_ext_costs_config(
     }
 }
 
-fn get_vm_config(
-    measurement: &Measurements,
-    #[cfg(not(feature = "protocol_feature_precompile_contracts"))] config: &Config,
-) -> VMConfig {
+fn get_vm_config(measurement: &Measurements) -> VMConfig {
     VMConfig {
-        ext_costs: get_ext_costs_config(
-            measurement,
-            #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-            config,
-        ),
+        ext_costs: get_ext_costs_config(measurement),
         // TODO: Figure out whether we need this fee at all. If we do what should be the memory
         // growth cost.
         grow_mem_cost: 1,
@@ -841,11 +826,7 @@ fn get_vm_config(
 
 fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeConfig {
     let mut runtime_config = RuntimeConfig::default();
-    runtime_config.wasm_config = get_vm_config(
-        measurement,
-        #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-        config,
-    );
+    runtime_config.wasm_config = get_vm_config(measurement);
 
     // Compiling small test contract that was used for `noop` function call estimation.
     load_and_compile(
@@ -857,33 +838,18 @@ fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeCon
 
     runtime_config.transaction_costs = get_runtime_fees_config(measurement);
 
-    // Shifting compilation costs from function call runtime to the deploy action cost at execution
-    // time. Contract used in deploy action testing is very small, so we have to use more complex
+    // Adding compilation costs to the deploy action cost.
+    // Contract used in deploy action testing is very small, so we have to use more complex
     // technique to compute the actual coefficients.
-    #[cfg(feature = "protocol_feature_precompile_contracts")]
-    {
-        let (contract_compile_base, contract_compile_bytes) =
-            compute_compile_cost_vm(config.metric, config.vm_kind, false);
-        runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
-            contract_compile_base;
-        runtime_config
-            .transaction_costs
-            .action_creation_config
-            .deploy_contract_cost_per_byte
-            .execution += contract_compile_bytes;
-    }
-    #[cfg(not(feature = "protocol_feature_precompile_contracts"))]
-    {
-        runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
-            runtime_config.wasm_config.ext_costs.contract_compile_base;
-        runtime_config
-            .transaction_costs
-            .action_creation_config
-            .deploy_contract_cost_per_byte
-            .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes;
-        runtime_config.wasm_config.ext_costs.contract_compile_base = 0;
-        runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
-    }
+    let (contract_compile_base, contract_compile_bytes) =
+        compute_compile_cost_vm(config.metric, config.vm_kind, false);
+    runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
+        contract_compile_base;
+    runtime_config
+        .transaction_costs
+        .action_creation_config
+        .deploy_contract_cost_per_byte
+        .execution += contract_compile_bytes;
 
     runtime_config
 }

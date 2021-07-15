@@ -96,7 +96,11 @@ impl ActualRuntimeConfig {
     /// still return configuration which differs from configuration found in
     /// genesis file by the `max_gas_burnt_view` limit.
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
-        if checked_feature!("protocol_feature_precompile_contracts", PrecompileContracts, protocol_version) {
+        if checked_feature!(
+            "protocol_feature_precompile_contracts",
+            PrecompileContracts,
+            protocol_version
+        ) {
             &self.precompilation_protocol_config
         } else if checked_feature!("stable", LowerStorageCost, protocol_version) {
             &self.with_lower_storage_cost
