@@ -83,10 +83,7 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
                 signer,
-                actions: vec![Action::Stake(StakeAction {
-                    stake: amount,
-                    public_key,
-                })],
+                actions: vec![Action::Stake(StakeAction { stake: amount, public_key })],
             })
         });
 
