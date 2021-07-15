@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::checked_feature;
-use crate::config::VMConfig;
+use crate::config::{ExtCostsConfig, VMConfig};
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance, Gas};
@@ -84,6 +84,7 @@ impl ActualRuntimeConfig {
         let with_lower_storage_cost = Arc::new(config.clone());
 
         // Adjust transaction costs at the time of adding precompilation.
+        config.wasm_config.ext_costs = ExtCostsConfig::default();
         config.transaction_costs = RuntimeFeesConfig::default();
         let precompilation_protocol_config = Arc::new(config);
 

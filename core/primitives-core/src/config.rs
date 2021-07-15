@@ -339,8 +339,8 @@ impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
             base: SAFETY_MULTIPLIER * 88256037,
-            contract_compile_base: SAFETY_MULTIPLIER * 11815321,
-            contract_compile_bytes: SAFETY_MULTIPLIER * 72250,
+            contract_compile_base: 0,
+            contract_compile_bytes: 0,
             read_memory_base: SAFETY_MULTIPLIER * 869954400,
             read_memory_byte: SAFETY_MULTIPLIER * 1267111,
             write_memory_base: SAFETY_MULTIPLIER * 934598287,
