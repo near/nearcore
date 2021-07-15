@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ansi_term::Color::Red;
-use clap::{App, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, SubCommand};
 
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
@@ -420,6 +420,7 @@ fn main() {
 
     let default_home = get_default_home();
     let matches = App::new("state-viewer")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg(
             Arg::with_name("home")
                 .long("home")
@@ -703,6 +704,8 @@ fn main() {
             println!("Storage under key {} of account {} not found", storage_key, account_id);
             std::process::exit(1);
         }
-        (_, _) => unreachable!(),
+        (_, _) => {
+            unreachable!()
+        }
     }
 }
