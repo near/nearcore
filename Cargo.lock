@@ -3636,6 +3636,7 @@ dependencies = [
  "wasmer-runtime-near",
  "wasmer-types",
  "wasmer-vm",
+ "wasmparser 0.51.4",
  "wasmtime",
  "wat",
 ]
