@@ -62,6 +62,9 @@ pub struct ActualRuntimeConfig {
 
     /// The runtime configuration with lower storage cost adjustment applied.
     with_lower_storage_cost: Arc<RuntimeConfig>,
+
+    /// The runtime configuration with fees updated at the time of adding precompilation.
+    precompilation_protocol_config: Arc<RuntimeConfig>,
 }
 
 impl ActualRuntimeConfig {
@@ -78,11 +81,13 @@ impl ActualRuntimeConfig {
 
         // Adjust as per LowerStorageCost protocol feature.
         config.storage_amount_per_byte = 10u128.pow(19);
-        let with_lower_storage_cost = Arc::new(config);
+        let with_lower_storage_cost = Arc::new(config.clone());
 
-        // Adjust transaction costs at the time of adding precompilation
-        let precompilation_protocol_config = RuntimeConfig::default();
-        config.transaction_costs = Self { runtime_config, with_lower_storage_cost }
+        // Adjust transaction costs at the time of adding precompilation.
+        config.transaction_costs = RuntimeFeesConfig::default();
+        let precompilation_protocol_config = Arc::new(config);
+
+        Self { runtime_config, with_lower_storage_cost, precompilation_protocol_config }
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
@@ -91,7 +96,9 @@ impl ActualRuntimeConfig {
     /// still return configuration which differs from configuration found in
     /// genesis file by the `max_gas_burnt_view` limit.
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
-        if checked_feature!("stable", LowerStorageCost, protocol_version) {
+        if checked_feature!("protocol_feature_precompile_contracts", PrecompileContracts, protocol_version) {
+            &self.precompilation_protocol_config
+        } else if checked_feature!("stable", LowerStorageCost, protocol_version) {
             &self.with_lower_storage_cost
         } else {
             &self.runtime_config
