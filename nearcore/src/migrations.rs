@@ -6,14 +6,19 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::Gas;
+use near_primitives::transaction::{
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, LogEntry,
+};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::db::DBCol::ColReceipts;
-use near_store::migrations::set_store_version;
+use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
 
@@ -370,6 +375,89 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
         store_update.commit().unwrap();
     }
     set_store_version(&store, 24);
+}
+
+pub fn migrate_24_to_25(path: &String) {
+    let store = create_store(&path);
+
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq, Debug)]
+    pub struct OldExecutionOutcome {
+        pub logs: Vec<LogEntry>,
+        pub receipt_ids: Vec<CryptoHash>,
+        pub gas_burnt: Gas,
+        pub tokens_burnt: Balance,
+        pub executor_id: AccountId,
+        pub status: ExecutionStatus,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithId {
+        pub id: CryptoHash,
+        pub outcome: OldExecutionOutcome,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+        pub outcome_with_id: OldExecutionOutcomeWithId,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    // In the case of old execution outcome hadn't migrated and failed to deserialize (inside
+    // error enums in ExecutionOutcome, so we can still get the first block_hash)
+    pub struct PartialExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+    }
+
+    impl Into<ExecutionOutcomeWithIdAndProof> for OldExecutionOutcomeWithIdAndProof {
+        fn into(self) -> ExecutionOutcomeWithIdAndProof {
+            ExecutionOutcomeWithIdAndProof {
+                proof: self.proof,
+                block_hash: self.block_hash,
+                outcome_with_id: ExecutionOutcomeWithId {
+                    id: self.outcome_with_id.id,
+                    outcome: ExecutionOutcome {
+                        logs: self.outcome_with_id.outcome.logs,
+                        receipt_ids: self.outcome_with_id.outcome.receipt_ids,
+                        gas_burnt: self.outcome_with_id.outcome.gas_burnt,
+                        tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
+                        executor_id: self.outcome_with_id.outcome.executor_id,
+                        status: self.outcome_with_id.outcome.status,
+                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                    },
+                },
+            }
+        }
+    }
+
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    for (key, value) in store.iter(DBCol::ColTransactionResult) {
+        if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
+            // has success in previous attempt of this migration
+            continue;
+        }
+
+        let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
+        let old_outcomes = match old_outcomes {
+            Ok(old_outcomes) => old_outcomes,
+            _ => {
+                // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
+                let old_outcome =
+                    OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                vec![old_outcome]
+            }
+        };
+        let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
+            old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
+        store_update
+            .set_ser(DBCol::ColTransactionResult, key.as_ref(), &outcomes)
+            .expect("BorshSerialize should not fail");
+    }
+    store_update.finish().expect("Failed to migrate");
+
+    set_store_version(&store, 25);
 }
 
 lazy_static_include::lazy_static_include_bytes! {
