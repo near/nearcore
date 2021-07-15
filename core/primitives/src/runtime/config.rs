@@ -80,7 +80,9 @@ impl ActualRuntimeConfig {
         config.storage_amount_per_byte = 10u128.pow(19);
         let with_lower_storage_cost = Arc::new(config);
 
-        Self { runtime_config, with_lower_storage_cost }
+        // Adjust transaction costs at the time of adding precompilation
+        let precompilation_protocol_config = RuntimeConfig::default();
+        config.transaction_costs = Self { runtime_config, with_lower_storage_cost }
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.

@@ -45,10 +45,10 @@ json_rpc = ["nearcore/json_rpc"]
 protocol_feature_evm = ["nearcore/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["nearcore/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nearcore/nightly_protocol_features"]
-nightly_protocol = ["nearcore/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
 protocol_feature_precompile_contracts = ["nearcore/protocol_feature_precompile_contracts"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features"]
+nightly_protocol = ["nearcore/nightly_protocol"]
 
 sandbox = ["nearcore/sandbox"]
 
