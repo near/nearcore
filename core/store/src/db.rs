@@ -7,8 +7,8 @@ use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction,
-    Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
+    Options, ReadOptions, WriteBatch, DB,
 };
 use strum::EnumIter;
 use tracing::warn;
