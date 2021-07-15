@@ -223,7 +223,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         migrate_23_to_24(&path, &near_config);
     }
     if db_version <= 24 {
-        info!(target: "near", "Migrate DB from version 23 to 24");
+        info!(target: "near", "Migrate DB from version 24 to 25");
         migrate_24_to_25(&path);
     }
     #[cfg(feature = "nightly_protocol")]
