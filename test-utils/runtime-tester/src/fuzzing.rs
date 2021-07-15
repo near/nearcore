@@ -1,11 +1,11 @@
 use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
-use nearcore::config::{TESTING_INIT_BALANCE, NEAR_BASE};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission},
-    transaction::{Action, AddKeyAction, StakeAction, CreateAccountAction, TransferAction},
+    transaction::{Action, AddKeyAction, CreateAccountAction, StakeAction, TransferAction},
     types::{AccountId, Balance, BlockHeight, Nonce},
 };
+use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
@@ -46,9 +46,8 @@ impl BlockConfig {
 
 impl TransactionConfig {
     fn arbitrary(u: &mut Unstructured, scope: &mut Scope) -> Result<Self> {
-        let mut options: Vec<
-            fn(&mut Unstructured, &mut Scope) -> Result<TransactionConfig>,
-        > = vec![];
+        let mut options: Vec<fn(&mut Unstructured, &mut Scope) -> Result<TransactionConfig>> =
+            vec![];
 
         scope.inc_nonce();
 
@@ -63,7 +62,11 @@ impl TransactionConfig {
                 nonce,
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id.clone(),
-                signer: InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id),
+                signer: InMemorySigner::from_seed(
+                    &signer_account.id,
+                    KeyType::ED25519,
+                    &signer_account.id,
+                ),
                 actions: vec![Action::Transfer(TransferAction { deposit: amount })],
             })
         });
@@ -74,7 +77,8 @@ impl TransactionConfig {
             let signer_account = scope.get_account(u)?;
             let balance = signer_account.balance;
             let amount = u.int_in_range::<u128>(0..=balance)?;
-            let signer = InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+            let signer =
+                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
             let public_key = signer.public_key.clone();
             Ok(TransactionConfig {
                 nonce,
@@ -90,8 +94,12 @@ impl TransactionConfig {
             let nonce = scope.get_nonce();
             let signer_account = scope.get_account(u)?;
             let new_account = scope.new_account();
-            let signer = InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
-            let new_public_key = InMemorySigner::from_seed(&new_account.id, KeyType::ED25519, &new_account.id).public_key.clone();
+            let signer =
+                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+            let new_public_key =
+                InMemorySigner::from_seed(&new_account.id, KeyType::ED25519, &new_account.id)
+                    .public_key
+                    .clone();
             Ok(TransactionConfig {
                 nonce,
                 signer_id: signer_account.id.clone(),
@@ -101,7 +109,10 @@ impl TransactionConfig {
                     Action::CreateAccount(CreateAccountAction {}),
                     Action::AddKey(AddKeyAction {
                         public_key: new_public_key,
-                        access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+                        access_key: AccessKey {
+                            nonce: 0,
+                            permission: AccessKeyPermission::FullAccess,
+                        },
                     }),
                     Action::Transfer(TransferAction { deposit: NEAR_BASE }),
                 ],
@@ -128,10 +139,7 @@ pub struct Account {
 
 impl Scope {
     fn from_seeds(seeds: &Vec<String>) -> Self {
-        let accounts = seeds
-            .iter()
-            .map(|id| { Account::from_id(id.clone()) })
-            .collect();
+        let accounts = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
         Scope { accounts, nonce: 0, height: 0 }
     }
 
@@ -164,9 +172,6 @@ impl Scope {
 
 impl Account {
     pub fn from_id(id: AccountId) -> Self {
-        Self {
-            id,
-            balance: TESTING_INIT_BALANCE,
-        }
+        Self { id, balance: TESTING_INIT_BALANCE }
     }
 }
