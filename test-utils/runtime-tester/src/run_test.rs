@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use near_chain::{Block, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{BlockHeight, Nonce};
@@ -19,7 +20,7 @@ impl Scenario {
         serde_json::from_str::<Scenario>(&std::fs::read_to_string(path)?).map_err(io::Error::from)
     }
 
-    pub fn run(&self) -> RuntimeStats {
+    pub fn run(&self) -> Result<RuntimeStats, Error> {
         let genesis =
             Genesis::test(self.network_config.seeds.iter().map(|x| x.as_ref()).collect(), 1);
 
@@ -51,7 +52,9 @@ impl Scenario {
 
             let start_time = Instant::now();
 
-            last_block = env.clients[0].produce_block(block.height).unwrap().unwrap();
+            last_block = env.clients[0]
+                .produce_block(block.height)?
+                .ok_or(Error::Other(String::from("No block has been produced")))?;
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
 
             block_stats.block_production_time = start_time.elapsed();
@@ -59,22 +62,22 @@ impl Scenario {
             runtime_stats.blocks_stats.push(block_stats);
         }
 
-        runtime_stats
+        Ok(runtime_stats)
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Scenario {
     pub network_config: NetworkConfig,
     pub blocks: Vec<BlockConfig>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkConfig {
     pub seeds: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BlockConfig {
     pub height: BlockHeight,
     pub transactions: Vec<TransactionConfig>,
@@ -115,6 +118,17 @@ impl TransactionConfig {
             &self.signer,
             self.actions.clone(),
             *last_block.hash(),
+        )
+    }
+}
+
+use core::fmt::Debug;
+impl Debug for TransactionConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "(Nonce: {}, SignerId: {}, ReceiverId: {}, Actions: {:?} )",
+            &self.nonce, &self.signer_id, &self.receiver_id, &self.actions
         )
     }
 }

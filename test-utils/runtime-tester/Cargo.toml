@@ -13,6 +13,7 @@ near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-client = { path = "../../chain/client" }
+near-client-primitives = { path = "../../chain/client-primitives" }
 nearcore = { path = "../../nearcore" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }

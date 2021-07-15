@@ -11,7 +11,7 @@ use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
-        let num_accounts = 100; // TODO fuzzing
+        let num_accounts = u.int_in_range(2..=100)?;
 
         let seeds: Vec<String> = (0..num_accounts).map(|i| format!("test{}", i)).collect();
 
@@ -53,13 +53,12 @@ impl TransactionConfig {
 
         // Transfer
         options.push(|u, scope| {
-            let nonce = scope.get_nonce();
             let signer_account = scope.get_account(u)?;
             let receiver_account = scope.get_account(u)?;
-            let balance = signer_account.balance;
-            let amount = u.int_in_range::<u128>(0..=balance)?;
+            let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
+
             Ok(TransactionConfig {
-                nonce,
+                nonce: scope.get_nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id.clone(),
                 signer: InMemorySigner::from_seed(
@@ -73,35 +72,36 @@ impl TransactionConfig {
 
         // Stake
         options.push(|u, scope| {
-            let nonce = scope.get_nonce();
             let signer_account = scope.get_account(u)?;
-            let balance = signer_account.balance;
-            let amount = u.int_in_range::<u128>(0..=balance)?;
+            let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
             let signer =
                 InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
             let public_key = signer.public_key.clone();
+
             Ok(TransactionConfig {
-                nonce,
+                nonce: scope.get_nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
-                signer: signer,
-                actions: vec![Action::Stake(StakeAction { stake: amount, public_key })],
+                signer,
+                actions: vec![Action::Stake(StakeAction {
+                    stake: amount,
+                    public_key,
+                })],
             })
         });
 
         // Create Account
         options.push(|u, scope| {
-            let nonce = scope.get_nonce();
             let signer_account = scope.get_account(u)?;
             let new_account = scope.new_account();
+
             let signer =
                 InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
             let new_public_key =
                 InMemorySigner::from_seed(&new_account.id, KeyType::ED25519, &new_account.id)
-                    .public_key
-                    .clone();
+                    .public_key;
             Ok(TransactionConfig {
-                nonce,
+                nonce: scope.get_nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: new_account.id.clone(),
                 signer,
