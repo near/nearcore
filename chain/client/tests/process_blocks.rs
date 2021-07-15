@@ -99,12 +99,12 @@ fn prepare_env_with_congestion(
     gas_price_adjustment_rate: Option<Rational>,
     number_of_transactions: u64,
 ) -> (TestEnv, Vec<CryptoHash>) {
-    init_test_logger();
+    // init_test_logger();
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     genesis.config.protocol_version = protocol_version;
     genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = 10_000_000_000_000;
+    genesis.config.gas_limit = 1_000_000_000_000;
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
         genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     }
@@ -2846,6 +2846,7 @@ fn test_congestion_receipt_execution() {
     env.produce_block(0, height);
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+    eprintln!("{} {}", chunk_extra.gas_used(), chunk_extra.gas_limit());
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update =
         env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
