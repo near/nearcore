@@ -90,8 +90,6 @@ pub enum ProtocolFeature {
     /// Add versions to `Account` data structure
     AccountVersions,
     TransactionSizeLimit,
-    /// Delete account can create implicit accounts
-    AllowCreateAccountOnDelete,
     /// Fix a bug in `storage_usage` for account caused by #3824
     FixStorageUsage,
     /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
@@ -133,7 +131,6 @@ impl ProtocolFeature {
             ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions => 46,
             ProtocolFeature::TransactionSizeLimit => 46,
-            ProtocolFeature::AllowCreateAccountOnDelete => 46,
             ProtocolFeature::FixStorageUsage => 46,
             ProtocolFeature::CapMaxGasPrice => 46,
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,

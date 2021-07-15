@@ -939,15 +939,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(*deposit, 0);
                      }
                      => [ref2] );
-
-    assert_receipts!(group, "near_3" => r3 @ "near_2",
-                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-                         actions,
-                         a0, Action::Transfer(TransferAction{deposit}), {
-                            assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
-                         }
-                         => [ref3] );
-    assert_refund!(group, ref3 @ "near_0");
+    assert_refund!(group, r3 @ "near_2");
 
     assert_refund!(group, ref0 @ "near_0");
     assert_refund!(group, ref1 @ "near_0");
