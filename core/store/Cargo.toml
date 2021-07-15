@@ -37,6 +37,7 @@ harness = false
 [features]
 default = []
 no_cache = []
+single_thread_rocksdb = []
 adversarial = []
 protocol_feature_block_header_v3 = []
 nightly_protocol = []
