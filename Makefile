@@ -67,7 +67,7 @@ sandbox:
 	mv target/debug/neard target/debug/near-sandbox
 
 sandbox-release:
-	cargo build -p neard --features sandbox
+	cargo build -p neard --features sandbox --release
 	mv target/release/neard target/release/near-sandbox
 
 
