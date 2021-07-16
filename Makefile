@@ -3,11 +3,6 @@ export CARGO_PROFILE_RELEASE_LTO = fat
 export DOCKER_BUILDKIT = 1
 export RUSTFLAGS = -D warnings
 
-
-# By default, build a regular release
-all: release
-
-
 docker-nearcore:
 	docker build -t nearcore -f Dockerfile --progress=plain .
 
