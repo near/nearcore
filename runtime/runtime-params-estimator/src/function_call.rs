@@ -114,7 +114,7 @@ pub fn compute_function_call_cost(
     // Warmup.
     let result = run_vm(
         &contract,
-        "get_version",
+        "state_migration",
         &mut fake_external,
         fake_context.clone(),
         &vm_config,
@@ -132,7 +132,7 @@ pub fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = run_vm(
             &contract,
-            "get_version",
+            "state_migration",
             &mut fake_external,
             fake_context.clone(),
             &vm_config,
