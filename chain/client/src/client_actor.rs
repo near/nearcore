@@ -558,7 +558,7 @@ impl Handler<Status> for ClientActor {
 
         let head = self.client.chain.head()?;
         let head_header = self.client.chain.get_block_header(&head.last_block_hash)?;
-        let latest_block_time = head_header.raw_timestamp().clone();
+        let latest_block_time = head_header.raw_timestamp();
         let latest_state_root = head_header.prev_state_root().clone().into();
         if msg.is_health_check {
             let now = Utc::now();
