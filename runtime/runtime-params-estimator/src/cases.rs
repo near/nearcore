@@ -586,11 +586,9 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         promise_return_100k => promise_return_100k,
         data_producer_10b => data_producer_10b,
         data_producer_100kib => data_producer_100kib,
-        // data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-        // data_receipt_10b_1000 => data_receipt_10b_1000,
-        // data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
 
+    eprintln!("111111111");
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
         let start = start_count(GasMetric::Time);
@@ -599,6 +597,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         m.print();
     }
 
+    eprintln!("222222222");
     let v = calls_helper! {
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
