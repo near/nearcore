@@ -35,8 +35,8 @@ use near_primitives::syncing::{
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
-    ShardId,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId,
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -66,6 +66,7 @@ use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use std::thread;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2778,6 +2779,8 @@ impl<'a> ChainUpdate<'a> {
         let protocol_version =
             self.runtime_adapter.get_epoch_protocol_version(block.header().epoch_id())?;
 
+        let mut same_height_handlers = Vec::new();
+        let mut dif_height_handlers = Vec::new();
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
         {
@@ -2887,32 +2890,96 @@ impl<'a> ChainUpdate<'a> {
                             shard_id,
                         )?;
 
-                    // Apply transactions and receipts.
-                    let apply_result = self
-                        .runtime_adapter
-                        .apply_transactions(
-                            shard_id,
-                            chunk_inner.prev_state_root(),
-                            chunk_header.height_included(),
-                            block.header().raw_timestamp(),
-                            &chunk_header.prev_block_hash(),
-                            &block.hash(),
-                            &receipts,
-                            chunk.transactions(),
-                            chunk_inner.validator_proposals(),
-                            prev_block.header().gas_price(),
-                            gas_limit,
-                            &block.header().challenges_result(),
-                            *block.header().random_value(),
-                            true,
-                            is_first_block_with_chunk_of_version,
-                            #[cfg(feature = "sandbox")]
-                            self.states_to_patch.take(),
-                            #[cfg(not(feature = "sandbox"))]
-                            None,
-                        )
-                        .map_err(|e| ErrorKind::Other(e.to_string()))?;
+                    let runtime_adapter = self.runtime_adapter.clone();
+                    let block_hash = block.hash().clone();
+                    let challenges_result = block.header().challenges_result().clone();
+                    let block_timestamp = block.header().raw_timestamp();
+                    let gas_price = prev_block.header().gas_price();
+                    let random_seed = *block.header().random_value();
+                    let height = chunk_header.height_included();
+                    let prev_block_hash = chunk_header.prev_block_hash().clone();
 
+                    same_height_handlers.push(thread::spawn(
+                        move || -> Result<(ShardId, Gas, ApplyTransactionResult), Error> {
+                            match runtime_adapter.apply_transactions(
+                                shard_id,
+                                chunk_inner.prev_state_root(),
+                                height,
+                                block_timestamp,
+                                &prev_block_hash,
+                                &block_hash,
+                                &receipts,
+                                chunk.transactions(),
+                                chunk_inner.validator_proposals(),
+                                gas_price,
+                                gas_limit,
+                                &challenges_result,
+                                random_seed,
+                                true,
+                                is_first_block_with_chunk_of_version,
+                                #[cfg(feature = "sandbox")]
+                                self.states_to_patch.take(),
+                                #[cfg(not(feature = "sandbox"))]
+                                None,
+                            ) {
+                                Ok(result) => Ok((shard_id, gas_limit, result)),
+                                Err(err) => Err(err),
+                            }
+                        },
+                    ));
+                } else {
+                    let new_extra = self
+                        .chain_store_update
+                        .get_chunk_extra(&prev_block.hash(), shard_id)?
+                        .clone();
+
+                    let runtime_adapter = self.runtime_adapter.clone();
+                    let block_hash = block.hash().clone();
+                    let challenges_result = block.header().challenges_result().clone();
+                    let block_timestamp = block.header().raw_timestamp();
+                    let gas_price = block.header().gas_price();
+                    let random_seed = *block.header().random_value();
+                    let height = block.header().height();
+                    let prev_block_hash = prev_block.hash().clone();
+
+                    dif_height_handlers.push(thread::spawn(
+                        move || -> Result<(ShardId, ApplyTransactionResult), Error> {
+                            match runtime_adapter.apply_transactions(
+                                shard_id,
+                                new_extra.state_root(),
+                                height,
+                                block_timestamp,
+                                &prev_block_hash,
+                                &block_hash,
+                                &[],
+                                &[],
+                                new_extra.validator_proposals(),
+                                gas_price,
+                                new_extra.gas_limit(),
+                                &challenges_result,
+                                random_seed,
+                                false,
+                                false,
+                                #[cfg(feature = "sandbox")]
+                                self.states_to_patch.take(),
+                                #[cfg(not(feature = "sandbox"))]
+                                None,
+                            ) {
+                                Ok(result) => Ok((shard_id, result)),
+                                Err(err) => Err(err),
+                            }
+                        },
+                    ));
+                }
+            }
+        }
+
+        for result in same_height_handlers {
+            let res = result.join();
+            match res {
+                Ok(res) => {
+                    let (shard_id, gas_limit, apply_result) =
+                        res.map_err(|e| ErrorKind::Other(e.to_string()))?;
                     let (outcome_root, outcome_paths) =
                         ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
@@ -2942,42 +3009,49 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.outcomes,
                         outcome_paths,
                     );
-                } else {
+                }
+                Err(err) => {
+                    let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
+                        msg.to_string()
+                    } else if let Some(msg) = err.downcast_ref::<String>() {
+                        msg.clone()
+                    } else {
+                        format!("?{:?}", err)
+                    };
+                    panic!("{}", msg);
+                }
+            }
+        }
+
+        for result in dif_height_handlers {
+            let res = result.join();
+            match res {
+                Ok(res) => {
+                    let (shard_id, apply_result) =
+                        res.map_err(|e| ErrorKind::Other(e.to_string()))?;
+
                     let mut new_extra = self
                         .chain_store_update
                         .get_chunk_extra(&prev_block.hash(), shard_id)?
                         .clone();
-
-                    let apply_result = self
-                        .runtime_adapter
-                        .apply_transactions(
-                            shard_id,
-                            new_extra.state_root(),
-                            block.header().height(),
-                            block.header().raw_timestamp(),
-                            &prev_block.hash(),
-                            &block.hash(),
-                            &[],
-                            &[],
-                            new_extra.validator_proposals(),
-                            block.header().gas_price(),
-                            new_extra.gas_limit(),
-                            &block.header().challenges_result(),
-                            *block.header().random_value(),
-                            false,
-                            false,
-                            self.states_to_patch.take(),
-                        )
-                        .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
                     self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                     *new_extra.state_root_mut() = apply_result.new_root;
 
                     self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
                 }
+                Err(err) => {
+                    let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
+                        msg.to_string()
+                    } else if let Some(msg) = err.downcast_ref::<String>() {
+                        msg.clone()
+                    } else {
+                        format!("?{:?}", err)
+                    };
+                    panic!("{}", msg);
+                }
             }
         }
-
         Ok(())
     }
 
