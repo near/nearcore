@@ -303,12 +303,6 @@ mod test {
     }
 
     #[test]
-    fn test_delete_account_implicit_beneficiary_account_runtime() {
-        let node = create_runtime_node();
-        test_delete_account_implicit_beneficiary_account(node);
-    }
-
-    #[test]
     fn test_delete_account_while_staking_runtime() {
         let node = create_runtime_node();
         test_delete_account_while_staking(node);

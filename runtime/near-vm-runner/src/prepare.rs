@@ -4,7 +4,6 @@
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
-use wasmer_runtime_core::wasmparser;
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
@@ -166,12 +165,11 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use wabt;
 
     use super::*;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
-        let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
+        let wasm = wat::parse_str(wat).unwrap();
         let config = VMConfig::default();
         prepare_contract(wasm.as_ref(), &config)
     }

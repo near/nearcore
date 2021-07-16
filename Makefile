@@ -3,6 +3,11 @@ export CARGO_PROFILE_RELEASE_LTO = fat
 export DOCKER_BUILDKIT = 1
 export RUSTFLAGS = -D warnings
 
+
+# By default, build a regular release
+all: release
+
+
 docker-nearcore:
 	docker build -t nearcore -f Dockerfile --progress=plain .
 
@@ -46,7 +51,7 @@ nightly-release:
 	cargo build -p near-vm-runner-standalone --release --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p runtime-params-estimator --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --release --features nightly_protocol,nightly_protocol_features,nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --release --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 nightly-debug:
@@ -54,7 +59,7 @@ nightly-debug:
 	cargo build -p near-vm-runner-standalone --features nightly_protocol,nightly_protocol_features
 	cargo build -p state-viewer --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p store-validator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
-	cargo build -p runtime-params-estimator --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
+	cargo build -p runtime-params-estimator --features nightly_protocol,nightly_protocol_features,nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 	cargo build -p genesis-populate --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 sandbox:
