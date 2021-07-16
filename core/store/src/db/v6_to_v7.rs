@@ -50,7 +50,7 @@ fn rocksdb_column_options_v6(col: DBCol) -> Options {
     let mut opts = rocksdb_column_options(DBCol::ColDbVersion);
 
     if col == DBCol::ColState {
-        opts.set_merge_operator("refcount merge", refcount_merge_v6, None);
+        opts.set_merge_operator("refcount merge", refcount_merge_v6, refcount_merge_v6);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts

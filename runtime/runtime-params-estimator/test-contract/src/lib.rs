@@ -47,10 +47,16 @@ extern "C" {
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak256(value_len: u64, value_ptr: u64, register_id: u64);
     fn keccak512(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_math_extension")]
     fn ripemd160(value_len: u64, value_ptr: u64, register_id: u64);
-    #[cfg(feature = "protocol_feature_math_extension")]
-    fn ecrecover(hash_len: u64, hash_ptr: u64, sig_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64) -> u64;
+    fn ecrecover(
+        hash_len: u64,
+        hash_ptr: u64,
+        sig_len: u64,
+        sig_ptr: u64,
+        v: u64,
+        malleability_flag: u64,
+        register_id: u64,
+    ) -> u64;
     // #####################
     // # Miscellaneous API #
     // #####################
@@ -432,7 +438,6 @@ pub unsafe fn keccak512_10kib_10k() {
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10b 10k times.
-#[cfg(feature = "protocol_feature_math_extension")]
 #[no_mangle]
 pub unsafe fn ripemd160_10b_10k() {
     let buffer = [65u8; 10];
@@ -444,7 +449,6 @@ pub unsafe fn ripemd160_10b_10k() {
 // and `write_register_byte`. However `ripemd160` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ripemd160 on 10kib 10k times.
-#[cfg(feature = "protocol_feature_math_extension")]
 #[no_mangle]
 pub unsafe fn ripemd160_10kib_10k() {
     let buffer = [65u8; 10240];
@@ -457,7 +461,6 @@ pub unsafe fn ripemd160_10kib_10k() {
 // `write_register_byte`. However `ecrecover` computation is more expensive than register writing
 // so we are okay overcharging it.
 // Compute ecrecover 10k times.
-#[cfg(feature = "protocol_feature_math_extension")]
 #[no_mangle]
 pub unsafe fn ecrecover_10k() {
     let hash_buffer: [u8; 32] = [
@@ -472,7 +475,7 @@ pub unsafe fn ecrecover_10k() {
         0xbb, 0x01, 0xc1, 0xd8, 0x1d, 0x10, 0xe6, 0x9f, 0x03, 0x84, 0xe6, 0x75, 0xc3, 0x2b, 0x39,
         0x64, 0x3b, 0xe8, 0x92,
     ];
-    
+
     for _ in 0..10_000 {
         ecrecover(32, hash_buffer.as_ptr() as _, 64, sig_buffer.as_ptr() as _, 0, 0, 0);
     }

@@ -71,7 +71,6 @@ pub struct VMLimitConfig {
     /// Max contract size
     pub max_contract_size: u64,
     /// Max transaction size
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
     pub max_transaction_size: u64,
     /// Max storage key size
     pub max_length_storage_key: u64,
@@ -154,7 +153,6 @@ impl Default for VMLimitConfig {
             max_arguments_length: 4 * 2u64.pow(20), // 4 Mib
             max_length_returned_data: 4 * 2u64.pow(20), // 4 Mib
             max_contract_size: 4 * 2u64.pow(20),    // 4 Mib,
-            #[cfg(feature = "protocol_feature_tx_size_limit")]
             max_transaction_size: 4 * 2u64.pow(20), // 4 Mib
 
             max_length_storage_key: 4 * 2u64.pow(20), // 4 Mib
@@ -223,14 +221,11 @@ pub struct ExtCostsConfig {
     /// Cost of getting sha256 per byte
     pub keccak512_byte: Gas,
 
-    #[cfg(feature = "protocol_feature_math_extension")]
     /// Cost of getting ripemd160 base
     pub ripemd160_base: Gas,
-    #[cfg(feature = "protocol_feature_math_extension")]
     /// Cost of getting ripemd160 per message block
     pub ripemd160_block: Gas,
 
-    #[cfg(feature = "protocol_feature_math_extension")]
     /// Cost of calling ecrecover
     pub ecrecover_base: Gas,
 
@@ -364,12 +359,9 @@ impl Default for ExtCostsConfig {
             keccak256_byte: SAFETY_MULTIPLIER * 7157035,
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ripemd160_base: SAFETY_MULTIPLIER * 284558362,
-            #[cfg(feature = "protocol_feature_math_extension")]
             // Cost per byte is 3542227. There are 64 bytes in a block.
             ripemd160_block: SAFETY_MULTIPLIER * 226702528,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
@@ -441,11 +433,8 @@ impl ExtCostsConfig {
             keccak256_byte: 0,
             keccak512_base: 0,
             keccak512_byte: 0,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ripemd160_base: 0,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ripemd160_block: 0,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ecrecover_base: 0,
             log_base: 0,
             log_byte: 0,
@@ -518,11 +507,8 @@ pub enum ExtCosts {
     keccak256_byte,
     keccak512_base,
     keccak512_byte,
-    #[cfg(feature = "protocol_feature_math_extension")]
     ripemd160_base,
-    #[cfg(feature = "protocol_feature_math_extension")]
     ripemd160_block,
-    #[cfg(feature = "protocol_feature_math_extension")]
     ecrecover_base,
     log_base,
     log_byte,
@@ -648,11 +634,8 @@ impl ExtCosts {
             keccak256_byte => config.keccak256_byte,
             keccak512_base => config.keccak512_base,
             keccak512_byte => config.keccak512_byte,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ripemd160_base => config.ripemd160_base,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ripemd160_block => config.ripemd160_block,
-            #[cfg(feature = "protocol_feature_math_extension")]
             ecrecover_base => config.ecrecover_base,
             log_base => config.log_base,
             log_byte => config.log_byte,

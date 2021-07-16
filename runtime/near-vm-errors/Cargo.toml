@@ -22,7 +22,6 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-protocol_feature_math_extension = []
 protocol_feature_alt_bn128 = []
 
 [package.metadata.workspaces]

@@ -5,9 +5,7 @@ use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
-#[cfg(feature = "protocol_feature_math_extension")]
 use near_crypto::Secp256K1Signature;
-use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
@@ -965,7 +963,6 @@ impl<'a> VMLogic<'a> {
     ///  Where `message_blocks` is `(value_len + 9).div_ceil(64)`.
     ///
     /// `base + write_register_base + write_register_byte * num_bytes + ripemd160_base + ripemd160_block * message_blocks`
-    #[cfg(feature = "protocol_feature_math_extension")]
     pub fn ripemd160(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(ripemd160_base)?;
         let value = self.get_vec_from_memory_or_register(value_ptr, value_len)?;
@@ -1005,7 +1002,6 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     ///
     /// `base + write_register_base + write_register_byte * 64 + ecrecover_base`
-    #[cfg(feature = "protocol_feature_math_extension")]
     pub fn ecrecover(
         &mut self,
         hash_len: u64,
@@ -1876,38 +1872,6 @@ impl<'a> VMLogic<'a> {
             sir,
             ActionCosts::delete_account,
         )?;
-
-        if checked_feature!(
-            "protocol_feature_allow_create_account_on_delete",
-            AllowCreateAccountOnDelete,
-            self.current_protocol_version
-        ) {
-            let receiver_id = self.get_account_by_receipt(&receipt_idx);
-            let sir = receiver_id == &beneficiary_id;
-            let is_receiver_implicit =
-                is_implicit_account_creation_enabled(self.current_protocol_version)
-                    && is_account_id_64_len_hex(receiver_id);
-
-            let transfer_to_beneficiary_send_fee = transfer_send_fee(
-                &self.fees_config.action_creation_config,
-                sir,
-                is_receiver_implicit,
-            );
-            let transfer_to_beneficiary_exec_fee =
-                transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
-            let use_gas = self
-                .fees_config
-                .action_receipt_creation_config
-                .send_fee(sir)
-                .checked_add(self.fees_config.action_receipt_creation_config.exec_fee())
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(transfer_to_beneficiary_send_fee)
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(transfer_to_beneficiary_exec_fee)
-                .ok_or(HostError::IntegerOverflow)?;
-
-            self.gas_counter.pay_action_accumulated(0, use_gas, ActionCosts::transfer)?;
-        }
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
