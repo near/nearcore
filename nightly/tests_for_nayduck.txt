@@ -103,7 +103,7 @@ expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
 
-expensive nearcore test_catchup test_catchup
+expensive integration-tests test_catchup test_catchup
 
 # cross-shard transactions tests
 expensive --timeout=3000 near-client cross_shard_tx tests::test_cross_shard_tx
@@ -120,34 +120,34 @@ expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_s
 expensive neard sync_state_nodes sync_state_nodes_multishard
 
 # testnet rpc
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_simple_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_self_call_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_bad_method_name_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_no_tokens_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_tokens_testnet
-expensive nearcore test_cases_testnet_rpc test::test_smart_contract_with_args_testnet
-expensive nearcore test_cases_testnet_rpc test::test_nonce_update_when_deploying_contract_testnet
-expensive nearcore test_cases_testnet_rpc test::test_nonce_updated_when_tx_failed_testnet
-expensive nearcore test_cases_testnet_rpc test::test_upload_contract_testnet
-expensive nearcore test_cases_testnet_rpc test::test_redeploy_contract_testnet
-expensive nearcore test_cases_testnet_rpc test::test_send_money_testnet
-expensive nearcore test_cases_testnet_rpc test::test_send_money_over_balance_testnet
-expensive nearcore test_cases_testnet_rpc test::test_refund_on_send_money_to_non_existent_account_testnet
-expensive nearcore test_cases_testnet_rpc test::test_create_account_testnet
-expensive nearcore test_cases_testnet_rpc test::test_create_account_again_testnet
-expensive nearcore test_cases_testnet_rpc test::test_create_account_failure_invalid_name_testnet
-expensive nearcore test_cases_testnet_rpc test::test_create_account_failure_already_exists_testnet
-expensive nearcore test_cases_testnet_rpc test::test_swap_key_testnet
-expensive nearcore test_cases_testnet_rpc test::test_add_access_key_function_call_testnet
-expensive nearcore test_cases_testnet_rpc test::test_add_existing_key_testnet
-expensive nearcore test_cases_testnet_rpc test::test_delete_key_testnet
-expensive nearcore test_cases_testnet_rpc test::test_delete_key_not_owned_testnet
-expensive nearcore test_cases_testnet_rpc test::test_delete_key_last_testnet
-expensive nearcore test_cases_testnet_rpc test::test_add_key_testnet
-expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_testnet
-expensive nearcore test_cases_testnet_rpc test::test_add_access_key_with_allowance_testnet
-expensive nearcore test_cases_testnet_rpc test::test_delete_access_key_with_allowance_testnet
-expensive nearcore test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_smart_contract_simple_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_smart_contract_self_call_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_smart_contract_bad_method_name_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_no_tokens_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_smart_contract_empty_method_name_with_tokens_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_smart_contract_with_args_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_nonce_update_when_deploying_contract_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_nonce_updated_when_tx_failed_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_upload_contract_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_redeploy_contract_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_send_money_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_send_money_over_balance_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_refund_on_send_money_to_non_existent_account_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_create_account_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_create_account_again_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_create_account_failure_invalid_name_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_create_account_failure_already_exists_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_swap_key_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_add_access_key_function_call_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_add_existing_key_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_delete_key_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_delete_key_not_owned_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_delete_key_last_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_add_key_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_delete_access_key_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_add_access_key_with_allowance_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_delete_access_key_with_allowance_testnet
+expensive integration-tests test_cases_testnet_rpc test::test_access_key_smart_contract_testnet
 
 # GC tests
 expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large
@@ -163,12 +163,12 @@ lib near-chunks test::test_seal_removal
 lib --timeout=300 near-chain store::tests::test_clear_old_data_too_many_heights
 
 # other tests
-expensive nearcore test_simple test::test_2_10_multiple_nodes
-expensive nearcore test_simple test::test_4_10_multiple_nodes
-expensive nearcore test_simple test::test_7_10_multiple_nodes
+expensive integration-tests test_simple test::test_2_10_multiple_nodes
+expensive integration-tests test_simple test::test_4_10_multiple_nodes
+expensive integration-tests test_simple test::test_7_10_multiple_nodes
 
-expensive nearcore test_rejoin test::test_4_20_kill1
-expensive nearcore test_rejoin test::test_4_20_kill1_two_shards
+expensive integration-tests test_rejoin test::test_4_20_kill1
+expensive integration-tests test_rejoin test::test_4_20_kill1_two_shards
 
 # evm tests
 pytest --timeout=3600 evm/balancer_localnode.py

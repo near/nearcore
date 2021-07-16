@@ -6,7 +6,6 @@ use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
-use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
@@ -1873,34 +1872,6 @@ impl<'a> VMLogic<'a> {
             sir,
             ActionCosts::delete_account,
         )?;
-
-        if checked_feature!("stable", AllowCreateAccountOnDelete, self.current_protocol_version) {
-            let receiver_id = self.get_account_by_receipt(&receipt_idx);
-            let sir = receiver_id == &beneficiary_id;
-            let is_receiver_implicit =
-                is_implicit_account_creation_enabled(self.current_protocol_version)
-                    && is_account_id_64_len_hex(receiver_id);
-
-            let transfer_to_beneficiary_send_fee = transfer_send_fee(
-                &self.fees_config.action_creation_config,
-                sir,
-                is_receiver_implicit,
-            );
-            let transfer_to_beneficiary_exec_fee =
-                transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
-            let use_gas = self
-                .fees_config
-                .action_receipt_creation_config
-                .send_fee(sir)
-                .checked_add(self.fees_config.action_receipt_creation_config.exec_fee())
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(transfer_to_beneficiary_send_fee)
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(transfer_to_beneficiary_exec_fee)
-                .ok_or(HostError::IntegerOverflow)?;
-
-            self.gas_counter.pay_action_accumulated(0, use_gas, ActionCosts::transfer)?;
-        }
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
