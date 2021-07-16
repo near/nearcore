@@ -581,11 +581,11 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
         storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
         storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k ,
-        promise_and_100k => promise_and_100k,
-        promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
-        promise_return_100k => promise_return_100k,
-        data_producer_10b => data_producer_10b,
-        data_producer_100kib => data_producer_100kib
+        // promise_and_100k => promise_and_100k,
+        // promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
+        // promise_return_100k => promise_return_100k,
+        // data_producer_10b => data_producer_10b,
+        // data_producer_100kib => data_producer_100kib,
         // data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         // data_receipt_10b_1000 => data_receipt_10b_1000,
         // data_receipt_100kib_1000 => data_receipt_100kib_1000
@@ -602,6 +602,11 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     eprintln!("222222222");
     let v = calls_helper! {
+        promise_and_100k => promise_and_100k,
+        promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
+        promise_return_100k => promise_return_100k,
+        data_producer_10b => data_producer_10b,
+        data_producer_100kib => data_producer_100kib,
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
         data_receipt_100kib_1000 => data_receipt_100kib_1000
