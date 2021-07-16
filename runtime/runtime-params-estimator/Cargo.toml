@@ -20,6 +20,7 @@ clap = "2.33"
 borsh = "0.8.1"
 num-rational = "0.3"
 
+near-test-contracts = { path = "../../runtime/near-test-contracts" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic"  }

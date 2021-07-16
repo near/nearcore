@@ -12,6 +12,7 @@ use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
+use near_test_contracts::aurora_contract;
 
 #[allow(dead_code)]
 fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
@@ -67,29 +68,31 @@ fn test_function_call_icount() {
 }
 
 fn make_many_methods_contact(method_count: i32) -> ContractCode {
-    let mut methods = String::new();
-    for i in 0..method_count {
-        write!(
-            &mut methods,
-            "
-            (export \"hello{}\" (func {}))
-              (func (;{};)
-                i32.const {}
-                drop
-                return
-              )
-            ", i, i, i, i)
-            .unwrap();
-    }
-
-    let code = format!(
-        "
-        (module
-            {}
-            )",
-        methods
-    );
-    ContractCode::new(wabt::wat2wasm(code.as_bytes()).unwrap(), None)
+    let _ = method_count;
+    // let mut methods = String::new();
+    // for i in 0..method_count {
+    //     write!(
+    //         &mut methods,
+    //         "
+    //         (export \"hello{}\" (func {}))
+    //           (func (;{};)
+    //             i32.const {}
+    //             drop
+    //             return
+    //           )
+    //         ", i, i, i, i)
+    //         .unwrap();
+    // }
+    //
+    // let code = format!(
+    //     "
+    //     (module
+    //         {}
+    //         )",
+    //     methods
+    // );
+    // ContractCode::new(wabt::wat2wasm(code.as_bytes()).unwrap(), None)
+    ContractCode::new(aurora_contract().iter().cloned().collect(), None)
 }
 
 pub fn compute_function_call_cost(
