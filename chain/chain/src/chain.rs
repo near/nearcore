@@ -2898,6 +2898,8 @@ impl<'a> ChainUpdate<'a> {
                     let random_seed = *block.header().random_value();
                     let height = chunk_header.height_included();
                     let prev_block_hash = chunk_header.prev_block_hash().clone();
+                    #[cfg(feature = "sandbox")]
+                    let states_to_patch = self.states_to_patch.take();
 
                     same_height_handlers.push(thread::spawn(
                         move || -> Result<(ShardId, Gas, ApplyTransactionResult), Error> {
@@ -2918,7 +2920,7 @@ impl<'a> ChainUpdate<'a> {
                                 true,
                                 is_first_block_with_chunk_of_version,
                                 #[cfg(feature = "sandbox")]
-                                self.states_to_patch.take(),
+                                states_to_patch,
                                 #[cfg(not(feature = "sandbox"))]
                                 None,
                             ) {
@@ -2941,6 +2943,8 @@ impl<'a> ChainUpdate<'a> {
                     let random_seed = *block.header().random_value();
                     let height = block.header().height();
                     let prev_block_hash = prev_block.hash().clone();
+                    #[cfg(feature = "sandbox")]
+                    let states_to_patch = self.states_to_patch.take();
 
                     dif_height_handlers.push(thread::spawn(
                         move || -> Result<(ShardId, ApplyTransactionResult), Error> {
@@ -2961,7 +2965,7 @@ impl<'a> ChainUpdate<'a> {
                                 false,
                                 false,
                                 #[cfg(feature = "sandbox")]
-                                self.states_to_patch.take(),
+                                states_to_patch,
                                 #[cfg(not(feature = "sandbox"))]
                                 None,
                             ) {
