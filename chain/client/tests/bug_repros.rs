@@ -9,7 +9,7 @@ use actix::{Addr, System};
 use futures::FutureExt;
 use rand::{thread_rng, Rng};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_chain::test_utils::account_id_to_shard_id;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
@@ -24,7 +24,7 @@ use near_primitives::transaction::SignedTransaction;
 fn repro_1183() {
     let validator_groups = 2;
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
@@ -146,7 +146,7 @@ fn test_sync_from_achival_node() {
     let blocks = Arc::new(RwLock::new(HashMap::new()));
     let epoch_length = 4;
 
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
         > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {
@@ -242,7 +242,7 @@ fn test_long_gap_between_blocks() {
     let epoch_length = 1000;
     let target_height = 600;
 
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
         > = Arc::new(RwLock::new(Box::new(|_: String, _: &NetworkRequests| {

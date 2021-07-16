@@ -6,7 +6,6 @@ use near_rust_allocator_proxy::allocator::{
     thread_memory_count, thread_memory_usage, total_memory_usage,
 };
 use once_cell::sync::Lazy;
-use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
@@ -30,9 +29,16 @@ pub(crate) static STATS: Lazy<Arc<Mutex<Stats>>> = Lazy::new(|| Arc::new(Mutex::
 pub(crate) static REF_COUNTER: Lazy<Mutex<HashMap<(&'static str, u32), u128>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-thread_local! {
-    pub static INITIALIZED: RefCell<u32> = RefCell::new(0);
-    pub(crate) static LOCAL_STATS: Lazy<Arc<Mutex<ThreadStats>>> = Lazy::new(|| Arc::new(Mutex::new(ThreadStats::new())));
+pub fn get_thread_stats_logger() -> Arc<Mutex<ThreadStats>> {
+    thread_local! {
+        static LOCAL_STATS: Arc<Mutex<ThreadStats>> = {
+            let res = Arc::new(Mutex::new(ThreadStats::new()));
+            STATS.lock().unwrap().add_entry(&res);
+            res
+        }
+    }
+
+    LOCAL_STATS.with(Arc::clone)
 }
 
 #[derive(Default)]
@@ -202,17 +208,6 @@ pub(crate) struct Stats {
     stats: HashMap<usize, Arc<Mutex<ThreadStats>>>,
 }
 
-pub fn get_thread_stats_logger() -> Arc<Mutex<ThreadStats>> {
-    INITIALIZED.with(|x| {
-        if *x.borrow() == 0 {
-            *x.borrow_mut() = 1;
-            STATS.lock().unwrap().add_entry();
-        }
-    });
-
-    LOCAL_STATS.with(|x| (*x).clone())
-}
-
 #[cfg(all(target_os = "linux", feature = "c_memory_stats"))]
 fn get_c_memory_usage_cur_thread() -> ByteSize {
     // hack to get memory usage stats for c memory usage per thread
@@ -246,9 +241,9 @@ impl Stats {
         Self { stats: HashMap::new() }
     }
 
-    pub(crate) fn add_entry(&mut self) {
+    pub(crate) fn add_entry(&mut self, local_stats: &Arc<Mutex<ThreadStats>>) {
         let tid = get_tid();
-        self.stats.entry(tid).or_insert_with(|| LOCAL_STATS.with(|x| (*x).clone()));
+        self.stats.entry(tid).or_insert_with(|| Arc::clone(local_stats));
     }
 
     fn print_stats(&mut self, sleep_time: Duration) {

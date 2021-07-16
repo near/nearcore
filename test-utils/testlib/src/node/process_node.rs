@@ -10,7 +10,7 @@ use rand::Rng;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
-use neard::config::NearConfig;
+use nearcore::config::NearConfig;
 
 use crate::node::Node;
 use crate::user::rpc_user::RpcUser;
@@ -47,16 +47,17 @@ impl Node for ProcessNode {
     fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
+                std::env::set_var("ADVERSARY_CONSENT", "1");
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
-                let addr = self.config.rpc_config.addr.clone();
+                let client_addr = format!("http://{}", self.config.rpc_addr().unwrap());
                 thread::sleep(Duration::from_secs(3));
-                near_actix_test_utils::run_actix_until_stop(async move {
+                near_actix_test_utils::run_actix(async move {
                     WaitOrTimeout::new(
                         Box::new(move |_| {
                             actix::spawn(
-                                new_client(&format!("http://{}", addr))
+                                new_client(&client_addr)
                                     .status()
                                     .map_ok(|_| System::current().stop())
                                     .then(|_| futures::future::ready(())),
@@ -96,7 +97,7 @@ impl Node for ProcessNode {
 
     fn user(&self) -> Box<dyn User> {
         let account_id = self.signer.account_id.clone();
-        Box::new(RpcUser::new(&self.config.rpc_config.addr, account_id, self.signer.clone()))
+        Box::new(RpcUser::new(self.config.rpc_addr().unwrap(), account_id, self.signer.clone()))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {
@@ -137,20 +138,15 @@ impl ProcessNode {
     pub fn get_start_node_command(&self) -> Command {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
             let mut command = Command::new("cargo");
-            command.args(&[
-                "run",
-                "-p",
-                "neard",
-                "--bin",
-                "neard",
-                "--",
-                "--home",
-                &self.work_dir,
-                "run",
-            ]);
+            command.args(&["run", "-p", "neard"]);
+            #[cfg(feature = "nightly_protocol")]
+            command.args(&["--features", "nightly_protocol"]);
+            #[cfg(feature = "nightly_protocol_features")]
+            command.args(&["--features", "nightly_protocol_features"]);
+            command.args(&["--bin", "neard", "--", "--home", &self.work_dir, "run"]);
             command
         } else {
-            let mut command = Command::new("normal_target/debug/neard");
+            let mut command = Command::new("target/debug/neard");
             command.args(&["--home", &self.work_dir, "run"]);
             command
         }

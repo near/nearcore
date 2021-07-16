@@ -5,4 +5,5 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.11.0-beta.2"
+actix-rt = "2"
+futures = "0.3"

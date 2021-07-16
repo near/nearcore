@@ -10,6 +10,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use near_primitives::challenge::PartialState;
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateRoot, StateRootNode};
 
@@ -409,6 +410,18 @@ pub struct Trie {
     pub counter: TouchedNodesCounter,
 }
 
+/// Stores reference count change for some Trie key and value.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct TrieRefcountChange {
+    /// Hash of TrieKey.
+    key_hash: CryptoHash,
+    /// Value corresponding to the TrieKey stored in Trie.
+    value: Vec<u8>,
+    /// Reference count difference which will be added to the total refcount if it corresponds to
+    /// insertion and subtracted from it in the case of deletion.
+    rc: u32,
+}
+
 ///
 /// TrieChanges stores delta for refcount.
 /// Multiple versions of the state work the following way:
@@ -436,14 +449,22 @@ pub struct Trie {
 pub struct TrieChanges {
     pub old_root: StateRoot,
     pub new_root: StateRoot,
-    insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
-    deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
+    insertions: Vec<TrieRefcountChange>,
+    deletions: Vec<TrieRefcountChange>,
 }
 
 impl TrieChanges {
     pub fn empty(old_root: StateRoot) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
+}
+
+/// Result of applying state part to Trie.
+pub struct ApplyStatePartResult {
+    /// Trie changes after applying state part.
+    pub trie_changes: TrieChanges,
+    /// Contract codes belonging to the state part.
+    pub contract_codes: Vec<ContractCode>,
 }
 
 impl Trie {
@@ -683,13 +704,17 @@ impl Trie {
 
     pub(crate) fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
-    ) -> (Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>) {
+    ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
             match rc.cmp(&0) {
-                Ordering::Greater => insertions.push((key, value, rc as u32)),
-                Ordering::Less => deletions.push((key, value, (-rc) as u32)),
+                Ordering::Greater => {
+                    insertions.push(TrieRefcountChange { key_hash: key, value, rc: rc as u32 })
+                }
+                Ordering::Less => {
+                    deletions.push(TrieRefcountChange { key_hash: key, value, rc: (-rc) as u32 })
+                }
                 Ordering::Equal => {}
             }
         }

@@ -10,10 +10,25 @@ use near_primitives_core::{
 use std::collections::HashMap;
 use std::fmt;
 
-#[cfg(feature = "costs_counting")]
-thread_local! {
-    #[cfg(feature = "protocol_feature_evm")]
-    pub static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+#[cfg(feature = "protocol_feature_evm")]
+#[inline]
+fn with_evm_gas_counter(f: impl FnOnce(&mut EvmGas)) {
+    #[cfg(feature = "costs_counting")]
+    {
+        thread_local! {
+            static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
+        }
+        EVM_GAS_COUNTER.with(|rc| f(&mut *rc.borrow_mut()));
+    }
+    #[cfg(not(feature = "costs_counting"))]
+    let _ = f;
+}
+
+#[cfg(feature = "protocol_feature_evm")]
+pub fn reset_evm_gas_counter() -> u64 {
+    let mut res = 0;
+    with_evm_gas_counter(|counter| std::mem::swap(counter, &mut res));
+    res
 }
 
 #[inline]
@@ -28,11 +43,6 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
     }
     #[cfg(not(feature = "costs_counting"))]
     let _ = f;
-}
-
-#[cfg(all(feature = "costs_counting", feature = "protocol_feature_evm"))]
-pub fn reset_evm_gas_counter() -> u64 {
-    EVM_GAS_COUNTER.with(|f| f.replace(0))
 }
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -108,9 +118,7 @@ impl GasCounter {
     #[cfg(feature = "protocol_feature_evm")]
     #[inline]
     pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
-        #[cfg(feature = "costs_counting")]
-        EVM_GAS_COUNTER.with(|f| *f.borrow_mut() += value);
-        let _ = value;
+        with_evm_gas_counter(|c| *c += value);
     }
 
     #[inline]
@@ -136,18 +144,18 @@ impl GasCounter {
         self.deduct_gas(value, value)
     }
 
-    /// A helper function to pay per byte gas
-    pub fn pay_per_byte(&mut self, cost: ExtCosts, num_bytes: u64) -> Result<()> {
-        let use_gas = num_bytes
+    /// A helper function to pay a multiple of a cost.
+    pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
+        let use_gas = num
             .checked_mul(cost.value(&self.ext_costs_config))
             .ok_or(HostError::IntegerOverflow)?;
 
-        self.inc_ext_costs_counter(cost, num_bytes);
+        self.inc_ext_costs_counter(cost, num);
         self.update_profile_host(cost, use_gas);
         self.deduct_gas(use_gas, use_gas)
     }
 
-    /// A helper function to pay base cost gas
+    /// A helper function to pay base cost gas.
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.value(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
@@ -232,7 +240,7 @@ mod tests {
     #[test]
     fn test_deduct_gas() {
         let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new_disabled());
+            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new());
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -242,7 +250,7 @@ mod tests {
     #[should_panic]
     fn test_prepaid_gas_min() {
         let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new_disabled());
+            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new());
         counter.deduct_gas(10, 5).unwrap();
     }
 }

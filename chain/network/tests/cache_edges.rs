@@ -161,7 +161,7 @@ impl RoutingTableTest {
     }
 
     fn update(&mut self) {
-        self.routing_table.update();
+        self.routing_table.update(true);
     }
 }
 

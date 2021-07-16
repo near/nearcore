@@ -9,6 +9,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TIMEOUT = 120
 FIRST_STEP_WAIT = 20
@@ -31,23 +32,23 @@ for i in range(0, 4):
 while cur_height < FIRST_STEP_WAIT:
     status = nodes[0].get_status()
     cur_height = status['sync_info']['latest_block_height']
-    print(status)
+    logger.info(status)
     time.sleep(0.9)
 
 for i in range(2):
     nodes[i].kill()
 
-print("killing node 0 and 1")
+logger.info("killing node 0 and 1")
 while fork1_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[2].get_status()
     fork1_height = status['sync_info']['latest_block_height']
-    print(status)
+    logger.info(status)
     time.sleep(0.9)
 
 for i in range(2, 4):
     nodes[i].kill()
 
-print("killing node 2 and 3")
+logger.info("killing node 2 and 3")
 
 for i in range(2):
     nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
@@ -59,7 +60,7 @@ time.sleep(1)
 while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     status = nodes[0].get_status()
     fork2_height = status['sync_info']['latest_block_height']
-    print(status)
+    logger.info(status)
     time.sleep(0.9)
 
 for i in range(2, 4):
@@ -69,7 +70,7 @@ for i in range(2, 4):
 
 time.sleep(1)
 
-print("all nodes restarted")
+logger.info("all nodes restarted")
 
 while cur_height < TIMEOUT:
     statuses = []
@@ -90,7 +91,7 @@ while cur_height < TIMEOUT:
             succeed = False
             break
     if statuses[0][1] > FINAL_HEIGHT_THRESHOLD and succeed:
-        print("Epic")
+        logger.info("Epic")
         exit(0)
     time.sleep(0.5)
 

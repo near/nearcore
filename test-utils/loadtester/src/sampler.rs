@@ -35,7 +35,7 @@ where
             break;
         } else {
             attempted_indices.insert(i);
-            assert!(attempted_indices.len() < collection.len(), COLLECTION_EXHAUSTED);
+            assert!(attempted_indices.len() < collection.len(), "{}", COLLECTION_EXHAUSTED);
         }
     }
     res
@@ -43,7 +43,7 @@ where
 
 /// Get several items from the collections.
 pub fn sample<T>(collection: &[T], sample_size: usize) -> Vec<&T> {
-    assert!(collection.len() >= sample_size, COLLECTION_TOO_SMALL);
+    assert!(collection.len() >= sample_size, "{}", COLLECTION_TOO_SMALL);
     collection.choose_multiple(&mut thread_rng(), sample_size).collect()
 }
 
@@ -70,7 +70,7 @@ where
             }
         }
         attempted_indices.insert(i);
-        assert!(attempted_indices.len() < collection.len(), COLLECTION_EXHAUSTED);
+        assert!(attempted_indices.len() < collection.len(), "{}", COLLECTION_EXHAUSTED);
     }
     res
 }

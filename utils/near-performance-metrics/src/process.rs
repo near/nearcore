@@ -1,16 +1,12 @@
-#[cfg(feature = "performance_stats")]
-use crate::stats::print_performance_stats;
-#[cfg(feature = "performance_stats")]
-use log::{error, info};
-#[cfg(feature = "performance_stats")]
 use std::thread;
-#[cfg(feature = "performance_stats")]
 use std::time::Duration;
 
-#[allow(unused_variables)]
+use log::{error, info};
+
+use crate::stats::print_performance_stats;
+
 pub fn schedule_printing_performance_stats(interval: u64) {
-    #[cfg(feature = "performance_stats")]
-    {
+    if cfg!(feature = "performance_stats") {
         if interval == 0 {
             info!("print_performance_stats: disabled");
             return;

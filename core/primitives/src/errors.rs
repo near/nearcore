@@ -7,7 +7,7 @@ use std::fmt::{Debug, Display};
 
 use crate::hash::CryptoHash;
 use near_rpc_error_macro::RpcError;
-use near_vm_errors::{FunctionCallError, VMLogicError};
+use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError, VMLogicError};
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
@@ -143,6 +143,8 @@ pub enum InvalidTxError {
     Expired,
     /// An error occurred while validating actions of a Transaction.
     ActionsValidation(ActionsValidationError),
+    /// The size of serialized transaction exceeded the limit.
+    TransactionSizeExceeded { size: u64, limit: u64 },
 }
 
 #[derive(
@@ -329,6 +331,46 @@ pub struct ActionError {
     pub kind: ActionErrorKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, RpcError)]
+pub enum ContractCallError {
+    MethodResolveError(MethodResolveError),
+    CompilationError(CompilationError),
+    ExecutionError { msg: String },
+}
+
+impl From<ContractCallError> for FunctionCallErrorSer {
+    fn from(e: ContractCallError) -> Self {
+        match e {
+            ContractCallError::CompilationError(e) => FunctionCallErrorSer::CompilationError(e),
+            ContractCallError::MethodResolveError(e) => FunctionCallErrorSer::MethodResolveError(e),
+            ContractCallError::ExecutionError { msg } => FunctionCallErrorSer::ExecutionError(msg),
+        }
+    }
+}
+
+impl From<FunctionCallErrorSer> for ContractCallError {
+    fn from(e: FunctionCallErrorSer) -> Self {
+        match e {
+            FunctionCallErrorSer::CompilationError(e) => ContractCallError::CompilationError(e),
+            FunctionCallErrorSer::MethodResolveError(e) => ContractCallError::MethodResolveError(e),
+            FunctionCallErrorSer::ExecutionError(msg) => ContractCallError::ExecutionError { msg },
+            FunctionCallErrorSer::LinkError { msg } => ContractCallError::ExecutionError { msg },
+            FunctionCallErrorSer::WasmUnknownError => {
+                ContractCallError::ExecutionError { msg: "unknown error".to_string() }
+            }
+            FunctionCallErrorSer::EvmError(e) => {
+                ContractCallError::ExecutionError { msg: format!("EVM: {:?}", e) }
+            }
+            FunctionCallErrorSer::WasmTrap(e) => {
+                ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
+            }
+            FunctionCallErrorSer::HostError(e) => {
+                ContractCallError::ExecutionError { msg: format!("Host: {:?}", e) }
+            }
+        }
+    }
+}
+
 #[derive(
     BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
 )]
@@ -381,14 +423,16 @@ pub enum ActionErrorKind {
         #[serde(with = "u128_dec_format")]
         minimum_stake: Balance,
     },
-    /// An error occurred during a `FunctionCall` Action.
-    FunctionCallError(FunctionCallError),
+    /// An error occurred during a `FunctionCall` Action, parameter is debug message.
+    FunctionCallError(FunctionCallErrorSer),
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
     /// Error occurs when a `CreateAccount` action is called on hex-characters account of length 64.
     /// See implicit account creation NEP: https://github.com/nearprotocol/NEPs/pull/71
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
+    /// Delete account whose state is large is temporarily banned.
+    DeleteAccountWithLargeState { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -406,7 +450,9 @@ impl Display for InvalidTxError {
             InvalidTxError::SignerDoesNotExist { signer_id } => {
                 write!(f, "Signer {:?} does not exist", signer_id)
             }
-            InvalidTxError::InvalidAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
+            InvalidTxError::InvalidAccessKeyError(access_key_error) => {
+                Display::fmt(&access_key_error, f)
+            }
             InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } => write!(
                 f,
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
@@ -438,7 +484,16 @@ impl Display for InvalidTxError {
             InvalidTxError::ActionsValidation(error) => {
                 write!(f, "Transaction actions validation error: {}", error)
             }
-            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => { write!(f, "Transaction nonce {} must be smaller than the access key nonce upper bound {}", tx_nonce, upper_bound) }
+            InvalidTxError::NonceTooLarge { tx_nonce, upper_bound } => {
+                write!(
+                    f,
+                    "Transaction nonce {} must be smaller than the access key nonce upper bound {}",
+                    tx_nonce, upper_bound
+                )
+            }
+            InvalidTxError::TransactionSizeExceeded { size, limit } => {
+                write!(f, "Size of serialized transaction {} exceeded the limit {}", size, limit)
+            }
         }
     }
 }
@@ -672,12 +727,13 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DeleteAccountStaking { account_id } => {
                 write!(f, "Account {:?} is staking and can not be deleted", account_id)
             }
-            ActionErrorKind::FunctionCallError(s) => write!(f, "{}", s),
+            ActionErrorKind::FunctionCallError(s) => write!(f, "{:?}", s),
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
             ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
-            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id)
+            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
+            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
         }
     }
 }

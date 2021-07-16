@@ -8,9 +8,8 @@ use crate::challenge::ChallengesResult;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
-use crate::types::{
-    AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks, ValidatorStake,
-};
+use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
+use crate::types::{AccountId, Balance, BlockHeight, EpochId, MerkleHash, NumBlocks};
 use crate::utils::{from_timestamp, to_timestamp};
 use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -50,7 +49,7 @@ pub struct BlockHeaderInnerRest {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -86,7 +85,7 @@ pub struct BlockHeaderInnerRestV2 {
     /// The output of the randomness beacon
     pub random_value: CryptoHash,
     /// Validator proposals.
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeV1>,
     /// Mask for new chunks included in the block
     pub chunk_mask: Vec<bool>,
     /// Gas price. Same for all chunks
@@ -111,6 +110,7 @@ pub struct BlockHeaderInnerRestV2 {
 /// Add `prev_height`
 /// Add `block_ordinal`
 /// Add `epoch_sync_data_hash`
+/// Use new `ValidatorStake` struct
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInnerRestV3 {
@@ -268,7 +268,7 @@ pub struct BlockHeaderV2 {
     pub hash: CryptoHash,
 }
 
-/// V2 -> V3: Add `prev_height` to `inner_rest`
+/// V2 -> V3: Add `prev_height` to `inner_rest` and use new `ValidatorStake`
 // Add `block_ordinal` to `inner_rest`
 #[cfg(feature = "protocol_feature_block_header_v3")]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
@@ -298,7 +298,6 @@ impl BlockHeaderV2 {
         );
     }
 }
-
 #[cfg(feature = "protocol_feature_block_header_v3")]
 impl BlockHeaderV3 {
     pub fn init(&mut self) {
@@ -377,13 +376,8 @@ impl BlockHeader {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = Some(
-            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-                .unwrap()
-                .clone()
-                - 1,
-        );
+        let last_header_v2_version =
+            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
         if protocol_version <= 29 {
             let chunks_included = chunk_mask.iter().map(|val| *val as u64).sum::<u64>();
             let inner_rest = BlockHeaderInnerRest {
@@ -393,6 +387,9 @@ impl BlockHeader {
                 chunks_included,
                 challenges_root,
                 random_value,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 validator_proposals,
                 chunk_mask,
                 gas_price,
@@ -424,7 +421,10 @@ impl BlockHeader {
                 chunk_tx_root,
                 challenges_root,
                 random_value,
+                #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                 validator_proposals,
+                #[cfg(feature = "protocol_feature_block_header_v3")]
+                validator_proposals: validator_proposals.into_iter().map(|v| v.into_v1()).collect(),
                 chunk_mask,
                 gas_price,
                 total_supply,
@@ -514,13 +514,8 @@ impl BlockHeader {
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         let last_header_v2_version = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
-        let last_header_v2_version = Some(
-            crate::version::PROTOCOL_FEATURES_TO_VERSION_MAPPING
-                .get(&crate::version::ProtocolFeature::BlockHeaderV3)
-                .unwrap()
-                .clone()
-                - 1,
-        );
+        let last_header_v2_version =
+            Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
         if genesis_protocol_version <= 29 {
             let inner_rest = BlockHeaderInnerRest {
                 chunk_receipts_root,
@@ -776,12 +771,18 @@ impl BlockHeader {
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> &[ValidatorStake] {
+    pub fn validator_proposals(&self) -> ValidatorStakeIter {
         match self {
-            BlockHeader::BlockHeaderV1(header) => &header.inner_rest.validator_proposals,
-            BlockHeader::BlockHeaderV2(header) => &header.inner_rest.validator_proposals,
+            BlockHeader::BlockHeaderV1(header) => {
+                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
+            }
+            BlockHeader::BlockHeaderV2(header) => {
+                ValidatorStakeIter::v1(&header.inner_rest.validator_proposals)
+            }
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            BlockHeader::BlockHeaderV3(header) => &header.inner_rest.validator_proposals,
+            BlockHeader::BlockHeaderV3(header) => {
+                ValidatorStakeIter::new(&header.inner_rest.validator_proposals)
+            }
         }
     }
 

@@ -31,6 +31,7 @@ from multiprocessing import Process, Value, Lock
 sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
+from configured_logger import logger
 from utils import TxContext, Unbuffered
 from transaction import sign_payment_tx, sign_staking_tx
 from proxy_instances import RejectListProxy
@@ -78,7 +79,7 @@ def stress_process(func):
             func(stopped, error, *args)
         except Exception as e:
             traceback.print_exc()
-            print("Process %s failed with %s" % (func.__name__, repr(e)))
+            logger.info(f"Process {func.__name__} failed with {repr(e)}")
             error.value = 1
 
     wrapper.__name__ = func.__name__
@@ -709,7 +710,7 @@ MONKEYS = dict([(name[7:], obj)
 
 if __name__ == "__main__":
     if len(sys.argv) < 5:
-        print(
+        logger.info(
             "Usage:\npython tests/stress/stress.py s n N k monkey1 monkey2 ...")
         sys.exit(1)
 

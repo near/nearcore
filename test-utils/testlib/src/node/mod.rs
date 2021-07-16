@@ -1,21 +1,18 @@
-use std::fs;
-use std::panic;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
-use near_jsonrpc::ServerError;
+use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
-use neard::config::{
+use nearcore::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt,
 };
-use neard::NearConfig;
+use nearcore::NearConfig;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
@@ -150,9 +147,7 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-    let code = fs::read(path).unwrap();
+    let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
     genesis.config.gas_price_adjustment_rate = Rational::from_integer(0);
@@ -163,7 +158,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             {
                 if *record_account_id == seed {
                     is_account_record_found = true;
-                    account.code_hash = ContractCode::new(code.clone(), None).get_hash();
+                    account.set_code_hash(ContractCode::new(code.to_vec(), None).get_hash());
                 }
             }
         }
@@ -171,7 +166,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         genesis
             .records
             .as_mut()
-            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
+            .push(StateRecord::Contract { account_id: seed, code: code.to_vec() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }

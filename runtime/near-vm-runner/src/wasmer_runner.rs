@@ -1,15 +1,15 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{
     config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
 };
-use near_vm_errors::FunctionCallError::{WasmTrap, WasmUnknownError};
-use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
-use wasmer_runtime::Module;
+use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
@@ -42,7 +42,7 @@ impl IntoVMError for wasmer_runtime::error::Error {
             Error::RuntimeError(err) => err.into_vm_error(),
             Error::ResolveError(err) => err.into_vm_error(),
             Error::CallError(err) => err.into_vm_error(),
-            Error::CreationError(err) => panic!(err),
+            Error::CreationError(err) => panic!("{}", err),
         }
     }
 }
@@ -60,13 +60,16 @@ impl IntoVMError for wasmer_runtime::error::CallError {
 impl IntoVMError for wasmer_runtime::error::CompileError {
     fn into_vm_error(self) -> VMError {
         match self {
-            wasmer_runtime::error::CompileError::InternalError { .. } => {
-                // An internal Wasmer error the most probably is a result of a node malfunction
-                panic!("Internal Wasmer error on Wasm compilation: {}", self);
+            wasmer_runtime::error::CompileError::ValidationError { .. } => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::WasmerCompileError { msg: self.to_string() },
+                ))
             }
-            _ => VMError::FunctionCallError(FunctionCallError::CompilationError(
-                CompilationError::WasmerCompileError { msg: self.to_string() },
-            )),
+            wasmer_runtime::error::CompileError::InternalError { .. } => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::WasmerCompileError { msg: self.to_string() },
+                ))
+            }
         }
     }
 }
@@ -90,7 +93,6 @@ impl IntoVMError for wasmer_runtime::error::ResolveError {
 
 impl IntoVMError for wasmer_runtime::error::RuntimeError {
     fn into_vm_error(self) -> VMError {
-        use near_vm_errors::WasmTrap::BreakpointTrap;
         use wasmer_runtime::error::InvokeError;
         use wasmer_runtime::error::RuntimeError;
         match &self {
@@ -101,7 +103,29 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // invoke returns false and doesn't fill error info what Singlepass BE doesn't.
                 // Failed unwinder may happen in the case of deep recursion/stack overflow.
                 // Also can be thrown on unreachable instruction, which is quite unfortunate.
-                InvokeError::FailedWithNoError => VMError::FunctionCallError(WasmUnknownError),
+                //
+                // See https://github.com/near/wasmer/blob/0.17.2/lib/runtime-core/src/fault.rs#L285
+                InvokeError::FailedWithNoError => VMError::FunctionCallError(
+                    // XXX: Initially, we treated this error case as
+                    // deterministic (so, we stored this error in our state,
+                    // etc.)
+                    //
+                    // Then, in
+                    // https://github.com/near/nearcore/pull/4181#discussion_r606267838
+                    // we reasoned that this error actually happens
+                    // non-deterministically, so it's better to panic in this
+                    // case.
+                    //
+                    // However, when rolling this out, we noticed that this
+                    // error happens deterministically for at least one
+                    // contract. So here we roll this back to a previous
+                    // behavior and emit some deterministic error, which won't
+                    // cause the node to panic.
+                    //
+                    // So far, we are unable to reproduce this deterministic
+                    // failure though.
+                    FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+                ),
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
                 InvokeError::UnknownTrap { address, signal } => {
@@ -112,9 +136,27 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                     );
                 }
                 // A trap that Wasmer knows about occurred.
-                // As of 0.17.1, can be thrown on C signals caught, for example OOM.
-                InvokeError::TrapCode { code: _, srcloc: _ } => {
-                    VMError::FunctionCallError(WasmUnknownError)
+                InvokeError::TrapCode { code, srcloc: _ } => {
+                    VMError::FunctionCallError(match code {
+                        wasmer_runtime::ExceptionCode::Unreachable => {
+                            FunctionCallError::WasmTrap(WasmTrap::Unreachable)
+                        }
+                        wasmer_runtime::ExceptionCode::IncorrectCallIndirectSignature => {
+                            FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature)
+                        }
+                        wasmer_runtime::ExceptionCode::MemoryOutOfBounds => {
+                            FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
+                        }
+                        wasmer_runtime::ExceptionCode::CallIndirectOOB => {
+                            FunctionCallError::WasmTrap(WasmTrap::CallIndirectOOB)
+                        }
+                        wasmer_runtime::ExceptionCode::IllegalArithmetic => {
+                            FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic)
+                        }
+                        wasmer_runtime::ExceptionCode::MisalignedAtomicAccess => {
+                            FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
+                        }
+                    })
                 }
                 // A trap occurred that Wasmer knows about but it had a trap code that
                 // we weren't expecting or that we do not handle.
@@ -134,7 +176,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // upon the middleware or backend being used.
                 // As of 0.17.0, thrown only from Singlepass BE and wraps RuntimeError
                 // instance.
-                InvokeError::Breakpoint(_) => VMError::FunctionCallError(WasmTrap(BreakpointTrap)),
+                InvokeError::Breakpoint(_) => unreachable!("Wasmer breakpoint"),
             },
             // A metering triggered error value.
             // As of 0.17.0, thrown only from Singlepass BE, and as we do not rely
@@ -169,8 +211,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
 }
 
 pub fn run_wasmer<'a>(
-    code_hash: &[u8],
-    code: &[u8],
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -181,7 +222,7 @@ pub fn run_wasmer<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!("run_wasmer").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_wasmer").entered();
 
     if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
         // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -203,12 +244,8 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(
-        &code_hash,
-        code,
-        wasm_config,
-        cache,
-    ) {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache)
+    {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
@@ -231,7 +268,8 @@ pub fn run_wasmer<'a>(
         current_protocol_version,
     );
 
-    if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+    // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
+    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -246,25 +284,34 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    let instantiate = {
-        let _span = tracing::debug_span!("run_wasmer/instantiate").entered();
-        module.instantiate(&import_object)
-    };
-    match instantiate {
-        Ok(instance) => {
-            let _span = tracing::debug_span!("run_wasmer/call").entered();
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
+}
 
-            match instance.call(&method_name, &[]) {
-                Ok(_) => (Some(logic.outcome()), None),
-                Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-            }
-        }
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+    let _span = tracing::debug_span!(target: "vm", "run_method").entered();
+
+    let instance = {
+        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
+        module.instantiate(import).map_err(|err| err.into_vm_error())?
+    };
+
+    {
+        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
+        instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
+
+    {
+        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
+        drop(instance)
+    }
+
+    Ok(())
 }
 
 pub(crate) fn run_wasmer0_module<'a>(
     module: Module,
+    memory: &mut WasmerMemory,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -282,11 +329,6 @@ pub(crate) fn run_wasmer0_module<'a>(
             ))),
         );
     }
-    let mut memory = WasmerMemory::new(
-        wasm_config.limit_config.initial_memory_pages,
-        wasm_config.limit_config.max_memory_pages,
-    )
-    .expect("Cannot create memory for a contract call");
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
@@ -296,7 +338,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         wasm_config,
         fees_config,
         promise_results,
-        &mut memory,
+        memory,
         profile,
         current_protocol_version,
     );
@@ -307,13 +349,8 @@ pub(crate) fn run_wasmer0_module<'a>(
         return (None, Some(e));
     }
 
-    match module.instantiate(&import_object) {
-        Ok(instance) => match instance.call(&method_name, &[]) {
-            Ok(_) => (Some(logic.outcome()), None),
-            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-        },
-        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-    }
+    let err = run_method(&module, &import_object, method_name).err();
+    (Some(logic.outcome()), err)
 }
 
 pub fn compile_wasmer0_module(code: &[u8]) -> bool {

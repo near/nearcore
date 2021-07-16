@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 TIMEOUT = 150
 BLOCKS1 = 20
@@ -32,7 +33,7 @@ def min_common():
 
 def heights_report():
     for i, sh in enumerate(seen_heights):
-        print("Node %s: %s" % (i, sorted(list(sh))))
+        logger.info("Node %s: %s" % (i, sorted(list(sh))))
 
 
 while max_height < BLOCKS1:
@@ -45,7 +46,7 @@ while max_height < BLOCKS1:
         if height > max_height:
             max_height = height
             if height % 10 == 0:
-                print("Reached height %s, min common: %s" %
+                logger.info("Reached height %s, min common: %s" %
                       (height, min_common()))
 
         if height not in height_to_hash:
@@ -82,7 +83,7 @@ while max_height < BLOCKS2:
         if height > max_height:
             max_height = height
             if height % 10 == 0:
-                print("Reached height %s, min common: %s" %
+                logger.info("Reached height %s, min common: %s" %
                       (height, min_common()))
 
         if height not in height_to_hash:

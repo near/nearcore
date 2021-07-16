@@ -4,11 +4,15 @@ use num_rational::Rational;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::epoch_manager::{EpochConfig, EpochInfo, ValidatorWeight};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::epoch_manager::block_info::BlockInfoV2;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::{EpochConfig, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
-    ValidatorId, ValidatorKickoutReason, ValidatorStake,
+    ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -18,7 +22,6 @@ use crate::proposals::find_threshold;
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
 
-#[cfg(feature = "protocol_feature_rectify_inflation")]
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
@@ -92,31 +95,33 @@ pub fn epoch_info_with_num_seats(
     let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
-            .map(|(account_id, stake)| ValidatorStake {
-                account_id: account_id.to_string(),
-                public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
-                stake,
+            .map(|(account_id, stake)| {
+                ValidatorStake::new(
+                    account_id.to_string(),
+                    SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+                    stake,
+                )
             })
             .collect()
     };
     let validator_kickout =
         validator_kickout.into_iter().map(|(s, r)| (s.to_string(), r)).collect();
-    EpochInfo {
+    EpochInfo::new(
         epoch_height,
-        validators: account_to_validators(accounts),
+        account_to_validators(accounts),
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
         hidden_validators_settlement,
-        fishermen: account_to_validators(fishermen),
+        account_to_validators(fishermen),
         fishermen_to_index,
         stake_change,
         validator_reward,
         validator_kickout,
         minted_amount,
-        protocol_version: PROTOCOL_VERSION,
         seat_price,
-    }
+        PROTOCOL_VERSION,
+    )
 }
 
 pub fn epoch_config(
@@ -165,7 +170,6 @@ pub fn default_reward_calculator() -> RewardCalculator {
         protocol_treasury_account: "near".to_string(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }
@@ -248,10 +252,7 @@ pub fn record_block_with_final_block_hash(
                 vec![],
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
-                #[cfg(feature = "protocol_feature_rectify_inflation")]
-                {
-                    height * NUM_NS_IN_SECOND
-                },
+                height * NUM_NS_IN_SECOND,
             ),
             [0; 32],
         )
@@ -281,10 +282,7 @@ pub fn record_block_with_slashes(
                 slashed,
                 DEFAULT_TOTAL_SUPPLY,
                 PROTOCOL_VERSION,
-                #[cfg(feature = "protocol_feature_rectify_inflation")]
-                {
-                    height * NUM_NS_IN_SECOND
-                },
+                height * NUM_NS_IN_SECOND,
             ),
             [0; 32],
         )
@@ -303,6 +301,7 @@ pub fn record_block(
     record_block_with_slashes(epoch_manager, prev_h, cur_h, height, proposals, vec![]);
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 pub fn block_info(
     hash: CryptoHash,
     height: BlockHeight,
@@ -326,9 +325,36 @@ pub fn block_info(
         latest_protocol_version: PROTOCOL_VERSION,
         slashed: Default::default(),
         total_supply,
-        #[cfg(feature = "protocol_feature_rectify_inflation")]
         timestamp_nanosec: height * NUM_NS_IN_SECOND,
     }
+}
+
+#[cfg(feature = "protocol_feature_block_header_v3")]
+pub fn block_info(
+    hash: CryptoHash,
+    height: BlockHeight,
+    last_finalized_height: BlockHeight,
+    last_final_block_hash: CryptoHash,
+    prev_hash: CryptoHash,
+    epoch_first_block: CryptoHash,
+    chunk_mask: Vec<bool>,
+    total_supply: Balance,
+) -> BlockInfo {
+    BlockInfo::V2(BlockInfoV2 {
+        hash,
+        height,
+        last_finalized_height,
+        last_final_block_hash,
+        prev_hash,
+        epoch_first_block,
+        epoch_id: Default::default(),
+        proposals: vec![],
+        chunk_mask,
+        latest_protocol_version: PROTOCOL_VERSION,
+        slashed: Default::default(),
+        total_supply,
+        timestamp_nanosec: height * NUM_NS_IN_SECOND,
+    })
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {

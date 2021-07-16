@@ -75,7 +75,7 @@ pub(crate) fn get_num_shards(store: &Store) -> NumShards {
 }
 
 pub(crate) fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
+    let mut cursor = Cursor::new(hash(&account_id.clone().into_bytes()).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
 

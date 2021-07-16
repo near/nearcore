@@ -5,6 +5,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
 
@@ -24,8 +25,7 @@ while True:
     time.sleep(2)
     status = nodes[1].get_status()
     h = status['sync_info']['latest_block_height']
-    print(f"{h}/{TARGET_HEIGHT}")
+    logger.info(f"{h}/{TARGET_HEIGHT}")
     if h >= TARGET_HEIGHT:
-        print("Success")
+        logger.info("Success")
         break
-

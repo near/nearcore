@@ -6,7 +6,7 @@ use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
-use neard::config::{GenesisExt, TESTING_INIT_BALANCE};
+use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
 
 use crate::node::Node;
 use crate::runtime_utils::{
@@ -28,12 +28,7 @@ impl RuntimeNode {
         add_test_contract(&mut genesis, &bob_account());
         genesis.records.as_mut().push(StateRecord::Account {
             account_id: evm_account(),
-            account: Account {
-                amount: TESTING_INIT_BALANCE,
-                locked: 0,
-                code_hash: CryptoHash::default(),
-                storage_usage: 0,
-            },
+            account: Account::new(TESTING_INIT_BALANCE, 0, CryptoHash::default(), 0),
         });
         Self::new_from_genesis(account_id, genesis)
     }

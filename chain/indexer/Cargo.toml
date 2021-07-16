@@ -1,20 +1,22 @@
 [package]
 name = "near-indexer"
-version = "0.8.1"
+version = "0.9.2"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.11.0-beta.2"
+actix = "=0.11.0-beta.2"
+async-recursion = "0.3.2"
 tracing = "0.1.13"
 futures = "0.3.5"
-rocksdb = "0.15.0"
+rocksdb = "0.16.0"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1.0.55"
 tokio = { version = "1.1", features = ["time", "sync"] }
 
-neard = { path = "../../neard" }
+nearcore = { path = "../../nearcore" }
 near-client = { path = "../client" }
+near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }

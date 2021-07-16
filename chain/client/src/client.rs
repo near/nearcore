@@ -35,9 +35,10 @@ use near_primitives::sharding::{
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::NumBlocks;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -49,7 +50,6 @@ use near_client_primitives::types::{Error, ShardSyncDownload};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
@@ -364,8 +364,10 @@ impl Client {
             &head.last_block_hash,
             &next_block_proposer,
         )?;
-        if validator_stake.public_key != validator_signer.public_key() {
-            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_stake.public_key);
+
+        let validator_pk = validator_stake.take_public_key();
+        if validator_pk != validator_signer.public_key() {
+            debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
             #[cfg(not(feature = "adversarial"))]
             return Ok(None);
             #[cfg(feature = "adversarial")]
@@ -581,14 +583,14 @@ impl Client {
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
         let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
-            chunk_extra.state_root,
-            chunk_extra.outcome_root,
+            *chunk_extra.state_root(),
+            *chunk_extra.outcome_root(),
             next_height,
             shard_id,
-            chunk_extra.gas_used,
-            chunk_extra.gas_limit,
-            chunk_extra.balance_burnt,
-            chunk_extra.validator_proposals,
+            chunk_extra.gas_used(),
+            chunk_extra.gas_limit(),
+            chunk_extra.balance_burnt(),
+            chunk_extra.validator_proposals().collect(),
             transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
@@ -630,9 +632,9 @@ impl Client {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime_adapter.prepare_transactions(
                 prev_block_header.gas_price(),
-                chunk_extra.gas_limit,
+                chunk_extra.gas_limit(),
                 shard_id,
-                chunk_extra.state_root.clone(),
+                *chunk_extra.state_root(),
                 // while the height of the next block that includes the chunk might not be prev_height + 1,
                 // passing it will result in a more conservative check and will not accidentally allow
                 // invalid transactions to be included.
@@ -786,7 +788,6 @@ impl Client {
         self.process_partial_encoded_chunk(MaybeValidated::Validated(partial_chunk))
     }
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn process_partial_encoded_chunk_forward(
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
@@ -1184,7 +1185,7 @@ impl Client {
                     .get_validator_by_account_id(epoch_id, block_hash, account_id)
                 {
                     Ok((validator_stake, is_slashed)) => {
-                        !is_slashed && validator_stake.public_key == signer.public_key()
+                        !is_slashed && validator_stake.take_public_key() == signer.public_key()
                     }
                     Err(_) => false,
                 }
@@ -1468,7 +1469,7 @@ impl Client {
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
-                Ok(chunk_extra) => chunk_extra.state_root,
+                Ok(chunk_extra) => *chunk_extra.state_root(),
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
@@ -1670,6 +1671,7 @@ mod test {
 
     use cached::Cached;
 
+    use near_chain::Provenance;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
     use near_chunks::test_utils::ChunkForwardingTestFixture;
@@ -1678,32 +1680,40 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
+    use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
-    use neard::config::GenesisExt;
+    use nearcore::config::GenesisExt;
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::block_header::ApprovalType;
     use near_primitives::network::PeerId;
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    use near_primitives::sharding::ShardChunkHeaderInner;
     use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
     use near_primitives::utils::MaybeValidated;
 
-    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+    pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
         (0..n)
             .map(|_| {
-                Arc::new(neard::NightshadeRuntime::new(
+                Arc::new(nearcore::NightshadeRuntime::new(
                     Path::new("."),
                     create_test_store(),
                     &genesis,
                     vec![],
                     vec![],
+                    None,
+                    None,
                 )) as Arc<dyn RuntimeAdapter>
             })
             .collect()
+    }
+
+    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
+        let genesis = Genesis::test(vec!["test0", "test1"], 1);
+        create_nightshade_runtimes(&genesis, n)
     }
 
     #[test]
@@ -1752,6 +1762,36 @@ mod test {
     }
 
     #[test]
+    fn test_cap_max_gas_price() {
+        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let epoch_length = 5;
+        genesis.config.min_gas_price = 1_000;
+        genesis.config.max_gas_price = 1_000_000;
+        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
+        genesis.config.epoch_length = epoch_length;
+        let chain_genesis = ChainGenesis::from(&genesis);
+        let runtimes = create_nightshade_runtimes(&genesis, 1);
+        let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+
+        for i in 1..epoch_length {
+            let block = env.clients[0].produce_block(i).unwrap().unwrap();
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+
+        let last_block =
+            env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap().clone();
+        let protocol_version = env.clients[0]
+            .runtime_adapter
+            .get_epoch_protocol_version(last_block.header().epoch_id())
+            .unwrap();
+        let min_gas_price =
+            env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
+        let max_gas_price =
+            env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
+        assert!(max_gas_price <= 20 * min_gas_price);
+    }
+
+    #[test]
     fn test_process_partial_encoded_chunk_with_missing_block() {
         let runtimes = create_runtimes(1);
         let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
@@ -1768,9 +1808,20 @@ mod test {
                 header.inner.prev_block_hash = hash(b"some_prev_block");
                 header.init();
             }
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            ShardChunkHeader::V3(header) => {
+                match &mut header.inner {
+                    ShardChunkHeaderInner::V1(inner) => {
+                        inner.prev_block_hash = hash(b"some_prev_block")
+                    }
+                    ShardChunkHeaderInner::V2(inner) => {
+                        inner.prev_block_hash = hash(b"some_prev_block")
+                    }
+                }
+                header.init();
+            }
         }
 
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
         let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
             &mock_chunk.header,
             mock_chunk.parts.clone(),
@@ -1798,13 +1849,10 @@ mod test {
 
         // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
         // a missing block.
-        #[cfg(feature = "protocol_feature_forward_chunk_parts")]
-        {
-            let result = client.process_partial_encoded_chunk_forward(mock_forward);
-            assert!(matches!(
-                result,
-                Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
-            ));
-        }
+        let result = client.process_partial_encoded_chunk_forward(mock_forward);
+        assert!(matches!(
+            result,
+            Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
+        ));
     }
 }

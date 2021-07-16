@@ -1,6 +1,5 @@
 #[cfg(feature = "protocol_feature_alt_bn128")]
 pub mod alt_bn128;
-mod config;
 mod context;
 mod dependencies;
 pub mod gas_counter;
@@ -10,7 +9,6 @@ pub mod serde_with;
 pub mod types;
 mod utils;
 
-pub use config::VMKind;
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, ValuePtr};
 pub use logic::{VMLogic, VMOutcome};

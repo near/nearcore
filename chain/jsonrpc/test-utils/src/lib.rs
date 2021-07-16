@@ -9,7 +9,7 @@ use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../../neard/res/genesis_config.json"));
+        GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"));
 }
 
 pub enum NodeType {
@@ -50,7 +50,7 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        run_actix_until_stop(|| {
+        run_actix(|| {
             let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
             let $client = new_client(&format!("http://{}", addr));

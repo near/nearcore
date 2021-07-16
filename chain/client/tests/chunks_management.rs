@@ -7,7 +7,7 @@ use actix::{Addr, System};
 use futures::{future, FutureExt};
 use log::info;
 
-use near_actix_test_utils::{run_actix_until_panic, run_actix_until_stop};
+use near_actix_test_utils::run_actix;
 use near_chain::ChainGenesis;
 use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
@@ -20,6 +20,8 @@ use near_logger_utils::{init_integration_logger, init_test_logger};
 use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::{hash, CryptoHash};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
 };
@@ -31,7 +33,7 @@ use testlib::test_helpers::heavy_test;
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
     heavy_test(|| {
-        run_actix_until_stop(async {
+        run_actix(async {
             chunks_produced_and_distributed_common(1, false, 15 * CHUNK_REQUEST_RETRY_MS);
         });
     });
@@ -40,7 +42,7 @@ fn chunks_produced_and_distributed_all_in_all_shards() {
 #[test]
 fn chunks_produced_and_distributed_2_vals_per_shard() {
     heavy_test(|| {
-        run_actix_until_stop(async {
+        run_actix(async {
             chunks_produced_and_distributed_common(2, false, 15 * CHUNK_REQUEST_RETRY_MS);
         });
     });
@@ -49,7 +51,7 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
     heavy_test(|| {
-        run_actix_until_stop(async {
+        run_actix(async {
             chunks_produced_and_distributed_common(4, false, 15 * CHUNK_REQUEST_RETRY_MS);
         });
     });
@@ -63,7 +65,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 #[test]
 fn chunks_recovered_from_others() {
     heavy_test(|| {
-        run_actix_until_stop(async {
+        run_actix(async {
             chunks_produced_and_distributed_common(2, true, 4 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
         });
     });
@@ -77,7 +79,7 @@ fn chunks_recovered_from_others() {
 #[should_panic]
 fn chunks_recovered_from_full_timeout_too_short() {
     heavy_test(|| {
-        run_actix_until_panic(async {
+        run_actix(async {
             chunks_produced_and_distributed_common(4, true, 2 * CHUNK_REQUEST_SWITCH_TO_OTHERS_MS);
         });
     });
@@ -88,7 +90,7 @@ fn chunks_recovered_from_full_timeout_too_short() {
 #[test]
 fn chunks_recovered_from_full() {
     heavy_test(|| {
-        run_actix_until_stop(async {
+        run_actix(async {
             chunks_produced_and_distributed_common(
                 4,
                 true,
@@ -230,7 +232,6 @@ fn chunks_produced_and_distributed_common(
                         return (NetworkResponses::NoResponse, false);
                     }
                 }
-                #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                 NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
                     if drop_from_1_to_4 && from_whom == "test1" && to_whom == "test4" {
                         println!(
@@ -333,6 +334,11 @@ fn update_chunk_hash(chunk: PartialEncodedChunkV2, new_hash: ChunkHash) -> Parti
             header.hash = new_hash;
             ShardChunkHeader::V2(header)
         }
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        ShardChunkHeader::V3(mut header) => {
+            header.hash = new_hash;
+            ShardChunkHeader::V3(header)
+        }
     };
     PartialEncodedChunkV2 { header: new_header, parts: chunk.parts, receipts: chunk.receipts }
 }
@@ -349,6 +355,14 @@ fn update_chunk_height_created(
         ShardChunkHeader::V2(mut header) => {
             header.inner.height_created = new_height;
             ShardChunkHeader::V2(header)
+        }
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        ShardChunkHeader::V3(mut header) => {
+            match &mut header.inner {
+                ShardChunkHeaderInner::V1(inner) => inner.height_created = new_height,
+                ShardChunkHeaderInner::V2(inner) => inner.height_created = new_height,
+            }
+            ShardChunkHeader::V3(header)
         }
     }
 }

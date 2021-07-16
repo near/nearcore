@@ -262,10 +262,10 @@ ignored. When discussing the compiled contract size, huge (>1MiB) contracts are 
 harmful. Shall we optimize 100KiB contracts to be as small as possible, at the cost of worse
 debuggability and less applicability of the general purpose libraries is not as clear. We generally
 tend to consider such optimizations worsening development experience as excessive. Also, there are
- certain best practises, such as avoiding JSON and using more efficient binary serialization for
- transferring parameters to contracts, which should be communicated to the blockchain developers.
+certain best practises, such as avoiding JSON and using more efficient binary serialization for
+transferring parameters to contracts, which should be communicated to the blockchain developers.
 
- ### Real financial world is asynchronous. Should DeFi (decentralized finance) also be?
+### Real financial world is asynchronous. Should DeFi (decentralized finance) also be?
 
 While a pretty broad question, when projected on smart contract context, it means few rather simple questions.
    * Shall cross-contract calls be represented as:
@@ -274,8 +274,8 @@ While a pretty broad question, when projected on smart contract context, it mean
        * continuations
    * Shall some/all host functions be asynchronous?
 
- Answers to those questions depend on the blockchain architecture, however general purpose
- contract runtime likely shall support both modes of operation.
+Answers to those questions depend on the blockchain architecture, however general purpose
+contract runtime likely shall support both modes of operation.
 
 
 ### How to think about the computational model for smart contracts, especially if they do I/O ?

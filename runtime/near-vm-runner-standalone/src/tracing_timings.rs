@@ -6,6 +6,7 @@
 use std::fmt;
 use std::time::Instant;
 
+use tracing::debug;
 use tracing::field::{Field, Visit};
 use tracing::span::Attributes;
 use tracing::{Event, Id, Subscriber};
@@ -16,7 +17,8 @@ use tracing_subscriber::Layer;
 
 pub fn enable() {
     let subscriber = tracing_subscriber::Registry::default().with(Timings);
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    tracing::subscriber::set_global_default(subscriber)
+        .unwrap_or_else(|_| debug!("Global subscriber is already set"));
 }
 
 struct Timings;

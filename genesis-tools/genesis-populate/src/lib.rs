@@ -18,13 +18,12 @@ use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{
-    AccountId, Balance, ChunkExtra, EpochId, ShardId, StateChangeCause, StateRoot,
-};
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
-use neard::{get_store_path, NightshadeRuntime};
+use nearcore::{get_store_path, NightshadeRuntime};
 
 fn get_account_id(account_index: u64) -> String {
     format!("near_{}_{}", account_index, account_index)
@@ -67,6 +66,8 @@ impl GenesisBuilder {
             // there is no reason to track accounts or shards.
             vec![],
             vec![],
+            None,
+            None,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
@@ -170,7 +171,7 @@ impl GenesisBuilder {
         {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
-            account.storage_usage = storage_usage;
+            account.set_storage_usage(storage_usage);
             set_account(&mut state_update, account_id, &account);
         }
         let tries = self.runtime.get_tries();
@@ -247,12 +248,12 @@ impl GenesisBuilder {
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let account = Account {
-            amount: testing_init_balance,
-            locked: testing_init_stake,
-            code_hash: self.additional_accounts_code_hash,
-            storage_usage: 0,
-        };
+        let account = Account::new(
+            testing_init_balance,
+            testing_init_stake,
+            self.additional_accounts_code_hash,
+            0,
+        );
         set_account(&mut state_update, account_id.clone(), &account);
         let account_record = StateRecord::Account { account_id: account_id.clone(), account };
         records.push(account_record);

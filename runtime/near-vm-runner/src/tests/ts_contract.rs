@@ -1,21 +1,18 @@
+use near_primitives::contract::ContractCode;
 use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, VMConfig, VMKind};
+use near_vm_logic::{External, VMConfig};
 
-use crate::run_vm;
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
-
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "tests/res/test_contract_ts.wasm"
-}
+use crate::{run_vm, VMKind};
 
 #[test]
 pub fn test_ts_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        let code = &TEST_CONTRACT;
+        let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
@@ -25,7 +22,6 @@ pub fn test_ts_contract() {
         // Call method that panics.
         let promise_results = vec![];
         let result = run_vm(
-            vec![],
             &code,
             "try_panic",
             &mut fake_external,
@@ -36,7 +32,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new_disabled(),
+            ProfileData::new(),
         );
         assert_eq!(
             result.1,
@@ -48,7 +44,6 @@ pub fn test_ts_contract() {
         // Call method that writes something into storage.
         let context = create_context(b"foo bar".to_vec());
         run_vm(
-            vec![],
             &code,
             "try_storage_write",
             &mut fake_external,
@@ -59,7 +54,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new_disabled(),
+            ProfileData::new(),
         )
         .0
         .unwrap();
@@ -75,7 +70,6 @@ pub fn test_ts_contract() {
         // Call method that reads the value from storage using registers.
         let context = create_context(b"foo".to_vec());
         let result = run_vm(
-            vec![],
             &code,
             "try_storage_read",
             &mut fake_external,
@@ -86,7 +80,7 @@ pub fn test_ts_contract() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new_disabled(),
+            ProfileData::new(),
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {

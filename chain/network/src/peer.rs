@@ -18,6 +18,7 @@ use near_metrics;
 use near_performance_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
@@ -394,9 +395,6 @@ impl Peer {
                     RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
                         NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
                     }
-                    RoutedMessageBody::ReceiptOutComeResponse(response) => {
-                        NetworkViewClientMessages::ReceiptOutcomeResponse(Box::new(response))
-                    }
                     RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
                         NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
                     }
@@ -440,11 +438,6 @@ impl Peer {
                     Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
                         let body =
                             Box::new(RoutedMessageBody::QueryResponse { query_id, response });
-                        act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
-                    }
-                    Ok(NetworkViewClientResponses::ReceiptOutcomeResponse(response)) => {
-                        let body = Box::new(RoutedMessageBody::ReceiptOutComeResponse(*response));
                         act.peer_manager_addr
                             .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
                     }
@@ -549,7 +542,6 @@ impl Peer {
                     RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
                         NetworkClientMessages::PartialEncodedChunk(chunk)
                     }
-                    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
                     RoutedMessageBody::PartialEncodedChunkForward(forward) => {
                         NetworkClientMessages::PartialEncodedChunkForward(forward)
                     }
@@ -560,9 +552,9 @@ impl Peer {
                     | RoutedMessageBody::QueryRequest { .. }
                     | RoutedMessageBody::QueryResponse { .. }
                     | RoutedMessageBody::ReceiptOutcomeRequest(_)
-                    | RoutedMessageBody::ReceiptOutComeResponse(_)
                     | RoutedMessageBody::StateRequestHeader(_, _)
-                    | RoutedMessageBody::StateRequestPart(_, _, _) => {
+                    | RoutedMessageBody::StateRequestPart(_, _, _)
+                    | RoutedMessageBody::Unused => {
                         error!(target: "network", "Peer receive_client_message received unexpected type: {:?}", routed_message);
                         return;
                     }
@@ -748,7 +740,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         },
                     ));
                 } else {
-                    info!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
+                    info!(target: "network", "Received invalid data {:?} from {}: {}", logging::pretty_vec(&msg), self.peer_info, err);
                 }
                 return;
             }

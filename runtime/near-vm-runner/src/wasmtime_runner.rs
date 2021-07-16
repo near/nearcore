@@ -5,20 +5,20 @@ use wasmtime::Module;
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
     use crate::{imports, prepare};
+    use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
     use near_primitives::{
         config::VMConfig, profile::ProfileData, types::CompiledContractCache,
         version::ProtocolVersion,
     };
-    use near_vm_errors::FunctionCallError::{LinkError, WasmUnknownError};
-    use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError};
+    use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap};
     use near_vm_logic::{
         types::PromiseResult, External, MemoryLike, VMContext, VMLogic, VMOutcome,
     };
     use std::ffi::c_void;
     use std::str;
     use wasmtime::ExternType::Func;
-    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store};
+    use wasmtime::{Config, Engine, Limits, Linker, Memory, MemoryType, Module, Store, TrapCode};
 
     pub struct WasmtimeMemory(Memory);
 
@@ -87,7 +87,41 @@ pub mod wasmtime_runner {
                 None => panic!("Error is not properly set"),
             }
         } else {
-            VMError::FunctionCallError(WasmUnknownError)
+            match trap.trap_code() {
+                Some(TrapCode::StackOverflow) => {
+                    VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::StackOverflow))
+                }
+                Some(TrapCode::MemoryOutOfBounds) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+                ),
+                Some(TrapCode::TableOutOfBounds) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds),
+                ),
+                Some(TrapCode::IndirectCallToNull) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::IndirectCallToNull),
+                ),
+                Some(TrapCode::BadSignature) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::IncorrectCallIndirectSignature),
+                ),
+                Some(TrapCode::IntegerOverflow) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+                ),
+                Some(TrapCode::IntegerDivisionByZero) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+                ),
+                Some(TrapCode::BadConversionToInteger) => VMError::FunctionCallError(
+                    FunctionCallError::WasmTrap(WasmTrap::IllegalArithmetic),
+                ),
+                Some(TrapCode::UnreachableCodeReached) => {
+                    VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))
+                }
+                Some(TrapCode::Interrupt) => VMError::FunctionCallError(
+                    FunctionCallError::Nondeterministic("interrupt".to_string()),
+                ),
+                _ => VMError::FunctionCallError(FunctionCallError::WasmUnknownError {
+                    debug_message: "unknown trap".to_string(),
+                }),
+            }
         }
     }
 
@@ -96,33 +130,30 @@ pub mod wasmtime_runner {
             let cause = self.root_cause();
             match cause.downcast_ref::<wasmtime::Trap>() {
                 Some(trap) => trap_to_error(trap),
-                None => VMError::FunctionCallError(LinkError { msg: format!("{:#?}", cause) }),
+                None => VMError::FunctionCallError(FunctionCallError::LinkError {
+                    msg: format!("{:#?}", cause),
+                }),
             }
         }
     }
 
     impl IntoVMError for wasmtime::Trap {
         fn into_vm_error(self) -> VMError {
-            if self.i32_exit_status() == Some(239) {
-                trap_to_error(&self)
-            } else {
-                VMError::FunctionCallError(WasmUnknownError)
-            }
+            trap_to_error(&self)
         }
     }
 
-    pub fn run_wasmtime<'a>(
-        _code_hash: &[u8],
-        code: &[u8],
+    pub fn run_wasmtime(
+        code: &ContractCode,
         method_name: &str,
         ext: &mut dyn External,
         context: VMContext,
-        wasm_config: &'a VMConfig,
-        fees_config: &'a RuntimeFeesConfig,
-        promise_results: &'a [PromiseResult],
+        wasm_config: &VMConfig,
+        fees_config: &RuntimeFeesConfig,
+        promise_results: &[PromiseResult],
         profile: ProfileData,
         current_protocol_version: ProtocolVersion,
-        _cache: Option<&'a dyn CompiledContractCache>,
+        _cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let mut config = Config::default();
         let engine = get_engine(&mut config);
@@ -133,11 +164,14 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(code, wasm_config) {
+        let prepared_code = match prepare::prepare_contract(&code.code, wasm_config) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
         };
-        let module = Module::new(&engine, prepared_code).unwrap();
+        let module = match Module::new(&engine, prepared_code) {
+            Ok(module) => module,
+            Err(err) => return (None, Some(err.into_vm_error())),
+        };
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
@@ -151,7 +185,8 @@ pub mod wasmtime_runner {
             profile,
             current_protocol_version,
         );
-        if logic.add_contract_compile_fee(code.len() as u64).is_err() {
+        // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
+        if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
             return (
                 Some(logic.outcome()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -174,7 +209,7 @@ pub mod wasmtime_runner {
         match module.get_export(method_name) {
             Some(export) => match export {
                 Func(func_type) => {
-                    if !func_type.params().is_empty() || !func_type.results().is_empty() {
+                    if func_type.params().len() != 0 || func_type.results().len() != 0 {
                         return (
                             None,
                             Some(VMError::FunctionCallError(
@@ -205,8 +240,8 @@ pub mod wasmtime_runner {
         }
         match linker.instantiate(&module) {
             Ok(instance) => match instance.get_func(method_name) {
-                Some(func) => match func.get0::<()>() {
-                    Ok(run) => match run() {
+                Some(func) => match func.typed::<(), ()>() {
+                    Ok(run) => match run.call(()) {
                         Ok(_) => (Some(logic.outcome()), None),
                         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
                     },
@@ -224,12 +259,12 @@ pub mod wasmtime_runner {
     }
     #[cfg(not(feature = "lightbeam"))]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-        Engine::new(config)
+        Engine::new(config).unwrap()
     }
 
     #[cfg(feature = "lightbeam")]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
-        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap())
+        Engine::new(config.strategy(wasmtime::Strategy::Lightbeam).unwrap()).unwrap()
     }
 }
 

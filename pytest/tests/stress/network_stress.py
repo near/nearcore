@@ -2,6 +2,7 @@ import sys, random, time, base58, requests
 
 sys.path.append('lib')
 
+from configured_logger import logger
 from stress import stress_process, doit, monkey_staking, get_validator_ids, get_the_guy_to_mess_up_with, get_recent_hash, sign_payment_tx, expect_network_issues
 from network import stop_network, resume_network, init_network_pillager
 
@@ -44,10 +45,10 @@ def monkey_network_hammering(stopped, error, nodes, nonces):
         node_idx = random.randint(0, len(nodes) - 2)
         pid = nodes[node_idx].pid.value
         if s[node_idx]:
-            print("Resuming network for process %s" % pid)
+            logger.info(f"Resuming network for process {pid}")
             resume_network(pid)
         else:
-            print("Stopping network for process %s" % pid)
+            logger.info(f"Stopping network for process {pid}")
             stop_network(pid)
         s[node_idx] = not s[node_idx]
 
@@ -55,7 +56,7 @@ def monkey_network_hammering(stopped, error, nodes, nonces):
     for i, x in enumerate(s):
         if x:
             pid = nodes[i].pid.value
-            print("Resuming network for process %s" % pid)
+            logger.info(f"Resuming network for process {pid}")
             resume_network(pid)
 
 

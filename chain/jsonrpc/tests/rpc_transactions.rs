@@ -4,7 +4,7 @@ use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::{init_integration_logger, init_test_logger};
@@ -23,7 +23,7 @@ pub mod test_utils;
 fn test_send_tx_async() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr.clone()));
@@ -45,7 +45,7 @@ fn test_send_tx_async() {
                 block_hash,
             );
             let bytes = tx.try_to_vec().unwrap();
-            let tx_hash: String = (&tx.get_hash()).into();
+            let tx_hash = tx.get_hash().to_string();
             *tx_hash2_1.lock().unwrap() = Some(tx.get_hash());
             client
                 .broadcast_tx_async(to_base64(&bytes))
@@ -59,7 +59,7 @@ fn test_send_tx_async() {
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
                     actix::spawn(
                         client1
-                            .tx((&tx_hash).into(), signer_account_id)
+                            .tx(tx_hash.to_string(), signer_account_id)
                             .map_err(|err| println!("Error: {:?}", err))
                             .map_ok(|result| {
                                 if let FinalExecutionStatus::SuccessValue(_) = result.status {
@@ -101,7 +101,7 @@ fn test_send_tx_commit() {
 #[test]
 fn test_expired_tx() {
     init_integration_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
             test_utils::NodeType::Validator,
             1,
@@ -137,7 +137,13 @@ fn test_expired_tx() {
                                 actix::spawn(
                                     client
                                         .broadcast_tx_commit(to_base64(&bytes))
-                                        .map_err(|_| {
+                                        .map_err(|err| {
+                                            assert_eq!(
+                                                err.data.unwrap(),
+                                                serde_json::json!({"TxExecutionError": {
+                                                    "InvalidTxError": "Expired"
+                                                }})
+                                            );
                                             System::current().stop();
                                         })
                                         .map(|_| ()),

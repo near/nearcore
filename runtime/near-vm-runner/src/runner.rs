@@ -6,7 +6,9 @@ use near_primitives::{
 };
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, VMContext, VMKind, VMOutcome};
+use near_vm_logic::{External, VMContext, VMOutcome};
+
+use crate::VMKind;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -33,8 +35,7 @@ pub fn run<'a>(
     profile: &ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     run_vm(
-        code.hash.as_ref().to_vec(),
-        code.code.as_slice(),
+        code,
         method_name,
         ext,
         context,
@@ -49,8 +50,7 @@ pub fn run<'a>(
 }
 
 pub fn run_vm(
-    code_hash: Vec<u8>,
-    code: &[u8],
+    code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -62,7 +62,7 @@ pub fn run_vm(
     cache: Option<&dyn CompiledContractCache>,
     profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!("run_vm").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_vm").entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
@@ -76,7 +76,6 @@ pub fn run_vm(
     let (outcome, error) = match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => run_wasmer(
-            &code_hash,
             code,
             method_name,
             ext,
@@ -92,7 +91,6 @@ pub fn run_vm(
         VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
         #[cfg(feature = "wasmtime_vm")]
         VMKind::Wasmtime => run_wasmtime(
-            &code_hash,
             code,
             method_name,
             ext,
@@ -110,7 +108,6 @@ pub fn run_vm(
         }
         #[cfg(feature = "wasmer1_vm")]
         VMKind::Wasmer1 => run_wasmer1(
-            &code_hash,
             code,
             method_name,
             ext,

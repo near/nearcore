@@ -37,7 +37,7 @@ impl std::convert::From<near_client::TxStatusError> for ErrorKind {
                 "Transaction is invalid, so it will never be included to the chain: {:?}",
                 err
             )),
-            near_client::TxStatusError::InternalError
+            near_client::TxStatusError::InternalError(_)
             | near_client::TxStatusError::TimeoutError => {
                 // TODO: remove the statuses from TxStatusError since they are
                 // never constructed by the view client (it is a leak of
@@ -46,6 +46,25 @@ impl std::convert::From<near_client::TxStatusError> for ErrorKind {
                     "TxStatusError reached unexpected state: {:?}",
                     err
                 ))
+            }
+        }
+    }
+}
+
+impl std::convert::From<near_client_primitives::types::GetStateChangesError> for ErrorKind {
+    fn from(err: near_client_primitives::types::GetStateChangesError) -> Self {
+        match err {
+            near_client_primitives::types::GetStateChangesError::IOError { error_message } => {
+                Self::InternalError(error_message)
+            }
+            near_client_primitives::types::GetStateChangesError::NotSyncedYet => {
+                Self::NotFound(err.to_string())
+            }
+            near_client_primitives::types::GetStateChangesError::UnknownBlock { error_message } => {
+                Self::NotFound(error_message)
+            }
+            near_client_primitives::types::GetStateChangesError::Unreachable { error_message } => {
+                Self::InternalError(error_message)
             }
         }
     }

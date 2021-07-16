@@ -116,6 +116,8 @@ impl<'a> RuntimeExt<'a> {
             .map(|(receiver_id, action_receipt)| Receipt {
                 predecessor_id: predecessor_id.clone(),
                 receiver_id,
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
                 receipt: ReceiptEnum::Action(action_receipt),
             })

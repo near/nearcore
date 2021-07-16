@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 echo "Copying rustfmt.toml into ~/.config/rustfmt/"
 mkdir -p "${HOME}"/.config/rustfmt

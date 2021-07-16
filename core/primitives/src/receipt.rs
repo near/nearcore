@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
 
+use crate::borsh::maybestd::collections::HashMap;
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::serialize::{option_base64_format, u128_dec_format_compatible};
 use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance};
+use crate::types::{AccountId, Balance, ShardId};
 use crate::utils::system_account;
 
 /// Receipts are used for a cross-shard communication.
@@ -171,3 +172,6 @@ pub struct DelayedReceiptIndices {
     // Exclusive end index of the queue
     pub next_available_index: u64,
 }
+
+/// Map of shard to list of receipts to send to it.
+pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;

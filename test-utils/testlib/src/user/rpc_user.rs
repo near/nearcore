@@ -8,8 +8,8 @@ use futures::{Future, TryFutureExt};
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_jsonrpc::ServerError;
 use near_jsonrpc_client::ChunkId;
+use near_jsonrpc_primitives::errors::ServerError;
 use near_jsonrpc_primitives::types::query::RpcQueryResponse;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -154,6 +154,11 @@ impl User for RpcUser {
             .ok()
     }
 
+    fn get_block_by_hash(&self, block_hash: CryptoHash) -> Option<BlockView> {
+        self.actix(move |client| client.block(BlockReference::BlockId(BlockId::Hash(block_hash))))
+            .ok()
+    }
+
     fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
         self.actix(move |client| {
             client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))
@@ -167,8 +172,8 @@ impl User for RpcUser {
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let account_id = self.account_id.clone();
-        let hash = *hash;
-        self.actix(move |client| client.tx((&hash).into(), account_id)).unwrap()
+        let hash = hash.to_string();
+        self.actix(move |client| client.tx(hash, account_id)).unwrap()
     }
 
     fn get_state_root(&self) -> CryptoHash {

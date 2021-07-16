@@ -1,6 +1,6 @@
 use clap::{App, Arg};
-use near_vm_logic::VMKind;
-use neard::get_default_home;
+use near_vm_runner::VMKind;
+use nearcore::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
@@ -79,7 +79,6 @@ fn main() {
                 .long("transaction")
                 .help("Disables transaction measurements"),
         )
-        .arg(Arg::with_name("evm-only").long("evm-only").help("only test evm related cost"))
         .get_matches();
 
     let state_dump_path: PathBuf = matches.value_of_os("home").unwrap().into();
@@ -111,7 +110,6 @@ fn main() {
             disable_measure_transaction,
         },
         matches.is_present("compile-only"),
-        matches.is_present("evm-only"),
     );
 
     println!("Generated RuntimeConfig:");

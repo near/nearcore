@@ -18,7 +18,7 @@ is the pure function of Docker image used, Rust compiler version and the NEAR im
 ## Usage
 
 We build and run the cost estimator in the Docker container to make sure config is fully reproducible.
-Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resouce consuming.
+Please make sure that Docker is given at least 4G of RAM, as running under emulator is rather resource consuming.
 First fetch appropriate base image, with `docker pull rust`.
 Then create a Docker image with `build.sh`, it will create a Docker image with additional build deps.
 
@@ -29,9 +29,10 @@ Start container and build estimator with:
 
     host> ./run.sh
     docker> cd /host/nearcore
-    docker> cargo run --release --package neard --features protocol_feature_evm,nightly_protocol_features --bin neard -- --home /tmp/data init --chain-id= --test-seed=alice.near --account-id=test.near --fast
-    docker> cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
+    docker> cargo run -j2 --release --package neard --features protocol_feature_evm --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
+    docker> cargo run -j2 --release --package genesis-populate --features protocol_feature_evm --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
     docker> cd /host/nearcore/runtime/runtime-params-estimator
+    docker> pushd ./test-contract && ./build.sh && popd
     docker> cargo build --release --package runtime-params-estimator --features required
 
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
@@ -109,7 +110,7 @@ To execute commands in already running container first find its id with:
     > docker ps
 
     CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS                  NAMES
-    e9dcb52cc91b        ubuntu-emu          "/bin/bash"   2 hours ago         Up 2 hours          0.0.0.0:5000->22/tcp   reverent_carson
+    e9dcb52cc91b        ubuntu-emu         "/usr/bin/env bash"   	2 hours ago         Up 2 hours          0.0.0.0:5000->22/tcp   reverent_carson
 
 and the use container ID for `docker exec` command, like:
 

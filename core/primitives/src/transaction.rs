@@ -36,10 +36,10 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    /// Computes a hash of the transaction for signing
-    pub fn get_hash(&self) -> CryptoHash {
+    /// Computes a hash of the transaction for signing and size of serialized transaction
+    pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
         let bytes = self.try_to_vec().expect("Failed to deserialize");
-        hash(&bytes)
+        (hash(&bytes), bytes.len() as u64)
     }
 }
 
@@ -205,21 +205,30 @@ pub struct SignedTransaction {
     pub signature: Signature,
     #[borsh_skip]
     hash: CryptoHash,
+    #[borsh_skip]
+    size: u64,
 }
 
 impl SignedTransaction {
     pub fn new(signature: Signature, transaction: Transaction) -> Self {
-        let mut signed_tx = Self { signature, transaction, hash: CryptoHash::default() };
+        let mut signed_tx =
+            Self { signature, transaction, hash: CryptoHash::default(), size: u64::default() };
         signed_tx.init();
         signed_tx
     }
 
     pub fn init(&mut self) {
-        self.hash = self.transaction.get_hash();
+        let (hash, size) = self.transaction.get_hash_and_size();
+        self.hash = hash;
+        self.size = size;
     }
 
     pub fn get_hash(&self) -> CryptoHash {
         self.hash
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.size
     }
 }
 
@@ -276,7 +285,7 @@ impl Default for ExecutionStatus {
     }
 }
 
-/// ExecutionOutcome for proof. Excludes logs.
+/// ExecutionOutcome for proof. Excludes logs and metadata
 #[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
 struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
@@ -339,6 +348,20 @@ pub struct ExecutionOutcome {
     /// NOTE: Should be the latest field since it contains unparsable by light client
     /// ExecutionStatus::Failure
     pub status: ExecutionStatus,
+    /// Execution metadata, versioned
+    pub metadata: ExecutionMetadata,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub enum ExecutionMetadata {
+    // V1: Empty Metadata
+    ExecutionMetadataV1,
+}
+
+impl Default for ExecutionMetadata {
+    fn default() -> Self {
+        ExecutionMetadata::ExecutionMetadataV1
+    }
 }
 
 impl ExecutionOutcome {
@@ -361,6 +384,7 @@ impl fmt::Debug for ExecutionOutcome {
             .field("burnt_gas", &self.gas_burnt)
             .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
+            .field("meatdata", &self.metadata)
             .finish()
     }
 }
@@ -499,6 +523,7 @@ mod tests {
             gas_burnt: 123,
             tokens_burnt: 1234000,
             executor_id: "alice".to_string(),
+            metadata: ExecutionMetadata::ExecutionMetadataV1,
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

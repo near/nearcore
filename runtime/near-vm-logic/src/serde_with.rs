@@ -1,6 +1,7 @@
 /// Serialize `Vec<u8>` as base64 encoding.
 pub mod bytes_as_base64 {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
+    use std::borrow::Cow;
 
     pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -13,20 +14,20 @@ pub mod bytes_as_base64 {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        Ok(base64::decode(&s).expect("Failed to deserialize base64 string"))
+        let s = Cow::<'_, str>::deserialize(deserializer)?;
+        Ok(base64::decode(s.as_ref()).map_err(de::Error::custom)?)
     }
 }
 
 /// Serialize `Vec<u8>` as `String`.
 pub mod bytes_as_str {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{ser, Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&String::from_utf8(arr.clone()).unwrap())
+        serializer.serialize_str(std::str::from_utf8(&arr).map_err(ser::Error::custom)?)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
@@ -40,7 +41,8 @@ pub mod bytes_as_str {
 
 /// Serialize `Vec<u8>` as base58 encoding.
 pub mod bytes_as_base58 {
-    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::{de, Deserialize, Deserializer, Serializer};
+    use std::borrow::Cow;
 
     pub fn serialize<S>(arr: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -53,8 +55,8 @@ pub mod bytes_as_base58 {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        Ok(bs58::decode(s).into_vec().expect("Failed to deserialize base58 string"))
+        let s = Cow::<'_, str>::deserialize(deserializer)?;
+        Ok(bs58::decode(s.as_ref()).into_vec().map_err(de::Error::custom)?)
     }
 }
 
@@ -63,7 +65,7 @@ pub mod vec_bytes_as_str {
     use std::fmt;
 
     use serde::de::{SeqAccess, Visitor};
-    use serde::ser::SerializeSeq;
+    use serde::ser::{self, SerializeSeq};
     use serde::{Deserializer, Serializer};
 
     pub fn serialize<S>(data: &Vec<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
@@ -72,7 +74,7 @@ pub mod vec_bytes_as_str {
     {
         let mut seq = serializer.serialize_seq(Some(data.len()))?;
         for v in data {
-            seq.serialize_element(&String::from_utf8(v.clone()).unwrap())?;
+            seq.serialize_element(&std::str::from_utf8(v.as_slice()).map_err(ser::Error::custom)?)?;
         }
         seq.end()
     }
@@ -109,6 +111,7 @@ pub mod vec_bytes_as_str {
 pub mod u128_dec_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
+    use std::borrow::Cow;
 
     pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -121,7 +124,7 @@ pub mod u128_dec_format {
     where
         D: Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        let s = Cow::<'_, str>::deserialize(deserializer)?;
         u128::from_str_radix(&s, 10).map_err(de::Error::custom)
     }
 }

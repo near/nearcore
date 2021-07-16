@@ -1,7 +1,6 @@
-use near_primitives::errors::{ActionError, ActionErrorKind};
+use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError};
 use near_primitives::serialize::to_base64;
 use near_primitives::views::FinalExecutionStatus;
-use near_vm_errors::{FunctionCallError, HostError};
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
 
@@ -16,10 +15,6 @@ pub const NEAR_BASE: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// Max prepaid amount of gas.
 const MAX_GAS: u64 = 300_000_000_000_000;
-
-lazy_static_include::lazy_static_include_bytes! {
-    TEST_CONTRACT => "../near-vm-runner/tests/res/test_contract_rs.wasm"
-}
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
@@ -46,7 +41,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 
 #[test]
 fn test_evil_deep_trie() {
-    let node = setup_test_contract(&TEST_CONTRACT);
+    let node = setup_test_contract(near_test_contracts::rs_contract());
     (0..50).for_each(|i| {
         println!("insertStrings #{}", i);
         let from = i * 10 as u64;
@@ -93,7 +88,7 @@ fn test_evil_deep_trie() {
 
 #[test]
 fn test_evil_deep_recursion() {
-    let node = setup_test_contract(&TEST_CONTRACT);
+    let node = setup_test_contract(near_test_contracts::rs_contract());
     [100, 1000, 10000, 100000, 1000000].iter().for_each(|n| {
         println!("{}", n);
         let n = *n as u64;
@@ -124,7 +119,7 @@ fn test_evil_deep_recursion() {
 
 #[test]
 fn test_evil_abort() {
-    let node = setup_test_contract(&TEST_CONTRACT);
+    let node = setup_test_contract(near_test_contracts::rs_contract());
     let res = node
         .user()
         .function_call(
@@ -141,9 +136,12 @@ fn test_evil_abort() {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::HostError(
-                    HostError::BadUTF16
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError {
+                        msg: "String encoding is bad UTF-16 sequence.".to_string()
+                    }
+                    .into()
+                )
             }
             .into()
         ),

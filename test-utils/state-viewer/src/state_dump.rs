@@ -6,7 +6,7 @@ use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
 use near_store::TrieIterator;
-use neard::NightshadeRuntime;
+use nearcore::NightshadeRuntime;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
@@ -27,7 +27,8 @@ pub fn state_dump(
         .into_iter()
         .filter_map(|(info, is_slashed)| {
             if !is_slashed {
-                Some((info.account_id, (info.public_key, info.stake)))
+                let (account_id, public_key, stake) = info.destructure();
+                Some((account_id, (public_key, stake)))
             } else {
                 None
             }
@@ -42,10 +43,10 @@ pub fn state_dump(
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
-                    if account.locked > 0 {
+                    if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        account.amount = account.amount + account.locked - stake;
-                        account.locked = stake;
+                        account.set_amount(account.amount() + account.locked() - stake);
+                        account.set_locked(stake);
                     }
                 }
                 records.push(sr);
@@ -59,6 +60,10 @@ pub fn state_dump(
         .into_iter()
         .map(|(account_id, (public_key, amount))| AccountInfo { account_id, public_key, amount })
         .collect();
+    // Record the protocol version of the latest block. Otherwise, the state
+    // dump ignores the fact that the nodes can be running a newer protocol
+    // version than the protocol version of the genesis.
+    genesis_config.protocol_version = last_block_header.latest_protocol_version();
     Genesis::new(genesis_config, records.into())
 }
 
@@ -77,10 +82,10 @@ mod test {
     use near_primitives::types::NumBlocks;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use neard::config::GenesisExt;
-    use neard::config::TESTING_INIT_STAKE;
-    use neard::genesis_validate::validate_genesis;
-    use neard::NightshadeRuntime;
+    use nearcore::config::GenesisExt;
+    use nearcore::config::TESTING_INIT_STAKE;
+    use nearcore::genesis_validate::validate_genesis;
+    use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
 
@@ -90,8 +95,15 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime =
-            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
+        let nightshade_runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
@@ -127,13 +139,20 @@ mod test {
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.account_id).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime =
-            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
+        let runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -162,8 +181,15 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime =
-            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
+        let runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(
@@ -191,7 +217,7 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![])
+            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![], None, None)
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
             Arc::new(create_runtime(store1.clone())),
@@ -239,8 +265,15 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime =
-            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
+        let nightshade_runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
@@ -267,13 +300,20 @@ mod test {
             .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
             .unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.account_id).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime =
-            NightshadeRuntime::new(Path::new("."), store.clone(), &genesis, vec![], vec![]);
+        let runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+        );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);

@@ -76,6 +76,9 @@ pytest adversarial/start_from_genesis.py overtake
 pytest adversarial/start_from_genesis.py doomslug_off
 pytest adversarial/start_from_genesis.py overtake doomslug_off
 
+# python sandbox node tests
+pytest sandbox/patch_state.py
+
 # python upgradable test
 # upgradable.py moves `near` binary, and must be the last python test in the set
 pytest --timeout=600 sanity/upgradable.py

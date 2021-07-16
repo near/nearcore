@@ -3,14 +3,15 @@
 # the transaction and receipts execution outcome proof for
 # light client works
 
-import sys
 import base58, base64
-import json
 import hashlib
+import json
+import struct
+import sys
 
 sys.path.append('lib')
 from cluster import start_cluster, Key
-from utils import load_binary_file, compute_merkle_root_from_path
+from utils import load_test_contract, compute_merkle_root_from_path
 from serializer import BinarySerializer
 import transaction
 import time
@@ -113,36 +114,15 @@ def serialize_execution_outcome_with_id(outcome, id):
     return borsh_res
 
 
-nodes = start_cluster(
-    2, 0, 1, None,
-    [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {}
-)
-
-# deploy a smart contract for testing
-contract_key = nodes[0].signer_key
-hello_smart_contract = load_binary_file('../tests/hello.wasm')
-
-status = nodes[0].get_status()
-latest_block_hash = status['sync_info']['latest_block_hash']
-deploy_contract_tx = transaction.sign_deploy_contract_tx(
-    contract_key, hello_smart_contract, 10,
-    base58.b58decode(latest_block_hash.encode('utf8')))
-deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 15)
-assert 'error' not in deploy_contract_response, deploy_contract_response
-
-
-def check_transaction_outcome_proof(should_succeed, nonce):
+def check_transaction_outcome_proof(nodes, should_succeed, nonce):
     status = nodes[1].get_status()
     latest_block_hash = status['sync_info']['latest_block_hash']
     function_caller_key = nodes[0].signer_key
     gas = 300000000000000 if should_succeed else 1000
 
     function_call_1_tx = transaction.sign_function_call_tx(
-        function_caller_key, contract_key.account_id, 'setKeyValue',
-        json.dumps({
-            "key": "my_key",
-            "value": "my_value"
-        }).encode('utf-8'), gas, 100000000000, nonce,
+        function_caller_key, nodes[0].signer_key.account_id, 'write_key_value',
+        struct.pack('<QQ', 42, 10), gas, 100000000000, nonce,
         base58.b58decode(latest_block_hash.encode('utf8')))
     function_call_result = nodes[1].send_tx_and_wait(function_call_1_tx, 15)
     assert 'error' not in function_call_result
@@ -204,5 +184,19 @@ def check_transaction_outcome_proof(should_succeed, nonce):
                                     'block_merkle_root']) == block_merkle_root, f'expected block merkle root {light_client_block["inner_lite"]["block_merkle_root"]} actual {base58.b58encode(block_merkle_root)}'
 
 
-check_transaction_outcome_proof(True, 20)
-check_transaction_outcome_proof(False, 30)
+def test_outcome_proof():
+    nodes = start_cluster(
+        2, 0, 1, None,
+        [["epoch_length", 1000], ["block_producer_kickout_threshold", 80]], {}
+    )
+
+    status = nodes[0].get_status()
+    latest_block_hash = status['sync_info']['latest_block_hash']
+    deploy_contract_tx = transaction.sign_deploy_contract_tx(
+        nodes[0].signer_key, load_test_contract(), 10,
+        base58.b58decode(latest_block_hash.encode('utf8')))
+    deploy_contract_response = nodes[0].send_tx_and_wait(deploy_contract_tx, 15)
+    assert 'error' not in deploy_contract_response, deploy_contract_response
+
+    check_transaction_outcome_proof(nodes, True, 20)
+    check_transaction_outcome_proof(nodes, False, 30)

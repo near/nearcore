@@ -8,6 +8,7 @@ edition = "2018"
 chrono = { version = "0.4.4", features = ["serde"] }
 failure = "0.1"
 failure_derive = "0.1"
+itertools = "0.10.0"
 lazy_static = "1.4"
 rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
@@ -40,8 +41,8 @@ adversarial = []
 delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
 protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-chain-configs/protocol_feature_evm"]
-protocol_feature_rectify_inflation = []
 protocol_feature_block_header_v3 = []
-protocol_feature_access_key_nonce_range = ["near-primitives/protocol_feature_access_key_nonce_range"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_rectify_inflation", "protocol_feature_block_header_v3"]
+protocol_feature_restore_receipts_after_fix = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3", "protocol_feature_restore_receipts_after_fix"]
 nightly_protocol = []
+sandbox = []

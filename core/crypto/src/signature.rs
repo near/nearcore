@@ -7,8 +7,10 @@ use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signature as _, Signer as _, Verifier as _};
+use ethereum_types::U256;
 use lazy_static::lazy_static;
 use rand_core::OsRng;
+use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
 lazy_static! {
@@ -35,30 +37,33 @@ impl Display for KeyType {
 }
 
 impl FromStr for KeyType {
-    type Err = crate::ParseKeyError;
+    type Err = crate::errors::ParseKeyTypeError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.to_ascii_lowercase().as_str() {
+        let lowercase_key_type = value.to_ascii_lowercase();
+        match lowercase_key_type.as_str() {
             "ed25519" => Ok(KeyType::ED25519),
             "secp256k1" => Ok(KeyType::SECP256K1),
-            _ => Err(Self::Err::UnknownCurve(value.to_string())),
+            _ => Err(Self::Err::UnknownKeyType { unknown_key_type: lowercase_key_type }),
         }
     }
 }
 
 impl TryFrom<u8> for KeyType {
-    type Error = crate::ParseKeyError;
+    type Error = crate::errors::ParseKeyTypeError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(KeyType::ED25519),
             1 => Ok(KeyType::SECP256K1),
-            _ => Err(Self::Error::UnknownCurve(value.to_string())),
+            unknown_key_type => {
+                Err(Self::Error::UnknownKeyType { unknown_key_type: unknown_key_type.to_string() })
+            }
         }
     }
 }
 
-fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::ParseKeyError> {
+fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::ParseKeyTypeError> {
     if let Some(idx) = value.find(':') {
         let (prefix, key_data) = value.split_at(idx);
         Ok((KeyType::from_str(prefix)?, &key_data[1..]))
@@ -78,7 +83,7 @@ impl From<[u8; 64]> for Secp256K1PublicKey {
 }
 
 impl TryFrom<&[u8]> for Secp256K1PublicKey {
-    type Error = crate::TryFromSliceError;
+    type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         // It is suboptimal, but optimized implementation in Rust standard
@@ -88,7 +93,10 @@ impl TryFrom<&[u8]> for Secp256K1PublicKey {
         //
         // Ok(Self(data.try_into().map_err(|_| TryFromSliceError(()))?))
         if data.len() != 64 {
-            return Err(crate::TryFromSliceError(()));
+            return Err(Self::Error::InvalidLength {
+                expected_length: 64,
+                received_length: data.len(),
+            });
         }
         let mut public_key = Self([0; 64]);
         public_key.0.copy_from_slice(data);
@@ -145,10 +153,13 @@ impl From<[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]> for ED25519PublicKey {
 }
 
 impl TryFrom<&[u8]> for ED25519PublicKey {
-    type Error = crate::TryFromSliceError;
+    type Error = crate::errors::ParseKeyError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Self(data.try_into().map_err(|_| crate::TryFromSliceError(()))?))
+        Ok(Self(data.try_into().map_err(|_| crate::errors::ParseKeyError::InvalidLength {
+            expected_length: ed25519_dalek::PUBLIC_KEY_LENGTH,
+            received_length: data.len(),
+        })?))
     }
 }
 
@@ -303,7 +314,8 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        s.parse().map_err(|err: crate::ParseKeyError| serde::de::Error::custom(err.to_string()))
+        s.parse()
+            .map_err(|err: crate::errors::ParseKeyError| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -323,7 +335,7 @@ impl From<&PublicKey> for String {
 }
 
 impl FromStr for PublicKey {
-    type Err = crate::ParseKeyError;
+    type Err = crate::errors::ParseKeyError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (key_type, key_data) = split_key_type_data(&value)?;
@@ -332,9 +344,12 @@ impl FromStr for PublicKey {
                 let mut array = [0; ed25519_dalek::PUBLIC_KEY_LENGTH];
                 let length = bs58::decode(key_data)
                     .into(&mut array)
-                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 if length != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                    return Err(crate::ParseKeyError::InvalidLength(length));
+                    return Err(Self::Err::InvalidLength {
+                        expected_length: ed25519_dalek::PUBLIC_KEY_LENGTH,
+                        received_length: length,
+                    });
                 }
                 Ok(PublicKey::ED25519(ED25519PublicKey(array)))
             }
@@ -342,9 +357,12 @@ impl FromStr for PublicKey {
                 let mut array = [0; 64];
                 let length = bs58::decode(key_data)
                     .into(&mut array[..])
-                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 if length != 64 {
-                    return Err(crate::ParseKeyError::InvalidLength(length));
+                    return Err(Self::Err::InvalidLength {
+                        expected_length: 64,
+                        received_length: length,
+                    });
                 }
                 Ok(PublicKey::SECP256K1(Secp256K1PublicKey(array)))
             }
@@ -472,8 +490,8 @@ impl std::fmt::Display for SecretKey {
     }
 }
 
-impl std::str::FromStr for SecretKey {
-    type Err = crate::ParseKeyError;
+impl FromStr for SecretKey {
+    type Err = crate::errors::ParseKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (key_type, key_data) = split_key_type_data(&s)?;
@@ -482,9 +500,12 @@ impl std::str::FromStr for SecretKey {
                 let mut array = [0; ed25519_dalek::KEYPAIR_LENGTH];
                 let length = bs58::decode(key_data)
                     .into(&mut array[..])
-                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 if length != ed25519_dalek::KEYPAIR_LENGTH {
-                    return Err(Self::Err::InvalidLength(length));
+                    return Err(Self::Err::InvalidLength {
+                        expected_length: ed25519_dalek::KEYPAIR_LENGTH,
+                        received_length: length,
+                    });
                 }
                 Ok(Self::ED25519(ED25519SecretKey(array)))
             }
@@ -492,13 +513,16 @@ impl std::str::FromStr for SecretKey {
                 let mut array = [0; secp256k1::constants::SECRET_KEY_SIZE];
                 let length = bs58::decode(key_data)
                     .into(&mut array[..])
-                    .map_err(|err| Self::Err::InvalidData(err.to_string()))?;
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 if length != secp256k1::constants::SECRET_KEY_SIZE {
-                    return Err(Self::Err::InvalidLength(length));
+                    return Err(Self::Err::InvalidLength {
+                        expected_length: secp256k1::constants::SECRET_KEY_SIZE,
+                        received_length: length,
+                    });
                 }
                 Ok(Self::SECP256K1(
                     secp256k1::key::SecretKey::from_slice(&SECP256K1, &array)
-                        .map_err(|err| Self::Err::InvalidData(err.to_string()))?,
+                        .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
                 ))
             }
         }
@@ -531,8 +555,63 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
     }
 }
 
+const SECP256K1_N: U256 =
+    U256([0xbfd25e8cd0364141, 0xbaaedce6af48a03b, 0xfffffffffffffffe, 0xffffffffffffffff]);
+
+// Half of SECP256K1_N + 1.
+const SECP256K1_N_HALF_ONE: U256 =
+    U256([0xdfe92f46681b20a1, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
+
 #[derive(Clone)]
 pub struct Secp256K1Signature([u8; 65]);
+
+impl Secp256K1Signature {
+    pub fn check_signature_values(&self, reject_upper: bool) -> bool {
+        let mut r_bytes = [0u8; 32];
+        r_bytes.copy_from_slice(&self.0[0..32]);
+        let r = U256::from(r_bytes);
+
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&self.0[32..64]);
+        let s = U256::from(s_bytes);
+
+        let s_check = if reject_upper {
+            // Reject upper range of s values (ECDSA malleability)
+            SECP256K1_N_HALF_ONE
+        } else {
+            SECP256K1_N
+        };
+
+        r < SECP256K1_N && s < s_check
+    }
+
+    pub fn recover(
+        &self,
+        msg: [u8; 32],
+    ) -> Result<Secp256K1PublicKey, crate::errors::ParseSignatureError> {
+        let recoverable_sig = secp256k1::RecoverableSignature::from_compact(
+            &SECP256K1,
+            &self.0[0..64],
+            secp256k1::RecoveryId::from_i32(i32::from(self.0[64])).unwrap(),
+        )
+        .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+            error_message: err.to_string(),
+        })?;
+        let msg = Message::from(msg);
+
+        let res = SECP256K1
+            .recover(&msg, &recoverable_sig)
+            .map_err(|err| crate::errors::ParseSignatureError::InvalidData {
+                error_message: err.to_string(),
+            })?
+            .serialize_vec(&SECP256K1, false);
+
+        // Can not fail
+        let pk = Secp256K1PublicKey::try_from(&res[1..65]).unwrap();
+
+        Ok(pk)
+    }
+}
 
 impl From<[u8; 65]> for Secp256K1Signature {
     fn from(data: [u8; 65]) -> Self {
@@ -541,7 +620,7 @@ impl From<[u8; 65]> for Secp256K1Signature {
 }
 
 impl TryFrom<&[u8]> for Secp256K1Signature {
-    type Error = crate::TryFromSliceError;
+    type Error = crate::errors::ParseSignatureError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         // It is suboptimal, but optimized implementation in Rust standard
@@ -549,9 +628,12 @@ impl TryFrom<&[u8]> for Secp256K1Signature {
         // the moment. Once https://github.com/rust-lang/rust/pull/74254
         // lands, we can use the following impl:
         //
-        // Ok(Self(data.try_into().map_err(|_| crate::TryFromSliceError(()))?))
+        // Ok(Self(data.try_into().map_err(|_| Self::Error::InvalidLength { expected_length: 65, received_length: data.len() })?))
         if data.len() != 65 {
-            return Err(crate::TryFromSliceError(()));
+            return Err(Self::Error::InvalidLength {
+                expected_length: 65,
+                received_length: data.len(),
+            });
         }
         let mut signature = Self([0; 65]);
         signature.0.copy_from_slice(data);
@@ -591,19 +673,22 @@ impl Signature {
     pub fn from_parts(
         signature_type: KeyType,
         signature_data: &[u8],
-    ) -> Result<Self, crate::ParseSignatureError> {
+    ) -> Result<Self, crate::errors::ParseSignatureError> {
         match signature_type {
             KeyType::ED25519 => Ok(Signature::ED25519(
-                ed25519_dalek::Signature::from_bytes(signature_data)
-                    .map_err(|err| crate::ParseSignatureError::InvalidData(err.to_string()))?,
-            )),
-            KeyType::SECP256K1 => Ok(Signature::SECP256K1(
-                Secp256K1Signature::try_from(signature_data).map_err(|_| {
-                    crate::ParseSignatureError::InvalidData(
-                        "invalid Secp256k1 signature length".to_string(),
-                    )
+                ed25519_dalek::Signature::from_bytes(signature_data).map_err(|err| {
+                    crate::errors::ParseSignatureError::InvalidData {
+                        error_message: err.to_string(),
+                    }
                 })?,
             )),
+            KeyType::SECP256K1 => {
+                Ok(Signature::SECP256K1(Secp256K1Signature::try_from(signature_data).map_err(
+                    |_| crate::errors::ParseSignatureError::InvalidData {
+                        error_message: "invalid Secp256k1 signature length".to_string(),
+                    },
+                )?))
+            }
         }
     }
 
@@ -724,36 +809,38 @@ impl serde::Serialize for Signature {
     }
 }
 
-impl TryFrom<String> for Signature {
-    type Error = Box<dyn std::error::Error>;
+impl FromStr for Signature {
+    type Err = crate::errors::ParseSignatureError;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_str())
-    }
-}
-
-impl TryFrom<&str> for Signature {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (sig_type, sig_data) = split_key_type_data(&value)?;
         match sig_type {
             KeyType::ED25519 => {
                 let mut array = [0; ed25519_dalek::SIGNATURE_LENGTH];
-                let length = bs58::decode(sig_data).into(&mut array[..])?;
+                let length = bs58::decode(sig_data)
+                    .into(&mut array[..])
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 if length != ed25519_dalek::SIGNATURE_LENGTH {
-                    return Err(format!("Invalid length {} of ED25519 signature", length).into());
+                    return Err(Self::Err::InvalidLength {
+                        expected_length: ed25519_dalek::SIGNATURE_LENGTH,
+                        received_length: length,
+                    });
                 }
                 Ok(Signature::ED25519(
                     ed25519_dalek::Signature::from_bytes(&array)
-                        .map_err(|e| format!("Invalid ED25519 signature: {}", e.to_string()))?,
+                        .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?,
                 ))
             }
             KeyType::SECP256K1 => {
                 let mut array = [0; 65];
-                let length = bs58::decode(sig_data).into(&mut array[..])?;
+                let length = bs58::decode(sig_data)
+                    .into(&mut array[..])
+                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
                 if length != 65 {
-                    return Err(format!("Invalid length {} of SECP256K1 signature", length).into());
+                    return Err(Self::Err::InvalidLength {
+                        expected_length: 65,
+                        received_length: length,
+                    });
                 }
                 Ok(Signature::SECP256K1(Secp256K1Signature(array)))
             }
@@ -767,8 +854,9 @@ impl<'de> serde::Deserialize<'de> for Signature {
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        s.try_into()
-            .map_err(|err: Box<dyn std::error::Error>| serde::de::Error::custom(err.to_string()))
+        s.parse().map_err(|err: crate::errors::ParseSignatureError| {
+            serde::de::Error::custom(err.to_string())
+        })
     }
 }
 
@@ -811,7 +899,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
         let signature_str: String = signature.to_string();
-        let signature2: Signature = signature_str.try_into().unwrap();
+        let signature2: Signature = signature_str.parse().unwrap();
         assert_eq!(signature, signature2);
     }
 
@@ -837,7 +925,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&signature).unwrap(), expected);
         assert_eq!(signature, serde_json::from_str(expected).unwrap());
         let signature_str: String = signature.to_string();
-        let signature2: Signature = signature_str.try_into().unwrap();
+        let signature2: Signature = signature_str.parse().unwrap();
         assert_eq!(signature, signature2);
     }
 

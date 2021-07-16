@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # First, measure the size of the file without payload.
 RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release

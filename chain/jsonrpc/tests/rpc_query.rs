@@ -1,15 +1,15 @@
-use std::convert::TryFrom;
+use std::str::FromStr;
 
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use serde_json::json;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_client::ChunkId;
-use near_jsonrpc_primitives::rpc::RpcValidatorsOrderedRequest;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
+use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -32,7 +32,7 @@ fn test_block_by_id_height() {
         assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
         assert_eq!(
             block.header.prev_state_root,
-            CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
         );
         assert!(block.header.timestamp > 0);
         assert_eq!(block.header.validator_proposals.len(), 0);
@@ -77,7 +77,7 @@ fn test_block_query() {
             assert_eq!(block.header.prev_hash.as_ref(), &[0; 32]);
             assert_eq!(
                 block.header.prev_state_root,
-                CryptoHash::try_from("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+                CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
             );
             assert!(block.header.timestamp > 0);
             assert_eq!(block.header.validator_proposals.len(), 0);
@@ -383,7 +383,7 @@ fn test_status() {
 fn test_status_fail() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
@@ -408,7 +408,7 @@ fn test_status_fail() {
 fn test_health_fail() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let client = new_client(&"http://127.0.0.1:12322/health");
         actix::spawn(client.health().then(|res| {
             assert!(res.is_err());
@@ -423,7 +423,7 @@ fn test_health_fail() {
 fn test_health_fail_no_blocks() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::NonValidator);
 
         let client = new_client(&format!("http://{}", addr));
@@ -460,7 +460,7 @@ fn test_validators_ordered() {
             .await
             .unwrap();
         assert_eq!(
-            validators.into_iter().map(|v| v.account_id).collect::<Vec<_>>(),
+            validators.into_iter().map(|v| v.take_account_id()).collect::<Vec<_>>(),
             vec!["test1".to_string(), "test2".to_string()]
         )
     });
@@ -669,7 +669,7 @@ fn test_validators_non_existing_block_hash() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let validators_response = client
             .validators(Some(near_primitives::types::BlockId::Hash(
-                near_primitives::hash::CryptoHash::try_from(
+                near_primitives::hash::CryptoHash::from_str(
                     "123PXBoQKnTnARA49ctEzAiradrAAAEtLRCJGpjH24qC",
                 )
                 .unwrap(),

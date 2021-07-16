@@ -12,6 +12,6 @@ env_logger = "0.8"
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
-neard = { path = "../../neard" }
+nearcore = { path = "../../nearcore" }
 
 testlib = { path = "../../test-utils/testlib" }

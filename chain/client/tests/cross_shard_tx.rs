@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use futures::{future, FutureExt};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
@@ -18,7 +18,7 @@ fn test_keyvalue_runtime_balances() {
     let validator_groups = 2;
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_integration_logger();
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
@@ -86,7 +86,7 @@ mod tests {
     use actix::{Addr, MailboxError, System};
     use futures::{future, FutureExt};
 
-    use near_actix_test_utils::run_actix_until_stop;
+    use near_actix_test_utils::run_actix;
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::{setup_mock_all_validators, BlockStats};
     use near_client::{ClientActor, Query, ViewClientActor};
@@ -394,7 +394,7 @@ mod tests {
     ) {
         let validator_groups = 4;
         init_integration_logger();
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 

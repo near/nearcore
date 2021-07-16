@@ -4,7 +4,6 @@
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
-use wasmer_runtime_core::wasmparser;
 
 use near_vm_errors::PrepareError;
 use near_vm_logic::VMConfig;
@@ -59,6 +58,10 @@ impl<'a> ContractModule<'a> {
 
     fn inject_gas_metering(self) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
+        // Free config, no need for gas metering.
+        if config.regular_op_cost == 0 {
+            return Ok(Self { module, config });
+        }
         let gas_rules = rules::Set::new(1, Default::default()).with_grow_cost(config.grow_mem_cost);
         let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| PrepareError::GasInstrumentation)?;
@@ -162,12 +165,11 @@ pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use wabt;
 
     use super::*;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
-        let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
+        let wasm = wat::parse_str(wat).unwrap();
         let config = VMConfig::default();
         prepare_contract(wasm.as_ref(), &config)
     }

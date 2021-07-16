@@ -13,16 +13,19 @@ use near_crypto::Signature;
 use near_pool::types::PoolIterator;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, SlashedValidator};
-use near_primitives::epoch_manager::{BlockInfo, EpochInfo};
+use near_primitives::checked_feature;
+use near_primitives::epoch_manager::block_info::BlockInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
+use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode, ValidatorStake,
+    NumBlocks, ShardId, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -33,6 +36,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -74,9 +78,6 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-/// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
-
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -103,7 +104,7 @@ impl ApplyTransactionResult {
 
 /// Compressed information about block.
 /// Useful for epoch manager.
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct BlockHeaderInfo {
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
@@ -116,7 +117,6 @@ pub struct BlockHeaderInfo {
     pub chunk_mask: Vec<bool>,
     pub total_supply: Balance,
     pub latest_protocol_version: ProtocolVersion,
-    #[cfg(feature = "protocol_feature_rectify_inflation")]
     pub timestamp_nanosec: u64,
 }
 
@@ -129,12 +129,11 @@ impl BlockHeaderInfo {
             random_value: *header.random_value(),
             last_finalized_height,
             last_finalized_block_hash: *header.last_final_block(),
-            proposals: header.validator_proposals().to_vec(),
+            proposals: header.validator_proposals().collect(),
             slashed_validators: vec![],
             chunk_mask: header.chunk_mask().to_vec(),
             total_supply: header.total_supply(),
             latest_protocol_version: header.latest_protocol_version(),
-            #[cfg(feature = "protocol_feature_rectify_inflation")]
             timestamp_nanosec: header.raw_timestamp(),
         }
     }
@@ -149,6 +148,8 @@ pub struct BlockEconomicsConfig {
 }
 
 impl BlockEconomicsConfig {
+    /// Set max gas price to be this multiplier * min_gas_price
+    const MAX_GAS_MULTIPLIER: u128 = 20;
     /// Compute min gas price according to protocol version and genesis protocol version.
     pub fn min_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
         if self.genesis_protocol_version < MIN_PROTOCOL_VERSION_NEP_92 {
@@ -170,8 +171,15 @@ impl BlockEconomicsConfig {
         }
     }
 
-    pub fn max_gas_price(&self, _protocol_version: ProtocolVersion) -> Balance {
-        self.max_gas_price
+    pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
+        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
+            std::cmp::min(
+                self.max_gas_price,
+                Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),
+            )
+        } else {
+            self.max_gas_price
+        }
     }
 
     pub fn gas_price_adjustment_rate(&self, _protocol_version: ProtocolVersion) -> Rational {
@@ -508,11 +516,14 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
+        is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -529,6 +540,9 @@ pub trait RuntimeAdapter: Send + Sync {
             challenges_result,
             random_seed,
             false,
+            is_new_chunk,
+            is_first_block_with_chunk_of_version,
+            states_to_patch,
         )
     }
 
@@ -542,12 +556,15 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
         generate_storage_proof: bool,
+        is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
+        states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error>;
 
     fn check_state_transition(
@@ -561,11 +578,13 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: &[ValidatorStake],
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_value: CryptoHash,
+        is_new_chunk: bool,
+        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -613,6 +632,7 @@ pub trait RuntimeAdapter: Send + Sync {
         part_id: u64,
         num_parts: u64,
         part: &[u8],
+        epoch_id: &EpochId,
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
@@ -647,6 +667,12 @@ pub trait RuntimeAdapter: Send + Sync {
     fn evm_chain_id(&self) -> u64;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Get previous epoch id by hash of previous block.
+    fn get_prev_epoch_id_from_prev_block(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochId, Error>;
 
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
@@ -700,7 +726,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
-    use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+    use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
@@ -713,6 +739,7 @@ mod tests {
         let num_shards = 32;
         let genesis_chunks =
             genesis_chunks(vec![StateRoot::default()], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+        let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
@@ -720,7 +747,7 @@ mod tests {
             0,
             100,
             1_000_000_000,
-            Chain::compute_bp_hash_inner(vec![]).unwrap(),
+            Chain::compute_collection_hash(genesis_bps).unwrap(),
         );
         let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
@@ -751,6 +778,7 @@ mod tests {
                 gas_burnt: 100,
                 tokens_burnt: 10000,
                 executor_id: "alice".to_string(),
+                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -762,6 +790,7 @@ mod tests {
                 gas_burnt: 0,
                 tokens_burnt: 0,
                 executor_id: "bob".to_string(),
+                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
         let outcomes = vec![outcome1, outcome2];

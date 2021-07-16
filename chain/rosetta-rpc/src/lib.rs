@@ -39,7 +39,7 @@ async fn network_list(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     Ok(Json(models::NetworkListResponse {
         network_identifiers: vec![models::NetworkIdentifier {
             blockchain: "nearprotocol".to_owned(),
@@ -64,7 +64,7 @@ async fn network_status(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != body.network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -136,7 +136,7 @@ async fn network_options(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != body.network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -193,7 +193,7 @@ async fn block_details(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -284,7 +284,7 @@ async fn block_transaction_details(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -346,7 +346,7 @@ async fn account_balance(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -376,13 +376,7 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account {
-                    amount: 0,
-                    locked: 0,
-                    storage_usage: 0,
-                    code_hash: Default::default(),
-                }
-                .into(),
+                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
             ),
             Err(err) => return Err(err.into()),
         };
@@ -478,7 +472,7 @@ async fn construction_derive(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -510,7 +504,7 @@ async fn construction_preprocess(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -559,7 +553,7 @@ async fn construction_metadata(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -631,7 +625,7 @@ async fn construction_payloads(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -648,7 +642,7 @@ async fn construction_payloads(
     let models::ConstructionMetadata { recent_block_hash, signer_public_access_key_nonce } =
         metadata;
     let unsigned_transaction = near_primitives::transaction::Transaction {
-        block_hash: recent_block_hash.try_into().map_err(|err| {
+        block_hash: recent_block_hash.parse().map_err(|err| {
             errors::ErrorKind::InvalidInput(format!(
                 "block hash could not be parsed due to: {:?}",
                 err
@@ -661,7 +655,7 @@ async fn construction_payloads(
         actions,
     };
 
-    let transaction_hash = unsigned_transaction.get_hash().clone();
+    let (transaction_hash, _) = unsigned_transaction.get_hash_and_size().clone();
 
     Ok(Json(models::ConstructionPayloadsResponse {
         unsigned_transaction: unsigned_transaction.into(),
@@ -704,7 +698,7 @@ async fn construction_combine(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -738,7 +732,7 @@ async fn construction_parse(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -798,7 +792,7 @@ async fn construction_hash(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,
@@ -833,7 +827,7 @@ async fn construction_submit(
     let status = client_addr
         .send(near_client::Status { is_health_check: false })
         .await?
-        .map_err(errors::ErrorKind::InternalError)?;
+        .map_err(|err| errors::ErrorKind::InternalError(err.to_string()))?;
     if status.chain_id != network_identifier.network {
         return Err(models::Error {
             code: 2,

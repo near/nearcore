@@ -6,6 +6,7 @@ pub use near_primitives_core::runtime::*;
 pub mod apply_state;
 pub mod config;
 pub use near_primitives_core::runtime::fees;
+pub mod migration_data;
 
 /// Checks if given account has enough balance for storage stake, and returns:
 ///  - None if account has enough balance,
@@ -17,15 +18,16 @@ pub fn get_insufficient_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,
 ) -> Result<Option<Balance>, String> {
-    let required_amount = Balance::from(account.storage_usage)
+    let required_amount = Balance::from(account.storage_usage())
         .checked_mul(runtime_config.storage_amount_per_byte)
         .ok_or_else(|| {
-            format!("Account's storage_usage {} overflows multiplication", account.storage_usage)
+            format!("Account's storage_usage {} overflows multiplication", account.storage_usage())
         })?;
-    let available_amount = account.amount.checked_add(account.locked).ok_or_else(|| {
+    let available_amount = account.amount().checked_add(account.locked()).ok_or_else(|| {
         format!(
             "Account's amount {} and locked {} overflow addition",
-            account.amount, account.locked
+            account.amount(),
+            account.locked()
         )
     })?;
     if available_amount >= required_amount {

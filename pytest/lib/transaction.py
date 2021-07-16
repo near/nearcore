@@ -124,6 +124,15 @@ def create_function_call_action(methodName, args, gas, deposit):
     return action
 
 
+def create_delete_account_action(beneficiary):
+    deleteAccount = DeleteAccount()
+    deleteAccount.beneficiaryId = beneficiary
+    action = Action()
+    action.enum = 'deleteAccount'
+    action.deleteAccount = deleteAccount
+    return action
+
+
 def sign_create_account_tx(creator_key, new_account_id, nonce, block_hash):
     action = create_create_account_action()
     return sign_and_serialize_transaction(new_account_id, nonce, [action],
@@ -204,3 +213,10 @@ def sign_function_call_tx(signer_key, contract_id, methodName, args, gas,
                                           blockHash, signer_key.account_id,
                                           signer_key.decoded_pk(),
                                           signer_key.decoded_sk())
+
+
+def sign_delete_account_tx(key, to, beneficiary, nonce, block_hash):
+    action = create_delete_account_action(beneficiary)
+    return sign_and_serialize_transaction(to, nonce, [action], block_hash,
+                                          key.account_id, key.decoded_pk(),
+                                          key.decoded_sk())

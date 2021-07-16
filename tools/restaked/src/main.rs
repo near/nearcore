@@ -7,8 +7,8 @@ use log::{error, info, LevelFilter};
 
 use near_crypto::{InMemorySigner, KeyFile};
 use near_primitives::views::CurrentEpochValidatorInfo;
-use neard::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
-use neard::get_default_home;
+use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
+use nearcore::get_default_home;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
 use testlib::user::{rpc_user::RpcUser, User};
 
@@ -88,7 +88,8 @@ fn main() {
         //  - don't already have a proposal
         //  - too many missing blocks in current validators
         //  - missing in next validators
-        if validators.current_proposals.iter().any(|proposal| proposal.account_id == account_id) {
+        if validators.current_proposals.iter().any(|proposal| proposal.account_id() == &account_id)
+        {
             continue;
         }
         let mut restake = false;

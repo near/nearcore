@@ -34,6 +34,10 @@ pub enum ViewAccessKeyError {
 pub enum ViewStateError {
     #[error("Account ID \"{requested_account_id}\" is invalid")]
     InvalidAccountId { requested_account_id: near_primitives::types::AccountId },
+    #[error("Account {requested_account_id} does not exist")]
+    AccountDoesNotExist { requested_account_id: near_primitives::types::AccountId },
+    #[error("The state of {requested_account_id} is too large")]
+    AccountStateTooLarge { requested_account_id: near_primitives::types::AccountId },
     #[error("Internal error: #{error_message}")]
     InternalError { error_message: String },
 }

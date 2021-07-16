@@ -13,7 +13,6 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
-#[cfg(feature = "protocol_feature_forward_chunk_parts")]
 use near_network::types::PartialEncodedChunkForwardMsg;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkRequestMsg,
@@ -31,9 +30,9 @@ use near_primitives::sharding::{
     ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, Gas, MerkleHash, ShardId, StateRoot,
-    ValidatorStake,
 };
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
@@ -52,7 +51,7 @@ const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
 pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
 pub const CHUNK_REQUEST_SWITCH_TO_OTHERS_MS: u64 = 400;
 pub const CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS: u64 = 3_000;
-const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 100_000;
+const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
@@ -560,16 +559,17 @@ impl ShardsManager {
         for (validator_stake, is_slashed) in
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
         {
+            let account_id = validator_stake.take_account_id();
             if !is_slashed
                 && self.cares_about_shard_this_or_next_epoch(
-                    Some(&validator_stake.account_id),
+                    Some(&account_id),
                     &parent_hash,
                     shard_id,
                     false,
                 )
-                && self.me.as_ref() != Some(&validator_stake.account_id)
+                && self.me.as_ref() != Some(&account_id)
             {
-                block_producers.push(validator_stake.account_id);
+                block_producers.push(account_id);
             }
         }
 
@@ -638,11 +638,8 @@ impl ShardsManager {
             // will eventually be sent because of the `resend_chunk_requests` loop. However,
             // we want to give some time for any `PartialEncodedChunkForward` messages to arrive
             // before we send requests.
-            let is_chunk_forwarding_enabled = checked_feature!(
-                "protocol_feature_forward_chunk_parts",
-                ForwardChunkParts,
-                protocol_version
-            );
+            let is_chunk_forwarding_enabled =
+                checked_feature!("stable", ForwardChunkParts, protocol_version);
             if !is_chunk_forwarding_enabled || fetch_from_archival || old_block {
                 let request_result = self.request_partial_encoded_chunk(
                     height,
@@ -992,7 +989,6 @@ impl ShardsManager {
         }
     }
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn validate_partial_encoded_chunk_forward(
         &mut self,
         forward: &PartialEncodedChunkForwardMsg,
@@ -1047,7 +1043,6 @@ impl ShardsManager {
         Ok(header)
     }
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
         let num_total_parts = self.runtime_adapter.num_total_parts() as u64;
@@ -1214,14 +1209,9 @@ impl ShardsManager {
         self.encoded_chunks.merge_in_partial_encoded_chunk(partial_encoded_chunk);
 
         // Forward my parts to others tracking this chunk's shard
-        checked_feature!(
-            "protocol_feature_forward_chunk_parts",
-            ForwardChunkParts,
-            protocol_version,
-            {
-                self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
-            }
-        );
+        if checked_feature!("stable", ForwardChunkParts, protocol_version) {
+            self.send_partial_encoded_chunk_to_chunk_trackers(partial_encoded_chunk)?;
+        };
 
         let entry = self.encoded_chunks.get(&chunk_hash).unwrap();
 
@@ -1333,7 +1323,6 @@ impl ShardsManager {
 
     /// Send the parts of the partial_encoded_chunk that are owned by `self.me` to the
     /// other validators that are tracking the shard.
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     pub fn send_partial_encoded_chunk_to_chunk_trackers(
         &mut self,
         partial_encoded_chunk: &PartialEncodedChunkV2,
@@ -1368,20 +1357,21 @@ impl ShardsManager {
         let block_producers =
             self.runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, &parent_hash)?;
         for (bp, _) in block_producers {
+            let bp_account_id = bp.take_account_id();
             // no need to send anything to myself
-            if me == &bp.account_id {
+            if me == &bp_account_id {
                 continue;
             }
 
             let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
-                Some(&bp.account_id),
+                Some(&bp_account_id),
                 &parent_hash,
                 shard_id,
                 false,
             );
             if cares_about_shard {
                 self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp.account_id.clone(),
+                    account_id: bp_account_id,
                     forward: forward.clone(),
                 });
             }
@@ -1522,9 +1512,7 @@ impl ShardsManager {
             ShardChunkHeader::V1(header) => {
                 PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
             }
-            header @ ShardChunkHeader::V2(_) => {
-                PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts })
-            }
+            header => PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts }),
         };
 
         store_update.save_partial_chunk(partial_chunk);
@@ -1714,10 +1702,8 @@ mod test {
     use crate::test_utils::*;
     use near_chain::test_utils::KeyValueRuntime;
     use near_network::test_utils::MockNetworkAdapter;
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -1949,7 +1935,6 @@ mod test {
         assert!(seals_manager.past_seals.get(&fixture.mock_height).is_none());
     }*/
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     #[test]
     fn test_chunk_forwarding() {
         // When ShardsManager receives parts it owns, it should forward them to the shard trackers
@@ -2005,7 +1990,6 @@ mod test {
         assert!(requests_count > 0);
     }
 
-    #[cfg(feature = "protocol_feature_forward_chunk_parts")]
     #[test]
     fn test_receive_forward_before_header() {
         // When a node receives a chunk forward before the chunk header, it should store

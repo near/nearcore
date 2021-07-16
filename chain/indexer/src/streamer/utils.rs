@@ -11,7 +11,7 @@ use super::IndexerTransactionWithOutcome;
 
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
     client: &Addr<near_client::ViewClientActor>,
-    near_config: &neard::NearConfig,
+    protocol_config: &near_chain_configs::ProtocolConfigView,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
@@ -22,7 +22,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
         txs.into_iter()
             .map(|tx| {
                 let cost = tx_cost(
-                    &near_config.genesis.config.runtime_config.transaction_costs,
+                    &protocol_config.runtime_config.transaction_costs,
                     &near_primitives::transaction::Transaction {
                         signer_id: tx.transaction.signer_id.clone(),
                         public_key: tx.transaction.public_key.clone(),
@@ -41,7 +41,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     },
                     prev_block_gas_price,
                     true,
-                    near_config.genesis.config.protocol_version,
+                    protocol_config.clone().protocol_version,
                 );
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),

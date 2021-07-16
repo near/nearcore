@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::{future::LocalBoxFuture, FutureExt};
 
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc::ServerError;
+use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -62,6 +62,8 @@ pub trait User {
     fn get_best_block_hash(&self) -> Option<CryptoHash>;
 
     fn get_block(&self, height: BlockHeight) -> Option<BlockView>;
+
+    fn get_block_by_hash(&self, block_hash: CryptoHash) -> Option<BlockView>;
 
     fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
 
@@ -205,16 +207,25 @@ pub trait User {
         )
     }
 
+    fn delete_account_with_beneficiary_set(
+        &self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        beneficiary_id: AccountId,
+    ) -> Result<FinalExecutionOutcomeView, ServerError> {
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            receiver_id,
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+        )
+    }
+
     fn delete_account(
         &self,
         signer_id: AccountId,
         receiver_id: AccountId,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        self.sign_and_commit_actions(
-            signer_id.clone(),
-            receiver_id,
-            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: signer_id })],
-        )
+        self.delete_account_with_beneficiary_set(signer_id.clone(), receiver_id, signer_id)
     }
 
     fn stake(

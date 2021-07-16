@@ -8,9 +8,8 @@ use near_evm_runner::types::WithdrawArgs;
 use near_evm_runner::utils::{
     address_from_arr, encode_call_function_args, encode_view_call_function_args, u256_to_arr,
 };
-use near_primitives::errors::{ActionError, ActionErrorKind};
+use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError};
 use near_primitives::views::FinalExecutionStatus;
-use near_vm_errors::{EvmError, FunctionCallError};
 
 use_contract!(cryptozombies, "../../runtime/near-evm-runner/tests/build/ZombieOwnership.abi");
 use_contract!(precompiles, "../../runtime/near-evm-runner/tests/build/StandardPrecompiles.abi");
@@ -81,9 +80,9 @@ pub fn test_evm_infinite_loop_gas_limit(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::EvmError(
-                    EvmError::OutOfGas
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: "EVM: OutOfGas".to_string() }.into()
+                )
             }
             .into()
         )
@@ -106,9 +105,9 @@ pub fn test_evm_fibonacci_gas_limit(node: impl Node) {
         FinalExecutionStatus::Failure(
             ActionError {
                 index: Some(0),
-                kind: ActionErrorKind::FunctionCallError(FunctionCallError::EvmError(
-                    EvmError::OutOfGas
-                ))
+                kind: ActionErrorKind::FunctionCallError(
+                    ContractCallError::ExecutionError { msg: "EVM: OutOfGas".to_string() }.into()
+                )
             }
             .into()
         )

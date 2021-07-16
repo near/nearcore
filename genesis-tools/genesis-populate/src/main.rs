@@ -4,7 +4,7 @@ use std::sync::Arc;
 use clap::{App, Arg};
 
 use near_store::create_store;
-use neard::{get_default_home, get_store_path, load_config};
+use nearcore::{get_default_home, get_store_path, load_config};
 
 use genesis_populate::GenesisBuilder;
 
@@ -31,14 +31,10 @@ fn main() {
     let store = create_store(&get_store_path(home_dir));
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
-        .add_additional_accounts_contract(TINY_CONTRACT.to_vec())
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
         .print_progress()
         .build()
         .unwrap()
         .dump_state()
         .unwrap();
-}
-
-lazy_static_include::lazy_static_include_bytes! {
-    TINY_CONTRACT => "../../runtime/runtime/tests/tiny-contract-rs/res/tiny_contract_rs.wasm"
 }
