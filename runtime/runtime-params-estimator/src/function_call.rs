@@ -129,7 +129,7 @@ pub fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = run_vm(
             &contract,
-            "hello0",
+            "hell",
             &mut fake_external,
             fake_context.clone(),
             &vm_config,
