@@ -586,28 +586,37 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         promise_return_100k => promise_return_100k,
         data_producer_10b => data_producer_10b,
         data_producer_100kib => data_producer_100kib,
-        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-        data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000
+        // data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        // data_receipt_10b_1000 => data_receipt_10b_1000,
+        // data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        // testbed = measure_function(
-        //     metric,
-        //     method_name,
-        //     &mut m,
-        //     testbed,
-        //     &ad,
-        //     &mut nonces,
-        //     &config,
-        //     false,
-        //     vec![],
-        // );
-        let start = start_count(GasMetric::ICount);
-        let measured = end_count(GasMetric::ICount, &start) + 10;
+        let start = start_count(GasMetric::Time);
+        let measured = end_count(GasMetric::Time, &start) + 10;
         m.record_measurement(metric.clone(), 1, measured);
         m.print();
+    }
+
+    let v = calls_helper! {
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000
+    };
+    // Measure the speed of all extern function calls.
+    for (metric, method_name) in v {
+        testbed = measure_function(
+            metric,
+            method_name,
+            &mut m,
+            testbed,
+            &ad,
+            &mut nonces,
+            &config,
+            false,
+            vec![],
+        );
     }
 
     get_runtime_config(&m, &config)
