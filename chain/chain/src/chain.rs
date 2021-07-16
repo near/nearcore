@@ -2946,7 +2946,7 @@ impl<'a> ChainUpdate<'a> {
                     #[cfg(feature = "sandbox")]
                     let states_to_patch = self.states_to_patch.take();
                     #[cfg(not(feature = "sandbox"))]
-                    let _ = states_to_patch;
+                    let _ = self.states_to_patch;
 
                     dif_height_handlers.push(thread::spawn(
                         move || -> Result<(ShardId, ApplyTransactionResult), Error> {
