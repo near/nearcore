@@ -9,9 +9,13 @@ use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
+pub const MAX_BLOCKS: usize = 2500;
+pub const MAX_TXS: usize = 300;
+pub const MAX_ACCOUNTS: usize = 100;
+
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
-        let num_accounts = u.int_in_range(2..=100)?;
+        let num_accounts = u.int_in_range(2..=MAX_ACCOUNTS)?;
 
         let seeds: Vec<String> = (0..num_accounts).map(|i| format!("test{}", i)).collect();
 
@@ -19,28 +23,37 @@ impl Arbitrary<'_> for Scenario {
 
         let network_config = NetworkConfig { seeds };
 
-        let num_blocks = u.int_in_range(1500..=2500)?;
-
         let mut blocks = vec![];
 
-        for _ in 0..num_blocks {
+        while blocks.len() < MAX_BLOCKS && u.len() > BlockConfig::size_hint(0).1.unwrap() {
             blocks.push(BlockConfig::arbitrary(u, &mut scope)?);
         }
         Ok(Scenario { network_config, blocks })
+    }
+
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (0, Some(MAX_BLOCKS * BlockConfig::size_hint(0).1.unwrap()))
     }
 }
 
 impl BlockConfig {
     fn arbitrary(u: &mut Unstructured, scope: &mut Scope) -> Result<BlockConfig> {
         scope.inc_height();
-        let mut block_config = BlockConfig::at_height(scope.get_height());
+        let mut block_config = BlockConfig::at_height(scope.height());
 
-        let num_txs = u.int_in_range(0..=500)?;
-        for _ in 0..num_txs {
+        let max_tx_num = u.int_in_range(0..=MAX_TXS)?;
+
+        while block_config.transactions.len() < max_tx_num
+            && u.len() > TransactionConfig::size_hint(0).0
+        {
             block_config.transactions.push(TransactionConfig::arbitrary(u, scope)?)
         }
 
         Ok(block_config)
+    }
+
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (1, Some((MAX_TXS + 1) * TransactionConfig::size_hint(0).1.unwrap()))
     }
 }
 
@@ -53,12 +66,12 @@ impl TransactionConfig {
 
         // Transfer
         options.push(|u, scope| {
-            let signer_account = scope.get_account(u)?;
-            let receiver_account = scope.get_account(u)?;
+            let signer_account = scope.random_account(u)?;
+            let receiver_account = scope.random_account(u)?;
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
 
             Ok(TransactionConfig {
-                nonce: scope.get_nonce(),
+                nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id.clone(),
                 signer: InMemorySigner::from_seed(
@@ -72,14 +85,14 @@ impl TransactionConfig {
 
         // Stake
         options.push(|u, scope| {
-            let signer_account = scope.get_account(u)?;
+            let signer_account = scope.random_account(u)?;
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
             let signer =
                 InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
             let public_key = signer.public_key.clone();
 
             Ok(TransactionConfig {
-                nonce: scope.get_nonce(),
+                nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
                 signer,
@@ -89,7 +102,7 @@ impl TransactionConfig {
 
         // Create Account
         options.push(|u, scope| {
-            let signer_account = scope.get_account(u)?;
+            let signer_account = scope.random_account(u)?;
             let new_account = scope.new_account();
 
             let signer =
@@ -98,7 +111,7 @@ impl TransactionConfig {
                 InMemorySigner::from_seed(&new_account.id, KeyType::ED25519, &new_account.id)
                     .public_key;
             Ok(TransactionConfig {
-                nonce: scope.get_nonce(),
+                nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: new_account.id.clone(),
                 signer,
@@ -119,6 +132,10 @@ impl TransactionConfig {
         let f = u.choose(&options)?;
         f(u, scope)
     }
+
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (7, Some(14))
+    }
 }
 
 #[derive(Clone)]
@@ -135,7 +152,7 @@ pub struct Account {
 }
 
 impl Scope {
-    fn from_seeds(seeds: &Vec<String>) -> Self {
+    fn from_seeds(seeds: &[String]) -> Self {
         let accounts = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
         Scope { accounts, nonce: 0, height: 0 }
     }
@@ -144,7 +161,7 @@ impl Scope {
         self.height += 1
     }
 
-    pub fn get_height(&self) -> BlockHeight {
+    pub fn height(&self) -> BlockHeight {
         self.height
     }
 
@@ -152,11 +169,11 @@ impl Scope {
         self.nonce += 1;
     }
 
-    pub fn get_nonce(&self) -> Nonce {
+    pub fn nonce(&self) -> Nonce {
         self.nonce
     }
 
-    pub fn get_account(&self, u: &mut Unstructured) -> Result<Account> {
+    pub fn random_account(&self, u: &mut Unstructured) -> Result<Account> {
         Ok(u.choose(&self.accounts)?.clone())
     }
 

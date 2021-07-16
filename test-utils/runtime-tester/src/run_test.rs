@@ -66,18 +66,18 @@ impl Scenario {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Scenario {
     pub network_config: NetworkConfig,
     pub blocks: Vec<BlockConfig>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct NetworkConfig {
     pub seeds: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct BlockConfig {
     pub height: BlockHeight,
     pub transactions: Vec<TransactionConfig>,
@@ -92,15 +92,22 @@ pub struct TransactionConfig {
     pub actions: Vec<Action>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct RuntimeStats {
     pub blocks_stats: Vec<BlockStats>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BlockStats {
     pub height: u64,
     pub block_production_time: Duration,
+}
+
+use std::fmt::Debug;
+impl Debug for Scenario {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string_pretty(&self).unwrap())
+    }
 }
 
 impl BlockConfig {
@@ -118,17 +125,6 @@ impl TransactionConfig {
             &self.signer,
             self.actions.clone(),
             *last_block.hash(),
-        )
-    }
-}
-
-use core::fmt::Debug;
-impl Debug for TransactionConfig {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "(Nonce: {}, SignerId: {}, ReceiverId: {}, Actions: {:?} )",
-            &self.nonce, &self.signer_id, &self.receiver_id, &self.actions
         )
     }
 }
