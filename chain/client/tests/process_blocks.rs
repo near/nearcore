@@ -10,7 +10,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -174,7 +174,7 @@ fn prepare_env_with_congestion(
 #[test]
 fn produce_two_blocks() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
             vec!["test".parse().unwrap()],
@@ -202,7 +202,7 @@ fn produce_two_blocks() {
 fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) = setup_mock(
             vec!["test".parse().unwrap()],
             "test".parse().unwrap(),
@@ -267,7 +267,7 @@ fn produce_blocks_with_tx() {
 #[test]
 fn receive_network_block() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
@@ -337,7 +337,7 @@ fn produce_block_with_approvals() {
     init_test_logger();
     let validators: Vec<_> =
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) = setup_mock(
             validators.clone(),
             "test1".parse().unwrap(),
@@ -446,7 +446,7 @@ fn produce_block_with_approvals_arrived_early() {
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut approval_counter = 0;
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -517,7 +517,7 @@ fn produce_block_with_approvals_arrived_early() {
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut ban_counter = 0;
         let (client, view_client) = setup_mock(
             vec!["test".parse().unwrap()],
@@ -669,7 +669,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     ]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut ban_counter = 0;
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -807,7 +807,7 @@ fn test_ban_peer_for_ill_formed_block() {
 #[test]
 fn skip_block_production() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         setup_mock(
             vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             "test2".parse().unwrap(),
@@ -833,7 +833,7 @@ fn skip_block_production() {
 #[test]
 fn client_sync_headers() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
         let (client, _) = setup_mock(

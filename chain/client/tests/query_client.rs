@@ -2,7 +2,7 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use chrono::Utc;
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_client::test_utils::{setup, setup_no_network};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
@@ -27,7 +27,7 @@ use std::time::Duration;
 #[test]
 fn query_client() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, view_client) =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
         actix::spawn(
@@ -53,7 +53,7 @@ fn query_client() {
 #[test]
 fn query_status_not_crash() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) =
             setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
         let signer =
@@ -110,7 +110,7 @@ fn query_status_not_crash() {
 #[test]
 fn test_execution_outcome_for_chunk() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) =
             setup_no_network(vec!["test".parse().unwrap()], "test".parse().unwrap(), true, false);
         let signer = InMemorySigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
@@ -175,7 +175,7 @@ fn test_execution_outcome_for_chunk() {
 
 #[test]
 fn test_state_request() {
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, _, view_client) = setup(
             vec![vec!["test".parse().unwrap()]],
             1,

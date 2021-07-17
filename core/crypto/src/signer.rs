@@ -6,6 +6,8 @@ use crate::key_file::KeyFile;
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 use near_account_id::AccountId;
 
+use serde::{Deserialize, Serialize};
+
 /// Generic signer trait, that can sign with some subset of supported curves.
 pub trait Signer: Sync + Send {
     fn public_key(&self) -> PublicKey;
@@ -41,7 +43,7 @@ impl Signer for EmptySigner {
 }
 
 /// Signer that keeps secret key in memory.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
     pub public_key: PublicKey,

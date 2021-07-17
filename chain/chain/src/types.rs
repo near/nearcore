@@ -726,7 +726,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::merkle::verify_path;
-    use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
+    use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_primitives::version::PROTOCOL_VERSION;
 
@@ -783,6 +783,7 @@ mod tests {
                 gas_burnt: 100,
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
+                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -794,6 +795,7 @@ mod tests {
                 gas_burnt: 0,
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
+                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
         let outcomes = vec![outcome1, outcome2];

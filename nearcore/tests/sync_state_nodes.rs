@@ -4,7 +4,7 @@ use std::time::Duration;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_logger_utils::init_integration_logger;
@@ -25,7 +25,7 @@ fn sync_state_nodes() {
         near1.network_config.boot_nodes = convert_boot_nodes(vec![]);
         near1.client_config.min_num_peers = 0;
         near1.client_config.epoch_sync_enabled = false;
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let (_, view_client1, _) = start_with_config(dir1.path(), near1);
 
@@ -120,7 +120,7 @@ fn sync_state_nodes_multishard() {
         );
         genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let (port1, port2, port3, port4) = (open_port(), open_port(), open_port(), open_port());
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
@@ -258,7 +258,7 @@ fn sync_empty_state() {
         );
         genesis.config.epoch_length = 20;
 
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let (port1, port2) = (open_port(), open_port());
             let state_sync_horizon = 10;
             let block_header_fetch_horizon = 1;

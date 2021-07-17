@@ -9,7 +9,7 @@ mod tests {
     use borsh::{BorshDeserialize, BorshSerialize};
     use futures::{future, FutureExt};
 
-    use near_actix_test_utils::run_actix_until_stop;
+    use near_actix_test_utils::run_actix;
     use near_chain::test_utils::account_id_to_shard_id;
     use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
@@ -130,7 +130,7 @@ mod tests {
     fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool) {
         let validator_groups = 1;
         init_integration_logger();
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -406,7 +406,7 @@ mod tests {
     fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
         let validator_groups = 2;
         init_integration_logger();
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -612,7 +612,7 @@ mod tests {
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
         init_integration_logger();
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -685,7 +685,7 @@ mod tests {
     fn test_chunk_grieving() {
         let validator_groups = 1;
         init_integration_logger();
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
@@ -855,7 +855,7 @@ mod tests {
     ) {
         let validator_groups = 1;
         init_integration_logger();
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 

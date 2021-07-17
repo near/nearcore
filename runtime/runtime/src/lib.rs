@@ -55,6 +55,7 @@ use near_primitives::contract::ContractCode;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
 };
@@ -216,7 +217,10 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
+        let _span =
+            tracing::debug_span!(target: "runtime", "Runtime::process_transaction").entered();
         near_metrics::inc_counter(&metrics::TRANSACTION_PROCESSED_TOTAL);
+
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
@@ -262,6 +266,7 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
+                        metadata: ExecutionMetadata::ExecutionMetadataV1,
                     },
                 };
                 Ok((receipt, outcome))
@@ -430,12 +435,10 @@ impl Runtime {
                     account,
                     actor_id,
                     receipt,
-                    action_receipt,
                     &mut result,
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
-                    &apply_state.config.transaction_costs,
                 )?;
             }
         };
@@ -731,6 +734,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
+                metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         })
     }
@@ -817,6 +821,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt").entered();
+
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -1156,9 +1162,12 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
+        let _span = tracing::debug_span!(target: "runtime", "Runtime::apply").entered();
+
         if states_to_patch.is_some() && !cfg!(feature = "sandbox") {
             panic!("Can only patch state in sandbox mode");
         }
+
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);

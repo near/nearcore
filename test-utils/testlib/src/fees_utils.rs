@@ -163,27 +163,13 @@ impl FeeHelper {
         self.gas_to_balance(exec_gas + send_gas)
     }
 
-    pub fn prepaid_delete_account_cost_for_implicit_account(&self) -> Balance {
-        self.prepaid_delete_account_cost(true)
-    }
-
-    pub fn prepaid_delete_account_cost_for_explicit_account(&self) -> Balance {
-        self.prepaid_delete_account_cost(false)
-    }
-
-    fn prepaid_delete_account_cost(&self, implicit_account_created: bool) -> Balance {
+    pub fn prepaid_delete_account_cost(&self) -> Balance {
         let exec_gas = self.cfg.action_receipt_creation_config.exec_fee()
             + self.cfg.action_creation_config.delete_account_cost.exec_fee();
         let send_gas = self.cfg.action_receipt_creation_config.send_fee(false)
             + self.cfg.action_creation_config.delete_account_cost.send_fee(false);
 
-        let total_fee = exec_gas
-            + send_gas
-            + if implicit_account_created {
-                self.create_account_transfer_full_key_fee()
-            } else {
-                self.transfer_fee()
-            };
+        let total_fee = exec_gas + send_gas;
 
         self.gas_to_balance(total_fee)
     }
