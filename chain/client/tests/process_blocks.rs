@@ -1703,7 +1703,12 @@ fn test_gas_price_change() {
             .action_creation_config
             .transfer_cost
             .exec_fee()
-        + genesis.get_ref_config().runtime_config.transaction_costs.action_receipt_creation_config.exec_fee();
+        + genesis
+            .get_ref_config()
+            .runtime_config
+            .transaction_costs
+            .action_receipt_creation_config
+            .exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Rational::new(1, 10);
@@ -3188,7 +3193,8 @@ mod storage_usage_fix_tests {
         let mut genesis = Genesis::test(vec!["test0", "near"], 1);
         genesis.get_mut_ref_config().chain_id = chain_id;
         genesis.get_mut_ref_config().epoch_length = epoch_length;
-        genesis.get_mut_ref_config().protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
+        genesis.get_mut_ref_config().protocol_version =
+            ProtocolFeature::FixStorageUsage.protocol_version() - 1;
         let chain_genesis = ChainGenesis::from(&genesis);
         let mut env =
             TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));

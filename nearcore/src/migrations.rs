@@ -215,7 +215,9 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
 
 pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
-    if near_config.client_config.archive && &near_config.genesis.get_ref_config().chain_id == "mainnet" {
+    if near_config.client_config.archive
+        && &near_config.genesis.get_ref_config().chain_id == "mainnet"
+    {
         let genesis_height = near_config.genesis.get_ref_config().genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
@@ -283,7 +285,9 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
 /// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
 pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
-    if near_config.client_config.archive && &near_config.genesis.get_ref_config().chain_id == "mainnet" {
+    if near_config.client_config.archive
+        && &near_config.genesis.get_ref_config().chain_id == "mainnet"
+    {
         let genesis_height = near_config.genesis.get_ref_config().genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let runtime = NightshadeRuntime::new(

@@ -18,8 +18,8 @@ fn main() -> Result<(), Error> {
     let genesis = Genesis::from_file("output.json");
     debug!("Genesis read");
 
-    let storage_usage =
-        Runtime::new().compute_storage_usage(&genesis.get_ref_records().0[..], &RuntimeConfig::default());
+    let storage_usage = Runtime::new()
+        .compute_storage_usage(&genesis.get_ref_records().0[..], &RuntimeConfig::default());
     debug!("Storage usage calculated");
 
     let mut result = Vec::new();

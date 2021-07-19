@@ -125,8 +125,13 @@ fn sync_nodes() {
             let (client1, _, _) = start_with_config(dir1.path(), near1);
 
             let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
-            let _ =
-                add_blocks(vec![genesis_block], client1, 13, genesis.get_ref_config().epoch_length, &signer);
+            let _ = add_blocks(
+                vec![genesis_block],
+                client1,
+                13,
+                genesis.get_ref_config().epoch_length,
+                &signer,
+            );
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
             let (_, view_client2, _) = start_with_config(dir2.path(), near2);

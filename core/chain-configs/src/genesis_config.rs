@@ -190,9 +190,15 @@ pub struct Genesis {
 }
 
 impl Genesis {
-    pub fn get_config(self) -> GenesisConfig { self.config }
-    pub fn get_ref_config(&self) -> &GenesisConfig { &self.config }
-    pub fn get_mut_ref_config(&mut self) -> &mut GenesisConfig { &mut self.config }
+    pub fn get_config(self) -> GenesisConfig {
+        self.config
+    }
+    pub fn get_ref_config(&self) -> &GenesisConfig {
+        &self.config
+    }
+    pub fn get_mut_ref_config(&mut self) -> &mut GenesisConfig {
+        &mut self.config
+    }
     pub fn get_records(self) -> GenesisRecords {
         self.records
     }
@@ -202,7 +208,9 @@ impl Genesis {
     pub fn get_mut_ref_records(&mut self) -> &mut GenesisRecords {
         &mut self.records
     }
-    pub fn get_records_file_path(&self) -> &Path { self.records_file.as_path() }
+    pub fn get_records_file_path(&self) -> &Path {
+        self.records_file.as_path()
+    }
 }
 
 impl AsRef<GenesisConfig> for &Genesis {
