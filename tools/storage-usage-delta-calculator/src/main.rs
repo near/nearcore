@@ -19,11 +19,11 @@ fn main() -> Result<(), Error> {
     debug!("Genesis read");
 
     let storage_usage =
-        Runtime::new().compute_storage_usage(&genesis.records.0[..], &RuntimeConfig::default());
+        Runtime::new().compute_storage_usage(&genesis.get_ref_records().0[..], &RuntimeConfig::default());
     debug!("Storage usage calculated");
 
     let mut result = Vec::new();
-    for record in genesis.records.0 {
+    for record in genesis.get_records().0 {
         if let StateRecord::Account { account_id, account } = record {
             let actual_storage_usage = storage_usage.get(account_id.as_str()).unwrap();
             let saved_storage_usage = account.storage_usage();

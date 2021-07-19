@@ -257,7 +257,7 @@ fn test_protocol_config_rpc() {
             .unwrap();
         assert_ne!(
             config_response.config_view.runtime_config.storage_amount_per_byte,
-            genesis.config.runtime_config.storage_amount_per_byte
+            genesis.get_ref_config().runtime_config.storage_amount_per_byte
         );
         assert_eq!(
             config_response.config_view.runtime_config.storage_amount_per_byte,

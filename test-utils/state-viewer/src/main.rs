@@ -55,7 +55,8 @@ fn load_trie_stop_at_height(
     near_config: &NearConfig,
     mode: LoadTrieMode,
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store =
+        ChainStore::new(store.clone(), near_config.genesis.get_ref_config().genesis_height);
 
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -114,7 +115,8 @@ fn print_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store =
+        ChainStore::new(store.clone(), near_config.genesis.get_ref_config().genesis_height);
     let runtime = NightshadeRuntime::new(
         &home_dir,
         store,
@@ -184,7 +186,8 @@ fn replay_chain(
     start_height: BlockHeight,
     end_height: BlockHeight,
 ) {
-    let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
+    let mut chain_store =
+        ChainStore::new(store, near_config.genesis.get_ref_config().genesis_height);
     let new_store = create_test_store();
     let runtime = NightshadeRuntime::new(
         &home_dir,
@@ -217,7 +220,8 @@ fn apply_block_at_height(
     height: BlockHeight,
     shard_id: ShardId,
 ) {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store =
+        ChainStore::new(store.clone(), near_config.genesis.get_ref_config().genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
         &home_dir,
         store,
@@ -302,7 +306,7 @@ fn apply_block_at_height(
         outcome_root,
         apply_result.validator_proposals,
         apply_result.total_gas_burnt,
-        near_config.genesis.config.gas_limit,
+        near_config.genesis.get_ref_config().gas_limit,
         apply_result.total_balance_burnt,
     );
 
@@ -324,7 +328,8 @@ fn view_chain(
     view_block: bool,
     view_chunks: bool,
 ) {
-    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let mut chain_store =
+        ChainStore::new(store.clone(), near_config.genesis.get_ref_config().genesis_height);
     let block = {
         match height {
             Some(h) => {
@@ -384,7 +389,7 @@ fn view_chain(
 }
 
 fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
-    let genesis_height = near_config.genesis.config.genesis_height;
+    let genesis_height = near_config.genesis.get_ref_config().genesis_height;
     let mut chain_store = ChainStore::new(store.clone(), genesis_height);
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
@@ -605,8 +610,12 @@ fn main() {
             let height = header.height();
             let home_dir = PathBuf::from(&home_dir);
 
-            let new_genesis =
-                state_dump(runtime, state_roots.clone(), header, &near_config.genesis.config);
+            let new_genesis = state_dump(
+                runtime,
+                state_roots.clone(),
+                header,
+                near_config.genesis.get_ref_config(),
+            );
 
             let output_path = home_dir.join(Path::new("output.json"));
             println!(

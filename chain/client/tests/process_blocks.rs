@@ -102,11 +102,11 @@ fn prepare_env_with_congestion(
     init_test_logger();
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.protocol_version = protocol_version;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.gas_limit = 10_000_000_000_000;
+    genesis.get_mut_ref_config().protocol_version = protocol_version;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().gas_limit = 10_000_000_000_000;
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
-        genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
+        genesis.get_mut_ref_config().gas_price_adjustment_rate = gas_price_adjustment_rate;
     }
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
@@ -1274,7 +1274,7 @@ fn test_minimum_gas_price() {
 
 fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1334,7 +1334,7 @@ fn test_gc_with_epoch_length() {
 fn test_gc_long_epoch() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 5);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1409,7 +1409,7 @@ fn test_gc_chunk_tail() {
 fn test_gc_execution_outcome() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1443,7 +1443,7 @@ fn test_gc_execution_outcome() {
 fn test_gc_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1474,7 +1474,7 @@ fn test_gc_after_state_sync() {
 fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1510,7 +1510,7 @@ fn test_process_block_after_state_sync() {
 fn test_gc_fork_tail() {
     let epoch_length = 101;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(
@@ -1568,12 +1568,12 @@ fn test_tx_forwarding_no_double_forwarding() {
 fn test_tx_forward_around_epoch_boundary() {
     let epoch_length = 4;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.num_block_producer_seats = 2;
-    genesis.config.num_block_producer_seats_per_shard = vec![2];
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().num_block_producer_seats = 2;
+    genesis.get_mut_ref_config().num_block_producer_seats_per_shard = vec![2];
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    chain_genesis.gas_limit = genesis.config.gas_limit;
+    chain_genesis.gas_limit = genesis.get_ref_config().gas_limit;
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 3, 2, create_nightshade_runtimes(&genesis, 3));
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -1623,7 +1623,7 @@ fn test_tx_forward_around_epoch_boundary() {
 fn test_not_resync_old_blocks() {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 5;
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1647,7 +1647,7 @@ fn test_not_resync_old_blocks() {
 fn test_gc_tail_update() {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let epoch_length = 2;
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1684,34 +1684,34 @@ fn test_gas_price_change() {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
     let send_money_total_gas = genesis
-        .config
+        .get_ref_config()
         .runtime_config
         .transaction_costs
         .action_creation_config
         .transfer_cost
         .send_fee(false)
         + genesis
-            .config
+            .get_ref_config()
             .runtime_config
             .transaction_costs
             .action_receipt_creation_config
             .send_fee(false)
         + genesis
-            .config
+            .get_ref_config()
             .runtime_config
             .transaction_costs
             .action_creation_config
             .transfer_cost
             .exec_fee()
-        + genesis.config.runtime_config.transaction_costs.action_receipt_creation_config.exec_fee();
+        + genesis.get_ref_config().runtime_config.transaction_costs.action_receipt_creation_config.exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Rational::new(1, 10);
 
-    genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = gas_limit;
-    genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    genesis.config.runtime_config.storage_amount_per_byte = 0;
+    genesis.get_mut_ref_config().min_gas_price = min_gas_price;
+    genesis.get_mut_ref_config().gas_limit = gas_limit;
+    genesis.get_mut_ref_config().gas_price_adjustment_rate = gas_price_adjustment_rate;
+    genesis.get_mut_ref_config().runtime_config.storage_amount_per_byte = 0;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
@@ -1751,12 +1751,12 @@ fn test_gas_price_overflow() {
     let max_gas_price = 10_u128.pow(20);
     let gas_limit = 450000000000;
     let gas_price_adjustment_rate = Rational::from_integer(1);
-    genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = gas_limit;
-    genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    genesis.config.transaction_validity_period = 100000;
-    genesis.config.epoch_length = 43200;
-    genesis.config.max_gas_price = max_gas_price;
+    genesis.get_mut_ref_config().min_gas_price = min_gas_price;
+    genesis.get_mut_ref_config().gas_limit = gas_limit;
+    genesis.get_mut_ref_config().gas_price_adjustment_rate = gas_price_adjustment_rate;
+    genesis.get_mut_ref_config().transaction_validity_period = 100000;
+    genesis.get_mut_ref_config().epoch_length = 43200;
+    genesis.get_mut_ref_config().max_gas_price = max_gas_price;
 
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
@@ -1863,7 +1863,7 @@ fn test_block_merkle_proof_same_hash() {
 fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0"], 1);
     let epoch_length = 5;
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(
         ChainGenesis::test(),
         1,
@@ -1923,7 +1923,7 @@ fn test_data_reset_before_state_sync() {
 fn test_sync_hash_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
     let mut env =
@@ -1988,7 +1988,7 @@ fn test_block_height_processed_orphan() {
 fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(
         ChainGenesis::test(),
         1,
@@ -2115,9 +2115,9 @@ fn test_gas_price_change_no_chunk() {
     let min_gas_price = 5000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     let genesis_protocol_version = PROTOCOL_VERSION - 1;
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = genesis_protocol_version;
-    genesis.config.min_gas_price = min_gas_price;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().protocol_version = genesis_protocol_version;
+    genesis.get_mut_ref_config().min_gas_price = min_gas_price;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
@@ -2143,9 +2143,9 @@ fn test_catchup_gas_price_change() {
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().min_gas_price = min_gas_price;
+    genesis.get_mut_ref_config().gas_limit = 1000000000000;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 2, 1, create_nightshade_runtimes(&genesis, 2));
@@ -2218,9 +2218,9 @@ fn test_block_execution_outcomes() {
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = min_gas_price;
-    genesis.config.gas_limit = 1000000000000;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().min_gas_price = min_gas_price;
+    genesis.get_mut_ref_config().gas_limit = 1000000000000;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
@@ -2301,10 +2301,10 @@ fn test_refund_receipts_processing() {
     let epoch_length = 5;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.min_gas_price = min_gas_price;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().min_gas_price = min_gas_price;
     // set gas limit to be small
-    genesis.config.gas_limit = 1_000_000;
+    genesis.get_mut_ref_config().gas_limit = 1_000_000;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
@@ -2405,9 +2405,9 @@ fn test_epoch_protocol_version_change() {
     init_test_logger();
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = PROTOCOL_VERSION;
-    let genesis_height = genesis.config.genesis_height;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().protocol_version = PROTOCOL_VERSION;
+    let genesis_height = genesis.get_ref_config().genesis_height;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 2, 2, create_nightshade_runtimes(&genesis, 2));
@@ -2469,7 +2469,7 @@ fn test_epoch_protocol_version_change() {
 fn test_query_final_state() {
     let epoch_length = 10;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
 
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
@@ -2652,7 +2652,7 @@ fn test_fork_execution_outcome() {
 fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(
         ChainGenesis::test(),
         1,
@@ -2679,7 +2679,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
 fn test_not_broadcast_block_on_accept() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut env = TestEnv::new_with_runtime_and_network_adapter(
         ChainGenesis::test(),
@@ -2701,7 +2701,7 @@ fn test_not_broadcast_block_on_accept() {
 fn test_header_version_downgrade() {
     use borsh::ser::BorshSerialize;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = 5;
+    genesis.get_mut_ref_config().epoch_length = 5;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env =
         TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
@@ -2747,7 +2747,7 @@ fn test_header_version_downgrade() {
 fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-    genesis.config.epoch_length = epoch_length;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
     let mut env = TestEnv::new_with_runtime(
         ChainGenesis::test(),
         1,
@@ -2896,7 +2896,7 @@ mod access_key_nonce_range_tests {
     fn test_transaction_hash_collision() {
         let epoch_length = 5;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let mut env = TestEnv::new_with_runtime(
             ChainGenesis::test(),
             1,
@@ -2955,7 +2955,7 @@ mod access_key_nonce_range_tests {
     fn test_chunk_transaction_validity() {
         let epoch_length = 5;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let mut env = TestEnv::new_with_runtime(
             ChainGenesis::test(),
             1,
@@ -2993,7 +2993,7 @@ mod access_key_nonce_range_tests {
     fn test_transaction_nonce_too_large() {
         let epoch_length = 5;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let mut env = TestEnv::new_with_runtime(
             ChainGenesis::test(),
             1,
@@ -3039,9 +3039,9 @@ mod protocol_feature_restore_receipts_after_fix_tests {
 
         let protocol_version = ProtocolFeature::RestoreReceiptsAfterFix.protocol_version() - 1;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.chain_id = String::from(chain_id);
-        genesis.config.epoch_length = EPOCH_LENGTH;
-        genesis.config.protocol_version = protocol_version;
+        genesis.get_mut_ref_config().chain_id = String::from(chain_id);
+        genesis.get_mut_ref_config().epoch_length = EPOCH_LENGTH;
+        genesis.get_mut_ref_config().protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
         let runtime = nearcore::NightshadeRuntime::new(
             Path::new("."),
@@ -3053,7 +3053,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             None,
         );
         // TODO #4305: get directly from NightshadeRuntime
-        let migration_data = load_migration_data(&genesis.config.chain_id);
+        let migration_data = load_migration_data(&genesis.get_ref_config().chain_id);
 
         let mut env = TestEnv::new_with_runtime(
             chain_genesis.clone(),
@@ -3186,9 +3186,9 @@ mod storage_usage_fix_tests {
     ) {
         let epoch_length = 5;
         let mut genesis = Genesis::test(vec!["test0", "near"], 1);
-        genesis.config.chain_id = chain_id;
-        genesis.config.epoch_length = epoch_length;
-        genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
+        genesis.get_mut_ref_config().chain_id = chain_id;
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
+        genesis.get_mut_ref_config().protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
         let chain_genesis = ChainGenesis::from(&genesis);
         let mut env =
             TestEnv::new_with_runtime(chain_genesis, 1, 1, create_nightshade_runtimes(&genesis, 1));
@@ -3364,8 +3364,8 @@ mod contract_precompilation_tests {
         let num_clients = 2;
         let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.epoch_length = EPOCH_LENGTH;
-        let genesis_config = genesis.config.clone();
+        genesis.get_mut_ref_config().epoch_length = EPOCH_LENGTH;
+        let genesis_config = genesis.get_ref_config().clone();
         let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
             .iter()
             .map(|store| {
@@ -3456,8 +3456,8 @@ mod contract_precompilation_tests {
         let num_clients = 2;
         let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.epoch_length = EPOCH_LENGTH;
-        let genesis_config = genesis.config.clone();
+        genesis.get_mut_ref_config().epoch_length = EPOCH_LENGTH;
+        let genesis_config = genesis.get_ref_config().clone();
         let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
             .iter()
             .map(|store| {
@@ -3522,8 +3522,8 @@ mod contract_precompilation_tests {
         let num_clients = 3;
         let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
         let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
-        genesis.config.epoch_length = EPOCH_LENGTH;
-        let genesis_config = genesis.config.clone();
+        genesis.get_mut_ref_config().epoch_length = EPOCH_LENGTH;
+        let genesis_config = genesis.get_ref_config().clone();
         let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
             .iter()
             .map(|store| {

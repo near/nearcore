@@ -23,7 +23,7 @@ async fn convert_genesis_records_to_transaction(
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> Result<crate::models::Transaction, crate::errors::ErrorKind> {
-    let genesis_account_ids = genesis.records.as_ref().iter().filter_map(|record| {
+    let genesis_account_ids = genesis.get_ref_records().0.iter().filter_map(|record| {
         if let near_primitives::state_record::StateRecord::Account { account_id, .. } = record {
             Some(account_id)
         } else {
@@ -41,7 +41,7 @@ async fn convert_genesis_records_to_transaction(
     for (account_id, account) in genesis_accounts {
         let account_balances = crate::utils::RosettaAccountBalances::from_account(
             &account,
-            &genesis.config.runtime_config,
+            &genesis.get_ref_config().runtime_config,
         );
 
         if account_balances.liquid != 0 {
@@ -142,7 +142,7 @@ pub(crate) async fn convert_block_to_transactions(
         .await??;
 
     let transactions = convert_block_changes_to_transactions(
-        &genesis.config.runtime_config,
+        &genesis.get_ref_config().runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,

@@ -150,10 +150,10 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code = near_test_contracts::rs_contract();
     let (configs, validator_signers, network_signers, mut genesis) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false);
-    genesis.config.gas_price_adjustment_rate = Rational::from_integer(0);
+    genesis.get_mut_ref_config().gas_price_adjustment_rate = Rational::from_integer(0);
     for seed in seeds {
         let mut is_account_record_found = false;
-        for record in genesis.records.as_mut() {
+        for record in &mut genesis.get_mut_ref_records().0 {
             if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
             {
                 if *record_account_id == seed {
@@ -164,8 +164,8 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         }
         assert!(is_account_record_found);
         genesis
-            .records
-            .as_mut()
+            .get_mut_ref_records()
+            .0
             .push(StateRecord::Contract { account_id: seed, code: code.to_vec() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)

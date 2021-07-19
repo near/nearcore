@@ -21,8 +21,8 @@ mod test {
         let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         add_test_contract(&mut genesis, &bob_account());
         // Set expensive state requirements and add alice more money.
-        genesis.config.runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
-        match &mut genesis.records.as_mut()[0] {
+        genesis.get_mut_ref_config().runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
+        match &mut genesis.get_mut_ref_records().0[0] {
             StateRecord::Account { account, .. } => {
                 account.set_amount(TESTING_INIT_BALANCE * 10000)
             }
@@ -30,7 +30,7 @@ mod test {
                 panic!("the first record is expected to be alice account creation!");
             }
         }
-        genesis.records.as_mut().push(StateRecord::Data {
+        genesis.get_mut_ref_records().0.push(StateRecord::Data {
             account_id: bob_account(),
             data_key: b"test".to_vec(),
             value: b"123".to_vec(),

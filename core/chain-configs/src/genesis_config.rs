@@ -5,7 +5,6 @@
 //! out the better place.
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::{fmt, io};
 
@@ -180,18 +179,30 @@ pub struct GenesisRecords(pub Vec<StateRecord>);
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
-    pub config: GenesisConfig,
-    pub records: GenesisRecords,
+    config: GenesisConfig,
+    records: GenesisRecords,
     /// Genesis object may not contain records.
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
-    pub records_file: PathBuf,
-    /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
-    /// without calling `new` method, which has some initialization routine.
-    #[serde(skip)]
-    phantom: PhantomData<()>,
+    records_file: PathBuf,
+}
+
+impl Genesis {
+    pub fn get_config(self) -> GenesisConfig { self.config }
+    pub fn get_ref_config(&self) -> &GenesisConfig { &self.config }
+    pub fn get_mut_ref_config(&mut self) -> &mut GenesisConfig { &mut self.config }
+    pub fn get_records(self) -> GenesisRecords {
+        self.records
+    }
+    pub fn get_ref_records(&self) -> &GenesisRecords {
+        &self.records
+    }
+    pub fn get_mut_ref_records(&mut self) -> &mut GenesisRecords {
+        &mut self.records
+    }
+    pub fn get_records_file_path(&self) -> &Path { self.records_file.as_path() }
 }
 
 impl AsRef<GenesisConfig> for &Genesis {
@@ -375,14 +386,13 @@ impl GenesisJsonHasher {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis =
-            Self { config, records, records_file: PathBuf::new(), phantom: PhantomData };
+        let mut genesis = Self { config, records, records_file: PathBuf::new() };
         genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
         genesis
     }
 
     pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
-        Self { config, records: GenesisRecords(vec![]), records_file, phantom: PhantomData }
+        Self { config, records: GenesisRecords(vec![]), records_file }
     }
 
     /// Reads Genesis from a single file.

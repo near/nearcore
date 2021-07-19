@@ -22,8 +22,8 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
     let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
     f(&mut genesis);
     let fee_helper = FeeHelper::new(
-        genesis.config.runtime_config.transaction_costs.clone(),
-        genesis.config.min_gas_price,
+        genesis.get_ref_config().runtime_config.transaction_costs.clone(),
+        genesis.get_ref_config().min_gas_price,
     );
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
@@ -67,14 +67,14 @@ fn calc_total_supply(env: &mut TestEnv) -> u128 {
 /// This combines Client & NightshadeRuntime to also test EpochManager.
 #[test]
 fn test_burn_mint() {
-    let (mut env, fee_helper) = setup_env(&mut |mut genesis| {
-        genesis.config.epoch_length = 2;
-        genesis.config.num_blocks_per_year = 2;
-        genesis.config.protocol_reward_rate = Rational::new_raw(1, 10);
-        genesis.config.max_inflation_rate = Rational::new_raw(1, 10);
-        genesis.config.chunk_producer_kickout_threshold = 30;
-        genesis.config.online_min_threshold = Rational::new_raw(0, 1);
-        genesis.config.online_max_threshold = Rational::new_raw(1, 1);
+    let (mut env, fee_helper) = setup_env(&mut |genesis| {
+        genesis.get_mut_ref_config().epoch_length = 2;
+        genesis.get_mut_ref_config().num_blocks_per_year = 2;
+        genesis.get_mut_ref_config().protocol_reward_rate = Rational::new_raw(1, 10);
+        genesis.get_mut_ref_config().max_inflation_rate = Rational::new_raw(1, 10);
+        genesis.get_mut_ref_config().chunk_producer_kickout_threshold = 30;
+        genesis.get_mut_ref_config().online_min_threshold = Rational::new_raw(0, 1);
+        genesis.get_mut_ref_config().online_max_threshold = Rational::new_raw(1, 1);
     });
     let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;

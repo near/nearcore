@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Panics if genesis is ill-formed.
 pub fn validate_genesis(genesis: &Genesis) {
-    let mut genesis_validator = GenesisValidator::new(&genesis.config);
+    let mut genesis_validator = GenesisValidator::new(&genesis.get_ref_config());
     genesis.for_each_record(|record: &StateRecord| {
         genesis_validator.process_record(record);
     });
@@ -149,12 +149,12 @@ mod test {
     #[should_panic(expected = "wrong total supply")]
     fn test_total_supply_not_match() {
         let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        genesis.get_mut_ref_config().validators = vec![AccountInfo {
             account_id: "test".to_string(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        *genesis.get_mut_ref_records() = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
             account: create_account(),
         }]);
@@ -165,12 +165,12 @@ mod test {
     #[should_panic(expected = "validator staking key is not valid")]
     fn test_invalid_staking_key() {
         let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        genesis.get_mut_ref_config().validators = vec![AccountInfo {
             account_id: "test".to_string(),
             public_key: PublicKey::empty(KeyType::ED25519),
             amount: 10,
         }];
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        *genesis.get_mut_ref_records() = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
             account: create_account(),
         }]);
@@ -181,13 +181,13 @@ mod test {
     #[should_panic(expected = "validator accounts do not match staked accounts")]
     fn test_validator_not_match() {
         let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        genesis.get_mut_ref_config().validators = vec![AccountInfo {
             account_id: "test".to_string(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 100,
         }];
-        genesis.config.total_supply = 110;
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        genesis.get_mut_ref_config().total_supply = 110;
+        *genesis.get_mut_ref_records() = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
             account: create_account(),
         }]);
@@ -198,7 +198,7 @@ mod test {
     #[should_panic(expected = "no validators in genesis")]
     fn test_empty_validator() {
         let mut genesis = Genesis::default();
-        genesis.records = GenesisRecords(vec![StateRecord::Account {
+        *genesis.get_mut_ref_records() = GenesisRecords(vec![StateRecord::Account {
             account_id: "test".to_string(),
             account: create_account(),
         }]);
@@ -209,13 +209,13 @@ mod test {
     #[should_panic(expected = "access key account test1 does not exist")]
     fn test_access_key_with_nonexistent_account() {
         let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        genesis.get_mut_ref_config().validators = vec![AccountInfo {
             account_id: "test".to_string(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
-        genesis.config.total_supply = 110;
-        genesis.records = GenesisRecords(vec![
+        genesis.get_mut_ref_config().total_supply = 110;
+        *genesis.get_mut_ref_records() = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".to_string(), account: create_account() },
             StateRecord::AccessKey {
                 account_id: "test1".to_string(),
@@ -230,13 +230,13 @@ mod test {
     #[should_panic(expected = "account test has more than one contract deployed")]
     fn test_more_than_one_contract() {
         let mut genesis = Genesis::default();
-        genesis.config.validators = vec![AccountInfo {
+        genesis.get_mut_ref_config().validators = vec![AccountInfo {
             account_id: "test".to_string(),
             public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
             amount: 10,
         }];
-        genesis.config.total_supply = 110;
-        genesis.records = GenesisRecords(vec![
+        genesis.get_mut_ref_config().total_supply = 110;
+        *genesis.get_mut_ref_records() = GenesisRecords(vec![
             StateRecord::Account { account_id: "test".to_string(), account: create_account() },
             StateRecord::Contract { account_id: "test".to_string(), code: [1, 2, 3].to_vec() },
             StateRecord::Contract { account_id: "test".to_string(), code: [1, 2, 3, 4].to_vec() },

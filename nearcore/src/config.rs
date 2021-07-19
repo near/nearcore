@@ -567,7 +567,7 @@ impl Genesis {
     pub fn test_free(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
         let mut genesis =
             Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats]);
-        genesis.config.runtime_config = RuntimeConfig::free();
+        genesis.get_mut_ref_config().runtime_config = RuntimeConfig::free();
         genesis
     }
 
@@ -605,7 +605,7 @@ impl NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
                 version: Default::default(),
-                chain_id: genesis.config.chain_id.clone(),
+                chain_id: genesis.get_ref_config().chain_id.clone(),
                 rpc_addr: config.rpc_addr().map(|addr| addr.clone()),
                 block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
@@ -626,9 +626,9 @@ impl NearConfig {
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
-                epoch_length: genesis.config.epoch_length,
-                num_block_producer_seats: genesis.config.num_block_producer_seats,
-                announce_account_horizon: genesis.config.epoch_length / 2,
+                epoch_length: genesis.get_ref_config().epoch_length,
+                num_block_producer_seats: genesis.get_ref_config().num_block_producer_seats,
+                announce_account_horizon: genesis.get_ref_config().epoch_length / 2,
                 ttl_account_id_router: config.network.ttl_account_id_router,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: config.consensus.block_fetch_horizon,
@@ -877,7 +877,7 @@ pub fn init_configs(
             }
 
             let mut genesis = Genesis::from_file(&genesis_path_str);
-            genesis.config.chain_id = chain_id.clone();
+            genesis.get_mut_ref_config().chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.to_str().unwrap());

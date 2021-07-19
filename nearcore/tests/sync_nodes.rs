@@ -97,7 +97,7 @@ fn add_blocks(
 
 fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
     let mut genesis = Genesis::test(vec!["other"], 1);
-    genesis.config.epoch_length = 5;
+    genesis.get_mut_ref_config().epoch_length = 5;
     let genesis_block = genesis_block(&genesis);
 
     let (port1, port2) = (open_port(), open_port());
@@ -126,7 +126,7 @@ fn sync_nodes() {
 
             let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
             let _ =
-                add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
+                add_blocks(vec![genesis_block], client1, 13, genesis.get_ref_config().epoch_length, &signer);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
             let (_, view_client2, _) = start_with_config(dir2.path(), near2);
@@ -170,12 +170,12 @@ fn sync_after_sync_nodes() {
                 vec![genesis_block],
                 client1.clone(),
                 13,
-                genesis.config.epoch_length,
+                genesis.get_ref_config().epoch_length,
                 &signer,
             );
 
             let next_step = Arc::new(AtomicBool::new(false));
-            let epoch_length = genesis.config.epoch_length;
+            let epoch_length = genesis.get_ref_config().epoch_length;
             WaitOrTimeout::new(
                 Box::new(move |_ctx| {
                     let blocks1 = blocks.clone();
@@ -214,8 +214,8 @@ fn sync_state_stake_change() {
         init_integration_logger();
 
         let mut genesis = Genesis::test(vec!["test1"], 1);
-        genesis.config.epoch_length = 5;
-        genesis.config.block_producer_kickout_threshold = 80;
+        genesis.get_mut_ref_config().epoch_length = 5;
+        genesis.get_mut_ref_config().block_producer_kickout_threshold = 80;
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, genesis.clone());

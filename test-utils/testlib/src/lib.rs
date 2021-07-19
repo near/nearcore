@@ -69,8 +69,8 @@ pub fn start_nodes(
         num_validator_seats,
         (0..num_shards).map(|_| num_validator_seats).collect(),
     );
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.genesis_height = genesis_height;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().genesis_height = genesis_height;
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];

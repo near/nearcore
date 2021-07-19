@@ -153,17 +153,18 @@ impl NightshadeRuntime {
     ) -> Self {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
-        let genesis_config = genesis.config.clone();
+        let genesis_config = genesis.get_ref_config().clone();
         let runtime_config =
             ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let num_shards =
+            genesis.get_ref_config().num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
             store.clone(),
-            genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
+            genesis.get_ref_config().num_block_producer_seats_per_shard.len() as NumShards,
         );
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
@@ -192,7 +193,7 @@ impl NightshadeRuntime {
             epoch_manager: SafeEpochManager(epoch_manager),
             shard_tracker,
             genesis_state_roots: state_roots,
-            migration_data: Arc::new(load_migration_data(&genesis.config.chain_id)),
+            migration_data: Arc::new(load_migration_data(&genesis.get_ref_config().chain_id)),
         }
     }
 
@@ -224,13 +225,14 @@ impl NightshadeRuntime {
     }
 
     fn genesis_state_from_records(store: Arc<Store>, genesis: &Genesis) -> Vec<StateRoot> {
-        if !genesis.records.as_ref().is_empty() {
-            info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.records.0.len());
+        if !genesis.get_ref_records().0.is_empty() {
+            info!(target: "runtime", "Genesis state has {} records, computing state roots", genesis.get_ref_records().0.len());
         } else {
-            info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.records_file);
+            info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.get_records_file_path());
         }
         let mut state_roots = vec![];
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let num_shards =
+            genesis.get_ref_config().num_block_producer_seats_per_shard.len() as NumShards;
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
@@ -238,7 +240,7 @@ impl NightshadeRuntime {
             shard_account_ids[state_record_to_shard_id(record, num_shards) as usize]
                 .insert(state_record_to_account_id(record).clone());
             if let StateRecord::Account { account_id, .. } = record {
-                if account_id == &genesis.config.protocol_treasury_account {
+                if account_id == &genesis.get_ref_config().protocol_treasury_account {
                     has_protocol_account = true;
                 }
             }
@@ -248,7 +250,7 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         for shard_id in 0..num_shards {
             let validators = genesis
-                .config
+                .get_ref_config()
                 .validators
                 .iter()
                 .filter_map(|account_info| {
@@ -269,7 +271,7 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &genesis,
-                &genesis.config.runtime_config,
+                &genesis.get_ref_config().runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
             ));
         }
@@ -307,7 +309,7 @@ impl NightshadeRuntime {
         home_dir: &Path,
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
-        let has_records = !genesis.records.as_ref().is_empty();
+        let has_records = !genesis.get_ref_records().0.is_empty();
         let has_dump = {
             let mut state_dump = home_dir.to_path_buf();
             state_dump.push(STATE_DUMP_FILE);
@@ -1778,15 +1780,15 @@ mod test {
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
-            genesis.config.runtime_config = RuntimeConfig::free();
-            genesis.config.epoch_length = epoch_length;
-            genesis.config.chunk_producer_kickout_threshold =
-                genesis.config.block_producer_kickout_threshold;
+            genesis.get_mut_ref_config().runtime_config = RuntimeConfig::free();
+            genesis.get_mut_ref_config().epoch_length = epoch_length;
+            genesis.get_mut_ref_config().chunk_producer_kickout_threshold =
+                genesis.get_ref_config().block_producer_kickout_threshold;
             if !has_reward {
-                genesis.config.max_inflation_rate = Rational::from_integer(0);
+                genesis.get_mut_ref_config().max_inflation_rate = Rational::from_integer(0);
             }
-            let genesis_total_supply = genesis.config.total_supply;
-            let genesis_protocol_version = genesis.config.protocol_version;
+            let genesis_total_supply = genesis.get_ref_config().total_supply;
+            let genesis_protocol_version = genesis.get_ref_config().protocol_version;
             let runtime = NightshadeRuntime::new(
                 dir.path(),
                 store,

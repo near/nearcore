@@ -167,7 +167,7 @@ impl GenesisBuilder {
         for (account_id, storage_usage) in self
             .runtime
             .runtime
-            .compute_storage_usage(&records, &self.genesis.config.runtime_config)
+            .compute_storage_usage(&records, &self.genesis.get_ref_config().runtime_config)
         {
             let mut account =
                 get_account(&state_update, &account_id)?.expect("We should've created account");
@@ -189,21 +189,22 @@ impl GenesisBuilder {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
             self.runtime.num_shards(),
-            self.genesis.config.gas_limit,
-            self.genesis.config.genesis_height,
-            self.genesis.config.protocol_version,
+            self.genesis.get_ref_config().gas_limit,
+            self.genesis.get_ref_config().genesis_height,
+            self.genesis.get_ref_config().protocol_version,
         );
         let genesis = Block::genesis(
-            self.genesis.config.protocol_version,
+            self.genesis.get_ref_config().protocol_version,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-            self.genesis.config.genesis_time,
-            self.genesis.config.genesis_height,
-            self.genesis.config.min_gas_price,
-            self.genesis.config.total_supply,
+            self.genesis.get_ref_config().genesis_time,
+            self.genesis.get_ref_config().genesis_height,
+            self.genesis.get_ref_config().min_gas_price,
+            self.genesis.get_ref_config().total_supply,
             Chain::compute_bp_hash(&self.runtime, EpochId::default(), &CryptoHash::default())?,
         );
 
-        let mut store = ChainStore::new(self.store.clone(), self.genesis.config.genesis_height);
+        let mut store =
+            ChainStore::new(self.store.clone(), self.genesis.get_ref_config().genesis_height);
         let mut store_update = store.store_update();
 
         store_update.merge(
@@ -225,7 +226,7 @@ impl GenesisBuilder {
                     CryptoHash::default(),
                     vec![],
                     0,
-                    self.genesis.config.gas_limit.clone(),
+                    self.genesis.get_ref_config().gas_limit.clone(),
                     0,
                 ),
             );

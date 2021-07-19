@@ -307,7 +307,7 @@ pub fn start_with_config(
     if let Some(rpc_config) = config.rpc_config {
         near_jsonrpc::start_http(
             rpc_config,
-            config.genesis.config.clone(),
+            config.genesis.get_ref_config().clone(),
             client_actor.clone(),
             view_client.clone(),
         );

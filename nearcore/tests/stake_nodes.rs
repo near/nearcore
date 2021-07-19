@@ -49,14 +49,14 @@ fn init_test_staking(
     let seeds = (0..num_node_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis =
         Genesis::test(seeds.iter().map(|s| s.as_str()).collect(), num_validator_seats);
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.num_block_producer_seats = num_node_seats;
-    genesis.config.block_producer_kickout_threshold = 20;
-    genesis.config.chunk_producer_kickout_threshold = 20;
-    genesis.config.minimum_stake_divisor = minimum_stake_divisor;
+    genesis.get_mut_ref_config().epoch_length = epoch_length;
+    genesis.get_mut_ref_config().num_block_producer_seats = num_node_seats;
+    genesis.get_mut_ref_config().block_producer_kickout_threshold = 20;
+    genesis.get_mut_ref_config().chunk_producer_kickout_threshold = 20;
+    genesis.get_mut_ref_config().minimum_stake_divisor = minimum_stake_divisor;
     if !enable_rewards {
-        genesis.config.max_inflation_rate = Rational::from_integer(0);
-        genesis.config.min_gas_price = 0;
+        genesis.get_mut_ref_config().max_inflation_rate = Rational::from_integer(0);
+        genesis.get_mut_ref_config().min_gas_price = 0;
     }
     let first_node = open_port();
 
@@ -478,8 +478,9 @@ fn test_inflation() {
                 true,
                 10,
             );
-            let initial_total_supply = test_nodes[0].config.genesis.config.total_supply;
-            let max_inflation_rate = test_nodes[0].config.genesis.config.max_inflation_rate;
+            let initial_total_supply = test_nodes[0].config.genesis.get_ref_config().total_supply;
+            let max_inflation_rate =
+                test_nodes[0].config.genesis.get_ref_config().max_inflation_rate;
 
             let (done1, done2) =
                 (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));

@@ -83,7 +83,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         ..Default::default()
     };
     let genesis = Genesis::new(genesis_config, records.into());
-    verify_total_supply(genesis.config.total_supply, &chain_id);
+    verify_total_supply(genesis.get_ref_config().total_supply, &chain_id);
 
     // Write all configs to files.
     config.write_to_file(&home.join(CONFIG_FILENAME));

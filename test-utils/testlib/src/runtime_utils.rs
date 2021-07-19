@@ -31,7 +31,7 @@ lazy_static::lazy_static! {
 
 pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
     let mut is_account_record_found = false;
-    for record in genesis.records.as_mut() {
+    for record in &mut genesis.get_mut_ref_records().0 {
         if let StateRecord::Account { account_id: record_account_id, ref mut account } = record {
             if record_account_id == account_id {
                 is_account_record_found = true;
@@ -40,12 +40,12 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
         }
     }
     if !is_account_record_found {
-        genesis.records.as_mut().push(StateRecord::Account {
+        genesis.get_mut_ref_records().0.push(StateRecord::Account {
             account_id: account_id.clone(),
             account: Account::new(0, 0, *DEFAULT_TEST_CONTRACT_HASH, 0),
         });
     }
-    genesis.records.as_mut().push(StateRecord::Contract {
+    genesis.get_mut_ref_records().0.push(StateRecord::Contract {
         account_id: account_id.clone(),
         code: near_test_contracts::rs_contract().to_vec(),
     });
@@ -62,7 +62,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
         tries.clone(),
         0,
         &genesis
-            .config
+            .get_ref_config()
             .validators
             .iter()
             .map(|account_info| {
@@ -74,7 +74,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
             })
             .collect::<Vec<_>>(),
         &genesis,
-        &genesis.config.runtime_config,
+        &genesis.get_ref_config().runtime_config,
         account_ids,
     );
     (runtime, tries, genesis_root)

@@ -60,8 +60,8 @@ fn test_check_tx_error_log() {
 fn test_deliver_tx_error_log() {
     let node = start_node();
     let fee_helper = testlib::fees_utils::FeeHelper::new(
-        node.genesis().config.runtime_config.transaction_costs.clone(),
-        node.genesis().config.min_gas_price,
+        node.genesis().get_ref_config().runtime_config.transaction_costs.clone(),
+        node.genesis().get_ref_config().min_gas_price,
     );
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();

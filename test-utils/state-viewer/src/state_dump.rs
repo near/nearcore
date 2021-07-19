@@ -91,9 +91,9 @@ mod test {
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.num_block_producer_seats = 2;
-        genesis.config.num_block_producer_seats_per_shard = vec![2];
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().num_block_producer_seats = 2;
+        genesis.get_mut_ref_config().num_block_producer_seats_per_shard = vec![2];
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let store = create_test_store();
         let nightshade_runtime = NightshadeRuntime::new(
             Path::new("."),
@@ -107,7 +107,7 @@ mod test {
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
+        chain_genesis.gas_limit = genesis.get_ref_config().gas_limit;
         let env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
         (store, genesis, env)
     }
@@ -153,9 +153,13 @@ mod test {
             None,
             None,
         );
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
-        assert_eq!(new_genesis.config.validators.len(), 2);
+        let new_genesis = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &genesis.get_ref_config(),
+        );
+        assert_eq!(new_genesis.get_ref_config().validators.len(), 2);
         validate_genesis(&new_genesis);
     }
 
@@ -190,11 +194,15 @@ mod test {
             None,
             None,
         );
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let new_genesis = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &genesis.get_ref_config(),
+        );
         assert_eq!(
             new_genesis
-                .config
+                .get_ref_config()
                 .validators
                 .clone()
                 .into_iter()
@@ -211,9 +219,9 @@ mod test {
     fn test_dump_state_not_track_shard() {
         let epoch_length = 4;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.num_block_producer_seats = 2;
-        genesis.config.num_block_producer_seats_per_shard = vec![2];
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().num_block_producer_seats = 2;
+        genesis.get_mut_ref_config().num_block_producer_seats_per_shard = vec![2];
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
@@ -225,7 +233,7 @@ mod test {
         ];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
+        chain_genesis.gas_limit = genesis.get_ref_config().gas_limit;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
@@ -253,17 +261,21 @@ mod test {
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
-        let _ =
-            state_dump(runtime2, state_roots.clone(), last_block.header().clone(), &genesis.config);
+        let _ = state_dump(
+            runtime2,
+            state_roots.clone(),
+            last_block.header().clone(),
+            &genesis.get_ref_config(),
+        );
     }
 
     #[test]
     fn test_dump_state_with_delayed_receipt() {
         let epoch_length = 4;
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        genesis.config.num_block_producer_seats = 2;
-        genesis.config.num_block_producer_seats_per_shard = vec![2];
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().num_block_producer_seats = 2;
+        genesis.get_mut_ref_config().num_block_producer_seats_per_shard = vec![2];
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let store = create_test_store();
         let nightshade_runtime = NightshadeRuntime::new(
             Path::new("."),
@@ -314,9 +326,13 @@ mod test {
             None,
             None,
         );
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
-        assert_eq!(new_genesis.config.validators.len(), 2);
+        let new_genesis = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &genesis.get_ref_config(),
+        );
+        assert_eq!(new_genesis.get_ref_config().validators.len(), 2);
         validate_genesis(&new_genesis);
     }
 }

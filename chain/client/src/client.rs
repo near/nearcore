@@ -1765,10 +1765,10 @@ mod test {
     fn test_cap_max_gas_price() {
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
         let epoch_length = 5;
-        genesis.config.min_gas_price = 1_000;
-        genesis.config.max_gas_price = 1_000_000;
-        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
-        genesis.config.epoch_length = epoch_length;
+        genesis.get_mut_ref_config().min_gas_price = 1_000;
+        genesis.get_mut_ref_config().max_gas_price = 1_000_000;
+        genesis.get_mut_ref_config().protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
+        genesis.get_mut_ref_config().epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::from(&genesis);
         let runtimes = create_nightshade_runtimes(&genesis, 1);
         let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);

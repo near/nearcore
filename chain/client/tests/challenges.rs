@@ -269,7 +269,7 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0", "test1"], 1);
-    let transaction_validity_period = genesis.config.transaction_validity_period;
+    let transaction_validity_period = genesis.get_ref_config().transaction_validity_period;
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
         store1,
@@ -562,7 +562,7 @@ fn test_block_challenge() {
 fn test_fishermen_challenge() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1", "test2"], 1);
-    genesis.config.epoch_length = 5;
+    genesis.get_mut_ref_config().epoch_length = 5;
     let create_runtime = || -> Arc<NightshadeRuntime> {
         Arc::new(nearcore::NightshadeRuntime::new(
             Path::new("."),
@@ -624,7 +624,7 @@ fn test_fishermen_challenge() {
 fn test_challenge_in_different_epoch() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0", "test1"], 2);
-    genesis.config.epoch_length = 2;
+    genesis.get_mut_ref_config().epoch_length = 2;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(nearcore::NightshadeRuntime::new(

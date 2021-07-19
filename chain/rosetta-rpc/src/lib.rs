@@ -73,7 +73,7 @@ async fn network_status(
         });
     }
 
-    let genesis_height = genesis.config.genesis_height;
+    let genesis_height = genesis.get_ref_config().genesis_height;
     let (network_info, genesis_block, earliest_block) = tokio::try_join!(
         client_addr.send(near_client::GetNetworkInfo {}),
         view_client_addr.send(near_client::GetBlock(
@@ -383,7 +383,7 @@ async fn account_balance(
 
     let account_balances = crate::utils::RosettaAccountBalances::from_account(
         account_info,
-        &genesis.config.runtime_config,
+        &genesis.get_ref_config().runtime_config,
     );
 
     let balance = if let Some(sub_account) = account_identifier.sub_account {

@@ -106,7 +106,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         store_update.commit().unwrap();
     } else {
         // archival node. Fix the inconsistencies by re-applying the entire history.
-        let genesis_height = near_config.genesis.config.genesis_height;
+        let genesis_height = near_config.genesis.get_ref_config().genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
         let runtime = NightshadeRuntime::new(
@@ -146,14 +146,14 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     use near_primitives::types::EpochId;
     let store = create_store(path);
     if near_config.client_config.archive {
-        let genesis_height = near_config.genesis.config.genesis_height;
+        let genesis_height = near_config.genesis.get_ref_config().genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
-            EpochConfig::from(&near_config.genesis.config),
-            near_config.genesis.config.protocol_version,
-            RewardCalculator::new(&near_config.genesis.config),
-            near_config.genesis.config.validators(),
+            EpochConfig::from(near_config.genesis.get_ref_config()),
+            near_config.genesis.get_ref_config().protocol_version,
+            RewardCalculator::new(&near_config.genesis.get_ref_config()),
+            near_config.genesis.get_ref_config().validators(),
         )
         .unwrap();
         for (key, value) in store.iter(DBCol::ColEpochStart) {
@@ -215,8 +215,8 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
 
 pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
-    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
-        let genesis_height = near_config.genesis.config.genesis_height;
+    if near_config.client_config.archive && &near_config.genesis.get_ref_config().chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.get_ref_config().genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::new(
@@ -283,8 +283,8 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
 /// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
 pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
-    if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
-        let genesis_height = near_config.genesis.config.genesis_height;
+    if near_config.client_config.archive && &near_config.genesis.get_ref_config().chain_id == "mainnet" {
+        let genesis_height = near_config.genesis.get_ref_config().genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let runtime = NightshadeRuntime::new(
             &Path::new(path),
@@ -364,7 +364,7 @@ lazy_static_include::lazy_static_include_bytes! {
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
 pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     let store = create_store(path);
-    if &near_config.genesis.config.chain_id == "mainnet" {
+    if &near_config.genesis.get_ref_config().chain_id == "mainnet" {
         let mut store_update = store.store_update();
         let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
             .expect("File with receipts restored after apply_chunks fix have to be correct");

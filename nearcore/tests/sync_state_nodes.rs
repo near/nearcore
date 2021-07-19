@@ -110,7 +110,7 @@ fn sync_state_nodes_multishard() {
 
         let mut genesis =
             Genesis::test_sharded(vec!["test1", "test2", "test3", "test4"], 4, vec![2, 2]);
-        genesis.config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
+        genesis.get_mut_ref_config().epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
         run_actix(async move {
             let (port1, port2, port3, port4) = (open_port(), open_port(), open_port(), open_port());
@@ -244,7 +244,7 @@ fn sync_empty_state() {
         init_integration_logger();
 
         let mut genesis = Genesis::test_sharded(vec!["test1", "test2"], 1, vec![1, 1, 1, 1]);
-        genesis.config.epoch_length = 20;
+        genesis.get_mut_ref_config().epoch_length = 20;
 
         run_actix(async move {
             let (port1, port2) = (open_port(), open_port());

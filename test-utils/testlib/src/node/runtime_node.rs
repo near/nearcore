@@ -26,7 +26,7 @@ impl RuntimeNode {
         let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
         add_test_contract(&mut genesis, &alice_account());
         add_test_contract(&mut genesis, &bob_account());
-        genesis.records.as_mut().push(StateRecord::Account {
+        genesis.get_mut_ref_records().0.push(StateRecord::Account {
             account_id: evm_account(),
             account: Account::new(TESTING_INIT_BALANCE, 0, CryptoHash::default(), 0),
         });
@@ -40,8 +40,8 @@ impl RuntimeNode {
             runtime,
             tries,
             state_root: root,
-            epoch_length: genesis.config.epoch_length,
-            runtime_config: genesis.config.runtime_config.clone(),
+            epoch_length: genesis.get_ref_config().epoch_length,
+            runtime_config: genesis.get_ref_config().runtime_config.clone(),
         }));
         RuntimeNode { signer, client, genesis }
     }
@@ -105,8 +105,8 @@ mod tests {
         );
         node_user.send_money(alice_account(), bob_account(), 1).unwrap();
         let fee_helper = FeeHelper::new(
-            node.genesis().config.runtime_config.transaction_costs.clone(),
-            node.genesis().config.min_gas_price,
+            node.genesis().get_ref_config().runtime_config.transaction_costs.clone(),
+            node.genesis().get_ref_config().min_gas_price,
         );
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (
