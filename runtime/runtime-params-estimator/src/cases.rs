@@ -535,16 +535,16 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     // When adding new functions do not forget to rebuild the test contract by running `test-contract/build.sh`.
     let v = calls_helper! {
-        cpu_ram_soak_test => cpu_ram_soak_test,
-        base_1M => base_1M,
-        read_memory_10b_10k => read_memory_10b_10k,
-        read_memory_1Mib_10k => read_memory_1Mib_10k,
-        write_memory_10b_10k => write_memory_10b_10k,
-        write_memory_1Mib_10k => write_memory_1Mib_10k,
-        read_register_10b_10k => read_register_10b_10k,
-        read_register_1Mib_10k => read_register_1Mib_10k,
-        write_register_10b_10k => write_register_10b_10k,
-        write_register_1Mib_10k => write_register_1Mib_10k,
+        // cpu_ram_soak_test => cpu_ram_soak_test,
+        // base_1M => base_1M,
+        // read_memory_10b_10k => read_memory_10b_10k,
+        // read_memory_1Mib_10k => read_memory_1Mib_10k,
+        // write_memory_10b_10k => write_memory_10b_10k,
+        // write_memory_1Mib_10k => write_memory_1Mib_10k,
+        // read_register_10b_10k => read_register_10b_10k,
+        // read_register_1Mib_10k => read_register_1Mib_10k,
+        // write_register_10b_10k => write_register_10b_10k,
+        // write_register_1Mib_10k => write_register_1Mib_10k,
         utf8_log_10b_10k => utf8_log_10b_10k,
         utf8_log_10kib_10k => utf8_log_10kib_10k,
         nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
@@ -602,6 +602,16 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     eprintln!("222222222");
     let v = calls_helper! {
+        cpu_ram_soak_test => cpu_ram_soak_test,
+        base_1M => base_1M,
+        read_memory_10b_10k => read_memory_10b_10k,
+        read_memory_1Mib_10k => read_memory_1Mib_10k,
+        write_memory_10b_10k => write_memory_10b_10k,
+        write_memory_1Mib_10k => write_memory_1Mib_10k,
+        read_register_10b_10k => read_register_10b_10k,
+        read_register_1Mib_10k => read_register_1Mib_10k,
+        write_register_10b_10k => write_register_10b_10k,
+        write_register_1Mib_10k => write_register_1Mib_10k,
         promise_and_100k => promise_and_100k,
         promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
         promise_return_100k => promise_return_100k,
