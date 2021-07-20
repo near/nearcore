@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 This script runs node from stable branch and from current branch and makes
 sure they are backward compatible.
@@ -80,6 +80,11 @@ def main():
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
+    tx = sign_deploy_contract_tx(stable_node.signer_key, load_test_contract(), 3,
+                                 block_hash)
+    res = stable_node.send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
+
     tx = sign_function_call_tx(new_signer_key,
                                new_account_id,
                                'write_random_value', [], 10**13, 0, nonce + 1,
@@ -89,7 +94,7 @@ def main():
     assert 'Failure' not in res['result']['status'], res
 
     data = json.dumps([{"create": {
-        "account_id": "near_2",
+        "account_id": "test_account",
         "method_name": "call_promise",
         "arguments": [],
         "amount": "0",
@@ -97,14 +102,14 @@ def main():
     }, "id": 0 },
         {"then": {
             "promise_index": 0,
-            "account_id": "near_3",
+            "account_id": "test0",
             "method_name": "call_promise",
             "arguments": [],
             "amount": "0",
             "gas": 30000000000000,
         }, "id": 1}])
 
-    tx = sign_function_call_tx(new_signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, nonce + 2, block_hash)
+    tx = sign_function_call_tx(stable_node.signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, nonce + 2, block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
 
     assert 'error' not in res, res

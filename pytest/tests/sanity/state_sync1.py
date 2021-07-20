@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 
 BLOCK_WAIT = 40
 EPOCH_LENGTH = 80
@@ -28,7 +29,7 @@ time.sleep(2)
 nodes[1].kill()
 
 cur_height = 0
-print("step 1")
+logger.info("step 1")
 while cur_height < BLOCK_WAIT:
     status = nodes[0].get_status()
     cur_height = status['sync_info']['latest_block_height']
@@ -36,7 +37,7 @@ while cur_height < BLOCK_WAIT:
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
 time.sleep(2)
 
-print("step 2")
+logger.info("step 2")
 synced = False
 while cur_height <= EPOCH_LENGTH:
     status0 = nodes[0].get_status()

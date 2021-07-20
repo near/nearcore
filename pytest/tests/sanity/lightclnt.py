@@ -7,6 +7,7 @@ import sys, time
 sys.path.append('lib')
 
 from cluster import start_cluster, load_config
+from configured_logger import logger
 from lightclient import compute_block_hash, validate_light_client_block
 
 TIMEOUT = 150
@@ -96,7 +97,7 @@ def get_up_to(from_, to):
 
     for i in range(from_, to + 1):
         hash_ = height_to_hash[i]
-        print(i, hash_, hash_to_epoch[hash_], hash_to_next_epoch[hash_])
+        logger.info(f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}")
 
         if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
             epochs.append(hash_to_epoch[hash_])
@@ -129,7 +130,7 @@ while True:
         break
 
     assert res['result']['inner_lite']['epoch_id'] == epochs[iter_]
-    print(iter_, heights[iter_])
+    logger.info(f"{iter_} {heights[iter_]}")
     assert res['result']['inner_lite']['height'] == heights[iter_], (
         res['result']['inner_lite'], first_epoch_switch_height)
 
@@ -150,7 +151,7 @@ while True:
 
 res = get_light_client_block(height_to_hash[19 + first_epoch_switch_height],
                              last_known_block)
-print(res)
+logger.info(res)
 assert res['result']['inner_lite']['height'] == 20 + first_epoch_switch_height
 
 get_up_to(23 + first_epoch_switch_height, 24 + first_epoch_switch_height)

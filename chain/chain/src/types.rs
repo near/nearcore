@@ -172,8 +172,7 @@ impl BlockEconomicsConfig {
     }
 
     pub fn max_gas_price(&self, protocol_version: ProtocolVersion) -> Balance {
-        if checked_feature!("protocol_feature_cap_max_gas_price", CapMaxGasPrice, protocol_version)
-        {
+        if checked_feature!("stable", CapMaxGasPrice, protocol_version) {
             std::cmp::min(
                 self.max_gas_price,
                 Self::MAX_GAS_MULTIPLIER * self.min_gas_price(protocol_version),

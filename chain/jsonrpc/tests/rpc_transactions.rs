@@ -4,7 +4,7 @@ use actix::{Actor, System};
 use borsh::BorshSerialize;
 use futures::{future, FutureExt, TryFutureExt};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::{init_integration_logger, init_test_logger};
@@ -23,7 +23,7 @@ pub mod test_utils;
 fn test_send_tx_async() {
     init_test_logger();
 
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all(test_utils::NodeType::Validator);
 
         let client = new_client(&format!("http://{}", addr.clone()));
@@ -101,7 +101,7 @@ fn test_send_tx_commit() {
 #[test]
 fn test_expired_tx() {
     init_integration_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (_, addr) = test_utils::start_all_with_validity_period_and_no_epoch_sync(
             test_utils::NodeType::Validator,
             1,

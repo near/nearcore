@@ -1671,7 +1671,6 @@ mod test {
 
     use cached::Cached;
 
-    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     use near_chain::Provenance;
     use near_chain::{ChainGenesis, RuntimeAdapter};
     use near_chain_configs::Genesis;
@@ -1681,7 +1680,6 @@ mod test {
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
-    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
@@ -1763,7 +1761,6 @@ mod test {
         assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
     }
 
-    #[cfg(feature = "protocol_feature_cap_max_gas_price")]
     #[test]
     fn test_cap_max_gas_price() {
         let mut genesis = Genesis::test(vec!["test0", "test1"], 1);

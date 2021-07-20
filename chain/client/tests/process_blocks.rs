@@ -9,7 +9,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
@@ -34,7 +34,6 @@ use near_network::{
 };
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
-use near_primitives::checked_feature;
 
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
@@ -171,7 +170,7 @@ fn prepare_env_with_congestion(
 #[test]
 fn produce_two_blocks() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
             vec!["test"],
@@ -199,7 +198,7 @@ fn produce_two_blocks() {
 fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) = setup_mock(
             vec!["test"],
             "test",
@@ -264,7 +263,7 @@ fn produce_blocks_with_tx() {
 #[test]
 fn receive_network_block() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         // The first header announce will be when the block is received. We don't immediately endorse
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
@@ -331,7 +330,7 @@ fn produce_block_with_approvals() {
     let validators = vec![
         "test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8", "test9", "test10",
     ];
-    run_actix_until_stop(async {
+    run_actix(async {
         let (client, view_client) = setup_mock(
             validators.clone(),
             "test1",
@@ -425,7 +424,7 @@ fn produce_block_with_approvals_arrived_early() {
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
     let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut approval_counter = 0;
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -496,7 +495,7 @@ fn produce_block_with_approvals_arrived_early() {
 /// and that the node bans the peer for invalid block header.
 fn invalid_blocks_common(is_requested: bool) {
     init_test_logger();
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut ban_counter = 0;
         let (client, view_client) = setup_mock(
             vec!["test"],
@@ -639,7 +638,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     let validators = vec![vec!["test1", "test2", "test3", "test4"]];
     let key_pairs =
         vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
-    run_actix_until_stop(async move {
+    run_actix(async move {
         let mut ban_counter = 0;
         let network_mock: Arc<
             RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -777,7 +776,7 @@ fn test_ban_peer_for_ill_formed_block() {
 #[test]
 fn skip_block_production() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         setup_mock(
             vec!["test1", "test2"],
             "test2",
@@ -803,7 +802,7 @@ fn skip_block_production() {
 #[test]
 fn client_sync_headers() {
     init_test_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
         let (client, _) = setup_mock(
@@ -2381,16 +2380,7 @@ fn test_refund_receipts_processing() {
     }
 
     let ending_block_height = block_height - 1;
-    let count_refund_receipts_in_gas_limit = checked_feature!(
-        "protocol_feature_count_refund_receipts_in_gas_limit",
-        CountRefundReceiptsInGasLimit,
-        genesis.config.protocol_version
-    );
-    let begin_block_height = if count_refund_receipts_in_gas_limit {
-        ending_block_height - refund_receipt_ids.len() as u64 + 1
-    } else {
-        ending_block_height
-    };
+    let begin_block_height = ending_block_height - refund_receipt_ids.len() as u64 + 1;
     let mut processed_refund_receipt_ids = HashSet::new();
     for i in begin_block_height..=ending_block_height {
         let block = env.clients[0].chain.get_block_by_height(i).unwrap().clone();
@@ -2404,12 +2394,8 @@ fn test_refund_receipts_processing() {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
         });
         let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
-        if count_refund_receipts_in_gas_limit {
-            assert_eq!(execution_outcomes_from_block.len(), 1);
-            assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
-        } else {
-            assert_eq!(chunk_extra.gas_used(), 0);
-        }
+        assert_eq!(execution_outcomes_from_block.len(), 1);
+        assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     }
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
@@ -3182,8 +3168,10 @@ mod protocol_feature_restore_receipts_after_fix_tests {
     }
 }
 
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise `get_mut` for block header will panic.
 #[cfg(test)]
-#[cfg(feature = "protocol_feature_fix_storage_usage")]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod storage_usage_fix_tests {
     use super::*;
     use borsh::BorshDeserialize;
@@ -3267,7 +3255,6 @@ mod storage_usage_fix_tests {
     }
 }
 
-#[cfg(feature = "protocol_feature_cap_max_gas_price")]
 #[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;

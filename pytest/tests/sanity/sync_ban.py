@@ -11,6 +11,7 @@ import sys, time, functools, asyncio
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
 
@@ -84,7 +85,7 @@ while cur_height <= 110:
 
 should_sync.value = True
 
-print("sync node 1")
+logger.info("sync node 1")
 
 start = time.time()
 
@@ -110,5 +111,5 @@ while True:
 if not should_ban and (tracker0.check(BAN_STRING) or tracker1.check(BAN_STRING)):
     assert False, "unexpected ban of peers"
 
-print('shutting down')
+logger.info('shutting down')
 time.sleep(10)

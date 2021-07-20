@@ -4,6 +4,7 @@ import sys
 import datetime
 
 sys.path.append('lib')
+from configured_logger import logger
 from utils import user_name
 
 machines = gcloud.list()
@@ -17,10 +18,10 @@ collected_place = f'/tmp/near/collected_logs_{datetime.datetime.strftime(datetim
 run(['mkdir', '-p', collected_place])
 
 def collect_file(node):
-    print(f'Download file from {node.name}')
+    logger.info(f'Download file from {node.name}')
     node.download(f'{log_file}', f'{collected_place}/{node.name}.txt')
-    print(f'Download file from {node.name} finished')
+    logger.info(f'Download file from {node.name} finished')
 
 
 pmap(collect_file, nodes)
-print(f'All download finish, log collected at {collected_place}')
+logger.info(f'All download finish, log collected at {collected_place}')

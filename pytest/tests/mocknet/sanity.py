@@ -7,13 +7,12 @@ import sys, time, random, base58
 sys.path.append('lib')
 
 import mocknet
+from configured_logger import logger
 from transaction import sign_payment_tx, sign_function_call_tx, sign_deploy_contract_tx
 from utils import load_test_contract
 
 nodes = mocknet.get_nodes()
 accounts = mocknet.accounts_from_nodes(nodes)
-
-print()
 
 # Test balance transfers
 initial_balances = [
@@ -25,8 +24,8 @@ nonces = [
     for account in accounts
 ]
 
-print("INITIAL BALANCES", initial_balances)
-print("NONCES", nonces)
+logger.info(f"INITIAL BALANCES {initial_balances}")
+logger.info(f"NONCES {nonces}")
 
 last_block_hash = nodes[0].get_status()['sync_info']['latest_block_hash']
 last_block_hash_decoded = base58.b58decode(last_block_hash.encode('utf8'))
@@ -40,7 +39,7 @@ new_balances = [
     for account in accounts
 ]
 
-print("NEW BALANCES", new_balances)
+logger.info("NEW BALANCES {new_balances}")
 
 assert (new_balances[0] + 100) % 1000 == initial_balances[0] % 1000
 assert (initial_balances[1] + 100) % 1000 == new_balances[1] % 1000

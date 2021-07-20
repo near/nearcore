@@ -11,7 +11,7 @@
 /chain/rosetta-rpc/ @frol
 
 /runtime/ @bowenwang1996 @EgorKulikov
-/runtime/runtime-params-estimator/ @olonho
+/runtime/runtime-params-estimator/ @olonho @matklad
 /runtime/near-evm-runner/ @ailisp @artob @frankbraun
 /runtime/near-test-contracts/ @olonho @ailisp @matklad
 /runtime/near-vm-runner-standalone/ @olonho @ailisp @matklad

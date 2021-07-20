@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -ex
 
+features_with_arg=""
+features_with_comma=""
+
+if [[ ! -z "$1" ]]; then
+  features_with_arg="--features $1"
+  features_with_comma=",$1"
+fi
+
 function filesize
 {
   local file=$1
@@ -23,7 +31,7 @@ rustup target add wasm32-unknown-unknown
 
 # First, measure the size of the file without payload.
 rm -rf target
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release $features_with_arg
 bare_wasm=$(filesize target/wasm32-unknown-unknown/release/test_contract.wasm)
 echo ${bare_wasm}
 
@@ -32,17 +40,17 @@ echo ${bare_wasm}
 
 # 10KiB
 dd if=/dev/urandom of=./res/payload bs=$(expr 10240 - ${bare_wasm}) count=1
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features "payload$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/stable_small_contract.wasm
 
 # 100KiB
 dd if=/dev/urandom of=./res/payload bs=$(expr 102400 - ${bare_wasm}) count=1
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features "payload$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/stable_medium_contract.wasm
 
 # 1MiB
 dd if=/dev/urandom of=./res/payload bs=$(expr 1048576 - ${bare_wasm}) count=1
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features "payload$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/stable_large_contract.wasm
 
 rm ./res/payload
@@ -50,7 +58,7 @@ rm ./res/payload
 # Compiling nightly
 
 rm -rf target
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release --features nightly_protocol_features
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release --features "nightly_protocol_features$features_with_comma"
 bare_wasm=$(filesize target/wasm32-unknown-unknown/release/test_contract.wasm)
 echo ${bare_wasm}
 
@@ -60,17 +68,17 @@ echo ${bare_wasm}
 # Note the base is 16057 due to alt_bn128 hardcoded input.
 # 20KiB
 dd if=/dev/urandom of=./res/payload bs=$(expr 20480 - ${bare_wasm}) count=1
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload,nightly_protocol_features
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features "payload,nightly_protocol_features$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/nightly_small_contract.wasm
 
 # 100KiB
 dd if=/dev/urandom of=./res/payload bs=$(expr 102400 - ${bare_wasm}) count=1
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload,nightly_protocol_features
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features "payload,nightly_protocol_features$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/nightly_medium_contract.wasm
 
 # 1MiB
 dd if=/dev/urandom of=./res/payload bs=$(expr 1048576 - ${bare_wasm}) count=1
-RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features payload,nightly_protocol_features
+RUSTFLAGS='-C link-arg=-s' cargo build --target wasm32-unknown-unknown --release  --features "payload,nightly_protocol_features$features_with_comma"
 cp target/wasm32-unknown-unknown/release/test_contract.wasm ./res/nightly_large_contract.wasm
 
 rm ./res/payload

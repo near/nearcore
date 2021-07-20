@@ -54,7 +54,7 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        near_actix_test_utils::run_actix_until_stop(async {
+        near_actix_test_utils::run_actix(async {
             let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
             let $client = new_client(&format!("http://{}", addr));

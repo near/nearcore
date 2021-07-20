@@ -16,6 +16,7 @@ sys.path.append('lib')
 
 import nacl.signing
 from cluster import start_cluster
+from configured_logger import logger
 from peer import connect, run_handshake, Connection
 from utils import LogTracker
 from messages.network import Edge, SyncData, PeerMessage
@@ -100,9 +101,9 @@ async def main():
 
     for i in range(3):
         update = create_update()
-        print("Sending update...")
+        logger.info("Sending update...")
         await conn.send(update)
-        print("Sent...")
+        logger.info("Sent...")
         await asyncio.sleep(1)
 
     assert tracker.check("delay_detector: LONG DELAY!") is False
