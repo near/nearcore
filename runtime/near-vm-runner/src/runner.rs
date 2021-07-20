@@ -125,6 +125,7 @@ pub fn run_vm(
     if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
         profile.set_burnt_gas(*burnt_gas)
     }
+    eprintln!("{:?}", profile);
     (outcome, error)
 }
 
