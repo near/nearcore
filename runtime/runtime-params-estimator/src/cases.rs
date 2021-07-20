@@ -580,7 +580,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
         storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
         storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
-        storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k 
+        storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k,
         promise_and_100k => promise_and_100k,
         promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
         promise_return_100k => promise_return_100k,
