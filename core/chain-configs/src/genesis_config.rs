@@ -164,9 +164,6 @@ impl From<&GenesisConfig> for EpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
-/// `Genesis` has an invariant that we can't enforce due to an optimization for saving memory.
-/// Therefore, all fields are public, but the clients are expected to use the provided methods for
-/// instantiation, serialization and deserialization.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
@@ -437,6 +434,16 @@ impl Genesis {
             }
         }
     }
+}
+
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
+    let mut total_supply = 0;
+    for record in records {
+        if let StateRecord::Account { account, .. } = record {
+            total_supply += account.amount() + account.locked();
+        }
+    }
+    total_supply
 }
 
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
