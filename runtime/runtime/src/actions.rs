@@ -288,7 +288,6 @@ pub(crate) fn action_stake(
     #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only: bool,
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
-    println!("account {} stake {}, {:?}", account_id, stake.stake, account);
 
     if account.amount() >= increment {
         if account.locked() == 0 && stake.stake == 0 {

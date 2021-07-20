@@ -92,9 +92,16 @@ pub fn start_nodes_with_validator_selection_config(
     genesis.config.epoch_length = epoch_length;
     genesis.config.genesis_height = genesis_height;
 
-    genesis.config.minimum_validators_per_shard = vs_config.minimum_validators_per_shard;
-    genesis.config.minimum_stake_ratio = vs_config.minimum_stake_ratio;
-    genesis.config.num_chunk_only_producer_seats = vs_config.num_chunk_only_producer_seats;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    {
+        genesis.config.minimum_validators_per_shard = vs_config.minimum_validators_per_shard;
+        genesis.config.minimum_stake_ratio = vs_config.minimum_stake_ratio;
+        genesis.config.num_chunk_only_producer_seats = vs_config.num_chunk_only_producer_seats;
+    }
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+    {
+        let _ = vs_config;
+    }
 
     let validators = (0..num_validator_seats).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut near_configs = vec![];

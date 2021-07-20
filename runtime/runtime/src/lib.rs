@@ -1184,10 +1184,6 @@ impl Runtime {
             panic!("Can only patch state in sandbox mode");
         }
 
-        if !transactions.is_empty() {
-            println!("transactions: {:?}", transactions);
-        }
-
         let trie = Rc::new(trie);
         let initial_state = TrieUpdate::new(trie.clone(), root);
         let mut state_update = TrieUpdate::new(trie.clone(), root);

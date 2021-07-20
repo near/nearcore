@@ -14,19 +14,31 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 180
 
+nightly = len(sys.argv) > 1
+genesis_change = [["num_block_producer_seats", 199],
+                  ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]],
+                  ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
+                  ["block_producer_kickout_threshold", 60],
+                  ["chunk_producer_kickout_threshold", 60],
+                  ["validators", 0, "amount", "110000000000000000000000000000000"],
+                  [
+                      "records", 0, "Account", "account", "locked",
+                      "110000000000000000000000000000000"
+                  ], ["total_supply", "4060000000000000000000000000000000"]]
+nightly_genesis_change = [["minimum_validators_per_shard", 2],
+                          ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
+                          ["block_producer_kickout_threshold", 60],
+                          ["chunk_producer_kickout_threshold", 60],
+                          ["validators", 0, "amount", "110000000000000000000000000000000"],
+                          [
+                              "records", 0, "Account", "account", "locked",
+                              "110000000000000000000000000000000"
+                          ], ["total_supply", "4060000000000000000000000000000000"]]
+
 # give more stake to the bootnode so that it can produce the blocks alone
 nodes = start_cluster(
     2, 1, 8, None,
-    [["num_block_producer_seats", 199],
-     ["num_block_producer_seats_per_shard", [24, 25, 25, 25, 25, 25, 25, 25]],
-     ["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 60],
-     ["chunk_producer_kickout_threshold", 60],
-     ["validators", 0, "amount", "110000000000000000000000000000000"],
-     [
-         "records", 0, "Account", "account", "locked",
-         "110000000000000000000000000000000"
-     ], ["total_supply", "4060000000000000000000000000000000"]], {})
+    nightly_genesis_change if nightly else genesis_change, {})
 time.sleep(3)
 nodes[1].kill()
 

@@ -63,14 +63,17 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
 }
 
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_minimum_stake_ratio() -> Rational {
     Rational::new(160, 1_000_000)
 }
 
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_minimum_validators_per_shard() -> u64 {
     1
 }
 
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
 fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
@@ -159,16 +162,19 @@ pub struct GenesisConfig {
     // attribute seems to not work with the serde default attribute, so I cannot
     // ignore them in that way. When the feature is stabilized then the serde skip
     // should be removed.
-    #[serde(skip, default = "default_num_chunk_only_producer_seats")]
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
     pub num_chunk_only_producer_seats: NumSeats,
     /// The minimum number of validators each shard must have
-    #[serde(skip, default = "default_minimum_validators_per_shard")]
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_minimum_validators_per_shard")]
     #[default(1)]
     pub minimum_validators_per_shard: NumSeats,
     /// The lowest ratio s/s_total any block producer can have.
     /// See https://github.com/near/NEPs/pull/167 for details
-    #[serde(skip, default = "default_minimum_stake_ratio")]
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_minimum_stake_ratio")]
     #[default(Rational::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational,
 }
