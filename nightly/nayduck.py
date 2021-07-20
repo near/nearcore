@@ -97,7 +97,7 @@ if __name__ == "__main__":
     user = get_current_user().strip()
     post = {'branch': branch, 'sha': sha, 'tests': tests, 'requester': user, 'run_type': args.run_type, 'token': token.strip()}
     print('Sending request ...')
-    res = requests.post('http://nayduck.eastus.cloudapp.azure.com:5000/request_a_run', json=post)
+    res = requests.post('http://nayduck.eastus.cloudapp.azure.com:5005/request_a_run', json=post)
     json_res = json.loads(res.text)
     if json_res['code'] == 0:
         print(Fore.GREEN + json_res['response'])
