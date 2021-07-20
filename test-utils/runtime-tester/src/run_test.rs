@@ -54,7 +54,7 @@ impl Scenario {
 
             last_block = env.clients[0]
                 .produce_block(block.height)?
-                .ok_or(Error::Other(String::from("No block has been produced")))?;
+                .ok_or_else(|| Error::Other(String::from("No block has been produced")))?;
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
 
             block_stats.block_production_time = start_time.elapsed();
@@ -103,8 +103,7 @@ pub struct BlockStats {
     pub block_production_time: Duration,
 }
 
-use std::fmt::Debug;
-impl Debug for Scenario {
+impl std::fmt::Debug for Scenario {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", serde_json::to_string_pretty(&self).unwrap())
     }

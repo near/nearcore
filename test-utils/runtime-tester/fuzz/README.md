@@ -7,15 +7,15 @@ and execute them. This will keep happening, until one scenario fails.
 
 To run fuzz test:
 ```bash
-rustup run nightly cargo fuzz run runtime-fuzzer
+RUSTC_BOOTSTRAP=1 cargo fuzz run runtime-fuzzer
 ```
 `max_len` here is to create bigger scenarios.
 
 Fuzzing starts from small inputs (Unstructured) and slowly goes to bigger.
-To go to bigger input faster run fuxx with additional arguments:
+To go to bigger input faster run fuzz with additional arguments:
 
 ```bash
-rustup run nightly  cargo fuzz run runtime-fuzzer -- -len_control=0 -prefer_small=0
+RUSTC_BOOTSTRAP=1 cargo fuzz run runtime-fuzzer -- -len_control=0 -prefer_small=0
 ```
 
 After finding the failed test, cargo fuzz will show failed Scenario (in debug format)
@@ -41,17 +41,17 @@ Minimize test case with:
 
 So, reproducing in this case will be:
 ```bash
-rustup run nightly cargo fuzz run runtime-fuzzer artifacts/runtime-fuzzer/<id>
+RUSTC_BOOTSTRAP=1 cargo fuzz run runtime-fuzzer artifacts/runtime-fuzzer/<id>
 ```
 
 To make a smaller scenario with the same error:
 ```bash
-rustup run nightly cargo fuzz tmin runtime-fuzzer artifacts/runtime-fuzzer/<id>
+RUSTC_BOOTSTRAP=1 cargo fuzz tmin runtime-fuzzer artifacts/runtime-fuzzer/<id>
 ```
 
 Writing Scenario to json:
 ```bash
-rustup run nightly cargo fuzz fmt runtime-fuzzer artifacts/runtime-fuzzer/<id> 2>&1 | sed '1,3d' | tee scenario.json
+RUSTC_BOOTSTRAP=1 cargo fuzz fmt runtime-fuzzer artifacts/runtime-fuzzer/<id> 2>&1 | sed '1,3d' | tee scenario.json
 ```
 
 
