@@ -545,23 +545,63 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         read_register_1Mib_10k => read_register_1Mib_10k,
         write_register_10b_10k => write_register_10b_10k,
         write_register_1Mib_10k => write_register_1Mib_10k,
-        // utf8_log_10b_10k => utf8_log_10b_10k,
-        // utf8_log_10kib_10k => utf8_log_10kib_10k,
-        // nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
-        // nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
-        // utf16_log_10b_10k => utf16_log_10b_10k,
-        // utf16_log_10kib_10k => utf16_log_10kib_10k,
-        // nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
-        // nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
-        // sha256_10b_10k => sha256_10b_10k,
-        // sha256_10kib_10k => sha256_10kib_10k,
-        // keccak256_10b_10k => keccak256_10b_10k,
-        // keccak256_10kib_10k => keccak256_10kib_10k,
-        // keccak512_10b_10k => keccak512_10b_10k,
-        // keccak512_10kib_10k => keccak512_10kib_10k,
-        // ripemd160_10b_10k => ripemd160_10b_10k,
-        // ripemd160_10kib_10k => ripemd160_10kib_10k,
-        // ecrecover_10k => ecrecover_10k,
+        utf8_log_10b_10k => utf8_log_10b_10k,
+        utf8_log_10kib_10k => utf8_log_10kib_10k,
+        nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
+        nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
+        utf16_log_10b_10k => utf16_log_10b_10k,
+        utf16_log_10kib_10k => utf16_log_10kib_10k,
+        nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
+        nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
+        sha256_10b_10k => sha256_10b_10k,
+        sha256_10kib_10k => sha256_10kib_10k,
+        keccak256_10b_10k => keccak256_10b_10k,
+        keccak256_10kib_10k => keccak256_10kib_10k,
+        keccak512_10b_10k => keccak512_10b_10k,
+        keccak512_10kib_10k => keccak512_10kib_10k,
+        ripemd160_10b_10k => ripemd160_10b_10k,
+        ripemd160_10kib_10k => ripemd160_10kib_10k,
+        ecrecover_10k => ecrecover_10k
+        // #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
+        // #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
+        // #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
+        // #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_10_1k => alt_bn128_g1_sum_10_1k,
+        // #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_1_1k => alt_bn128_pairing_check_1_1k,
+        // #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_10_1k => alt_bn128_pairing_check_10_1k,
+        // storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
+        // storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
+        // storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
+        // storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
+        // storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
+        // storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
+        // storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
+        // storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
+        // storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
+        // storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
+        // storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
+        // storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
+        // storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k,
+        // promise_and_100k => promise_and_100k,
+        // promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
+        // promise_return_100k => promise_return_100k,
+        // data_producer_10b => data_producer_10b,
+        // data_producer_100kib => data_producer_100kib,
+        // data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        // data_receipt_10b_1000 => data_receipt_10b_1000,
+        // data_receipt_100kib_1000 => data_receipt_100kib_1000
+    };
+
+    eprintln!("111111111");
+    // Measure the speed of all extern function calls.
+    for (metric, method_name) in v {
+        let start = start_count(GasMetric::Time);
+        let measured = end_count(GasMetric::Time, &start) + 10;
+        m.record_measurement(metric.clone(), 1, measured);
+        m.print();
+    }
+
+    eprintln!("222222222");
+    let v = calls_helper! {
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -589,37 +629,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
         data_receipt_100kib_1000 => data_receipt_100kib_1000
-    };
-
-    eprintln!("111111111");
-    // Measure the speed of all extern function calls.
-    for (metric, method_name) in v {
-        let start = start_count(GasMetric::Time);
-        let measured = end_count(GasMetric::Time, &start) + 10;
-        m.record_measurement(metric.clone(), 1, measured);
-        m.print();
-    }
-
-    eprintln!("222222222");
-    let v = calls_helper! {
-        utf8_log_10b_10k => utf8_log_10b_10k,
-        utf8_log_10kib_10k => utf8_log_10kib_10k,
-        nul_utf8_log_10b_10k => nul_utf8_log_10b_10k,
-        nul_utf8_log_10kib_10k => nul_utf8_log_10kib_10k,
-        utf16_log_10b_10k => utf16_log_10b_10k,
-        utf16_log_10kib_10k => utf16_log_10kib_10k,
-        nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
-        nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
-        sha256_10b_10k => sha256_10b_10k,
-        sha256_10kib_10k => sha256_10kib_10k,
-        keccak256_10b_10k => keccak256_10b_10k,
-        keccak256_10kib_10k => keccak256_10kib_10k,
-        keccak512_10b_10k => keccak512_10b_10k,
-        keccak512_10kib_10k => keccak512_10kib_10k,
-        ripemd160_10b_10k => ripemd160_10b_10k,
-        ripemd160_10kib_10k => ripemd160_10kib_10k,
-        ecrecover_10k => ecrecover_10k,
-        promise_return_100k => promise_return_100k
     };
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
