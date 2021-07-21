@@ -296,7 +296,7 @@ pub enum Function {
 }
 
 impl Scope {
-    fn from_seeds(seeds: &Vec<String>) -> Self {
+    fn from_seeds(seeds: &[String]) -> Self {
         let accounts = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
         Scope {
             accounts,
