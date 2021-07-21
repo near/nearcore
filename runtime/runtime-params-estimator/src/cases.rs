@@ -561,7 +561,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     //     keccak512_10kib_10k => keccak512_10kib_10k,
     //     ripemd160_10b_10k => ripemd160_10b_10k,
     //     ripemd160_10kib_10k => ripemd160_10kib_10k,
-    //     ecrecover_10k => ecrecover_10k
+    //     ecrecover_10k => ecrecover_10k,
     //     #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
     //     #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
     //     #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
@@ -628,7 +628,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         keccak512_10kib_10k => keccak512_10kib_10k,
         ripemd160_10b_10k => ripemd160_10b_10k,
         ripemd160_10kib_10k => ripemd160_10kib_10k,
-        ecrecover_10k => ecrecover_10k
+        ecrecover_10k => ecrecover_10k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_1_1k => alt_bn128_g1_multiexp_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_multiexp_10_1k => alt_bn128_g1_multiexp_10_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_g1_sum_1_1k => alt_bn128_g1_sum_1_1k,
