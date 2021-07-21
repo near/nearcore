@@ -3647,6 +3647,7 @@ dependencies = [
 name = "runtime-tester"
 version = "0.1.0"
 dependencies = [
+ "byteorder",
  "libfuzzer-sys",
  "near-chain",
  "near-chain-configs",
