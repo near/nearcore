@@ -81,7 +81,7 @@ impl ProfileData {
     }
 
     pub fn wasm_gas(&self) -> u64 {
-        self.all_gas() - self.host_gas() - self.action_gas()
+        self.all_gas().saturating_sub(self.host_gas()).saturating_sub(self.action_gas())
     }
 
     pub fn set_burnt_gas(&self, burnt_gas: u64) {
