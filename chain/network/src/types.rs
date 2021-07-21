@@ -34,7 +34,7 @@ use near_primitives::syncing::{
     ShardStateSyncResponseV1,
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardOrd};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
@@ -143,7 +143,7 @@ pub struct PeerChainInfo {
     /// Last known chain height of the peer.
     pub height: BlockHeight,
     /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
+    pub tracked_shards: Vec<ShardOrd>,
 }
 
 /// Peer chain information.
@@ -154,7 +154,7 @@ pub struct PeerChainInfoV2 {
     /// Last known chain height of the peer.
     pub height: BlockHeight,
     /// Shards that the peer is tracking.
-    pub tracked_shards: Vec<ShardId>,
+    pub tracked_shards: Vec<ShardOrd>,
     /// Denote if a node is running in archival mode or not.
     pub archival: bool,
 }
@@ -463,8 +463,8 @@ pub enum RoutedMessageBody {
     ReceiptOutcomeRequest(CryptoHash),
     /// Not used, but needed to preserve backward compatibility.
     Unused,
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
+    StateRequestHeader(ShardOrd, CryptoHash),
+    StateRequestPart(ShardOrd, CryptoHash, u64),
     StateResponse(StateResponseInfoV1),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
@@ -566,14 +566,14 @@ pub enum PeerIdOrHash {
 // case fall back to sending to the account.
 // Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
 pub struct AccountIdOrPeerTrackingShard {
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     pub only_archival: bool,
     pub account_id: Option<AccountId>,
     pub prefer_peer: bool,
 }
 
 impl AccountIdOrPeerTrackingShard {
-    pub fn from_account(shard_id: ShardId, account_id: AccountId) -> Self {
+    pub fn from_account(shard_id: ShardOrd, account_id: AccountId) -> Self {
         Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
     }
 }
@@ -1182,13 +1182,13 @@ pub enum NetworkRequests {
     },
     /// Request state header for given shard at given state root.
     StateRequestHeader {
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         target: AccountOrPeerIdOrHash,
     },
     /// Request state part for given shard at given state root.
     StateRequestPart {
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         part_id: u64,
         target: AccountOrPeerIdOrHash,
@@ -1358,14 +1358,14 @@ impl Message for NetworkRequests {
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfoV1 {
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponseV1,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfoV2 {
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
 }
@@ -1377,7 +1377,7 @@ pub enum StateResponseInfo {
 }
 
 impl StateResponseInfo {
-    pub fn shard_id(&self) -> ShardId {
+    pub fn shard_id(&self) -> ShardOrd {
         match self {
             Self::V1(info) => info.shard_id,
             Self::V2(info) => info.shard_id,
@@ -1531,9 +1531,9 @@ pub enum NetworkViewClientMessages {
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// State request header.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash },
+    StateRequestHeader { shard_id: ShardOrd, sync_hash: CryptoHash },
     /// State request part.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64 },
+    StateRequestPart { shard_id: ShardOrd, sync_hash: CryptoHash, part_id: u64 },
     /// A request for a light client info during Epoch Sync
     EpochSyncRequest { epoch_id: EpochId },
     /// A request for headers and proofs during Epoch Sync
@@ -1562,7 +1562,7 @@ pub enum NetworkViewClientResponses {
     ChainInfo {
         genesis_id: GenesisId,
         height: BlockHeight,
-        tracked_shards: Vec<ShardId>,
+        tracked_shards: Vec<ShardOrd>,
         archival: bool,
     },
     /// Response to state request.
@@ -1633,7 +1633,7 @@ impl Message for QueryPeerStats {
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
-    pub tracking_shards: HashSet<ShardId>,
+    pub tracking_shards: HashSet<ShardOrd>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
@@ -1654,7 +1654,7 @@ pub struct PartialEncodedChunkForwardMsg {
     pub signature: Signature,
     pub prev_block_hash: CryptoHash,
     pub height_created: BlockHeight,
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     pub parts: Vec<PartialEncodedChunkPart>,
 }
 

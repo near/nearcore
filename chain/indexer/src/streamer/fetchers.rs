@@ -81,7 +81,7 @@ pub(crate) async fn fetch_outcomes(
     client: &Addr<near_client::ViewClientActor>,
     block_hash: CryptoHash,
 ) -> Result<
-    HashMap<near_primitives::types::ShardId, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>,
+    HashMap<near_primitives::types::ShardOrd, Vec<IndexerExecutionOutcomeWithOptionalReceipt>>,
     FailedToFetchData,
 > {
     let outcomes = client
@@ -90,7 +90,7 @@ pub(crate) async fn fetch_outcomes(
         .map_err(FailedToFetchData::String)?;
 
     let mut shard_execution_outcomes_with_receipts: HashMap<
-        near_primitives::types::ShardId,
+        near_primitives::types::ShardOrd,
         Vec<IndexerExecutionOutcomeWithOptionalReceipt>,
     > = HashMap::new();
     for (shard_id, shard_outcomes) in outcomes {

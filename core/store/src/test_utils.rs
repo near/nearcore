@@ -7,7 +7,7 @@ use rand::Rng;
 use crate::db::TestDB;
 use crate::{ShardTries, Store};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::ShardId;
+use near_primitives::types::ShardOrd;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
@@ -24,7 +24,7 @@ pub fn create_tries() -> ShardTries {
 pub fn test_populate_trie(
     tries: &ShardTries,
     root: &CryptoHash,
-    shard_id: ShardId,
+    shard_id: ShardOrd,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
     let trie = tries.get_trie_for_shard(shard_id);

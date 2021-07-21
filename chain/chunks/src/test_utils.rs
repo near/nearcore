@@ -13,7 +13,7 @@ use near_primitives::merkle;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardOrd};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -26,7 +26,7 @@ use crate::{
 pub struct SealsManagerTestFixture {
     pub mock_chunk_producer: AccountId,
     mock_me: Option<AccountId>,
-    pub mock_shard_id: ShardId,
+    pub mock_shard_id: ShardOrd,
     pub mock_chunk_hash: ChunkHash,
     pub mock_parent_hash: CryptoHash,
     pub mock_height: BlockHeight,
@@ -45,7 +45,7 @@ impl Default for SealsManagerTestFixture {
 
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
-        let mock_shard_id: ShardId = 0;
+        let mock_shard_id: ShardOrd = 0;
         let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
@@ -162,7 +162,7 @@ impl Default for ChunkForwardingTestFixture {
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
-        let mock_shard_id: ShardId = 0;
+        let mock_shard_id: ShardOrd = 0;
         let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();

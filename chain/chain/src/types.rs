@@ -25,7 +25,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode,
+    NumBlocks, ShardOrd, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -244,10 +244,10 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_trie_for_shard(&self, shard_id: ShardOrd) -> Trie;
 
     /// Returns trie with view cache
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_view_trie_for_shard(&self, shard_id: ShardOrd) -> Trie;
 
     fn verify_block_vrf(
         &self,
@@ -285,7 +285,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: StateRoot,
         next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
@@ -334,7 +334,7 @@ pub trait RuntimeAdapter: Send + Sync {
         signature: &Signature,
         prev_block_hash: &CryptoHash,
         height_created: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
@@ -383,7 +383,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<AccountId, Error>;
 
     fn get_validator_by_account_id(
@@ -401,14 +401,14 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
+    fn num_shards(&self) -> ShardOrd;
 
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardOrd;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
@@ -423,7 +423,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         is_me: bool,
     ) -> bool;
 
@@ -437,7 +437,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         is_me: bool,
     ) -> bool;
 
@@ -508,7 +508,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         height: BlockHeight,
         block_timestamp: u64,
@@ -548,7 +548,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         height: BlockHeight,
         block_timestamp: u64,
@@ -570,7 +570,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn check_state_transition(
         &self,
         partial_storage: PartialStorage,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         height: BlockHeight,
         block_timestamp: u64,
@@ -590,7 +590,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -608,7 +608,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the part of the state from given state root.
     fn obtain_state_part(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -627,7 +627,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -640,7 +640,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Never returns Error
     fn get_state_root_node(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error>;
 

@@ -11,7 +11,7 @@ use near_primitives::{
     receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData},
     state_record::{state_record_to_account_id, StateRecord},
     trie_key::TrieKey,
-    types::{AccountId, Balance, MerkleHash, ShardId, StateChangeCause, StateRoot},
+    types::{AccountId, Balance, MerkleHash, ShardOrd, StateChangeCause, StateRoot},
 };
 use near_store::{
     get_account, get_received_data, set, set_access_key, set_account, set_code,
@@ -81,7 +81,7 @@ impl GenesisStateApplier {
         mut state_update: TrieUpdate,
         current_state_root: &mut StateRoot,
         tries: &mut ShardTries,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) {
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
@@ -96,7 +96,7 @@ impl GenesisStateApplier {
         current_state_root: &mut StateRoot,
         mut delayed_receipts_indices: &mut DelayedReceiptIndices,
         tries: &mut ShardTries,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &RuntimeConfig,
         genesis: &Genesis,
@@ -220,7 +220,7 @@ impl GenesisStateApplier {
         delayed_receipts_indices: DelayedReceiptIndices,
         current_state_root: &mut StateRoot,
         tries: &mut ShardTries,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) {
         let mut state_update = tries.new_trie_update(shard_id, *current_state_root);
 
@@ -232,7 +232,7 @@ impl GenesisStateApplier {
 
     pub fn apply(
         mut tries: ShardTries,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &RuntimeConfig,
         genesis: &Genesis,

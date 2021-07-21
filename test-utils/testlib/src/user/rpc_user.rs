@@ -16,7 +16,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
+    AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardOrd,
 };
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
@@ -159,7 +159,7 @@ impl User for RpcUser {
             .ok()
     }
 
-    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView> {
+    fn get_chunk(&self, height: BlockHeight, shard_id: ShardOrd) -> Option<ChunkView> {
         self.actix(move |client| {
             client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))
         })

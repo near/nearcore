@@ -8,11 +8,11 @@ use tracing::info;
 use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, EpochId, NumShards, ShardId};
+use near_primitives::types::{AccountId, EpochId, NumShards, ShardOrd};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardOrd {
     let mut cursor = Cursor::new(hash(&account_id.clone().into_bytes()).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
@@ -24,15 +24,15 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> 
 pub struct ShardTracker {
     /// Tracked accounts by shard id. For each shard id, the corresponding set of accounts should be
     /// non empty (otherwise the entry should not exist).
-    tracked_accounts: HashMap<ShardId, HashSet<AccountId>>,
+    tracked_accounts: HashMap<ShardOrd, HashSet<AccountId>>,
     /// Tracked shards.
-    tracked_shards: HashSet<ShardId>,
+    tracked_shards: HashSet<ShardOrd>,
     /// Combination of shards that correspond to tracked accounts and tracked shards.
-    actual_tracked_shards: HashSet<ShardId>,
+    actual_tracked_shards: HashSet<ShardOrd>,
     /// Accounts that we stop tracking in the next epoch.
     pending_untracked_accounts: HashSet<AccountId>,
     /// Shards that we stop tracking in the next epoch.
-    pending_untracked_shards: HashSet<ShardId>,
+    pending_untracked_shards: HashSet<ShardOrd>,
     /// Current epoch id. Used to determine whether we need to flush pending requests.
     current_epoch_id: EpochId,
     /// Epoch manager that for given block hash computes the epoch id.
@@ -44,7 +44,7 @@ pub struct ShardTracker {
 impl ShardTracker {
     pub fn new(
         accounts: Vec<AccountId>,
-        shards: Vec<ShardId>,
+        shards: Vec<ShardOrd>,
         epoch_id: EpochId,
         epoch_manager: Arc<RwLock<EpochManager>>,
         num_shards: NumShards,
@@ -91,14 +91,14 @@ impl ShardTracker {
         }
     }
 
-    fn track_shard(&mut self, shard_id: ShardId) {
+    fn track_shard(&mut self, shard_id: ShardOrd) {
         self.tracked_shards.insert(shard_id);
         self.actual_tracked_shards.insert(shard_id);
     }
 
     /// Track a list of shards. Similar to tracking accounts, the tracking starts immediately.
     #[allow(unused)]
-    pub fn track_shards(&mut self, shard_ids: &[ShardId]) {
+    pub fn track_shards(&mut self, shard_ids: &[ShardOrd]) {
         for shard_id in shard_ids.iter() {
             self.track_shard(*shard_id);
         }
@@ -167,7 +167,7 @@ impl ShardTracker {
     pub fn untrack_shards(
         &mut self,
         block_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
+        shard_ids: Vec<ShardOrd>,
     ) -> Result<(), EpochError> {
         self.update_epoch(block_hash)?;
         for shard_id in shard_ids {
@@ -180,7 +180,7 @@ impl ShardTracker {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         is_me: bool,
     ) -> bool {
         if let Some(account_id) = account_id {
@@ -203,7 +203,7 @@ impl ShardTracker {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         is_me: bool,
     ) -> bool {
         if let Some(account_id) = account_id {

@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use near_primitives::types::ShardId;
+use near_primitives::types::ShardOrd;
 use nearcore::get_default_home;
 use std::collections::HashSet;
 use std::path::Path;
@@ -30,12 +30,12 @@ fn main() {
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let chain_id = matches.value_of("chain-id").expect("Chain id is requried");
-    let tracked_shards: HashSet<ShardId> = match matches.value_of("tracked-shards") {
+    let tracked_shards: HashSet<ShardOrd> = match matches.value_of("tracked-shards") {
         Some(s) => {
             if s.is_empty() {
                 HashSet::default()
             } else {
-                s.split(',').map(|v| v.parse::<ShardId>().unwrap()).collect()
+                s.split(',').map(|v| v.parse::<ShardOrd>().unwrap()).collect()
             }
         }
         None => HashSet::default(),

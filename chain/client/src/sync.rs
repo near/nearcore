@@ -20,7 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardOrd};
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
@@ -595,10 +595,10 @@ impl PendingRequestStatus {
 pub struct StateSync {
     network_adapter: Arc<dyn NetworkAdapter>,
 
-    state_sync_time: HashMap<ShardId, DateTime<Utc>>,
+    state_sync_time: HashMap<ShardOrd, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 
-    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardId), PendingRequestStatus>,
+    last_part_id_requested: HashMap<(AccountOrPeerIdOrHash, ShardOrd), PendingRequestStatus>,
     /// Map from which part we requested to whom.
     requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 
@@ -653,7 +653,7 @@ impl StateSync {
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &Vec<FullPeerInfo>,
-        tracking_shards: Vec<ShardId>,
+        tracking_shards: Vec<ShardOrd>,
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
@@ -850,7 +850,7 @@ impl StateSync {
         &mut self,
         target: AccountOrPeerIdOrHash,
         part_id: u64,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
     ) {
         self.requested_target.cache_set((part_id, sync_hash), target.clone());
@@ -867,7 +867,7 @@ impl StateSync {
     pub fn received_requested_part(
         &mut self,
         part_id: u64,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
     ) {
         let key = (part_id, sync_hash);
@@ -890,7 +890,7 @@ impl StateSync {
     fn possible_targets(
         &mut self,
         me: &Option<AccountId>,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
@@ -939,7 +939,7 @@ impl StateSync {
     pub fn request_shard(
         &mut self,
         me: &Option<AccountId>,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
@@ -1041,7 +1041,7 @@ impl StateSync {
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &Vec<FullPeerInfo>,
-        tracking_shards: Vec<ShardId>,
+        tracking_shards: Vec<ShardOrd>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();

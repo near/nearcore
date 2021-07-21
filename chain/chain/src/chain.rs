@@ -36,7 +36,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
-    ShardId,
+    ShardOrd,
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -1178,7 +1178,7 @@ impl Chain {
         &self,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
-    ) -> Vec<ShardId> {
+    ) -> Vec<ShardOrd> {
         (0..self.runtime_adapter.num_shards())
             .filter(|shard_id| {
                 self.runtime_adapter.will_care_about_shard(
@@ -1308,7 +1308,7 @@ impl Chain {
     pub fn get_outgoing_receipts_for_shard(
         &mut self,
         prev_block_hash: CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         last_height_included: BlockHeight,
     ) -> Result<ReceiptResponse, Error> {
         self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
@@ -1316,7 +1316,7 @@ impl Chain {
 
     pub fn get_state_response_header(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Check cache
@@ -1498,7 +1498,7 @@ impl Chain {
 
     pub fn get_state_response_part(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         part_id: u64,
         sync_hash: CryptoHash,
     ) -> Result<Vec<u8>, Error> {
@@ -1554,7 +1554,7 @@ impl Chain {
 
     pub fn set_state_header(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
@@ -1661,7 +1661,7 @@ impl Chain {
             // There were no other proofs except for included chunks.
             // According to Pigeonhole principle, it's enough to ensure all receipt_proofs are distinct
             // to prove that all receipts were received and no receipts were hidden.
-            let mut visited_shard_ids = HashSet::<ShardId>::new();
+            let mut visited_shard_ids = HashSet::<ShardOrd>::new();
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
                 let ReceiptProof(receipts, shard_proof) = receipt_proof;
                 let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
@@ -1728,7 +1728,7 @@ impl Chain {
 
     pub fn get_state_header(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
         self.store.get_state_header(shard_id, sync_hash)
@@ -1736,7 +1736,7 @@ impl Chain {
 
     pub fn set_state_part(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         part_id: u64,
         num_parts: u64,
@@ -1763,7 +1763,7 @@ impl Chain {
 
     pub fn set_state_finalize(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
@@ -1809,7 +1809,7 @@ impl Chain {
 
     pub fn clear_downloaded_parts(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
@@ -2003,7 +2003,7 @@ impl Chain {
     pub fn find_chunk_producer_for_forwarding(
         &self,
         epoch_id: &EpochId,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         horizon: BlockHeight,
     ) -> Result<AccountId, Error> {
         let head = self.head()?;
@@ -2012,7 +2012,7 @@ impl Chain {
     }
 
     /// Find a validator that is responsible for a given shard to forward requests to
-    pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
+    pub fn find_validator_for_forwarding(&self, shard_id: ShardOrd) -> Result<AccountId, Error> {
         let head = self.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
@@ -2036,7 +2036,7 @@ impl Chain {
     pub fn get_block_execution_outcomes(
         &mut self,
         block_hash: &CryptoHash,
-    ) -> Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
+    ) -> Result<HashMap<ShardOrd, Vec<ExecutionOutcomeWithIdAndProof>>, Error> {
         let block = self.get_block(block_hash)?;
         let chunk_headers = block.chunks().iter().cloned().collect::<Vec<_>>();
 
@@ -2357,7 +2357,7 @@ impl Chain {
     pub fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<&ChunkExtra, Error> {
         self.store.get_chunk_extra(block_hash, shard_id)
     }
@@ -2367,7 +2367,7 @@ impl Chain {
     pub fn get_shard_id_for_receipt_id(
         &mut self,
         receipt_id: &CryptoHash,
-    ) -> Result<&ShardId, Error> {
+    ) -> Result<&ShardOrd, Error> {
         self.store.get_shard_id_for_receipt_id(receipt_id)
     }
 
@@ -2376,7 +2376,7 @@ impl Chain {
     pub fn get_next_block_hash_with_new_chunk(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<Option<&CryptoHash>, Error> {
         self.store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
     }
@@ -2623,7 +2623,7 @@ impl<'a> ChainUpdate<'a> {
                 };
                 return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
-            let shard_id = shard_id as ShardId;
+            let shard_id = shard_id as ShardOrd;
             if chunk_header.height_included() == height {
                 let chunk_hash = chunk_header.chunk_hash();
 
@@ -2781,7 +2781,7 @@ impl<'a> ChainUpdate<'a> {
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
         {
-            let shard_id = shard_id as ShardId;
+            let shard_id = shard_id as ShardOrd;
             let care_about_shard = match mode {
                 ApplyChunksMode::ThisEpoch => self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
@@ -3179,7 +3179,7 @@ impl<'a> ChainUpdate<'a> {
         for (shard_id, chunk_headers) in block.chunks().iter().enumerate() {
             if chunk_headers.height_included() == block.header().height() {
                 self.chain_store_update
-                    .save_block_hash_with_new_chunk(*block.hash(), shard_id as ShardId);
+                    .save_block_hash_with_new_chunk(*block.hash(), shard_id as ShardOrd);
             }
         }
 
@@ -3609,7 +3609,7 @@ impl<'a> ChainUpdate<'a> {
 
     pub fn set_state_finalize(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
@@ -3715,7 +3715,7 @@ impl<'a> ChainUpdate<'a> {
     pub fn set_state_finalize_on_height(
         &mut self,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         sync_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let block_header_result =

@@ -6,7 +6,7 @@ use serde_json::Value;
 pub enum ChunkReference {
     BlockShardId {
         block_id: near_primitives::types::BlockId,
-        shard_id: near_primitives::types::ShardId,
+        shard_id: near_primitives::types::ShardOrd,
     },
     ChunkHash {
         chunk_id: near_primitives::hash::CryptoHash,
@@ -64,7 +64,7 @@ impl RpcChunkRequest {
             ChunkReference::ChunkHash { chunk_id }
         } else if let Ok(((block_id, shard_id),)) = crate::utils::parse_params::<((
             near_primitives::types::BlockId,
-            near_primitives::types::ShardId,
+            near_primitives::types::ShardOrd,
         ),)>(value.clone())
         {
             ChunkReference::BlockShardId { block_id, shard_id }

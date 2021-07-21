@@ -12,7 +12,7 @@ use near_primitives::transaction::{
     DeployContractAction, ExecutionOutcome, FunctionCallAction, SignedTransaction, StakeAction,
     TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockHeight, Gas, MerkleHash, ShardOrd};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, FinalExecutionOutcomeView, ViewStateResult,
@@ -65,7 +65,7 @@ pub trait User {
 
     fn get_block_by_hash(&self, block_hash: CryptoHash) -> Option<BlockView>;
 
-    fn get_chunk(&self, height: BlockHeight, shard_id: ShardId) -> Option<ChunkView>;
+    fn get_chunk(&self, height: BlockHeight, shard_id: ShardOrd) -> Option<ChunkView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView;
 

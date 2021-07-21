@@ -6,7 +6,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardOrd};
 
 const HEIGHT_HORIZON: BlockHeightDelta = 1024;
 const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
@@ -16,7 +16,7 @@ const NUM_BLOCK_HASH_TO_CHUNK_HEADER: usize = 30;
 pub struct EncodedChunksCacheEntry {
     pub header: ShardChunkHeader,
     pub parts: HashMap<u64, PartialEncodedChunkPart>,
-    pub receipts: HashMap<ShardId, ReceiptProof>,
+    pub receipts: HashMap<ShardOrd, ReceiptProof>,
 }
 
 pub struct EncodedChunksCache {
@@ -24,7 +24,7 @@ pub struct EncodedChunksCache {
 
     encoded_chunks: HashMap<ChunkHash, EncodedChunksCacheEntry>,
     height_map: HashMap<BlockHeight, HashSet<ChunkHash>>,
-    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardId, ShardChunkHeader>>,
+    block_hash_to_chunk_headers: SizedCache<CryptoHash, HashMap<ShardOrd, ShardChunkHeader>>,
 }
 
 impl EncodedChunksCacheEntry {
@@ -138,7 +138,7 @@ impl EncodedChunksCache {
         }
     }
 
-    pub fn insert_chunk_header(&mut self, shard_id: ShardId, header: ShardChunkHeader) {
+    pub fn insert_chunk_header(&mut self, shard_id: ShardOrd, header: ShardChunkHeader) {
         let height = header.height_created();
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
@@ -157,16 +157,16 @@ impl EncodedChunksCache {
     pub fn get_chunk_headers_for_block(
         &mut self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, ShardChunkHeader> {
+    ) -> HashMap<ShardOrd, ShardChunkHeader> {
         self.block_hash_to_chunk_headers
             .cache_remove(prev_block_hash)
             .unwrap_or_else(|| HashMap::new())
     }
 
-    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
+    pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardOrd {
         self.block_hash_to_chunk_headers
             .cache_get(prev_block_hash)
-            .map(|x| x.len() as ShardId)
+            .map(|x| x.len() as ShardOrd)
             .unwrap_or_else(|| 0)
     }
 }

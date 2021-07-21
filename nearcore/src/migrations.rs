@@ -12,7 +12,7 @@ use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::Gas;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, ShardOrd};
 use near_store::migrations::set_store_version;
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
@@ -32,7 +32,7 @@ fn apply_block_at_height(
     chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     block_height: BlockHeight,
-    shard_id: ShardId,
+    shard_id: ShardOrd,
 ) -> Result<(), near_chain::Error> {
     let block_hash = chain_store.get_block_hash_by_height(block_height)?;
     let block = chain_store.get_block(&block_hash)?.clone();

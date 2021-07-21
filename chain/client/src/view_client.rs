@@ -46,7 +46,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
-    ShardId, TransactionOrReceiptId,
+    ShardOrd, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -571,7 +571,7 @@ impl Handler<GetChunk> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
         let get_chunk_from_block = |block: Block,
-                                    shard_id: ShardId,
+                                    shard_id: ShardOrd,
                                     chain: &mut Chain|
          -> Result<ShardChunk, near_chain::Error> {
             let chunk_header = block
@@ -862,7 +862,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 /// Extract the list of execution outcomes that were produced in a given block
 /// (including those created for local receipts).
 impl Handler<GetExecutionOutcomesForBlock> for ViewClientActor {
-    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
+    type Result = Result<HashMap<ShardOrd, Vec<ExecutionOutcomeWithIdView>>, String>;
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcomesForBlock, _: &mut Self::Context) -> Self::Result {

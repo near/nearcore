@@ -44,7 +44,7 @@ use crate::transaction::{
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
-    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind,
+    EpochId, FunctionArgs, Gas, Nonce, NumBlocks, ShardOrd, StateChangeCause, StateChangeKind,
     StateChangeValue, StateChangeWithCause, StateChangesRequest, StateRoot, StorageUsage, StoreKey,
     StoreValue, ValidatorKickoutReason,
 };
@@ -645,7 +645,7 @@ pub struct ChunkHeaderView {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     pub height_included: BlockHeight,
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
@@ -1344,7 +1344,7 @@ pub struct CurrentEpochValidatorInfo {
     pub is_slashed: bool,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    pub shards: Vec<ShardId>,
+    pub shards: Vec<ShardOrd>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
 }
@@ -1355,7 +1355,7 @@ pub struct NextEpochValidatorInfo {
     pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    pub shards: Vec<ShardId>,
+    pub shards: Vec<ShardOrd>,
 }
 
 #[derive(Serialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]

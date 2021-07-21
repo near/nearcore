@@ -10,7 +10,7 @@ use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardOrd};
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
@@ -180,7 +180,7 @@ pub enum ErrorKind {
     InvalidBalanceBurnt,
     /// Invalid shard id
     #[fail(display = "Shard id {} does not exist", _0)]
-    InvalidShardId(ShardId),
+    InvalidShardId(ShardOrd),
     /// Invalid shard id
     #[fail(display = "Invalid state request: {}", _0)]
     InvalidStateRequest(String),
