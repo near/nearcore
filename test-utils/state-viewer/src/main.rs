@@ -230,8 +230,10 @@ fn apply_block_at_height(
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
     let apply_result = if block.chunks()[shard_ord as usize].height_included() == height {
-        let chunk =
-            chain_store.get_chunk(&block.chunks()[shard_ord as usize].chunk_hash()).unwrap().clone();
+        let chunk = chain_store
+            .get_chunk(&block.chunks()[shard_ord as usize].chunk_hash())
+            .unwrap()
+            .clone();
         let prev_block = chain_store.get_block(&block.header().prev_hash()).unwrap().clone();
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update

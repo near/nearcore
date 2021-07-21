@@ -70,7 +70,8 @@ impl ShardTries {
         for op in &transaction.ops {
             match op {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
-                    let (shard_ord, hash) = TrieCachingStorage::get_shard_ord_and_hash_from_key(key)?;
+                    let (shard_ord, hash) =
+                        TrieCachingStorage::get_shard_ord_and_hash_from_key(key)?;
                     shards[shard_ord as usize].push((hash, Some(value.clone())));
                 }
                 DBOp::Insert { col, .. } if *col == DBCol::ColState => unreachable!(),
