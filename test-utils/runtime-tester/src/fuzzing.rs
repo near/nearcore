@@ -11,7 +11,7 @@ use near_primitives::{
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
 use byteorder::{ByteOrder, LittleEndian};
-use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
+use libfuzzer_sys::arbitrary::{Arbitrary, Error, Result, Unstructured};
 
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -90,8 +90,18 @@ impl TransactionConfig {
             let receiver_account = scope.random_account(u)?;
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
 
-            scope.accounts[signer_account.usize_id()].balance -= amount;
-            scope.accounts[receiver_account.usize_id()].balance += amount;
+            scope.accounts[signer_account.usize_id()].balance = scope.accounts
+                [signer_account.usize_id()]
+            .balance
+            .checked_sub(amount)
+            .or(Some(0))
+            .unwrap();
+            scope.accounts[receiver_account.usize_id()].balance = scope.accounts
+                [receiver_account.usize_id()]
+            .balance
+            .checked_add(amount)
+            .or(Some(Balance::MAX))
+            .unwrap();
 
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
@@ -183,7 +193,6 @@ impl TransactionConfig {
             let nonce = scope.nonce();
 
             let signer_account = scope.random_account(u)?;
-            let receiver_account = scope.random_account(u)?;
 
             let max_contract_id = scope.available_contracts.len() - 1;
             let contract_id = u.int_in_range::<usize>(0..=max_contract_id)?;
@@ -196,7 +205,7 @@ impl TransactionConfig {
             Ok(TransactionConfig {
                 nonce,
                 signer_id: signer_account.id.clone(),
-                receiver_id: receiver_account.id.clone(),
+                receiver_id: signer_account.id.clone(),
                 signer,
                 actions: vec![Action::DeployContract(DeployContractAction {
                     code: scope.available_contracts[contract_id].code.clone(),
@@ -301,10 +310,12 @@ impl Scope {
 
     fn construct_available_contracts() -> Vec<Contract> {
         vec![
+            /*
             Contract {
                 code: near_test_contracts::load_contract().to_vec(),
                 functions: vec![Function::BubbleSort],
             },
+             */
             Contract {
                 code: near_test_contracts::rs_contract().to_vec(),
                 functions: vec![
