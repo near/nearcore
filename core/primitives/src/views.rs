@@ -39,8 +39,8 @@ use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderI
 use crate::sharding::{ShardChunkHeaderInnerV2, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -297,6 +297,9 @@ pub struct StatusSyncInfo {
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
+    pub earliest_block_hash: Option<CryptoHash>,
+    pub earliest_block_height: Option<BlockHeight>,
+    pub earliest_block_time: Option<DateTime<Utc>>,
 }
 
 // TODO: add more information to ValidatorInfo
@@ -1018,6 +1021,9 @@ pub struct ExecutionOutcomeView {
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
+    /// Execution metadata, versioned
+    #[serde(skip)]
+    pub metadata: ExecutionMetadata,
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
@@ -1029,6 +1035,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
+            metadata: outcome.metadata,
         }
     }
 }

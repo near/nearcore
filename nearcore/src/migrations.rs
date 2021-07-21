@@ -1,19 +1,24 @@
 use crate::{NearConfig, NightshadeRuntime};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_primitives::epoch_manager::EpochConfig;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::Gas;
+use near_primitives::transaction::{
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, LogEntry,
+};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardOrd};
-use near_store::migrations::set_store_version;
+use near_store::db::DBCol::ColReceipts;
+use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
 
@@ -350,6 +355,112 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
 }
 
 lazy_static_include::lazy_static_include_bytes! {
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+}
+
+/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
+pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
+    let store = create_store(path);
+    if &near_config.genesis.config.chain_id == "mainnet" {
+        let mut store_update = store.store_update();
+        let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct");
+        for receipt in restored_receipts.get(&0u64).unwrap().iter() {
+            let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+            store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
+        }
+        store_update.commit().unwrap();
+    }
+    set_store_version(&store, 24);
+}
+
+pub fn migrate_24_to_25(path: &String) {
+    let store = create_store(&path);
+
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq, Debug)]
+    pub struct OldExecutionOutcome {
+        pub logs: Vec<LogEntry>,
+        pub receipt_ids: Vec<CryptoHash>,
+        pub gas_burnt: Gas,
+        pub tokens_burnt: Balance,
+        pub executor_id: AccountId,
+        pub status: ExecutionStatus,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithId {
+        pub id: CryptoHash,
+        pub outcome: OldExecutionOutcome,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+        pub outcome_with_id: OldExecutionOutcomeWithId,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    // In the case of old execution outcome hadn't migrated and failed to deserialize (inside
+    // error enums in ExecutionOutcome, so we can still get the first block_hash)
+    pub struct PartialExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+    }
+
+    impl Into<ExecutionOutcomeWithIdAndProof> for OldExecutionOutcomeWithIdAndProof {
+        fn into(self) -> ExecutionOutcomeWithIdAndProof {
+            ExecutionOutcomeWithIdAndProof {
+                proof: self.proof,
+                block_hash: self.block_hash,
+                outcome_with_id: ExecutionOutcomeWithId {
+                    id: self.outcome_with_id.id,
+                    outcome: ExecutionOutcome {
+                        logs: self.outcome_with_id.outcome.logs,
+                        receipt_ids: self.outcome_with_id.outcome.receipt_ids,
+                        gas_burnt: self.outcome_with_id.outcome.gas_burnt,
+                        tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
+                        executor_id: self.outcome_with_id.outcome.executor_id,
+                        status: self.outcome_with_id.outcome.status,
+                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                    },
+                },
+            }
+        }
+    }
+
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    for (key, value) in store.iter(DBCol::ColTransactionResult) {
+        if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
+            // has success in previous attempt of this migration
+            continue;
+        }
+
+        let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
+        let old_outcomes = match old_outcomes {
+            Ok(old_outcomes) => old_outcomes,
+            _ => {
+                // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
+                let old_outcome =
+                    OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                vec![old_outcome]
+            }
+        };
+        let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
+            old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
+        store_update
+            .set_ser(DBCol::ColTransactionResult, key.as_ref(), &outcomes)
+            .expect("BorshSerialize should not fail");
+    }
+    store_update.finish().expect("Failed to migrate");
+
+    set_store_version(&store, 25);
+}
+
+lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
     /// see https://github.com/near/nearcore/issues/3824
@@ -360,14 +471,6 @@ lazy_static_include::lazy_static_include_bytes! {
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
-
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-lazy_static_include::lazy_static_include_bytes! {
-    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
-    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
-    /// See https://github.com/near/nearcore/pull/4248/ for more details.
-    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
-}
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";

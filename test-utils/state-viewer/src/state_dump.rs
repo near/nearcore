@@ -60,6 +60,10 @@ pub fn state_dump(
         .into_iter()
         .map(|(account_id, (public_key, amount))| AccountInfo { account_id, public_key, amount })
         .collect();
+    // Record the protocol version of the latest block. Otherwise, the state
+    // dump ignores the fact that the nodes can be running a newer protocol
+    // version than the protocol version of the genesis.
+    genesis_config.protocol_version = last_block_header.latest_protocol_version();
     Genesis::new(genesis_config, records.into())
 }
 
