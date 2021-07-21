@@ -2,16 +2,25 @@ use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission},
-    transaction::{Action, AddKeyAction, CreateAccountAction, StakeAction, TransferAction},
+    transaction::{Action, AddKeyAction, CreateAccountAction, DeployContractAction, FunctionCallAction, TransferAction},
     types::{AccountId, Balance, BlockHeight, Nonce},
 };
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
+use byteorder::{ByteOrder, LittleEndian};
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
+use std::collections::HashSet;
+use std::mem::size_of;
+
 pub const MAX_BLOCKS: usize = 2500;
-pub const MAX_TXS: usize = 300;
+pub const MAX_TXS: usize = 500;
+pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
+
+const GAS_1: u64 = 900_000_000_000_000;
+const GAS_2: u64 = GAS_1 / 3;
+// const GAS_3: u64 = GAS_2 / 3;
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
@@ -41,10 +50,13 @@ impl BlockConfig {
         scope.inc_height();
         let mut block_config = BlockConfig::at_height(scope.height());
 
-        let max_tx_num = u.int_in_range(0..=MAX_TXS)?;
+        let lower_bound = scope.last_tx_num.checked_sub(MAX_TX_DIFF).or(Some(0)).unwrap();
+        let upper_bound = scope.last_tx_num.checked_add(MAX_TX_DIFF).or(Some(MAX_TXS)).unwrap();
+        let max_tx_num = u.int_in_range(lower_bound..=std::cmp::min(MAX_TXS, upper_bound))?;
+        scope.last_tx_num = max_tx_num;
 
         while block_config.transactions.len() < max_tx_num
-            && u.len() > TransactionConfig::size_hint(0).0
+            && u.len() > TransactionConfig::size_hint(0).1.unwrap()
         {
             block_config.transactions.push(TransactionConfig::arbitrary(u, scope)?)
         }
@@ -70,6 +82,9 @@ impl TransactionConfig {
             let receiver_account = scope.random_account(u)?;
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
 
+            scope.accounts[signer_account.usize_id()].balance -= amount;
+            scope.accounts[receiver_account.usize_id()].balance += amount;
+
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
@@ -83,6 +98,7 @@ impl TransactionConfig {
             })
         });
 
+        /* This actually can create new block producers, and currently we only support one.
         // Stake
         options.push(|u, scope| {
             let signer_account = scope.random_account(u)?;
@@ -99,6 +115,7 @@ impl TransactionConfig {
                 actions: vec![Action::Stake(StakeAction { stake: amount, public_key })],
             })
         });
+         */
 
         // Create Account
         options.push(|u, scope| {
@@ -129,6 +146,64 @@ impl TransactionConfig {
             })
         });
 
+        // Deploy Contract
+        options.push(|u, scope| {
+            let nonce = scope.nonce();
+
+            let signer_account = scope.random_account(u)?;
+            let receiver_account = scope.random_account(u)?;
+
+            let max_contract_id = scope.available_contracts.len() - 1;
+            let contract_id = u.int_in_range::<usize>(0..=max_contract_id)?;
+
+            let signer = InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+
+            scope.deploy_contract(&receiver_account, contract_id);
+
+            Ok(TransactionConfig {
+                nonce,
+                signer_id: signer_account.id.clone(),
+                receiver_id: receiver_account.id.clone(),
+                signer,
+                actions: vec![Action::DeployContract(DeployContractAction {
+                    code: scope.available_contracts[contract_id].code.clone(),
+                })],
+            })
+        });
+
+        // Call
+        for acc in &scope.accounts {
+            if acc.deployed_contracts.len() > 0 {
+                options.push(|u, scope| {
+                    let nonce = scope.nonce();
+
+                    let mut accounts_with_contracts = vec![];
+                    for acc in &scope.accounts {
+                        if acc.deployed_contracts.len() > 0 {
+                            accounts_with_contracts.push(acc.usize_id());
+                        }
+                    }
+
+                    let signer_account = scope.random_account(u)?;
+                    let receiver_account = &scope.accounts[*u.choose(&accounts_with_contracts)?];
+
+                    let contract_id = u.choose(&receiver_account.deployed_contracts)?;
+                    let function = u.choose(&scope.available_contracts[contract_id].functions)?;
+
+                    let signer = InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+
+                    Ok(TransactionConfig {
+                        nonce,
+                        signer_id: signer_account.id.clone(),
+                        receiver_id: receiver_account.id.clone(),
+                        signer,
+                        actions: vec![Action::FunctionCall(function.arbitrary(u, &signer_account)?)],
+                    })
+                });
+                break;
+            }
+        }
+
         let f = u.choose(&options)?;
         f(u, scope)
     }
@@ -143,18 +218,58 @@ pub struct Scope {
     accounts: Vec<Account>,
     nonce: Nonce,
     height: BlockHeight,
+    available_contracts: Vec<Contract>,
+    last_tx_num: usize,
 }
 
 #[derive(Clone)]
 pub struct Account {
     pub id: AccountId,
     pub balance: Balance,
+    pub deployed_contracts: HashSet<ContractId>,
+}
+
+#[derive(Clone)]
+pub struct Contract {
+    pub code: Vec<u8>,
+    pub functions: Vec<Function>,
+}
+
+#[derive(Clone)]
+pub enum Function {
+    BubbleSort,
+    CallPromise,
+    WriteBlockHeight,
+    ExtUsedGas,
+    WriteKeyValue,
 }
 
 impl Scope {
-    fn from_seeds(seeds: &[String]) -> Self {
-        let accounts = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
-        Scope { accounts, nonce: 0, height: 0 }
+    fn from_seeds(seeds: &Vec<String>) -> Self {
+        let accounts = seeds
+            .iter()
+            .map(|id| {Account::from_id(id.clone())})
+            .collect();
+        Scope { accounts, nonce: 0, height: 0, available_contracts: Scope::construct_available_contracts(),
+            last_tx_num: MAX_TXS}
+    }
+
+    fn construct_available_contracts() -> Vec<Contract> {
+        vec![
+            Contract{
+                code: near_test_contracts::load_contract().to_vec(),
+                functions: vec![Function::BubbleSort],
+            },
+            Contract{
+                code: near_test_contracts::rs_contract().to_vec(),
+                functions: vec![
+                    Function::CallPromise,
+                    Function::WriteBlockHeight,
+                    Function::ExtUsedGas,
+                    Function::WriteKeyValue,
+                ],
+            }
+        ]
     }
 
     pub fn inc_height(&mut self) {
@@ -182,10 +297,88 @@ impl Scope {
         self.accounts.push(Account::from_id(new_id));
         self.accounts[self.accounts.len() - 1].clone()
     }
+
+    pub fn deploy_contract(&mut self, receiver_account: &Account, contract_id: usize) {
+        let acc_id = receiver_account.usize_id();
+        self.accounts[acc_id].deployed_contracts.insert(contract_id);
+    }
 }
 
 impl Account {
     pub fn from_id(id: AccountId) -> Self {
-        Self { id, balance: TESTING_INIT_BALANCE }
+        Self { id, balance: TESTING_INIT_BALANCE,
+            deployed_contracts: HashSet::default(), }
+    }
+
+    pub fn usize_id(&self) -> usize {
+        self.id[4..].parse::<usize>().unwrap()
+    }
+}
+
+impl Function {
+    pub fn arbitrary(&self, u: &mut Unstructured, signer_account: &Account) -> Result<FunctionCallAction> {
+        match self {
+            Function::BubbleSort => {
+                Ok(
+                    FunctionCallAction{
+                        method_name: "bubble_sort".to_string(),
+                        args: vec![],
+                        gas: GAS_1,
+                        deposit: 1,
+                    }
+                )
+            }
+            Function::CallPromise => {
+                let data = serde_json::json!([
+                    {"create": {
+                    "account_id": signer_account.id,
+                    "method_name": "call_promise",
+                    "arguments": [],
+                    "amount": "0",
+                    "gas": GAS_2,
+                    }, "id": 0 }
+                ]);
+                Ok(
+                    FunctionCallAction {
+                        method_name: "call_promise".to_string(),
+                        args: serde_json::to_vec(&data).unwrap(),
+                        gas: GAS_1,
+                        deposit: 0,
+                    }
+                )
+            }
+            Function::WriteBlockHeight => {
+                Ok(
+                    FunctionCallAction {
+                        method_name: "write_block_height".to_string(),
+                        args: vec![],
+                        gas: GAS_1,
+                        deposit: 0,
+                    })
+            }
+            Function::ExtUsedGas => {
+                Ok(
+                    FunctionCallAction {
+                        method_name: "ext_used_gas".to_string(),
+                        args: vec![],
+                        gas: GAS_1,
+                        deposit: 0,
+                    })
+            }
+            Function::WriteKeyValue => {
+                let key = u.int_in_range::<u64>(0..=1_000)?;
+                let value = u.int_in_range::<u64>(0..=1_000)?;
+                let mut args = [0u8; 2 * size_of::<u64>()];
+                LittleEndian::write_u64_into(&[key, value], &mut args);
+                Ok(
+                    FunctionCallAction {
+                        method_name: "write_key_value".to_string(),
+                        args: args.to_vec(),
+                        gas: GAS_1,
+                        deposit: 1,
+                    })
+            }
+
+        }
     }
 }
