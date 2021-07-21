@@ -2485,12 +2485,18 @@ name = "integration-tests"
 version = "1.2.0"
 dependencies = [
  "funty",
+ "near-chain",
  "near-chain-configs",
+ "near-client",
  "near-crypto",
+ "near-jsonrpc",
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-store",
+ "near-vm-logic",
  "nearcore",
+ "node-runtime",
  "rand 0.7.3",
  "testlib",
 ]
@@ -2764,7 +2770,6 @@ dependencies = [
  "rand 0.7.3",
  "reqwest",
  "serde_json",
- "testlib",
  "tokio",
  "tokio-stream",
 ]
@@ -3121,7 +3126,6 @@ dependencies = [
  "serde_json",
  "strum",
  "sysinfo",
- "testlib",
  "thiserror",
 ]
 
@@ -3722,7 +3726,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "testlib",
  "thiserror",
  "tracing",
 ]
@@ -3791,7 +3794,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "testlib",
  "thiserror",
  "tracing",
 ]
@@ -4865,7 +4867,6 @@ dependencies = [
  "serde_json",
  "state-viewer",
  "tempfile",
- "testlib",
  "walrus",
  "wat",
 ]
@@ -4885,7 +4886,6 @@ dependencies = [
  "nearcore",
  "serde",
  "serde_json",
- "testlib",
 ]
 
 [[package]]
@@ -5383,7 +5383,6 @@ dependencies = [
  "near-store",
  "nearcore",
  "serde_json",
- "testlib",
 ]
 
 [[package]]

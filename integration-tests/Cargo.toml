@@ -8,20 +8,40 @@ edition = "2018"
 funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
 rand = "0.7"
 
+near-chain = { path = "../chain/chain" }
 near-chain-configs = { path = "../core/chain-configs" }
+near-client = { path = "../chain/client" }
 near-crypto = { path = "../core/crypto" }
+near-jsonrpc = { path = "../chain/jsonrpc" }
 near-logger-utils = { path = "../test-utils/logger" }
 near-network = { path = "../chain/network" }
 near-primitives = { path = "../core/primitives" }
+near-store = { path = "../core/store" }
+near-vm-logic = { path = "../runtime/near-vm-logic", version = "3.0.0", features = ["costs_counting"]}
 nearcore = { path = "../nearcore" }
+node-runtime = { path = "../runtime/runtime"}
+testlib = { path = "../test-utils/testlib" }
+
 
 [features]
-performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
-regression_tests = []
-expensive_tests = []
 adversarial = ["nearcore/adversarial"]
-protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm"]
-protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
-nightly_protocol_features = ["nearcore/nightly_protocol_features", "testlib/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
+costs_counting = ["near-vm-logic/costs_counting"]
+expensive_tests = []
 nightly_protocol = ["nearcore/nightly_protocol", "testlib/nightly_protocol"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features", "testlib/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
+performance_stats = ["nearcore/performance_stats", "near-network/performance_stats"]
+protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
+protocol_feature_evm = ["nearcore/protocol_feature_evm", "testlib/protocol_feature_evm"]
 protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
+regression_tests = []
+sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox"]
+
+[[test]]
+name = "sandbox"
+path = "tests/client/sandbox.rs"
+required-features = ["sandbox"]
+
+[[test]]
+name = "test_miscs"
+path = "tests/vm-logic/test_miscs.rs"
+required-features = ["costs_counting"]
