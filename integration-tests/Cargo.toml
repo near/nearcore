@@ -45,3 +45,20 @@ required-features = ["sandbox"]
 name = "test_miscs"
 path = "tests/vm-logic/test_miscs.rs"
 required-features = ["costs_counting"]
+
+[[test]]
+name = "failures"
+path = "tests/evm-runner/failures.rs"
+required-features = ["protocol_feature_evm"]
+
+[[test]]
+name = "standard_ops"
+path = "tests/evm-runner/standard_ops.rs"
+required-features = ["protocol_feature_evm"]
+
+[[bench]]
+name = "bench"
+path = "benches/evm-runner/bench.rs"
+required-features = ["protocol_feature_evm"]
+harness = false
+
