@@ -69,14 +69,14 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     }
 }
 
-pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardOrd) -> Vec<u8> {
+pub fn get_block_shard_ord(block_hash: &CryptoHash, shard_ord: ShardOrd) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
-    res.extend_from_slice(&shard_id.to_le_bytes());
+    res.extend_from_slice(&shard_ord.to_le_bytes());
     res
 }
 
-pub fn get_block_shard_id_rev(
+pub fn get_block_shard_ord_rev(
     key: &[u8],
 ) -> Result<(CryptoHash, ShardOrd), Box<dyn std::error::Error>> {
     if key.len() != 40 {
@@ -86,10 +86,10 @@ pub fn get_block_shard_id_rev(
     }
     let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
     let block_hash = CryptoHash::try_from(block_hash_vec)?;
-    let mut shard_id_arr: [u8; 8] = Default::default();
-    shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
-    let shard_id = ShardOrd::from_le_bytes(shard_id_arr);
-    Ok((block_hash, shard_id))
+    let mut shard_ord_arr: [u8; 8] = Default::default();
+    shard_ord_arr.copy_from_slice(&key[key.len() - 8..]);
+    let shard_ord = ShardOrd::from_le_bytes(shard_ord_arr);
+    Ok((block_hash, shard_ord))
 }
 
 /// Creates a new Receipt ID from a given signed transaction and a block hash.

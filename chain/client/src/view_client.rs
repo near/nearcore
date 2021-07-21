@@ -248,12 +248,12 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
+        let shard_ord = self.runtime_adapter.account_id_to_shard_ord(account_id);
 
-        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id).map_err(|err| {
+        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_ord).map_err(|err| {
             match err.kind() {
                 near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
-                    QueryError::UnavailableShard { requested_shard_id: shard_id }
+                    QueryError::UnavailableShard { requested_shard_ord: shard_ord }
                 }
                 near_chain::near_chain_primitives::ErrorKind::IOErr(error_message) => {
                     QueryError::InternalError { error_message }
@@ -264,7 +264,7 @@ impl ViewClientActor {
 
         let state_root = chunk_extra.state_root();
         match self.runtime_adapter.query(
-            shard_id,
+            shard_ord,
             state_root,
             header.height(),
             header.raw_timestamp(),
@@ -326,13 +326,13 @@ impl ViewClientActor {
         receipt_id: CryptoHash,
         last_block_hash: &CryptoHash,
     ) -> Result<(), TxStatusError> {
-        if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
-            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
+        if let Ok(&dst_shard_ord) = self.chain.get_shard_ord_for_receipt_id(&receipt_id) {
+            if self.chain.get_chunk_extra(last_block_hash, dst_shard_ord).is_err() {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if Self::need_request(receipt_id, &mut request_manager.receipt_outcome_requests) {
                     let validator = self
                         .chain
-                        .find_validator_for_forwarding(dst_shard_id)
+                        .find_validator_for_forwarding(dst_shard_ord)
                         .map_err(|e| TxStatusError::ChainError(e))?;
                     self.network_adapter
                         .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
@@ -358,12 +358,12 @@ impl ViewClientActor {
         }
 
         let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
-        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+        let target_shard_ord = self.runtime_adapter.account_id_to_shard_ord(&signer_account_id);
         // Check if we are tracking this shard.
         if self.runtime_adapter.cares_about_shard(
             self.validator_account_id.as_ref(),
             &head.last_block_hash,
-            target_shard_id,
+            target_shard_ord,
             true,
         ) {
             match self.chain.get_final_transaction_result(&tx_hash) {
@@ -416,11 +416,11 @@ impl ViewClientActor {
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+                let target_shard_ord =
+                    self.runtime_adapter.account_id_to_shard_ord(&signer_account_id);
                 let validator = self
                     .chain
-                    .find_validator_for_forwarding(target_shard_id)
+                    .find_validator_for_forwarding(target_shard_ord)
                     .map_err(|e| TxStatusError::ChainError(e))?;
 
                 self.network_adapter.do_send(NetworkRequests::TxStatus(
@@ -571,13 +571,13 @@ impl Handler<GetChunk> for ViewClientActor {
     #[perf]
     fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
         let get_chunk_from_block = |block: Block,
-                                    shard_id: ShardOrd,
+                                    shard_ord: ShardOrd,
                                     chain: &mut Chain|
          -> Result<ShardChunk, near_chain::Error> {
             let chunk_header = block
                 .chunks()
-                .get(shard_id as usize)
-                .ok_or_else(|| near_chain::Error::from(ErrorKind::InvalidShardId(shard_id)))?
+                .get(shard_ord as usize)
+                .ok_or_else(|| near_chain::Error::from(ErrorKind::InvalidShardId(shard_ord)))?
                 .clone();
             let chunk_hash = chunk_header.chunk_hash();
             chain.get_chunk(&chunk_hash).and_then(|chunk| {
@@ -592,13 +592,13 @@ impl Handler<GetChunk> for ViewClientActor {
 
         let chunk = match msg {
             GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash)?.clone(),
-            GetChunk::BlockHash(block_hash, shard_id) => {
+            GetChunk::BlockHash(block_hash, shard_ord) => {
                 let block = self.chain.get_block(&block_hash)?.clone();
-                get_chunk_from_block(block, shard_id, &mut self.chain)?
+                get_chunk_from_block(block, shard_ord, &mut self.chain)?
             }
-            GetChunk::Height(height, shard_id) => {
+            GetChunk::Height(height, shard_ord) => {
                 let block = self.chain.get_block_by_height(height)?.clone();
-                get_chunk_from_block(block, shard_id, &mut self.chain)?
+                get_chunk_from_block(block, shard_ord, &mut self.chain)?
             }
         };
 
@@ -608,7 +608,7 @@ impl Handler<GetChunk> for ViewClientActor {
         let author = self.runtime_adapter.get_chunk_producer(
             &epoch_id,
             chunk_inner.height_created(),
-            chunk_inner.shard_id(),
+            chunk_inner.shard_ord(),
         )?;
 
         Ok(ChunkView::from_author_chunk(author, chunk))
@@ -789,12 +789,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
-        let (id, target_shard_id) = match msg.id {
+        let (id, target_shard_ord) = match msg.id {
             TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
-                (transaction_hash, self.runtime_adapter.account_id_to_shard_id(&sender_id))
+                (transaction_hash, self.runtime_adapter.account_id_to_shard_ord(&sender_id))
             }
             TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
-                (receipt_id, self.runtime_adapter.account_id_to_shard_id(&receiver_id))
+                (receipt_id, self.runtime_adapter.account_id_to_shard_ord(&receiver_id))
             }
         };
         match self.chain.get_execution_outcome(&id) {
@@ -802,7 +802,10 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                 let mut outcome_proof = outcome.clone();
                 let next_block_hash = self
                     .chain
-                    .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
+                    .get_next_block_hash_with_new_chunk(
+                        &outcome_proof.block_hash,
+                        target_shard_ord,
+                    )?
                     .cloned();
                 match next_block_hash {
                     Some(h) => {
@@ -816,16 +819,16 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                             .iter()
                             .map(|header| header.outcome_root())
                             .collect::<Vec<_>>();
-                        if target_shard_id >= (outcome_roots.len() as u64) {
+                        if target_shard_ord >= (outcome_roots.len() as u64) {
                             return Err(GetExecutionOutcomeError::InconsistentState {
                                 number_or_shards: outcome_roots.len(),
-                                execution_outcome_shard_id: target_shard_id,
+                                execution_outcome_shard_ord: target_shard_ord,
                             });
                         }
                         Ok(GetExecutionOutcomeResponse {
                             outcome_proof: outcome_proof.into(),
                             outcome_root_proof: merklize(&outcome_roots).1
-                                [target_shard_id as usize]
+                                [target_shard_ord as usize]
                                 .clone(),
                         })
                     }
@@ -840,7 +843,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                     if self.runtime_adapter.cares_about_shard(
                         self.validator_account_id.as_ref(),
                         &head.last_block_hash,
-                        target_shard_id,
+                        target_shard_ord,
                         true,
                     ) {
                         Err(GetExecutionOutcomeError::UnknownTransactionOrReceipt {
@@ -849,7 +852,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
                     } else {
                         Err(GetExecutionOutcomeError::UnavailableShard {
                             transaction_or_receipt_id: id,
-                            shard_id: target_shard_id,
+                            shard_ord: target_shard_ord,
                         })
                     }
                 }
@@ -1014,15 +1017,15 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 //                };
                 //
                 //                if have_request {
-                //                    if let Ok(&shard_id) = self.chain.get_shard_id_for_receipt_id(response.id()) {
+                //                    if let Ok(&shard_ord) = self.chain.get_shard_ord_for_receipt_id(response.id()) {
                 //                        let block_hash = response.block_hash;
                 //                        if let Ok(Some(&next_block_hash)) =
-                //                            self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_id)
+                //                            self.chain.get_next_block_hash_with_new_chunk(&block_hash, shard_ord)
                 //                        {
                 //                            if let Ok(block) = self.chain.get_block(&next_block_hash) {
-                //                                if shard_id < block.chunks().len() as u64 {
+                //                                if shard_ord < block.chunks().len() as u64 {
                 //                                    if verify_path(
-                //                                        block.chunks()[shard_id as usize].outcome_root(),
+                //                                        block.chunks()[shard_ord as usize].outcome_root(),
                 //                                        &response.proof,
                 //                                        &response.outcome_with_id.to_hashes(),
                 //                                    ) {
@@ -1083,14 +1086,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     NetworkViewClientResponses::NoResponse
                 }
             },
-            NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
+            NetworkViewClientMessages::StateRequestHeader { shard_ord, sync_hash } => {
                 if !self.check_state_sync_request() {
                     return NetworkViewClientResponses::NoResponse;
                 }
 
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
-                        let header = match self.chain.get_state_response_header(shard_id, sync_hash)
+                        let header = match self
+                            .chain
+                            .get_state_response_header(shard_ord, sync_hash)
                         {
                             Ok(header) => Some(header),
                             Err(e) => {
@@ -1143,7 +1148,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 match state_response {
                     ShardStateSyncResponse::V1(state_response) => {
                         let info = StateResponseInfo::V1(StateResponseInfoV1 {
-                            shard_id,
+                            shard_ord,
                             sync_hash,
                             state_response,
                         });
@@ -1151,7 +1156,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     }
                     state_response @ ShardStateSyncResponse::V2(_) => {
                         let info = StateResponseInfo::V2(StateResponseInfoV2 {
-                            shard_id,
+                            shard_ord,
                             sync_hash,
                             state_response,
                         });
@@ -1159,16 +1164,16 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     }
                 }
             }
-            NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id } => {
+            NetworkViewClientMessages::StateRequestPart { shard_ord, sync_hash, part_id } => {
                 if !self.check_state_sync_request() {
                     return NetworkViewClientResponses::NoResponse;
                 }
-                trace!(target: "sync", "Computing state request part {} {} {}", shard_id, sync_hash, part_id);
+                trace!(target: "sync", "Computing state request part {} {} {}", shard_ord, sync_hash, part_id);
                 let state_response = match self.chain.check_sync_hash_validity(&sync_hash) {
                     Ok(true) => {
                         let part = match self
                             .chain
-                            .get_state_response_part(shard_id, part_id, sync_hash)
+                            .get_state_response_part(shard_ord, part_id, sync_hash)
                         {
                             Ok(part) => Some((part_id, part)),
                             Err(e) => {
@@ -1177,7 +1182,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             }
                         };
 
-                        trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_id, sync_hash, part_id);
+                        trace!(target: "sync", "Finish computation for state request part {} {} {}", shard_ord, sync_hash, part_id);
                         ShardStateSyncResponseV1 { header: None, part }
                     }
                     Ok(false) => {
@@ -1198,7 +1203,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                     },
                 };
                 let info = StateResponseInfo::V1(StateResponseInfoV1 {
-                    shard_id,
+                    shard_ord,
                     sync_hash,
                     state_response,
                 });

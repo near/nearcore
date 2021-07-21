@@ -159,9 +159,9 @@ impl User for RpcUser {
             .ok()
     }
 
-    fn get_chunk(&self, height: BlockHeight, shard_id: ShardOrd) -> Option<ChunkView> {
+    fn get_chunk(&self, height: BlockHeight, shard_ord: ShardOrd) -> Option<ChunkView> {
         self.actix(move |client| {
-            client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_id))
+            client.chunk(ChunkId::BlockShardId(BlockId::Height(height), shard_ord))
         })
         .ok()
     }

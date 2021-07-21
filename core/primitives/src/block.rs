@@ -216,7 +216,7 @@ impl Block {
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
-        // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
+        // This computation of chunk_mask relies on the fact that chunks are ordered by shard_ord.
         let mut chunk_mask = vec![];
         let mut balance_burnt = 0;
         let mut gas_limit = 0;

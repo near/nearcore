@@ -357,13 +357,13 @@ network_schema = [
     [
         StateResponseInfoV1, {
             'kind': 'struct',
-            'fields': [['shard_id', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponseV1]]
+            'fields': [['shard_ord', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponseV1]]
         }
     ],
     [
         StateResponseInfoV2, {
             'kind': 'struct',
-            'fields': [['shard_id', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponse]]
+            'fields': [['shard_ord', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponse]]
         }
     ],
     [

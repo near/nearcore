@@ -26,7 +26,7 @@ use crate::{
 pub struct SealsManagerTestFixture {
     pub mock_chunk_producer: AccountId,
     mock_me: Option<AccountId>,
-    pub mock_shard_id: ShardOrd,
+    pub mock_shard_ord: ShardOrd,
     pub mock_chunk_hash: ChunkHash,
     pub mock_parent_hash: CryptoHash,
     pub mock_height: BlockHeight,
@@ -45,10 +45,10 @@ impl Default for SealsManagerTestFixture {
 
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
-        let mock_shard_id: ShardOrd = 0;
+        let mock_shard_ord: ShardOrd = 0;
         let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
         let mock_chunk_producer =
-            mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
+            mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_ord).unwrap();
 
         let mock_me: Option<AccountId> = Some("me".to_string());
         let mock_chunk_hash = ChunkHash(CryptoHash::default());
@@ -78,7 +78,7 @@ impl Default for SealsManagerTestFixture {
         Self {
             mock_chunk_producer,
             mock_me,
-            mock_shard_id,
+            mock_shard_ord,
             mock_chunk_hash,
             mock_parent_hash,
             mock_height,
@@ -107,7 +107,7 @@ impl SealsManagerTestFixture {
                 &self.mock_chunk_hash,
                 &self.mock_parent_hash,
                 self.mock_height,
-                self.mock_shard_id,
+                self.mock_shard_ord,
             )
             .unwrap();
     }
@@ -120,7 +120,7 @@ impl SealsManagerTestFixture {
         height: BlockHeight,
     ) {
         let seal =
-            seals_manager.get_seal(chunk_hash, parent_hash, height, self.mock_shard_id).unwrap();
+            seals_manager.get_seal(chunk_hash, parent_hash, height, self.mock_shard_ord).unwrap();
         let demur = match seal {
             Seal::Active(demur) => demur,
             Seal::Past => panic!("Active demur expected"),
@@ -162,10 +162,10 @@ impl Default for ChunkForwardingTestFixture {
         let mut rs = ReedSolomonWrapper::new(data_parts, parity_parts);
         let mock_parent_hash = CryptoHash::default();
         let mock_height: BlockHeight = 1;
-        let mock_shard_id: ShardOrd = 0;
+        let mock_shard_ord: ShardOrd = 0;
         let mock_epoch_id = mock_runtime.get_epoch_id_from_prev_block(&mock_parent_hash).unwrap();
         let mock_chunk_producer =
-            mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
+            mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_ord).unwrap();
         let signer = InMemoryValidatorSigner::from_seed(
             &mock_chunk_producer,
             KeyType::ED25519,
@@ -181,12 +181,12 @@ impl Default for ChunkForwardingTestFixture {
                     let tracks_shard = mock_runtime.cares_about_shard(
                         Some(*v),
                         &mock_parent_hash,
-                        mock_shard_id,
+                        mock_shard_ord,
                         false,
                     ) || mock_runtime.will_care_about_shard(
                         Some(*v),
                         &mock_parent_hash,
-                        mock_shard_id,
+                        mock_shard_ord,
                         false,
                     );
                     tracks_shard
@@ -214,7 +214,7 @@ impl Default for ChunkForwardingTestFixture {
                 Default::default(),
                 Default::default(),
                 mock_height,
-                mock_shard_id,
+                mock_shard_ord,
                 0,
                 1000,
                 0,

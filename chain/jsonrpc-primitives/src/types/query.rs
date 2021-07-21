@@ -17,8 +17,8 @@ pub struct RpcQueryRequest {
 pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
     NoSyncedBlocks,
-    #[error("The node does not track the shard ID {requested_shard_id}")]
-    UnavailableShard { requested_shard_id: near_primitives::types::ShardOrd },
+    #[error("The node does not track the shard ID {requested_shard_ord}")]
+    UnavailableShard { requested_shard_ord: near_primitives::types::ShardOrd },
     #[error("Block either has never been observed on the node or has been garbage collected: {block_reference:?}")]
     UnknownBlock { block_reference: near_primitives::types::BlockReference },
     #[error("Account ID {requested_account_id} is invalid")]
@@ -163,8 +163,8 @@ impl From<near_client_primitives::types::QueryError> for RpcQueryError {
                 Self::InternalError { error_message }
             }
             near_client_primitives::types::QueryError::NoSyncedBlocks => Self::NoSyncedBlocks,
-            near_client_primitives::types::QueryError::UnavailableShard { requested_shard_id } => {
-                Self::UnavailableShard { requested_shard_id }
+            near_client_primitives::types::QueryError::UnavailableShard { requested_shard_ord } => {
+                Self::UnavailableShard { requested_shard_ord }
             }
             near_client_primitives::types::QueryError::UnknownBlock { block_reference } => {
                 Self::UnknownBlock { block_reference }

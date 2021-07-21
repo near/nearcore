@@ -32,34 +32,34 @@ fn apply_block_at_height(
     chain_store: &mut ChainStore,
     runtime_adapter: &dyn RuntimeAdapter,
     block_height: BlockHeight,
-    shard_id: ShardOrd,
+    shard_ord: ShardOrd,
 ) -> Result<(), near_chain::Error> {
     let block_hash = chain_store.get_block_hash_by_height(block_height)?;
     let block = chain_store.get_block(&block_hash)?.clone();
-    if block.chunks()[shard_id as usize].height_included() != block_height {
+    if block.chunks()[shard_ord as usize].height_included() != block_height {
         return Ok(());
     }
 
     let prev_block = chain_store.get_block(&block.header().prev_hash())?.clone();
     let mut chain_store_update = ChainStoreUpdate::new(chain_store);
     let receipt_proof_response = chain_store_update.get_incoming_receipts_for_shard(
-        shard_id,
+        shard_ord,
         block_hash,
-        prev_block.chunks()[shard_id as usize].height_included(),
+        prev_block.chunks()[shard_ord as usize].height_included(),
     )?;
     let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
         &mut chain_store_update,
         runtime_adapter,
         prev_block.hash(),
-        shard_id,
+        shard_ord,
     )?;
     let receipts = collect_receipts_from_response(&receipt_proof_response);
-    let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+    let chunk_hash = block.chunks()[shard_ord as usize].chunk_hash();
     let chunk = get_chunk(&chain_store, chunk_hash);
     let chunk_header = ShardChunkHeader::V1(chunk.header);
     let apply_result = runtime_adapter
         .apply_transactions(
-            shard_id,
+            shard_ord,
             &chunk_header.prev_state_root(),
             block_height,
             block.header().raw_timestamp(),
@@ -223,22 +223,22 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
             None,
             None,
         );
-        let shard_id = 0;
+        let shard_ord = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let start_height = 34691244;
         for block_height in start_height..=head.height {
             if let Ok(block_hash) = chain_store.get_block_hash_by_height(block_height) {
                 let block = chain_store.get_block(&block_hash).unwrap().clone();
-                if block.chunks()[shard_id as usize].height_included() != block.header().height() {
+                if block.chunks()[shard_ord as usize].height_included() != block.header().height() {
                     let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
                     let new_extra = chain_store_update
-                        .get_chunk_extra(block.header().prev_hash(), shard_id)
+                        .get_chunk_extra(block.header().prev_hash(), shard_ord)
                         .unwrap()
                         .clone();
 
                     let apply_result = runtime
                         .apply_transactions(
-                            shard_id,
+                            shard_ord,
                             new_extra.state_root(),
                             block.header().height(),
                             block.header().raw_timestamp(),
@@ -262,7 +262,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                         chain_store_update.save_outcomes_with_proofs(
                             &block.hash(),
-                            shard_id,
+                            shard_ord,
                             apply_result.outcomes,
                             outcome_paths,
                         );
@@ -290,14 +290,14 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             None,
             None,
         );
-        let shard_id = 0;
+        let shard_ord = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];
         for height in block_heights {
             let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
             let block = chain_store.get_block(&block_hash).unwrap().clone();
-            if block.chunks()[shard_id as usize].height_included() == block.header().height() {
-                let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+            if block.chunks()[shard_ord as usize].height_included() == block.header().height() {
+                let chunk_hash = block.chunks()[shard_ord as usize].chunk_hash();
                 let chunk = chain_store.get_chunk(&chunk_hash).unwrap().clone();
                 let chunk_header = chunk.cloned_header();
                 let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
@@ -305,16 +305,16 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
                     chain_store_update.get_block(block.header().prev_hash()).unwrap().clone();
                 let receipt_proof_response = chain_store_update
                     .get_incoming_receipts_for_shard(
-                        shard_id,
+                        shard_ord,
                         block_hash,
-                        prev_block.chunks()[shard_id as usize].height_included(),
+                        prev_block.chunks()[shard_ord as usize].height_included(),
                     )
                     .unwrap();
                 let receipts = collect_receipts_from_response(&receipt_proof_response);
 
                 let apply_result = runtime
                     .apply_transactions(
-                        shard_id,
+                        shard_ord,
                         &chunk_header.prev_state_root(),
                         block.header().height(),
                         block.header().raw_timestamp(),
@@ -337,7 +337,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
                         ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
                     chain_store_update.save_outcomes_with_proofs(
                         &block.hash(),
-                        shard_id,
+                        shard_ord,
                         apply_result.outcomes,
                         outcome_paths,
                     );

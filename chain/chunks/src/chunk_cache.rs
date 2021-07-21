@@ -42,8 +42,8 @@ impl EncodedChunksCacheEntry {
         }
 
         for receipt in partial_encoded_chunk.receipts.iter() {
-            let shard_id = receipt.1.to_shard_id;
-            self.receipts.entry(shard_id).or_insert_with(|| receipt.clone());
+            let shard_ord = receipt.1.to_shard_ord;
+            self.receipts.entry(shard_ord).or_insert_with(|| receipt.clone());
         }
     }
 }
@@ -138,7 +138,7 @@ impl EncodedChunksCache {
         }
     }
 
-    pub fn insert_chunk_header(&mut self, shard_id: ShardOrd, header: ShardChunkHeader) {
+    pub fn insert_chunk_header(&mut self, shard_ord: ShardOrd, header: ShardChunkHeader) {
         let height = header.height_created();
         if height >= self.largest_seen_height.saturating_sub(CHUNK_HEADER_HEIGHT_HORIZON)
             && height <= self.largest_seen_height + MAX_HEIGHTS_AHEAD
@@ -148,7 +148,7 @@ impl EncodedChunksCache {
                 .block_hash_to_chunk_headers
                 .cache_remove(&prev_block_hash)
                 .unwrap_or_else(|| HashMap::new());
-            block_hash_to_chunk_headers.insert(shard_id, header);
+            block_hash_to_chunk_headers.insert(shard_ord, header);
             self.block_hash_to_chunk_headers
                 .cache_set(prev_block_hash, block_hash_to_chunk_headers);
         }

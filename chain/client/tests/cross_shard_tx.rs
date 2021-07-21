@@ -87,7 +87,7 @@ mod tests {
     use futures::{future, FutureExt};
 
     use near_actix_test_utils::run_actix;
-    use near_chain::test_utils::account_id_to_shard_id;
+    use near_chain::test_utils::account_id_to_shard_ord;
     use near_client::test_utils::{setup_mock_all_validators, BlockStats};
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
@@ -198,7 +198,7 @@ mod tests {
                 let observed_balances1 = observed_balances.clone();
                 let presumable_epoch1 = presumable_epoch.clone();
                 actix::spawn(
-                    connectors_[account_id_to_shard_id(&account_id, 8) as usize
+                    connectors_[account_id_to_shard_ord(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query::new(
@@ -264,7 +264,7 @@ mod tests {
                     send_tx(
                         validators.len(),
                         connectors.clone(),
-                        account_id_to_shard_id(&validators[from].to_string(), 8) as usize,
+                        account_id_to_shard_ord(&validators[from].to_string(), 8) as usize,
                         validators[from].to_string(),
                         validators[to].to_string(),
                         amount,
@@ -295,7 +295,7 @@ mod tests {
                         let account_id1 = validators[i].to_string();
                         let block_stats1 = block_stats.clone();
                         actix::spawn(
-                            connectors_[account_id_to_shard_id(&validators[i].to_string(), 8)
+                            connectors_[account_id_to_shard_ord(&validators[i].to_string(), 8)
                                 as usize
                                 + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
@@ -350,7 +350,7 @@ mod tests {
                 let connectors1 = connectors.clone();
                 let presumable_epoch1 = presumable_epoch.clone();
                 actix::spawn(
-                    connectors_[account_id_to_shard_id(&account_id, 8) as usize
+                    connectors_[account_id_to_shard_ord(&account_id, 8) as usize
                         + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query::new(
@@ -473,7 +473,7 @@ mod tests {
                 let account_id1 = flat_validators[i].clone();
                 let block_stats1 = block_stats.clone();
                 actix::spawn(
-                    connectors_[account_id_to_shard_id(&flat_validators[i].to_string(), 8)
+                    connectors_[account_id_to_shard_ord(&flat_validators[i].to_string(), 8)
                         as usize
                         + *presumable_epoch.read().unwrap() * 8]
                         .1

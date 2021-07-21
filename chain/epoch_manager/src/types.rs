@@ -126,9 +126,9 @@ impl EpochInfoAggregator {
                     .or_insert_with(|| stats);
             }
             // merge shard tracker
-            for (shard_id, stats) in new_aggregator.shard_tracker {
+            for (shard_ord, stats) in new_aggregator.shard_tracker {
                 self.shard_tracker
-                    .entry(shard_id)
+                    .entry(shard_ord)
                     .and_modify(|e| {
                         for (chunk_producer_id, stat) in stats.iter() {
                             e.entry(*chunk_producer_id)

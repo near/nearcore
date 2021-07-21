@@ -124,7 +124,7 @@ mod test {
                                             .read()
                                             .unwrap()
                                             .user()
-                                            .get_chunk(b.header.height, chunk.shard_id)
+                                            .get_chunk(b.header.height, chunk.shard_ord)
                                             .unwrap();
                                         acc + chunk.transactions.len()
                                     } else {

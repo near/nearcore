@@ -35,10 +35,10 @@ pub enum RpcLightClientProofError {
         #[serde(skip_serializing)]
         error_message: String,
     },
-    #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
+    #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_ord}")]
     InconsistentState {
         number_or_shards: usize,
-        execution_outcome_shard_id: near_primitives::types::ShardOrd,
+        execution_outcome_shard_ord: near_primitives::types::ShardOrd,
     },
     #[error("{transaction_or_receipt_id} has not been confirmed")]
     NotConfirmed { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
@@ -47,7 +47,7 @@ pub enum RpcLightClientProofError {
     #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
     UnavailableShard {
         transaction_or_receipt_id: near_primitives::hash::CryptoHash,
-        shard_id: near_primitives::types::ShardOrd,
+        shard_ord: near_primitives::types::ShardOrd,
     },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
@@ -100,8 +100,8 @@ impl From<near_client_primitives::types::GetExecutionOutcomeError> for RpcLightC
                 Self::UnknownBlock { error_message }
             },
             near_client_primitives::types::GetExecutionOutcomeError::InconsistentState {
-                number_or_shards, execution_outcome_shard_id
-            } => Self::InconsistentState { number_or_shards, execution_outcome_shard_id },
+                number_or_shards, execution_outcome_shard_ord
+            } => Self::InconsistentState { number_or_shards, execution_outcome_shard_ord },
             near_client_primitives::types::GetExecutionOutcomeError::NotConfirmed {
                 transaction_or_receipt_id
             } => Self::NotConfirmed { transaction_or_receipt_id },
@@ -110,8 +110,8 @@ impl From<near_client_primitives::types::GetExecutionOutcomeError> for RpcLightC
             } => Self::UnknownTransactionOrReceipt { transaction_or_receipt_id },
             near_client_primitives::types::GetExecutionOutcomeError::UnavailableShard {
                 transaction_or_receipt_id,
-                shard_id
-            } => Self::UnavailableShard { transaction_or_receipt_id, shard_id },
+                shard_ord
+            } => Self::UnavailableShard { transaction_or_receipt_id, shard_ord },
             near_client_primitives::types::GetExecutionOutcomeError::InternalError { error_message } => {
                 Self::InternalError { error_message }
             },

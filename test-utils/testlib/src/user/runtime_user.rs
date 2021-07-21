@@ -305,7 +305,7 @@ impl User for RuntimeUser {
         None
     }
 
-    fn get_chunk(&self, _height: u64, _shard_id: u64) -> Option<ChunkView> {
+    fn get_chunk(&self, _height: u64, _shard_ord: u64) -> Option<ChunkView> {
         unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 

@@ -97,6 +97,6 @@ crypto_schema = [
     }],
     [ShardProof, {
         'kind': 'struct',
-        'fields': [['from_shard_id', 'u64'], ['to_shard_id', 'u64'], ['proof', MerklePath]],
+        'fields': [['from_shard_ord', 'u64'], ['to_shard_ord', 'u64'], ['proof', MerklePath]],
     }],
 ]

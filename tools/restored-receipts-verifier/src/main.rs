@@ -54,7 +54,7 @@ fn main() -> Result<()> {
         )
         .get_matches();
 
-    let shard_id = 0u64;
+    let shard_ord = 0u64;
     let home_dir = matches.value_of("home").map(Path::new).unwrap();
     let near_config = load_config(&home_dir);
     let store = create_store(&get_store_path(&home_dir));
@@ -85,16 +85,16 @@ fn main() -> Result<()> {
         };
 
         let block = chain_store.get_block(&block_hash).unwrap().clone();
-        if block.chunks()[shard_id as usize].height_included() == height {
+        if block.chunks()[shard_ord as usize].height_included() == height {
             eprintln!("{} included, skip", height);
             continue;
         }
 
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), shard_ord).unwrap().clone();
         let apply_result = runtime
             .apply_transactions(
-                shard_id,
+                shard_ord,
                 chunk_extra.state_root(),
                 block.header().height(),
                 block.header().raw_timestamp(),

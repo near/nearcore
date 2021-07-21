@@ -227,8 +227,8 @@ pub enum GetChunkError {
     IOError { error_message: String },
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
     UnknownBlock { error_message: String },
-    #[error("Shard ID {shard_id} is invalid")]
-    InvalidShardId { shard_id: u64 },
+    #[error("Shard ID {shard_ord} is invalid")]
+    InvalidShardId { shard_ord: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: ChunkHash },
     // NOTE: Currently, the underlying errors are too broad, and while we tried to handle
@@ -248,8 +248,8 @@ impl From<near_chain_primitives::Error> for GetChunkError {
             near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
-            near_chain_primitives::ErrorKind::InvalidShardId(shard_id) => {
-                Self::InvalidShardId { shard_id }
+            near_chain_primitives::ErrorKind::InvalidShardId(shard_ord) => {
+                Self::InvalidShardId { shard_ord }
             }
             near_chain_primitives::ErrorKind::ChunkMissing(chunk_hash) => {
                 Self::UnknownChunk { chunk_hash }
@@ -281,8 +281,8 @@ impl Message for Query {
 pub enum QueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
     NoSyncedBlocks,
-    #[error("The node does not track the shard ID {requested_shard_id}")]
-    UnavailableShard { requested_shard_id: near_primitives::types::ShardOrd },
+    #[error("The node does not track the shard ID {requested_shard_ord}")]
+    UnavailableShard { requested_shard_ord: near_primitives::types::ShardOrd },
     #[error("Account ID {requested_account_id} is invalid")]
     InvalidAccount {
         requested_account_id: near_primitives::types::AccountId,
@@ -615,10 +615,10 @@ pub struct GetExecutionOutcome {
 pub enum GetExecutionOutcomeError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
     UnknownBlock { error_message: String },
-    #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
+    #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_ord}")]
     InconsistentState {
         number_or_shards: usize,
-        execution_outcome_shard_id: near_primitives::types::ShardOrd,
+        execution_outcome_shard_ord: near_primitives::types::ShardOrd,
     },
     #[error("{transaction_or_receipt_id} has not been confirmed")]
     NotConfirmed { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
@@ -627,7 +627,7 @@ pub enum GetExecutionOutcomeError {
     #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
     UnavailableShard {
         transaction_or_receipt_id: near_primitives::hash::CryptoHash,
-        shard_id: near_primitives::types::ShardOrd,
+        shard_ord: near_primitives::types::ShardOrd,
     },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },

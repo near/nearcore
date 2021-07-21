@@ -12,21 +12,21 @@ use near_primitives::views::ViewStateResult;
 pub trait ViewRuntimeAdapter {
     fn view_account(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, crate::state_viewer::errors::ViewAccountError>;
 
     fn view_contract_code(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, crate::state_viewer::errors::ViewContractCodeError>;
 
     fn call_function(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
@@ -45,7 +45,7 @@ pub trait ViewRuntimeAdapter {
 
     fn view_access_key(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
@@ -53,14 +53,14 @@ pub trait ViewRuntimeAdapter {
 
     fn view_access_keys(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
 
     fn view_state(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],

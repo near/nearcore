@@ -370,16 +370,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(state_response_info) => {
-                let shard_id = state_response_info.shard_id();
+                let shard_ord = state_response_info.shard_ord();
                 let hash = state_response_info.sync_hash();
                 let state_response = state_response_info.take_state_response();
 
-                trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
-                    shard_id,
+                trace!(target: "sync", "Received state response shard_ord: {} sync_hash: {:?} part(id/size): {:?}",
+                    shard_ord,
                     hash,
                     state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))
                 );
-                // Get the download that matches the shard_id and hash
+                // Get the download that matches the shard_ord and hash
                 let download = {
                     let mut download: Option<&mut ShardSyncDownload> = None;
 
@@ -391,10 +391,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             if let Some(part_id) = state_response.part_id() {
                                 self.client
                                     .state_sync
-                                    .received_requested_part(part_id, shard_id, hash);
+                                    .received_requested_part(part_id, shard_ord, hash);
                             }
 
-                            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                            if let Some(shard_download) = shards_to_download.get_mut(&shard_ord) {
                                 assert!(
                                     download.is_none(),
                                     "Internal downloads set has duplicates"
@@ -412,10 +412,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
                         if let Some(part_id) = state_response.part_id() {
-                            self.client.state_sync.received_requested_part(part_id, shard_id, hash);
+                            self.client
+                                .state_sync
+                                .received_requested_part(part_id, shard_ord, hash);
                         }
 
-                        if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
+                        if let Some(shard_download) = shards_to_download.get_mut(&shard_ord) {
                             assert!(download.is_none(), "Internal downloads set has duplicates");
                             download = Some(shard_download);
                         } else {
@@ -432,13 +434,16 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         ShardSyncStatus::StateDownloadHeader => {
                             if let Some(header) = state_response.take_header() {
                                 if !shard_sync_download.downloads[0].done {
-                                    match self.client.chain.set_state_header(shard_id, hash, header)
+                                    match self
+                                        .client
+                                        .chain
+                                        .set_state_header(shard_ord, hash, header)
                                     {
                                         Ok(()) => {
                                             shard_sync_download.downloads[0].done = true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_id, hash, err);
+                                            error!(target: "sync", "State sync set_state_header error, shard = {}, hash = {}: {:?}", shard_ord, hash, err);
                                             shard_sync_download.downloads[0].error = true;
                                         }
                                     }
@@ -447,7 +452,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 // No header found.
                                 // It may happen because requested node couldn't build state response.
                                 if !shard_sync_download.downloads[0].done {
-                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_id, hash);
+                                    info!(target: "sync", "state_response doesn't have header, should be re-requested, shard = {}, hash = {}", shard_ord, hash);
                                     shard_sync_download.downloads[0].error = true;
                                 }
                             }
@@ -464,14 +469,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                     match self
                                         .client
                                         .chain
-                                        .set_state_part(shard_id, hash, part_id, num_parts, &data)
+                                        .set_state_part(shard_ord, hash, part_id, num_parts, &data)
                                     {
                                         Ok(()) => {
                                             shard_sync_download.downloads[part_id as usize].done =
                                                 true;
                                         }
                                         Err(err) => {
-                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_id, part_id, hash, err);
+                                            error!(target: "sync", "State sync set_state_part error, shard = {}, part = {}, hash = {}: {:?}", shard_ord, part_id, hash, err);
                                             shard_sync_download.downloads[part_id as usize].error =
                                                 true;
                                         }

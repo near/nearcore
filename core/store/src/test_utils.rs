@@ -24,11 +24,11 @@ pub fn create_tries() -> ShardTries {
 pub fn test_populate_trie(
     tries: &ShardTries,
     root: &CryptoHash,
-    shard_id: ShardOrd,
+    shard_ord: ShardOrd,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
-    let trie = tries.get_trie_for_shard(shard_id);
-    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
+    let trie = tries.get_trie_for_shard(shard_ord);
+    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_ord, 0);
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
     let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
     store_update.commit().unwrap();

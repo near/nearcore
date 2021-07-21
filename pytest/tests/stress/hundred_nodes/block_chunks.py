@@ -12,7 +12,7 @@ from utils import chain_query
 def print_chain_data(block, logger):
     chunks = []
     for c in block['chunks']:
-        chunks.append(f'{c["chunk_hash"]} {c["shard_id"]} {c["height_created"]} {c["height_included"]}')
+        chunks.append(f'{c["chunk_hash"]} {c["shard_ord"]} {c["height_created"]} {c["height_included"]}')
     logger.info(f"{block['header']['height']} {block['header']['hash']} {','.join(chunks)}")
 
 subprocess.run('mkdir -p /tmp/100_node/', shell=True)

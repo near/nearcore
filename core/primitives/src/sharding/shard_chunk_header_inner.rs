@@ -61,10 +61,10 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardOrd {
+    pub fn shard_ord(&self) -> ShardOrd {
         match self {
-            Self::V1(inner) => inner.shard_id,
-            Self::V2(inner) => inner.shard_id,
+            Self::V1(inner) => inner.shard_ord,
+            Self::V2(inner) => inner.shard_ord,
         }
     }
 
@@ -128,7 +128,7 @@ pub struct ShardChunkHeaderInnerV1 {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
     /// Gas limit voted by validators.
@@ -155,7 +155,7 @@ pub struct ShardChunkHeaderInnerV2 {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
     /// Gas limit voted by validators.

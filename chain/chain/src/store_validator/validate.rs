@@ -14,7 +14,7 @@ use near_primitives::syncing::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardOrd};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_primitives::utils::{get_block_shard_ord, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColHeaderHashesByHeight, ColOutcomeIds,
@@ -367,13 +367,13 @@ pub(crate) fn block_chunks_exist(
                 let cares_about_shard = sv.runtime_adapter.cares_about_shard(
                     Some(&me),
                     block.header().prev_hash(),
-                    chunk_header.shard_id(),
+                    chunk_header.shard_ord(),
                     true,
                 );
                 let will_care_about_shard = sv.runtime_adapter.will_care_about_shard(
                     Some(&me),
                     block.header().prev_hash(),
-                    chunk_header.shard_id(),
+                    chunk_header.shard_ord(),
                     true,
                 );
                 if cares_about_shard || will_care_about_shard {
@@ -384,10 +384,10 @@ pub(crate) fn block_chunks_exist(
                         chunk_header
                     );
                     if cares_about_shard {
-                        let block_shard_id =
-                            get_block_shard_id(block.hash(), chunk_header.shard_id());
+                        let block_shard_ord =
+                            get_block_shard_ord(block.hash(), chunk_header.shard_ord());
                         unwrap_or_err_db!(
-                            sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_id.as_ref()),
+                            sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_ord.as_ref()),
                             "Can't get chunk extra for chunk {:?} from storage",
                             chunk_header
                         );
@@ -518,7 +518,7 @@ pub(crate) fn canonical_prev_block_validity(
 
 pub(crate) fn trie_changes_chunk_extra_exists(
     sv: &mut StoreValidator,
-    (block_hash, shard_id): &(CryptoHash, ShardOrd),
+    (block_hash, shard_ord): &(CryptoHash, ShardOrd),
     trie_changes: &TrieChanges,
 ) -> Result<(), StoreValidatorError> {
     let new_root = trie_changes.new_root;
@@ -527,9 +527,9 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
         "Can't get Block from DB"
     );
-    // 2. There should be ShardChunk with ShardId `shard_id`
+    // 2. There should be ShardChunk with ShardId `shard_ord`
     for chunk_header in block.chunks().iter() {
-        if chunk_header.shard_id() == *shard_id {
+        if chunk_header.shard_ord() == *shard_ord {
             let chunk_hash = chunk_header.chunk_hash();
             // 3. ShardChunk with `chunk_hash` should be available
             unwrap_or_err_db!(
@@ -537,17 +537,17 @@ pub(crate) fn trie_changes_chunk_extra_exists(
                 "Can't get Chunk from storage with ChunkHash {:?}",
                 chunk_hash
             );
-            // 4. Chunk Extra with `block_hash` and `shard_id` should be available
+            // 4. Chunk Extra with `block_hash` and `shard_ord` should be available
             let chunk_extra = unwrap_or_err_db!(
                 sv.store.get_ser::<ChunkExtra>(
                     ColChunkExtra,
-                    &get_block_shard_id(block_hash, *shard_id)
+                    &get_block_shard_ord(block_hash, *shard_ord)
                 ),
                 "Can't get Chunk Extra from storage with key {:?} {:?}",
                 block_hash,
-                shard_id
+                shard_ord
             );
-            let trie = sv.runtime_adapter.get_trie_for_shard(*shard_id);
+            let trie = sv.runtime_adapter.get_trie_for_shard(*shard_ord);
             let trie_iterator = unwrap_or_err!(
                 TrieIterator::new(&trie, &new_root),
                 "Trie Node Missing for ShardChunk {:?}",
@@ -569,7 +569,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             }
             if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
                 ColChunkExtra,
-                &get_block_shard_id(block.header().prev_hash(), *shard_id),
+                &get_block_shard_ord(block.header().prev_hash(), *shard_ord),
             ) {
                 check_discrepancy!(
                     prev_chunk_extra.state_root(),
@@ -680,18 +680,18 @@ pub(crate) fn outcome_indexed_by_block_hash(
                     if sv.runtime_adapter.cares_about_shard(
                         Some(&me),
                         block.header().prev_hash(),
-                        chunk_header.shard_id(),
+                        chunk_header.shard_ord(),
                         true,
                     ) || sv.runtime_adapter.will_care_about_shard(
                         Some(&me),
                         block.header().prev_hash(),
-                        chunk_header.shard_id(),
+                        chunk_header.shard_ord(),
                         true,
                     ) {
                         outcome_ids.extend(unwrap_or_err_db!(
                             sv.store.get_ser::<Vec<CryptoHash>>(
                                 ColOutcomeIds,
-                                &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                                &get_block_shard_ord(block.hash(), chunk_header.shard_ord())
                             ),
                             "Can't get Outcome ids by Block Hash"
                         ));
@@ -771,7 +771,7 @@ pub(crate) fn epoch_validity(
 
 pub(crate) fn last_block_chunk_included(
     sv: &mut StoreValidator,
-    shard_id: &ShardOrd,
+    shard_ord: &ShardOrd,
     block_hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
     let block = unwrap_or_err_db!(
@@ -779,7 +779,7 @@ pub(crate) fn last_block_chunk_included(
         "Can't get Block from DB"
     );
     for chunk_header in block.chunks().iter() {
-        if chunk_header.shard_id() == *shard_id {
+        if chunk_header.shard_ord() == *shard_ord {
             // TODO #2893: Some Chunks missing
             /*
             unwrap_or_err_db!(
@@ -882,9 +882,9 @@ pub(crate) fn state_part_header_exists(
     key: &StatePartKey,
     _part: &Vec<u8>,
 ) -> Result<(), StoreValidatorError> {
-    let StatePartKey(block_hash, shard_id, part_id) = *key;
+    let StatePartKey(block_hash, shard_ord, part_id) = *key;
     let state_header_key = unwrap_or_err!(
-        StateHeaderKey(shard_id, block_hash).try_to_vec(),
+        StateHeaderKey(shard_ord, block_hash).try_to_vec(),
         "Can't serialize StateHeaderKey"
     );
     let header = unwrap_or_err_db!(

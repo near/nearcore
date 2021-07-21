@@ -153,7 +153,7 @@ pub fn validate_chunk_with_chunk_extra(
 
     let receipt_response = chain_store.get_outgoing_receipts_for_shard(
         *prev_block_hash,
-        chunk_header.shard_id(),
+        chunk_header.shard_ord(),
         prev_chunk_header.height_included(),
     )?;
     let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&receipt_response.1);
@@ -232,7 +232,7 @@ fn validate_chunk_authorship(
         let chunk_producer = runtime_adapter.get_chunk_producer(
             &epoch_id,
             chunk_header.height_created(),
-            chunk_header.shard_id(),
+            chunk_header.shard_ord(),
         )?;
         Ok(chunk_producer)
     } else {
@@ -327,7 +327,7 @@ fn validate_chunk_state_challenge(
     let result = runtime_adapter
         .check_state_transition(
             partial_storage,
-            prev_chunk_header.shard_id(),
+            prev_chunk_header.shard_ord(),
             &prev_chunk_header.prev_state_root(),
             block_header.height(),
             block_header.raw_timestamp(),

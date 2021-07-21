@@ -81,7 +81,7 @@ pub struct ShardChunkHeaderInner {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
     /// Gas limit voted by validators.
@@ -130,8 +130,8 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardOrd {
-        self.shard_id
+    pub fn shard_ord(&self) -> ShardOrd {
+        self.shard_ord
     }
 
     #[inline]
@@ -212,7 +212,7 @@ impl ShardChunkHeaderV2 {
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
@@ -228,7 +228,7 @@ impl ShardChunkHeaderV2 {
             encoded_merkle_root,
             encoded_length,
             height_created: height,
-            shard_id,
+            shard_ord: shard_ord,
             gas_used,
             gas_limit,
             balance_burnt,
@@ -278,7 +278,7 @@ impl ShardChunkHeaderV3 {
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
@@ -294,7 +294,7 @@ impl ShardChunkHeaderV3 {
             encoded_merkle_root,
             encoded_length,
             height_created: height,
-            shard_id,
+            shard_ord: shard_ord,
             gas_used,
             gas_limit,
             balance_burnt,
@@ -427,12 +427,12 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardOrd {
+    pub fn shard_ord(&self) -> ShardOrd {
         match self {
-            Self::V1(header) => header.inner.shard_id,
-            Self::V2(header) => header.inner.shard_id,
+            Self::V1(header) => header.inner.shard_ord,
+            Self::V2(header) => header.inner.shard_ord,
             #[cfg(feature = "protocol_feature_block_header_v3")]
-            Self::V3(header) => header.inner.shard_id(),
+            Self::V3(header) => header.inner.shard_ord(),
         }
     }
 
@@ -572,7 +572,7 @@ impl ShardChunkHeaderV1 {
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
@@ -588,7 +588,7 @@ impl ShardChunkHeaderV1 {
             encoded_merkle_root,
             encoded_length,
             height_created: height,
-            shard_id,
+            shard_ord: shard_ord,
             gas_used,
             gas_limit,
             balance_burnt,
@@ -732,8 +732,8 @@ impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardProof {
-    pub from_shard_id: ShardOrd,
-    pub to_shard_id: ShardOrd,
+    pub from_shard_ord: ShardOrd,
+    pub to_shard_ord: ShardOrd,
     pub proof: MerklePath,
 }
 
@@ -841,10 +841,10 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardOrd {
+    pub fn shard_ord(&self) -> ShardOrd {
         match self {
-            Self::V1(chunk) => chunk.header.inner.shard_id,
-            Self::V2(chunk) => chunk.header.shard_id(),
+            Self::V1(chunk) => chunk.header.inner.shard_ord,
+            Self::V2(chunk) => chunk.header.shard_ord(),
         }
     }
 
@@ -988,10 +988,10 @@ impl EncodedShardChunk {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardOrd {
+    pub fn shard_ord(&self) -> ShardOrd {
         match self {
-            Self::V1(chunk) => chunk.header.inner.shard_id,
-            Self::V2(chunk) => chunk.header.shard_id(),
+            Self::V1(chunk) => chunk.header.inner.shard_ord,
+            Self::V2(chunk) => chunk.header.shard_ord(),
         }
     }
 
@@ -1084,7 +1084,7 @@ impl EncodedShardChunk {
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         rs: &mut ReedSolomonWrapper,
         gas_used: Gas,
         gas_limit: Gas,
@@ -1120,7 +1120,7 @@ impl EncodedShardChunk {
                 encoded_merkle_root,
                 encoded_length,
                 height,
-                shard_id,
+                shard_ord,
                 gas_used,
                 gas_limit,
                 balance_burnt,
@@ -1144,7 +1144,7 @@ impl EncodedShardChunk {
                 encoded_merkle_root,
                 encoded_length,
                 height,
-                shard_id,
+                shard_ord,
                 gas_used,
                 gas_limit,
                 balance_burnt,
@@ -1167,7 +1167,7 @@ impl EncodedShardChunk {
                     encoded_merkle_root,
                     encoded_length,
                     height,
-                    shard_id,
+                    shard_ord,
                     gas_used,
                     gas_limit,
                     balance_burnt,

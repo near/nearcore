@@ -393,7 +393,7 @@ block_schema = [
                 ['encoded_merkle_root', [32]],
                 ['encoded_length', 'u64'],
                 ['height_created', 'u64'],
-                ['shard_id', 'u64'],
+                ['shard_ord', 'u64'],
                 ['gas_used', 'u64'],
                 ['gas_limit', 'u64'],
                 ['balance_burnt', 'u128'],
@@ -413,7 +413,7 @@ block_schema = [
                 ['encoded_merkle_root', [32]],
                 ['encoded_length', 'u64'],
                 ['height_created', 'u64'],
-                ['shard_id', 'u64'],
+                ['shard_ord', 'u64'],
                 ['gas_used', 'u64'],
                 ['gas_limit', 'u64'],
                 ['balance_burnt', 'u128'],
@@ -534,7 +534,7 @@ block_schema = [
                 ['signature', Signature],
                 ['prev_block_hash', [32]],
                 ['height_created', 'u64'],
-                ['shard_id', 'u64'],
+                ['shard_ord', 'u64'],
                 ['parts', [PartialEncodedChunkPart]]
             ]
         }

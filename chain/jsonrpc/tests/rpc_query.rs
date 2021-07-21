@@ -106,7 +106,7 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
         assert_eq!(chunk.header.rent_paid, 0);
-        assert_eq!(chunk.header.shard_id, 0);
+        assert_eq!(chunk.header.shard_ord, 0);
         assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);
@@ -118,7 +118,7 @@ fn test_chunk_by_hash() {
 
 /// Retrieve chunk via json rpc
 #[test]
-fn test_chunk_invalid_shard_id() {
+fn test_chunk_invalid_shard_ord() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let chunk = client.chunk(ChunkId::BlockShardId(BlockId::Height(0), 100)).await;
         match chunk {
@@ -692,7 +692,7 @@ fn test_get_chunk_with_object_in_params() {
             "chunk",
             json!({
                 "block_id": 0u64,
-                "shard_id": 0u64,
+                "shard_ord": 0u64,
             }),
         )
         .await
@@ -710,7 +710,7 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.prev_block_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.prev_state_root.as_ref().len(), 32);
         assert_eq!(chunk.header.rent_paid, 0);
-        assert_eq!(chunk.header.shard_id, 0);
+        assert_eq!(chunk.header.shard_ord, 0);
         assert!(if let Signature::ED25519(_) = chunk.header.signature { true } else { false });
         assert_eq!(chunk.header.tx_root.as_ref(), &[0; 32]);
         assert_eq!(chunk.header.validator_proposals, vec![]);

@@ -38,34 +38,34 @@ class Handler(ProxyHandler):
             if msg_kind == 'PartialEncodedChunk':
                 header = msg.Routed.body.PartialEncodedChunk.header
                 height = header.inner.height_created
-                shard_id = header.inner.shard_id
+                shard_ord = header.inner.shard_ord
                 hash_ = header.chunk_hash()
-                hash_to_metadata[hash_] = (height, shard_id)
+                hash_to_metadata[hash_] = (height, shard_ord)
 
             if msg_kind == 'VersionedPartialEncodedChunk':
                 header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header()
                 height = header.height_created
-                shard_id = header.shard_id
+                shard_ord = header.shard_ord
                 header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version()
                 if header_version == 'V1':
                     hash_ = ShardChunkHeaderV1.chunk_hash(header)
                 elif header_version == 'V2':
                     hash_ = ShardChunkHeaderV2.chunk_hash(header)
-                hash_to_metadata[hash_] = (height, shard_id)
+                hash_to_metadata[hash_] = (height, shard_ord)
 
             if msg_kind == 'PartialEncodedChunkRequest':
                 if fr == 4:
                     hash_ = msg.Routed.body.PartialEncodedChunkRequest.chunk_hash
-                    (height, shard_id) = hash_to_metadata[hash_]
-                    logger.info("REQ %s %s %s %s" % (height, shard_id, fr, to))
-                    requests[(height, shard_id, to)] = 1
+                    (height, shard_ord) = hash_to_metadata[hash_]
+                    logger.info("REQ %s %s %s %s" % (height, shard_ord, fr, to))
+                    requests[(height, shard_ord, to)] = 1
 
             if msg_kind == 'PartialEncodedChunkResponse':
                 if to == 4:
                     hash_ = msg.Routed.body.PartialEncodedChunkResponse.chunk_hash
-                    (height, shard_id) = hash_to_metadata[hash_]
-                    logger.info("RESP %s %s %s %s" % (height, shard_id, fr, to))
-                    responses[(height, shard_id, fr)] = 1
+                    (height, shard_ord) = hash_to_metadata[hash_]
+                    logger.info("RESP %s %s %s %s" % (height, shard_ord, fr, to))
+                    responses[(height, shard_ord, fr)] = 1
 
         return True
 

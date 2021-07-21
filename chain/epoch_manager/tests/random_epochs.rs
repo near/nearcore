@@ -378,17 +378,17 @@ fn verify_block_stats(
                 aggregator.block_tracker.values().map(|value| value.expected).sum::<u64>();
             assert_eq!(sum_produced, blocks_in_epoch);
             assert_eq!(sum_expected, blocks_in_epoch_expected);
-            for shard_id in 0..(aggregator.shard_tracker.len() as u64) {
+            for shard_ord in 0..(aggregator.shard_tracker.len() as u64) {
                 let sum_produced = aggregator
                     .shard_tracker
-                    .get(&shard_id)
+                    .get(&shard_ord)
                     .unwrap()
                     .values()
                     .map(|value| value.produced)
                     .sum::<u64>();
                 let sum_expected = aggregator
                     .shard_tracker
-                    .get(&shard_id)
+                    .get(&shard_ord)
                     .unwrap()
                     .values()
                     .map(|value| value.expected)

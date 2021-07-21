@@ -6,7 +6,7 @@ use serde_json::Value;
 pub enum ChunkReference {
     BlockShardId {
         block_id: near_primitives::types::BlockId,
-        shard_id: near_primitives::types::ShardOrd,
+        shard_ord: near_primitives::types::ShardOrd,
     },
     ChunkHash {
         chunk_id: near_primitives::hash::CryptoHash,
@@ -35,8 +35,8 @@ pub enum RpcChunkError {
         #[serde(skip_serializing)]
         error_message: String,
     },
-    #[error("Shard id {shard_id} does not exist")]
-    InvalidShardId { shard_id: u64 },
+    #[error("Shard id {shard_ord} does not exist")]
+    InvalidShardId { shard_ord: u64 },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
 }
@@ -44,10 +44,10 @@ pub enum RpcChunkError {
 impl From<ChunkReference> for near_client_primitives::types::GetChunk {
     fn from(chunk_reference: ChunkReference) -> Self {
         match chunk_reference {
-            ChunkReference::BlockShardId { block_id, shard_id } => match block_id {
-                near_primitives::types::BlockId::Height(height) => Self::Height(height, shard_id),
+            ChunkReference::BlockShardId { block_id, shard_ord } => match block_id {
+                near_primitives::types::BlockId::Height(height) => Self::Height(height, shard_ord),
                 near_primitives::types::BlockId::Hash(block_hash) => {
-                    Self::BlockHash(block_hash.into(), shard_id)
+                    Self::BlockHash(block_hash.into(), shard_ord)
                 }
             },
             ChunkReference::ChunkHash { chunk_id } => Self::ChunkHash(chunk_id.into()),
@@ -62,12 +62,12 @@ impl RpcChunkRequest {
             crate::utils::parse_params::<(near_primitives::hash::CryptoHash,)>(value.clone())
         {
             ChunkReference::ChunkHash { chunk_id }
-        } else if let Ok(((block_id, shard_id),)) = crate::utils::parse_params::<((
+        } else if let Ok(((block_id, shard_ord),)) = crate::utils::parse_params::<((
             near_primitives::types::BlockId,
             near_primitives::types::ShardOrd,
         ),)>(value.clone())
         {
-            ChunkReference::BlockShardId { block_id, shard_id }
+            ChunkReference::BlockShardId { block_id, shard_ord }
         } else {
             crate::utils::parse_params::<ChunkReference>(value)?
         };
@@ -84,8 +84,8 @@ impl From<near_client_primitives::types::GetChunkError> for RpcChunkError {
             near_client_primitives::types::GetChunkError::UnknownBlock { error_message } => {
                 Self::UnknownBlock { error_message }
             }
-            near_client_primitives::types::GetChunkError::InvalidShardId { shard_id } => {
-                Self::InvalidShardId { shard_id }
+            near_client_primitives::types::GetChunkError::InvalidShardId { shard_ord } => {
+                Self::InvalidShardId { shard_ord }
             }
             near_client_primitives::types::GetChunkError::UnknownChunk { chunk_hash } => {
                 Self::UnknownChunk { chunk_hash }

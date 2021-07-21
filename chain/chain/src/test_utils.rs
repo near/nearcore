@@ -89,7 +89,7 @@ pub struct KeyValueRuntime {
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardOrd {
+pub fn account_id_to_shard_ord(account_id: &AccountId, num_shards: NumShards) -> ShardOrd {
     u64::from((hash(&account_id.clone().into_bytes()).0)[0]) % num_shards
 }
 
@@ -300,12 +300,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardOrd) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(&self, shard_ord: ShardOrd) -> Trie {
+        self.tries.get_trie_for_shard(shard_ord)
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardOrd) -> Trie {
-        self.tries.get_view_trie_for_shard(shard_id)
+    fn get_view_trie_for_shard(&self, shard_ord: ShardOrd) -> Trie {
+        self.tries.get_view_trie_for_shard(shard_ord)
     }
 
     fn verify_block_vrf(
@@ -343,7 +343,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _signature: &Signature,
         _prev_block_hash: &CryptoHash,
         _height_created: BlockHeight,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -440,15 +440,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardOrd / self.validator_groups;
         let coef = validators.len() as ShardOrd / self.num_shards();
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-        let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
+        let offset = (shard_ord * coef / validators_per_shard * validators_per_shard) as usize;
+        let delta = ((shard_ord + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id().clone())
     }
 
@@ -470,8 +470,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardOrd {
-        account_id_to_shard_id(account_id, self.num_shards())
+    fn account_id_to_shard_ord(&self, account_id: &AccountId) -> ShardOrd {
+        account_id_to_shard_ord(account_id, self.num_shards())
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
@@ -486,7 +486,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         _is_me: bool,
     ) -> bool {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
@@ -498,7 +498,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardOrd / self.validator_groups;
         let coef = validators.len() as ShardOrd / self.num_shards();
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
+        let offset = (shard_ord * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
@@ -514,7 +514,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         _is_me: bool,
     ) -> bool {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
@@ -526,7 +526,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardOrd / self.validator_groups;
         let coef = validators.len() as ShardOrd / self.num_shards();
-        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
+        let offset = (shard_ord * coef / validators_per_shard * validators_per_shard) as usize;
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
                 if validator.account_id() == account_id {
@@ -552,7 +552,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _gas_price: Balance,
         _gas_limit: Gas,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
         _state_root: StateRoot,
         _next_block_height: BlockHeight,
         transactions: &mut dyn PoolIterator,
@@ -590,7 +590,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         _height: BlockHeight,
         _block_timestamp: u64,
@@ -618,7 +618,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
-                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
+                assert_eq!(self.account_id_to_shard_ord(&receipt.receiver_id), shard_ord);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
@@ -639,7 +639,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         for transaction in transactions {
-            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            assert_eq!(self.account_id_to_shard_ord(&transaction.transaction.signer_id), shard_ord);
             if transaction.transaction.actions.is_empty() {
                 continue;
             }
@@ -679,7 +679,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
-            if self.account_id_to_shard_id(&from) != shard_id {
+            if self.account_id_to_shard_ord(&from) != shard_ord {
                 // This is a receipt, was already debited
                 good_to_go = true;
             } else if let Some(balance) = state.amounts.get(&from) {
@@ -691,7 +691,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
 
             if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+                let new_receipt_hashes = if self.account_id_to_shard_ord(&to) == shard_ord {
                     state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
                     vec![]
                 } else {
@@ -711,7 +711,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     };
                     let receipt_hash = receipt.get_hash();
                     new_receipts
-                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                        .entry(self.account_id_to_shard_ord(&receipt.receiver_id))
                         .or_insert_with(|| vec![])
                         .push(receipt);
                     vec![receipt_hash]
@@ -755,7 +755,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                shard_id,
+                shard_ord,
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block_hash.clone(),
@@ -773,7 +773,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn check_state_transition(
         &self,
         _partial_storage: PartialStorage,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
         _state_root: &StateRoot,
         _height: BlockHeight,
         _block_timestamp: u64,
@@ -794,7 +794,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
@@ -864,7 +864,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn obtain_state_part(
         &self,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -892,7 +892,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_state_part(
         &self,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         _num_parts: u64,
@@ -912,7 +912,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_state_root_node(
         &self,
-        _shard_id: ShardOrd,
+        _shard_ord: ShardOrd,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
         Ok(StateRootNode {
@@ -1254,7 +1254,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                         .get_chunk_producer(
                             &epoch_id,
                             chunk_header.height_created(),
-                            chunk_header.shard_id(),
+                            chunk_header.shard_ord(),
                         )
                         .unwrap();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
@@ -1262,7 +1262,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
                             chunk_header.height_created(),
                             format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id(),
+                            chunk_header.shard_ord(),
                             chunk_producer,
                             chunk.transactions().len(),
                             chunk.receipts().len()
@@ -1274,13 +1274,13 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             "    {: >3} {} | {} | {: >10} | parts = {:?} receipts = {:?}",
                             chunk_header.height_created(),
                             format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id(),
+                            chunk_header.shard_ord(),
                             chunk_producer,
                             partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
                             partial_chunk
                                 .receipts()
                                 .iter()
-                                .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
+                                .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_ord))
                                 .collect::<Vec<_>>(),
                         );
                     }
@@ -1327,16 +1327,16 @@ mod test {
     impl KeyValueRuntime {
         fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
             let mut receipts_hashes = vec![];
-            for shard_id in 0..self.num_shards() {
+            for shard_ord in 0..self.num_shards() {
                 let shard_receipts: Vec<Receipt> = receipts
                     .iter()
                     .filter(|&receipt| {
-                        self.account_id_to_shard_id(&receipt.receiver_id) == shard_id
+                        self.account_id_to_shard_ord(&receipt.receiver_id) == shard_ord
                     })
                     .cloned()
                     .collect();
                 receipts_hashes
-                    .push(hash(&ReceiptList(shard_id, &shard_receipts).try_to_vec().unwrap()));
+                    .push(hash(&ReceiptList(shard_ord, &shard_receipts).try_to_vec().unwrap()));
             }
             receipts_hashes
         }

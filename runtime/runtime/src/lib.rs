@@ -1444,13 +1444,13 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         tries: ShardTries,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         validators: &[(AccountId, PublicKey, Balance)],
         genesis: &Genesis,
         config: &RuntimeConfig,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
-        GenesisStateApplier::apply(tries, shard_id, validators, config, genesis, shard_account_ids)
+        GenesisStateApplier::apply(tries, shard_ord, validators, config, genesis, shard_account_ids)
     }
 }
 

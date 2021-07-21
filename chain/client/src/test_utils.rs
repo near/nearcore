@@ -693,7 +693,7 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::StateRequestHeader {
-                            shard_id,
+                            shard_ord,
                             sync_hash,
                             target: target_account_id,
                         } => {
@@ -708,7 +708,7 @@ pub fn setup_mock_all_validators(
                                         connectors1.read().unwrap()[i]
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestHeader {
-                                                shard_id: *shard_id,
+                                                shard_ord: *shard_ord,
                                                 sync_hash: *sync_hash,
                                             })
                                             .then(move |response| {
@@ -735,7 +735,7 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::StateRequestPart {
-                            shard_id,
+                            shard_ord,
                             sync_hash,
                             part_id,
                             target: target_account_id,
@@ -751,7 +751,7 @@ pub fn setup_mock_all_validators(
                                         connectors1.read().unwrap()[i]
                                             .1
                                             .send(NetworkViewClientMessages::StateRequestPart {
-                                                shard_id: *shard_id,
+                                                shard_ord: *shard_ord,
                                                 sync_hash: *sync_hash,
                                                 part_id: *part_id,
                                             })
@@ -1251,7 +1251,7 @@ pub fn create_chunk(
             header.prev_state_root(),
             header.outcome_root(),
             header.height_created(),
-            header.shard_id(),
+            header.shard_ord(),
             &mut rs,
             header.gas_used(),
             header.gas_limit(),
