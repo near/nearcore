@@ -11,10 +11,9 @@ serde_json = "1"
 
 near-chain = { path = "../../chain/chain" }
 near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
 near-client = { path = "../../chain/client" }
 near-client-primitives = { path = "../../chain/client-primitives" }
-nearcore = { path = "../../nearcore" }
+near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-testlib = { path = "../testlib" }
+nearcore = { path = "../../nearcore" }

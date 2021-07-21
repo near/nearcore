@@ -46,12 +46,12 @@ near-vm-runner = { path = "../runtime/near-vm-runner"}
 delay-detector = { path = "../tools/delay_detector", optional = true }
 
 [dev-dependencies]
-near-logger-utils = { path = "../test-utils/logger" }
-near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
-tempfile = "3"
-testlib = { path = "../test-utils/testlib" }
-near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 primitive-types = "0.9"
+tempfile = "3"
+
+near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
+near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
+near-logger-utils = { path = "../test-utils/logger" }
 
 [features]
 default = ["json_rpc"]

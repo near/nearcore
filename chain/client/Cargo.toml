@@ -47,11 +47,10 @@ node-runtime = { path = "../../runtime/runtime"}
 delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
-near-logger-utils = { path = "../../test-utils/logger" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
-testlib = { path = "../../test-utils/testlib" }
-nearcore = { path = "../../nearcore" }
+near-logger-utils = { path = "../../test-utils/logger" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
+nearcore = { path = "../../nearcore" }
 
 [features]
 # if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.

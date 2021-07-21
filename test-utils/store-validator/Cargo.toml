@@ -16,6 +16,5 @@ near-chain = { path = "../../chain/chain" }
 nearcore = { path = "../../nearcore" }
 
 [dev-dependencies]
-testlib = { path = "../../test-utils/testlib" }
 serde_json = "1"
 near-client = { path = "../../chain/client" }

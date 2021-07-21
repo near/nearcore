@@ -20,11 +20,10 @@ byteorder = "1.2"
 borsh = "0.8.1"
 
 near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-node-runtime = { path = "../../runtime/runtime" }
-near-store = { path = "../../core/store" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 nearcore = { path = "../../nearcore" }
-testlib = { path = "../testlib" }
+node-runtime = { path = "../../runtime/runtime" }
