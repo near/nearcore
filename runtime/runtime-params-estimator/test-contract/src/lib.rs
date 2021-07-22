@@ -895,10 +895,11 @@ pub unsafe fn promise_and_100k_on_1k_and() {
 #[no_mangle]
 pub unsafe fn promise_return_100k() {
     let account = b"alice_near";
-    let id = promise_batch_create(account.len() as _, account.as_ptr() as _);
-    for _ in 0..100_000 {
-        promise_return(id);
-    }
+    let _ = promise_batch_create(account.len() as _, account.as_ptr() as _);
+    // let id = promise_batch_create(account.len() as _, account.as_ptr() as _);
+    // for _ in 0..100_000 {
+    //     promise_return(id);
+    // }
 }
 
 // Measuring cost for data_receipt_creation_config.
