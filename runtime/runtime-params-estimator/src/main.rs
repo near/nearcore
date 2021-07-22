@@ -1,102 +1,63 @@
-use clap::{App, Arg};
+use clap::Clap;
 use near_vm_runner::VMKind;
 use nearcore::get_default_home;
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
-use std::fs::File;
-use std::io::Write;
+use std::fs;
 use std::path::PathBuf;
 
-fn main() {
-    let default_home = get_default_home();
-    let matches = App::new("Runtime parameters estimator")
-        .arg(
-            Arg::with_name("home")
-                .long("home")
-                .default_value(&default_home)
-                .help("Directory for config and data (default \"~/.near\")")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("warmup-iters")
-                .long("warmup-iters")
-                .default_value("0")
-                .required(true)
-                .takes_value(true)
-                .help("How many warm up iterations per block should we run."),
-        )
-        .arg(
-            Arg::with_name("warmup-transactions")
-                .long("warmup-transactions")
-                .default_value("0")
-                .required(true)
-                .takes_value(true)
-                .help("How many warm up iterations per block should we run."),
-        )
-        .arg(
-            Arg::with_name("iters")
-                .long("iters")
-                .default_value("10")
-                .required(true)
-                .takes_value(true)
-                .help("How many iterations per block are we going to try."),
-        )
-        .arg(
-            Arg::with_name("accounts-num")
-                .long("accounts-num")
-                .default_value("10000")
-                .required(true)
-                .takes_value(true)
-                .help("How many accounts were generated with `genesis-populate`."),
-        )
-        .arg(
-            Arg::with_name("metric")
-                .long("metric")
-                .default_value("icount")
-                .required(true)
-                .takes_value(true)
-                .help("What metric to use, possible values are icount or time."),
-        )
-        .arg(
-            Arg::with_name("vm-kind")
-                .long("vm-kind")
-                .default_value("wasmer")
-                .help("Which VM to test: wasmer or wasmtime"),
-        )
-        .arg(
-            Arg::with_name("compile-only")
-                .long("compile-only")
-                .help("Only test contract compilation costs"),
-        )
-        .arg(
-            Arg::with_name("disable-action-creation")
-                .long("action-creation")
-                .help("Disables action creation measurements"),
-        )
-        .arg(
-            Arg::with_name("disable-transaction")
-                .long("transaction")
-                .help("Disables transaction measurements"),
-        )
-        .get_matches();
+#[derive(Clap)]
+struct CliArgs {
+    /// Directory for config and data (default "~/.near\").
+    #[clap(long)]
+    home: Option<PathBuf>,
+    /// How many warm up iterations per block should we run.
+    #[clap(long, default_value = "0")]
+    warmup_iters: usize,
+    /// How many iterations per block are we going to try.
+    #[clap(long, default_value = "10")]
+    iters: usize,
+    /// How many accounts were generated with `genesis-populate`.
+    #[clap(long, default_value = "10000")]
+    accounts_num: usize,
+    /// What metric to use.
+    #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
+    metric: String,
+    /// Which VM to test.
+    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer1", "wasmtime"])]
+    vm_kind: String,
+    /// Only test contract compilation costs.
+    #[clap(long)]
+    compile_only: bool,
+    /// Disables action creation measurements.
+    #[clap(long("action-creation"))]
+    disable_action_creation: bool,
+    /// Disables transaction measurements.
+    #[clap(long("transaction"))]
+    disable_transactions: bool,
+}
 
-    let state_dump_path: PathBuf = matches.value_of_os("home").unwrap().into();
-    let warmup_iters_per_block = matches.value_of("warmup-iters").unwrap().parse().unwrap();
-    let iter_per_block = matches.value_of("iters").unwrap().parse().unwrap();
-    let active_accounts = matches.value_of("accounts-num").unwrap().parse().unwrap();
-    let metric = match matches.value_of("metric").unwrap() {
+fn main() {
+    let cli_args = CliArgs::parse();
+
+    let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
+    let warmup_iters_per_block = cli_args.warmup_iters;
+    let iter_per_block = cli_args.iters;
+    let active_accounts = cli_args.accounts_num;
+    let metric = match cli_args.metric.as_str() {
         "icount" => GasMetric::ICount,
         "time" => GasMetric::Time,
-        other => panic!("Unknown metric {}", other),
+        other => unreachable!("Unknown metric {}", other),
     };
-    let vm_kind = match matches.value_of("vm-kind") {
-        Some("wasmer") => VMKind::Wasmer0,
-        Some("wasmtime") => VMKind::Wasmtime,
-        _ => VMKind::Wasmer0,
+    let vm_kind = match cli_args.vm_kind.as_str() {
+        "wasmer" => VMKind::Wasmer0,
+        "wasmer1" => VMKind::Wasmer1,
+        "wasmtime" => VMKind::Wasmtime,
+        other => unreachable!("Unknown vm_kind {}", other),
     };
-    let disable_measure_action_creation = matches.is_present("action-creation");
-    let disable_measure_transaction = matches.is_present("transaction");
+    let disable_measure_action_creation = cli_args.disable_action_creation;
+    let disable_measure_transaction = cli_args.disable_transactions;
     let runtime_config = run(
         Config {
             warmup_iters_per_block,
@@ -109,7 +70,7 @@ fn main() {
             disable_measure_action_creation,
             disable_measure_transaction,
         },
-        matches.is_present("compile-only"),
+        cli_args.compile_only,
     );
 
     println!("Generated RuntimeConfig:");
@@ -117,9 +78,6 @@ fn main() {
 
     let str = serde_json::to_string_pretty(&runtime_config)
         .expect("Failed serializing the runtime config");
-    let mut file =
-        File::create(state_dump_path.join("runtime_config.json")).expect("Failed to create file");
-    if let Err(err) = file.write_all(str.as_bytes()) {
-        panic!("Failed to write runtime config to file {}", err);
-    }
+    fs::write(state_dump_path.join("runtime_config.json"), &str)
+        .unwrap_or_else(|err| panic!("Failed to write runtime config to file {}", err))
 }
