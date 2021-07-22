@@ -674,10 +674,10 @@ impl StateSync {
             status: ShardSyncStatus::StateDownloadHeader,
         };
 
-        for shard_id in tracking_shards {
+        for shard_ord in tracking_shards {
             let mut download_timeout = false;
             let mut need_shard = false;
-            let shard_sync_download = new_shard_sync.entry(shard_id).or_insert_with(|| {
+            let shard_sync_download = new_shard_sync.entry(shard_ord).or_insert_with(|| {
                 need_shard = true;
                 init_sync_download.clone()
             });
@@ -685,7 +685,7 @@ impl StateSync {
             match shard_sync_download.status {
                 ShardSyncStatus::StateDownloadHeader => {
                     if shard_sync_download.downloads[0].done {
-                        let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                        let shard_state_header = chain.get_state_header(shard_ord, sync_hash)?;
                         let state_num_parts =
                             get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                         *shard_sync_download = ShardSyncDownload {
@@ -746,10 +746,10 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadFinalize => {
-                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                    let shard_state_header = chain.get_state_header(shard_ord, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
+                    match chain.set_state_finalize(shard_ord, sync_hash, state_num_parts) {
                         Ok(_) => {
                             update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
@@ -760,25 +760,25 @@ impl StateSync {
                         Err(e) => {
                             // Cannot finalize the downloaded state.
                             // The reasonable behavior here is to start from the very beginning.
-                            error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
+                            error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_ord, sync_hash, e);
                             update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
-                            chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                            chain.clear_downloaded_parts(shard_ord, sync_hash, state_num_parts)?;
                         }
                     }
                 }
                 ShardSyncStatus::StateDownloadComplete => {
                     this_done = true;
-                    let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+                    let shard_state_header = chain.get_state_header(shard_ord, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    chain.clear_downloaded_parts(shard_ord, sync_hash, state_num_parts)?;
                 }
             }
             all_done &= this_done;
 
             if download_timeout {
-                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_id, self.timeout.num_seconds());
+                warn!(target: "sync", "State sync didn't download the state for shard {} in {} seconds, sending StateRequest again", shard_ord, self.timeout.num_seconds());
                 info!(target: "sync", "State sync status: me {:?}, sync_hash {}, phase {}",
                       me,
                       sync_hash,
@@ -805,12 +805,12 @@ impl StateSync {
                 );
             }
 
-            // Execute syncing for shard `shard_id`
+            // Execute syncing for shard `shard_ord`
             if need_shard {
                 update_sync_status = true;
                 *shard_sync_download = self.request_shard(
                     me,
-                    shard_id,
+                    shard_ord,
                     chain,
                     runtime_adapter,
                     sync_hash,
@@ -850,14 +850,14 @@ impl StateSync {
         &mut self,
         target: AccountOrPeerIdOrHash,
         part_id: u64,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         sync_hash: CryptoHash,
     ) {
         self.requested_target.cache_set((part_id, sync_hash), target.clone());
 
         let timeout = self.timeout;
         self.last_part_id_requested
-            .entry((target, shard_id))
+            .entry((target, shard_ord))
             .and_modify(|pending_request| {
                 pending_request.missing_parts += 1;
             })
@@ -867,19 +867,19 @@ impl StateSync {
     pub fn received_requested_part(
         &mut self,
         part_id: u64,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         sync_hash: CryptoHash,
     ) {
         let key = (part_id, sync_hash);
         if let Some(target) = self.requested_target.cache_get(&key) {
-            if self.last_part_id_requested.get_mut(&(target.clone(), shard_id)).map_or(
+            if self.last_part_id_requested.get_mut(&(target.clone(), shard_ord)).map_or(
                 false,
                 |request| {
                     request.missing_parts = request.missing_parts.saturating_sub(1);
                     request.missing_parts == 0
                 },
             ) {
-                self.last_part_id_requested.remove(&(target.clone(), shard_id));
+                self.last_part_id_requested.remove(&(target.clone(), shard_ord));
             }
         }
     }
@@ -890,7 +890,7 @@ impl StateSync {
     fn possible_targets(
         &mut self,
         me: &Option<AccountId>,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
@@ -910,7 +910,7 @@ impl StateSync {
                 if runtime_adapter.cares_about_shard(
                     Some(account_id),
                     &prev_block_hash,
-                    shard_id,
+                    shard_ord,
                     false,
                 ) {
                     if me.as_ref().map(|me| me != account_id).unwrap_or(true) {
@@ -923,14 +923,14 @@ impl StateSync {
                 }
             })
             .chain(highest_height_peers.iter().filter_map(|peer| {
-                if peer.chain_info.tracked_shards.contains(&shard_id) {
+                if peer.chain_info.tracked_shards.contains(&shard_ord) {
                     Some(AccountOrPeerIdOrHash::PeerId(peer.peer_info.id.clone()))
                 } else {
                     None
                 }
             }))
             .filter(|candidate| {
-                !self.last_part_id_requested.contains_key(&(candidate.clone(), shard_id))
+                !self.last_part_id_requested.contains_key(&(candidate.clone(), shard_ord))
             })
             .collect::<Vec<_>>())
     }
@@ -939,7 +939,7 @@ impl StateSync {
     pub fn request_shard(
         &mut self,
         me: &Option<AccountId>,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         chain: &mut Chain,
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         sync_hash: CryptoHash,
@@ -948,7 +948,7 @@ impl StateSync {
     ) -> Result<ShardSyncDownload, near_chain::Error> {
         let possible_targets = self.possible_targets(
             me,
-            shard_id,
+            shard_ord,
             chain,
             runtime_adapter,
             sync_hash,
@@ -975,7 +975,7 @@ impl StateSync {
                     file!(),
                     line!(),
                     self.network_adapter
-                        .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
+                        .send(NetworkRequests::StateRequestHeader { shard_ord, sync_hash, target })
                         .then(move |result| {
                             if let Ok(NetworkResponses::RouteNotFound) = result {
                                 // Send a StateRequestHeader on the next iteration
@@ -1000,7 +1000,7 @@ impl StateSync {
                     .filter(|(_, download)| download.run_me.load(Ordering::SeqCst))
                     .zip(possible_targets_sampler)
                 {
-                    self.sent_request_part(target.clone(), part_id as u64, shard_id, sync_hash);
+                    self.sent_request_part(target.clone(), part_id as u64, shard_ord, sync_hash);
                     download.run_me.store(false, Ordering::SeqCst);
                     download.state_requests_count += 1;
                     download.last_target = Some(target.clone());
@@ -1012,7 +1012,7 @@ impl StateSync {
                         line!(),
                         self.network_adapter
                             .send(NetworkRequests::StateRequestPart {
-                                shard_id,
+                                shard_ord,
                                 sync_hash,
                                 part_id: part_id as u64,
                                 target: target.clone(),

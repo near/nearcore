@@ -1386,22 +1386,22 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
+            NetworkRequests::StateRequestHeader { shard_ord, sync_hash, target } => {
                 if self.send_message_to_account_or_peer_or_hash(
                     ctx,
                     &target,
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+                    RoutedMessageBody::StateRequestHeader(shard_ord, sync_hash),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
+            NetworkRequests::StateRequestPart { shard_ord, sync_hash, part_id, target } => {
                 if self.send_message_to_account_or_peer_or_hash(
                     ctx,
                     &target,
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
+                    RoutedMessageBody::StateRequestPart(shard_ord, sync_hash, part_id),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
@@ -1476,7 +1476,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                                     .full_peer_info
                                     .chain_info
                                     .tracked_shards
-                                    .contains(&target.shard_id)
+                                    .contains(&target.shard_ord)
                             {
                                 matching_peers.push(peer_id.clone());
                             }

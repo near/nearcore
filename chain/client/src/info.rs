@@ -240,12 +240,12 @@ fn display_sync_status(
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
-            shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
-            for (shard_id, shard_status) in shard_statuses {
+            shard_statuses.sort_by_key(|(shard_ord, _)| *shard_ord);
+            for (shard_ord, shard_status) in shard_statuses {
                 res = res
                     + format!(
                         "[{}: {}]",
-                        shard_id,
+                        shard_ord,
                         match shard_status.status {
                             ShardSyncStatus::StateDownloadHeader => format!("header"),
                             ShardSyncStatus::StateDownloadParts => format!("parts"),

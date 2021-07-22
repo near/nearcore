@@ -468,7 +468,7 @@ pub struct ApplyStatePartResult {
 }
 
 impl Trie {
-    pub fn new(store: Box<dyn TrieStorage>, _shard_id: ShardOrd) -> Self {
+    pub fn new(store: Box<dyn TrieStorage>, _shard_ord: ShardOrd) -> Self {
         Trie { storage: store, counter: TouchedNodesCounter::default() }
     }
 
@@ -477,7 +477,7 @@ impl Trie {
             self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
         let storage = TrieRecordingStorage {
             store: Arc::clone(&storage.store),
-            shard_id: storage.shard_id,
+            shard_ord: storage.shard_ord,
             recorded: RefCell::new(Default::default()),
         };
         Trie { storage: Box::new(storage), counter: TouchedNodesCounter::default() }
@@ -770,10 +770,10 @@ mod tests {
     fn test_clear_trie(
         tries: &ShardTries,
         root: &CryptoHash,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         changes: TrieChanges,
     ) -> CryptoHash {
-        let trie = tries.get_trie_for_shard(shard_id);
+        let trie = tries.get_trie_for_shard(shard_ord);
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();

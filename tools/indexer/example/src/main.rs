@@ -69,7 +69,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //                 encoded_length: 8,
         //                 height_created: 63596,
         //                 height_included: 63596,
-        //                 shard_id: 0,
+        //                 shard_ord: 0,
         //                 gas_used: 0,
         //                 gas_limit: 1000000000000000,
         //                 rent_paid: 0,
@@ -84,7 +84,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //     },
         //     shards: [
         //         IndexerShard {
-        //             shard_id: 0,
+        //             shard_ord: 0,
         //             chunk: Some(
         //                 IndexerChunkView {
         //                     author: "test.near",
@@ -97,7 +97,7 @@ async fn listen_blocks(mut stream: mpsc::Receiver<near_indexer::StreamerMessage>
         //                         encoded_length: 8,
         //                         height_created: 63596,
         //                         height_included: 0,
-        //                         shard_id: 0,
+        //                         shard_ord: 0,
         //                         gas_used: 0,
         //                         gas_limit: 1000000000000000,
         //                         rent_paid: 0,

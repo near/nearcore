@@ -22,14 +22,14 @@ pub fn check_if_block_is_first_with_chunk_of_version(
     chain_store: &mut dyn ChainStoreAccess,
     runtime_adapter: &dyn RuntimeAdapter,
     prev_block_hash: &CryptoHash,
-    shard_id: ShardOrd,
+    shard_ord: ShardOrd,
 ) -> Result<bool, Error> {
     // Check that block belongs to the first epoch with current protocol version
     // to avoid get_epoch_id_of_last_block_with_chunk call in the opposite case
     if is_first_epoch_with_protocol_version(runtime_adapter, prev_block_hash)? {
         // Compare only epochs because we already know that current epoch is the first one with current protocol version
         let prev_epoch_id =
-            chain_store.get_epoch_id_of_last_block_with_chunk(prev_block_hash, shard_id)?;
+            chain_store.get_epoch_id_of_last_block_with_chunk(prev_block_hash, shard_ord)?;
         let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
         Ok(prev_epoch_id != epoch_id)
     } else {

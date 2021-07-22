@@ -18,7 +18,7 @@ use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
 };
 use crate::migrations::v8_to_v9::{
-    recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
+    recompute_col_rc, repair_col_receipt_id_to_shard_ord, repair_col_transactions,
 };
 use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 
@@ -36,7 +36,7 @@ use near_primitives::trie_key::TrieKey;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
+use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_ord};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
 
@@ -145,7 +145,7 @@ pub fn migrate_7_to_8(path: &String) {
 pub fn migrate_8_to_9(path: &String) {
     let store = create_store(path);
     repair_col_transactions(&store);
-    repair_col_receipt_id_to_shard_id(&store);
+    repair_col_receipt_id_to_shard_ord(&store);
     set_store_version(&store, 9);
 }
 
@@ -188,7 +188,7 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                 header.inner.prev_state_root,
                 header.inner.outcome_root,
                 header.inner.height_created,
-                header.inner.shard_id,
+                header.inner.shard_ord,
                 &mut rs,
                 header.inner.gas_used,
                 header.inner.gas_limit,
@@ -217,8 +217,8 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
                     vec![ReceiptProof(
                         receipts,
                         ShardProof {
-                            from_shard_id: 0,
-                            to_shard_id: 0,
+                            from_shard_ord: 0,
+                            to_shard_ord: 0,
                             proof: outgoing_receipt_proof[0].clone(),
                         },
                     )],
@@ -545,7 +545,7 @@ pub fn migrate_14_to_15(path: &String) {
             let value = new_execution_outcome_ids.try_to_vec().unwrap();
             store_update.set(
                 DBCol::ColOutcomeIds,
-                &get_block_shard_id(&block_hash, chunk_header.shard_id()),
+                &get_block_shard_ord(&block_hash, chunk_header.shard_ord()),
                 &value,
             );
             store_update.delete(DBCol::ColOutcomeIds, &key);

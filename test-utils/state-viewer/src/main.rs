@@ -215,7 +215,7 @@ fn apply_block_at_height(
     home_dir: &Path,
     near_config: &NearConfig,
     height: BlockHeight,
-    shard_id: ShardOrd,
+    shard_ord: ShardOrd,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
@@ -229,16 +229,18 @@ fn apply_block_at_height(
     ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
-    let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
-        let chunk =
-            chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
+    let apply_result = if block.chunks()[shard_ord as usize].height_included() == height {
+        let chunk = chain_store
+            .get_chunk(&block.chunks()[shard_ord as usize].chunk_hash())
+            .unwrap()
+            .clone();
         let prev_block = chain_store.get_block(&block.header().prev_hash()).unwrap().clone();
         let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
-                shard_id,
+                shard_ord,
                 block_hash,
-                prev_block.chunks()[shard_id as usize].height_included(),
+                prev_block.chunks()[shard_ord as usize].height_included(),
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
@@ -248,12 +250,12 @@ fn apply_block_at_height(
             &mut chain_store,
             runtime_adapter.as_ref(),
             block.header().prev_hash(),
-            shard_id,
+            shard_ord,
         )
         .unwrap();
         runtime_adapter
             .apply_transactions(
-                shard_id,
+                shard_ord,
                 chunk_inner.prev_state_root(),
                 height,
                 block.header().raw_timestamp(),
@@ -273,11 +275,11 @@ fn apply_block_at_height(
             .unwrap()
     } else {
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), shard_ord).unwrap().clone();
 
         runtime_adapter
             .apply_transactions(
-                shard_id,
+                shard_ord,
                 chunk_extra.state_root(),
                 block.header().height(),
                 block.header().raw_timestamp(),
@@ -308,9 +310,9 @@ fn apply_block_at_height(
 
     println!(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
-        shard_id, height, chunk_extra
+        shard_ord, height, chunk_extra
     );
-    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, shard_id) {
+    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, shard_ord) {
         println!("Existing chunk extra: {:?}", chunk_extra);
     } else {
         println!("no existing chunk extra available");
@@ -373,15 +375,15 @@ fn view_chain(
         println!("block height {}, hash {}", block.header().height(), block.hash());
     }
 
-    for (shard_id, chunk_extra) in chunk_extras {
-        println!("shard {}, chunk extra: {:?}", shard_id, chunk_extra);
+    for (shard_ord, chunk_extra) in chunk_extras {
+        println!("shard {}, chunk extra: {:?}", shard_ord, chunk_extra);
     }
     if view_block {
         println!("last block: {:?}", block);
     }
     if view_chunks {
-        for (shard_id, chunk) in chunks {
-            println!("shard {}, chunk: {:?}", shard_id, chunk);
+        for (shard_ord, chunk) in chunks {
+            println!("shard {}, chunk: {:?}", shard_ord, chunk);
         }
     }
 }
@@ -487,8 +489,8 @@ fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::with_name("shard_id")
-                        .long("shard_id")
+                    Arg::with_name("shard_ord")
+                        .long("shard_ord")
                         .help("Id of the shard to apply")
                         .takes_value(true),
                 )
@@ -586,8 +588,8 @@ fn main() {
         ("state", Some(_args)) => {
             let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
-            for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+            for (shard_ord, state_root) in state_roots.iter().enumerate() {
+                let trie = runtime.get_trie_for_shard(shard_ord as u64);
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
@@ -634,9 +636,9 @@ fn main() {
         }
         ("apply", Some(args)) => {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap()).unwrap();
-            let shard_id =
-                args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
-            apply_block_at_height(store, home_dir, &near_config, height, shard_id);
+            let shard_ord =
+                args.value_of("shard_ord").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+            apply_block_at_height(store, home_dir, &near_config, height, shard_ord);
         }
         ("view_chain", Some(args)) => {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
@@ -651,10 +653,10 @@ fn main() {
             let account_id = args.value_of("account").expect("account is required");
             let (runtime, state_roots, _header) = load_trie(store, &home_dir, &near_config);
 
-            for (shard_id, state_root) in state_roots.iter().enumerate() {
+            for (shard_ord, state_root) in state_roots.iter().enumerate() {
                 let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
                 if let Ok(contract_code) = runtime.view_contract_code(
-                    shard_id as u64,
+                    shard_ord as u64,
                     CryptoHash::try_from(state_root_vec).unwrap(),
                     &account_id.to_string().into(),
                 ) {
@@ -681,8 +683,8 @@ fn main() {
             };
             let (runtime, state_roots, _header) =
                 load_trie_stop_at_height(store, &home_dir, &near_config, block_height);
-            for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+            for (shard_ord, state_root) in state_roots.iter().enumerate() {
+                let trie = runtime.get_trie_for_shard(shard_ord as u64);
                 let key = TrieKey::ContractData {
                     account_id: account_id.to_string(),
                     key: storage_key.as_bytes().to_vec(),

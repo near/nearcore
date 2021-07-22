@@ -669,15 +669,15 @@ impl EpochManager {
         Ok(result)
     }
 
-    /// For given epoch_id, height and shard_id returns validator that is chunk producer.
+    /// For given epoch_id, height and shard_ord returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &mut self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
+        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_ord);
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -736,20 +736,20 @@ impl EpochManager {
         &mut self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<bool, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
+        self.cares_about_shard_in_epoch(epoch_id, account_id, shard_ord)
     }
 
     pub fn cares_about_shard_next_epoch_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<bool, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
+        self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_ord)
     }
 
     /// Returns true if next block after given block hash is in the new epoch.
@@ -916,11 +916,11 @@ impl EpochManager {
         let mut validator_to_shard = (0..cur_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardOrd>>>();
-        for (shard_id, validators) in
+        for (shard_ord, validators) in
             cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
         {
             for validator_id in validators {
-                validator_to_shard[*validator_id as usize].insert(shard_id as ShardOrd);
+                validator_to_shard[*validator_id as usize].insert(shard_ord as ShardOrd);
             }
         }
 
@@ -1003,11 +1003,11 @@ impl EpochManager {
         let mut next_validator_to_shard = (0..next_epoch_info.validators_len())
             .map(|_| HashSet::default())
             .collect::<Vec<HashSet<ShardOrd>>>();
-        for (shard_id, validators) in
+        for (shard_ord, validators) in
             next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
             for validator_id in validators {
-                next_validator_to_shard[*validator_id as usize].insert(shard_id as u64);
+                next_validator_to_shard[*validator_id as usize].insert(shard_ord as u64);
             }
         }
         let next_validators = next_epoch_info
@@ -1098,11 +1098,11 @@ impl EpochManager {
         &mut self,
         epoch_id: EpochId,
         account_id: &AccountId,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let chunk_producers = epoch_info.chunk_producers_settlement();
-        for validator_id in chunk_producers[shard_id as usize].iter() {
+        for validator_id in chunk_producers[shard_ord as usize].iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }
@@ -1121,10 +1121,10 @@ impl EpochManager {
     pub(crate) fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> ValidatorId {
         let cp_settlement = epoch_info.chunk_producers_settlement();
-        let shard_cps = &cp_settlement[shard_id as usize];
+        let shard_cps = &cp_settlement[shard_ord as usize];
         shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
     }
 

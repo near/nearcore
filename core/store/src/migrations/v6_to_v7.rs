@@ -74,14 +74,17 @@ pub(crate) fn get_num_shards(store: &Store) -> NumShards {
         .unwrap_or(1)
 }
 
-pub(crate) fn account_id_to_shard_id_v6(account_id: &AccountId, num_shards: NumShards) -> ShardOrd {
+pub(crate) fn account_id_to_shard_ord_v6(
+    account_id: &AccountId,
+    num_shards: NumShards,
+) -> ShardOrd {
     let mut cursor = Cursor::new(hash(&account_id.clone().into_bytes()).0);
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
 
 // Make ColReceiptIdToShardId refcounted
 pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreUpdate) {
-    let receipt_id_to_shard_id: HashMap<_, _> =
+    let receipt_id_to_shard_ord: HashMap<_, _> =
         store.iter_without_rc_logic(DBCol::ColReceiptIdToShardId).collect();
 
     let chunks: Vec<ShardChunkV1> = store
@@ -98,7 +101,7 @@ pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreU
         }
     }
 
-    for (key, bytes) in receipt_id_to_shard_id {
+    for (key, bytes) in receipt_id_to_shard_ord {
         let receipt_id = CryptoHash::try_from(key.as_ref()).unwrap();
         if let Some((_receipt, rc)) = receipts.remove(&receipt_id) {
             store_update.set(DBCol::ColReceiptIdToShardId, &key, &encode_value_with_rc(&bytes, rc));
@@ -114,13 +117,13 @@ pub(crate) fn migrate_receipts_refcount(store: &Store, store_update: &mut StoreU
         //
         let num_shards = get_num_shards(&store);
         for (receipt_id, (receipt, rc)) in receipts {
-            let shard_id = account_id_to_shard_id_v6(&receipt.receiver_id, num_shards)
+            let shard_ord = account_id_to_shard_ord_v6(&receipt.receiver_id, num_shards)
                 .try_to_vec()
                 .expect("BorshSerialize should not fail");
             store_update.set(
                 DBCol::ColReceiptIdToShardId,
                 receipt_id.as_ref(),
-                &encode_value_with_rc(&shard_id, rc),
+                &encode_value_with_rc(&shard_ord, rc),
             );
         }
     }

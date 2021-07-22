@@ -10,7 +10,7 @@ mod tests {
     use futures::{future, FutureExt};
 
     use near_actix_test_utils::run_actix;
-    use near_chain::test_utils::account_id_to_shard_id;
+    use near_chain::test_utils::account_id_to_shard_ord;
     use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
@@ -84,7 +84,7 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
     pub struct StateRequestStruct {
-        pub shard_id: u64,
+        pub shard_ord: u64,
         pub sync_hash: CryptoHash,
         pub part_id: Option<u64>,
         pub target: AccountOrPeerIdOrHash,
@@ -153,8 +153,8 @@ mod tests {
                     move |_account_id: String, msg: &NetworkRequests| {
                         let account_from = "test3.3".to_string();
                         let account_to = "test1.1".to_string();
-                        let source_shard_id = account_id_to_shard_id(&account_from, 4);
-                        let destination_shard_id = account_id_to_shard_id(&account_to, 4);
+                        let source_shard_ord = account_id_to_shard_ord(&account_from, 4);
+                        let destination_shard_ord = account_id_to_shard_ord(&account_to, 4);
 
                         let mut phase = phase.write().unwrap();
                         let mut seen_heights_with_receipts =
@@ -176,7 +176,7 @@ mod tests {
                                     if block.header().height() == send {
                                         println!(
                                             "From shard: {}, to shard: {}",
-                                            source_shard_id, destination_shard_id,
+                                            source_shard_ord, destination_shard_ord,
                                         );
                                         for i in 0..16 {
                                             send_tx(
@@ -226,15 +226,15 @@ mod tests {
                                         .collect();
                                     if receipts.len() > 0 {
                                         assert_eq!(
-                                            partial_encoded_chunk.header.shard_id(),
-                                            source_shard_id
+                                            partial_encoded_chunk.header.shard_ord(),
+                                            source_shard_ord
                                         );
                                         seen_heights_with_receipts
                                             .insert(partial_encoded_chunk.header.height_created());
                                     } else {
                                         assert_ne!(
-                                            partial_encoded_chunk.header.shard_id(),
-                                            source_shard_id
+                                            partial_encoded_chunk.header.shard_ord(),
+                                            source_shard_ord
                                         );
                                     }
                                     // Do not propagate any one parts, this will prevent any chunk from
@@ -242,14 +242,14 @@ mod tests {
                                     return (NetworkResponses::NoResponse, false);
                                 }
                                 if let NetworkRequests::StateRequestHeader {
-                                    shard_id,
+                                    shard_ord,
                                     sync_hash,
                                     target,
                                 } = msg
                                 {
                                     if sync_hold {
                                         let srs = StateRequestStruct {
-                                            shard_id: *shard_id,
+                                            shard_ord: *shard_ord,
                                             sync_hash: *sync_hash,
                                             part_id: None,
                                             target: target.clone(),
@@ -264,7 +264,7 @@ mod tests {
                                     }
                                 }
                                 if let NetworkRequests::StateRequestPart {
-                                    shard_id,
+                                    shard_ord,
                                     sync_hash,
                                     part_id,
                                     target,
@@ -272,7 +272,7 @@ mod tests {
                                 {
                                     if sync_hold {
                                         let srs = StateRequestStruct {
-                                            shard_id: *shard_id,
+                                            shard_ord: *shard_ord,
                                             sync_hash: *sync_hash,
                                             part_id: Some(*part_id),
                                             target: target.clone(),
@@ -733,9 +733,9 @@ mod tests {
                                 } = msg
                                 {
                                     let height = partial_encoded_chunk.header.height_created();
-                                    let shard_id = partial_encoded_chunk.header.shard_id();
-                                    if height == 12 && shard_id == 0 {
-                                        // "test3.6" is the chunk producer on height 12, shard_id 0
+                                    let shard_ord = partial_encoded_chunk.header.shard_ord();
+                                    if height == 12 && shard_ord == 0 {
+                                        // "test3.6" is the chunk producer on height 12, shard_ord 0
                                         assert_eq!(sender_account_id, malicious_node);
                                         println!(
                                             "ACCOUNT {:?} PARTS {:?} CHUNK {:?}",
@@ -806,9 +806,9 @@ mod tests {
                                 } = msg
                                 {
                                     let height = partial_encoded_chunk.header.height_created();
-                                    let shard_id = partial_encoded_chunk.header.shard_id();
-                                    if height == 42 && shard_id == 2 {
-                                        // "test3.6" is the chunk producer on height 42, shard_id 2
+                                    let shard_ord = partial_encoded_chunk.header.shard_ord();
+                                    if height == 42 && shard_ord == 2 {
+                                        // "test3.6" is the chunk producer on height 42, shard_ord 2
                                         assert_eq!(sender_account_id, malicious_node);
                                         println!(
                                             "ACCOUNT {:?} PARTS {:?} CHUNK {:?}",
@@ -903,7 +903,7 @@ mod tests {
                             if seen_chunk_same_sender.contains(&(
                                 account_id.clone(),
                                 header.height_created(),
-                                header.shard_id(),
+                                header.shard_ord(),
                             )) {
                                 println!("=== SAME CHUNK AGAIN!");
                                 assert!(false);
@@ -911,7 +911,7 @@ mod tests {
                             seen_chunk_same_sender.insert((
                                 account_id.clone(),
                                 header.height_created(),
-                                header.shard_id(),
+                                header.shard_ord(),
                             ));
                         }
                         if let NetworkRequests::PartialEncodedChunkRequest { target: _, request } =

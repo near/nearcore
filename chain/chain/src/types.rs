@@ -244,10 +244,10 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardOrd) -> Trie;
+    fn get_trie_for_shard(&self, shard_ord: ShardOrd) -> Trie;
 
     /// Returns trie with view cache
-    fn get_view_trie_for_shard(&self, shard_id: ShardOrd) -> Trie;
+    fn get_view_trie_for_shard(&self, shard_ord: ShardOrd) -> Trie;
 
     fn verify_block_vrf(
         &self,
@@ -285,7 +285,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: StateRoot,
         next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
@@ -324,7 +324,7 @@ pub trait RuntimeAdapter: Send + Sync {
             header.signature(),
             &header.prev_block_hash(),
             header.height_created(),
-            header.shard_id(),
+            header.shard_ord(),
         )
     }
 
@@ -334,7 +334,7 @@ pub trait RuntimeAdapter: Send + Sync {
         signature: &Signature,
         prev_block_hash: &CryptoHash,
         height_created: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<bool, Error>;
 
     /// Verify aggregated bls signature
@@ -383,7 +383,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) -> Result<AccountId, Error>;
 
     fn get_validator_by_account_id(
@@ -408,7 +408,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardOrd;
+    fn account_id_to_shard_ord(&self, account_id: &AccountId) -> ShardOrd;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
@@ -423,7 +423,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         is_me: bool,
     ) -> bool;
 
@@ -437,7 +437,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         is_me: bool,
     ) -> bool;
 
@@ -508,7 +508,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         height: BlockHeight,
         block_timestamp: u64,
@@ -526,7 +526,7 @@ pub trait RuntimeAdapter: Send + Sync {
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
-            shard_id,
+            shard_ord,
             state_root,
             height,
             block_timestamp,
@@ -548,7 +548,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         height: BlockHeight,
         block_timestamp: u64,
@@ -570,7 +570,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn check_state_transition(
         &self,
         partial_storage: PartialStorage,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         height: BlockHeight,
         block_timestamp: u64,
@@ -590,7 +590,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -608,7 +608,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the part of the state from given state root.
     fn obtain_state_part(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -627,7 +627,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -640,7 +640,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Never returns Error
     fn get_state_root_node(
         &self,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error>;
 
@@ -681,18 +681,18 @@ pub trait RuntimeAdapter: Send + Sync {
         if self.num_shards() == 1 {
             return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
-        let mut account_id_to_shard_id = HashMap::new();
+        let mut account_id_to_shard_ord = HashMap::new();
         let mut shard_receipts: Vec<_> = (0..self.num_shards()).map(|i| (i, Vec::new())).collect();
         for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id.get(&receipt.receiver_id) {
+            let shard_ord = match account_id_to_shard_ord.get(&receipt.receiver_id) {
                 Some(id) => *id,
                 None => {
-                    let id = self.account_id_to_shard_id(&receipt.receiver_id);
-                    account_id_to_shard_id.insert(receipt.receiver_id.clone(), id);
+                    let id = self.account_id_to_shard_ord(&receipt.receiver_id);
+                    account_id_to_shard_ord.insert(receipt.receiver_id.clone(), id);
                     id
                 }
             };
-            shard_receipts[shard_id as usize].1.push(receipt);
+            shard_receipts[shard_ord as usize].1.push(receipt);
         }
         shard_receipts
             .into_iter()

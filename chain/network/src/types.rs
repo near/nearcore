@@ -509,14 +509,14 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::QueryRequest { .. } => write!(f, "QueryRequest"),
             RoutedMessageBody::QueryResponse { .. } => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
+            RoutedMessageBody::StateRequestHeader(shard_ord, sync_hash) => {
+                write!(f, "StateRequestHeader({}, {})", shard_ord, sync_hash)
             }
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, sync_hash, part_id)
+            RoutedMessageBody::StateRequestPart(shard_ord, sync_hash, part_id) => {
+                write!(f, "StateRequestPart({}, {}, {})", shard_ord, sync_hash, part_id)
             }
             RoutedMessageBody::StateResponse(response) => {
-                write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
+                write!(f, "StateResponse({}, {})", response.shard_ord, response.sync_hash)
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 write!(f, "PartialChunkRequest({:?}, {:?})", request.chunk_hash, request.part_ords)
@@ -536,7 +536,7 @@ impl Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedStateResponse(response) => write!(
                 f,
                 "VersionedStateResponse({}, {})",
-                response.shard_id(),
+                response.shard_ord(),
                 response.sync_hash()
             ),
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
@@ -566,15 +566,15 @@ pub enum PeerIdOrHash {
 // case fall back to sending to the account.
 // Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
 pub struct AccountIdOrPeerTrackingShard {
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     pub only_archival: bool,
     pub account_id: Option<AccountId>,
     pub prefer_peer: bool,
 }
 
 impl AccountIdOrPeerTrackingShard {
-    pub fn from_account(shard_id: ShardOrd, account_id: AccountId) -> Self {
-        Self { shard_id, only_archival: false, account_id: Some(account_id), prefer_peer: false }
+    pub fn from_account(shard_ord: ShardOrd, account_id: AccountId) -> Self {
+        Self { shard_ord, only_archival: false, account_id: Some(account_id), prefer_peer: false }
     }
 }
 
@@ -1182,13 +1182,13 @@ pub enum NetworkRequests {
     },
     /// Request state header for given shard at given state root.
     StateRequestHeader {
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         sync_hash: CryptoHash,
         target: AccountOrPeerIdOrHash,
     },
     /// Request state part for given shard at given state root.
     StateRequestPart {
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         sync_hash: CryptoHash,
         part_id: u64,
         target: AccountOrPeerIdOrHash,
@@ -1358,14 +1358,14 @@ impl Message for NetworkRequests {
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfoV1 {
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponseV1,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StateResponseInfoV2 {
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
 }
@@ -1377,10 +1377,10 @@ pub enum StateResponseInfo {
 }
 
 impl StateResponseInfo {
-    pub fn shard_id(&self) -> ShardOrd {
+    pub fn shard_ord(&self) -> ShardOrd {
         match self {
-            Self::V1(info) => info.shard_id,
-            Self::V2(info) => info.shard_id,
+            Self::V1(info) => info.shard_ord,
+            Self::V2(info) => info.shard_ord,
         }
     }
 
@@ -1531,9 +1531,9 @@ pub enum NetworkViewClientMessages {
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// State request header.
-    StateRequestHeader { shard_id: ShardOrd, sync_hash: CryptoHash },
+    StateRequestHeader { shard_ord: ShardOrd, sync_hash: CryptoHash },
     /// State request part.
-    StateRequestPart { shard_id: ShardOrd, sync_hash: CryptoHash, part_id: u64 },
+    StateRequestPart { shard_ord: ShardOrd, sync_hash: CryptoHash, part_id: u64 },
     /// A request for a light client info during Epoch Sync
     EpochSyncRequest { epoch_id: EpochId },
     /// A request for headers and proofs during Epoch Sync
@@ -1654,7 +1654,7 @@ pub struct PartialEncodedChunkForwardMsg {
     pub signature: Signature,
     pub prev_block_hash: CryptoHash,
     pub height_created: BlockHeight,
-    pub shard_id: ShardOrd,
+    pub shard_ord: ShardOrd,
     pub parts: Vec<PartialEncodedChunkPart>,
 }
 
@@ -1670,7 +1670,7 @@ impl PartialEncodedChunkForwardMsg {
             signature: header.signature().clone(),
             prev_block_hash: header.prev_block_hash(),
             height_created: header.height_created(),
-            shard_id: header.shard_id(),
+            shard_ord: header.shard_ord(),
             parts,
         }
     }
@@ -1821,7 +1821,7 @@ mod tests {
 
         check(
             RoutedMessageBody::VersionedStateResponse(StateResponseInfo::V1(StateResponseInfoV1 {
-                shard_id: 62,
+                shard_ord: 62,
                 sync_hash: CryptoHash([92; 32]),
                 state_response: ShardStateSyncResponseV1 { header: None, part: None },
             })),

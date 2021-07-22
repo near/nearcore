@@ -113,12 +113,12 @@ impl GenesisBuilder {
         self.state_updates = self
             .roots
             .iter()
-            .map(|(shard_idx, root)| {
-                (*shard_idx, self.runtime.get_tries().new_trie_update(*shard_idx, *root))
+            .map(|(shard_ordx, root)| {
+                (*shard_ordx, self.runtime.get_tries().new_trie_update(*shard_ordx, *root))
             })
             .collect();
         self.unflushed_records =
-            self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
+            self.roots.keys().cloned().map(|shard_ordx| (shard_ordx, vec![])).collect();
 
         let total_accounts_num = self.additional_accounts_num * self.runtime.num_shards();
         let bar = ProgressBar::new(total_accounts_num as _);
@@ -132,8 +132,8 @@ impl GenesisBuilder {
             bar.inc(1);
         }
 
-        for shard_id in 0..self.runtime.num_shards() {
-            self.flush_shard_records(shard_id)?;
+        for shard_ord in 0..self.runtime.num_shards() {
+            self.flush_shard_records(shard_ord)?;
         }
         bar.finish();
         self.write_genesis_block()?;
@@ -155,13 +155,13 @@ impl GenesisBuilder {
         Ok(self)
     }
 
-    fn flush_shard_records(&mut self, shard_idx: ShardOrd) -> Result<()> {
-        let records = self.unflushed_records.insert(shard_idx, vec![]).unwrap_or_default();
+    fn flush_shard_records(&mut self, shard_ordx: ShardOrd) -> Result<()> {
+        let records = self.unflushed_records.insert(shard_ordx, vec![]).unwrap_or_default();
         if records.is_empty() {
             return Ok(());
         }
         let mut state_update =
-            self.state_updates.remove(&shard_idx).expect("State updates are always available");
+            self.state_updates.remove(&shard_ordx).expect("State updates are always available");
 
         // Compute storage usage and update accounts.
         for (account_id, storage_usage) in self
@@ -177,11 +177,11 @@ impl GenesisBuilder {
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize()?.0;
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_idx)?;
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_ordx)?;
         store_update.commit()?;
 
-        self.roots.insert(shard_idx, root.clone());
-        self.state_updates.insert(shard_idx, tries.new_trie_update(shard_idx, root));
+        self.roots.insert(shard_ordx, root.clone());
+        self.state_updates.insert(shard_ordx, tries.new_trie_update(shard_ordx, root));
         Ok(())
     }
 
@@ -219,7 +219,7 @@ impl GenesisBuilder {
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
-                chunk_header.shard_id(),
+                chunk_header.shard_ord(),
                 ChunkExtra::new(
                     state_root,
                     CryptoHash::default(),
@@ -242,10 +242,10 @@ impl GenesisBuilder {
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
         let testing_init_balance: Balance = 10u128.pow(30);
         let testing_init_stake: Balance = 0;
-        let shard_id = self.runtime.account_id_to_shard_id(&account_id);
-        let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
+        let shard_ord = self.runtime.account_id_to_shard_ord(&account_id);
+        let mut records = self.unflushed_records.remove(&shard_ord).unwrap_or_default();
         let mut state_update =
-            self.state_updates.remove(&shard_id).expect("State update should have been added");
+            self.state_updates.remove(&shard_ord).expect("State update should have been added");
 
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let account = Account::new(
@@ -280,11 +280,11 @@ impl GenesisBuilder {
         const CHUNK_SIZE: usize = 3000;
         let num_records_to_flush = records.len();
         let needs_flush = num_records_to_flush >= CHUNK_SIZE;
-        self.unflushed_records.insert(shard_id, records);
-        self.state_updates.insert(shard_id, state_update);
+        self.unflushed_records.insert(shard_ord, records);
+        self.state_updates.insert(shard_ord, state_update);
 
         if needs_flush {
-            self.flush_shard_records(shard_id)?;
+            self.flush_shard_records(shard_ord)?;
         }
         Ok(())
     }

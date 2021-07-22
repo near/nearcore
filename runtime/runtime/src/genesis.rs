@@ -81,13 +81,13 @@ impl GenesisStateApplier {
         mut state_update: TrieUpdate,
         current_state_root: &mut StateRoot,
         tries: &mut ShardTries,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) {
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
         let (store_update, new_state_root) =
-            tries.apply_all(&trie_changes, shard_id).expect("Failed to apply genesis chunk");
+            tries.apply_all(&trie_changes, shard_ord).expect("Failed to apply genesis chunk");
         store_update.commit().expect("Store update failed on genesis initialization");
         *current_state_root = new_state_root;
     }
@@ -96,13 +96,13 @@ impl GenesisStateApplier {
         current_state_root: &mut StateRoot,
         mut delayed_receipts_indices: &mut DelayedReceiptIndices,
         tries: &mut ShardTries,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &RuntimeConfig,
         genesis: &Genesis,
         batch_account_ids: HashSet<&AccountId>,
     ) {
-        let mut state_update = tries.new_trie_update(shard_id, *current_state_root);
+        let mut state_update = tries.new_trie_update(shard_ord, *current_state_root);
         let mut postponed_receipts: Vec<Receipt> = vec![];
 
         let mut storage_computer = StorageComputer::new(config);
@@ -213,26 +213,26 @@ impl GenesisStateApplier {
             set_account(&mut state_update, account_id.clone(), &account);
         }
 
-        Self::commit(state_update, current_state_root, tries, shard_id);
+        Self::commit(state_update, current_state_root, tries, shard_ord);
     }
 
     fn apply_delayed_receipts(
         delayed_receipts_indices: DelayedReceiptIndices,
         current_state_root: &mut StateRoot,
         tries: &mut ShardTries,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
     ) {
-        let mut state_update = tries.new_trie_update(shard_id, *current_state_root);
+        let mut state_update = tries.new_trie_update(shard_ord, *current_state_root);
 
         if delayed_receipts_indices != DelayedReceiptIndices::default() {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-            Self::commit(state_update, current_state_root, tries, shard_id);
+            Self::commit(state_update, current_state_root, tries, shard_ord);
         }
     }
 
     pub fn apply(
         mut tries: ShardTries,
-        shard_id: ShardOrd,
+        shard_ord: ShardOrd,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &RuntimeConfig,
         genesis: &Genesis,
@@ -247,7 +247,7 @@ impl GenesisStateApplier {
                 &mut current_state_root,
                 &mut delayed_receipts_indices,
                 &mut tries,
-                shard_id,
+                shard_ord,
                 validators,
                 config,
                 genesis,
@@ -258,7 +258,7 @@ impl GenesisStateApplier {
             delayed_receipts_indices,
             &mut current_state_root,
             &mut tries,
-            shard_id,
+            shard_ord,
         );
         current_state_root
     }

@@ -200,7 +200,7 @@ fn test_state_request() {
             for _ in 0..30 {
                 let res = view_client
                     .send(NetworkViewClientMessages::StateRequestHeader {
-                        shard_id: 0,
+                        shard_ord: 0,
                         sync_hash: block_hash,
                     })
                     .await
@@ -211,7 +211,7 @@ fn test_state_request() {
             // immediately query again, should be rejected
             let res = view_client
                 .send(NetworkViewClientMessages::StateRequestHeader {
-                    shard_id: 0,
+                    shard_ord: 0,
                     sync_hash: block_hash,
                 })
                 .await
@@ -222,7 +222,7 @@ fn test_state_request() {
                 actix::clock::sleep(Duration::from_secs(40)).await;
                 let res = view_client
                     .send(NetworkViewClientMessages::StateRequestHeader {
-                        shard_id: 0,
+                        shard_ord: 0,
                         sync_hash: block_hash,
                     })
                     .await

@@ -72,10 +72,10 @@ mod tests {
             }
 
             let mut trie_changes_shards = Vec::new();
-            for shard_id in 0..num_shards {
+            for shard_ord in 0..num_shards {
                 let trie_changes_data = gen_changes(&mut rng, max_changes);
-                let state_root = prev_state_roots[shard_id as usize];
-                let trie = tries.get_trie_for_shard(shard_id);
+                let state_root = prev_state_roots[shard_ord as usize];
+                let trie = tries.get_trie_for_shard(shard_ord);
                 let trie_changes =
                     trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
                 if verbose {
@@ -85,14 +85,14 @@ mod tests {
                 let new_root = trie_changes.new_root;
                 let wrapped_trie_changes = WrappedTrieChanges::new(
                     tries.clone(),
-                    shard_id,
+                    shard_ord,
                     trie_changes,
                     Default::default(),
                     *block.hash(),
                 );
                 store_update.save_trie_changes(wrapped_trie_changes);
 
-                prev_state_roots[shard_id as usize] = new_root;
+                prev_state_roots[shard_ord as usize] = new_root;
                 trie_changes_shards.push(trie_changes_data);
             }
             store_update.commit().unwrap();

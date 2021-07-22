@@ -199,14 +199,14 @@ fn chunks_produced_and_distributed_common(
                     }
 
                     if block.header().height() > 1 {
-                        for shard_id in 0..4 {
+                        for shard_ord in 0..4 {
                             // If messages from 1 to 4 are dropped, 4 at their heights will
                             //    receive the block significantly later than the chunks, and
                             //    thus would discard the chunks
                             if !drop_from_1_to_4 || block.header().height() % 4 != 3 {
                                 assert_eq!(
                                     block.header().height(),
-                                    block.chunks()[shard_id].height_created()
+                                    block.chunks()[shard_ord].height_created()
                                 );
                             }
                         }

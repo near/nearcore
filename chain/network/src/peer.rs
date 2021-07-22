@@ -395,11 +395,15 @@ impl Peer {
                     RoutedMessageBody::ReceiptOutcomeRequest(receipt_id) => {
                         NetworkViewClientMessages::ReceiptOutcomeRequest(receipt_id)
                     }
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                        NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash }
+                    RoutedMessageBody::StateRequestHeader(shard_ord, sync_hash) => {
+                        NetworkViewClientMessages::StateRequestHeader { shard_ord, sync_hash }
                     }
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                        NetworkViewClientMessages::StateRequestPart { shard_id, sync_hash, part_id }
+                    RoutedMessageBody::StateRequestPart(shard_ord, sync_hash, part_id) => {
+                        NetworkViewClientMessages::StateRequestPart {
+                            shard_ord,
+                            sync_hash,
+                            part_id,
+                        }
                     }
                     body => {
                         error!(target: "network", "Peer receive_view_client_message received unexpected type: {:?}", body);

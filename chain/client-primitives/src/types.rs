@@ -248,8 +248,8 @@ impl From<near_chain_primitives::Error> for GetChunkError {
             near_chain_primitives::ErrorKind::DBNotFoundErr(error_message) => {
                 Self::UnknownBlock { error_message }
             }
-            near_chain_primitives::ErrorKind::InvalidShardId(shard_id) => {
-                Self::InvalidShardId { shard_id }
+            near_chain_primitives::ErrorKind::InvalidShardId(shard_ord) => {
+                Self::InvalidShardId { shard_id: shard_ord }
             }
             near_chain_primitives::ErrorKind::ChunkMissing(chunk_hash) => {
                 Self::UnknownChunk { chunk_hash }

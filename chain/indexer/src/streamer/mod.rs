@@ -60,9 +60,9 @@ async fn build_streamer_message(
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
     let mut indexer_shards: Vec<IndexerShard> = vec![];
 
-    for shard_id in 0..num_shards {
+    for shard_ord in 0..num_shards {
         indexer_shards.push(IndexerShard {
-            shard_id,
+            shard_ord,
             chunk: None,
             receipt_execution_outcomes: vec![],
         })
@@ -116,7 +116,7 @@ async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
         chunk_receipts.extend(chunk_non_local_receipts);
 
-        let shard_id = header.shard_id.clone() as usize;
+        let shard_ord = header.shard_id.clone() as usize;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
         for outcome in receipt_outcomes {
@@ -153,10 +153,10 @@ async fn build_streamer_message(
             receipt_execution_outcomes
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
         }
-        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes;
+        indexer_shards[shard_ord].receipt_execution_outcomes = receipt_execution_outcomes;
 
         // Put the chunk into corresponding indexer shard
-        indexer_shards[shard_id].chunk = Some(IndexerChunkView {
+        indexer_shards[shard_ord].chunk = Some(IndexerChunkView {
             author,
             header,
             transactions: indexer_transactions,
@@ -167,8 +167,8 @@ async fn build_streamer_message(
     // Ideally we expect `shards_outcomes` to be empty by this time, but if something went wrong with
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
     // That might happen before the fix https://github.com/near/nearcore/pull/4228
-    for (shard_id, outcomes) in shards_outcomes {
-        indexer_shards[shard_id as usize].receipt_execution_outcomes.extend(
+    for (shard_ord, outcomes) in shards_outcomes {
+        indexer_shards[shard_ord as usize].receipt_execution_outcomes.extend(
             outcomes.into_iter().map(|outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
                 receipt: outcome.receipt.expect("`receipt` must be present at this moment"),

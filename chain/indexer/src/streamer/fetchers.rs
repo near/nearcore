@@ -93,7 +93,7 @@ pub(crate) async fn fetch_outcomes(
         near_primitives::types::ShardOrd,
         Vec<IndexerExecutionOutcomeWithOptionalReceipt>,
     > = HashMap::new();
-    for (shard_id, shard_outcomes) in outcomes {
+    for (shard_ord, shard_outcomes) in outcomes {
         let mut outcomes_with_receipts: Vec<IndexerExecutionOutcomeWithOptionalReceipt> = vec![];
         for outcome in shard_outcomes {
             let receipt = match fetch_receipt_by_id(&client, outcome.id).await {
@@ -113,7 +113,7 @@ pub(crate) async fn fetch_outcomes(
                 receipt,
             });
         }
-        shard_execution_outcomes_with_receipts.insert(shard_id, outcomes_with_receipts);
+        shard_execution_outcomes_with_receipts.insert(shard_ord, outcomes_with_receipts);
     }
 
     Ok(shard_execution_outcomes_with_receipts)

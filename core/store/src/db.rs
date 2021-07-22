@@ -161,7 +161,7 @@ impl std::fmt::Display for DBCol {
             Self::ColComponentEdges => "component edges",
             Self::ColLastComponentNonce => "last component nonce",
             Self::ColTransactions => "transactions",
-            Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
+            Self::ColChunkPerHeightShard => "hash of chunk per height and shard_ord",
             Self::ColStateChanges => "key value changes",
             Self::ColBlockRefCount => "refcount per block",
             Self::ColTrieChanges => "trie changes",
