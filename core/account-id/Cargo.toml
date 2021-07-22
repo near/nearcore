@@ -10,6 +10,7 @@ description = "This crate contains the account ID primitive and its validation f
 
 [features]
 default = ["borsh", "serde"]
+internal_unsafe = []
 
 [dependencies]
 borsh = { version = "0.8.1", optional = true }

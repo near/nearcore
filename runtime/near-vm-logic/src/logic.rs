@@ -20,7 +20,6 @@ use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::mem::size_of;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
@@ -2163,10 +2162,10 @@ impl<'a> VMLogic<'a> {
         let buf = self.get_vec_from_memory_or_register(ptr, len)?;
         self.gas_counter.pay_base(utf8_decoding_base)?;
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
-        let account_id =
-            AccountId::try_from(String::from_utf8(buf).map_err(|_| HostError::BadUTF8)?)
-                .map_err(|_| HostError::InvalidAccountId)?;
-        Ok(account_id)
+
+        let result =
+            String::from_utf8(buf).map(AccountId::new_unchecked).map_err(|_| HostError::BadUTF8)?;
+        Ok(result)
     }
 
     /// Writes key-value into storage.

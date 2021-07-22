@@ -78,6 +78,11 @@ impl AccountId {
         }
     }
 
+    #[cfg(feature = "internal_unsafe")]
+    pub fn new_unchecked(account_id: String) -> Self {
+        Self(account_id.into())
+    }
+
     pub fn is_top_level_account_id(&self) -> bool {
         self.len() >= MIN_ACCOUNT_ID_LEN
             && self.len() <= MAX_ACCOUNT_ID_LEN
