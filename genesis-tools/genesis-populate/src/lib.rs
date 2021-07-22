@@ -19,7 +19,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
+use near_primitives::types::{AccountId, Balance, EpochId, ShardOrd, StateChangeCause, StateRoot};
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
 };
@@ -39,9 +39,9 @@ pub struct GenesisBuilder {
     genesis: Arc<Genesis>,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
-    unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
-    roots: BTreeMap<ShardId, StateRoot>,
-    state_updates: BTreeMap<ShardId, TrieUpdate>,
+    unflushed_records: BTreeMap<ShardOrd, Vec<StateRecord>>,
+    roots: BTreeMap<ShardOrd, StateRoot>,
+    state_updates: BTreeMap<ShardOrd, TrieUpdate>,
 
     // Things that can be set.
     additional_accounts_num: u64,
@@ -155,7 +155,7 @@ impl GenesisBuilder {
         Ok(self)
     }
 
-    fn flush_shard_records(&mut self, shard_idx: ShardId) -> Result<()> {
+    fn flush_shard_records(&mut self, shard_idx: ShardOrd) -> Result<()> {
         let records = self.unflushed_records.insert(shard_idx, vec![]).unwrap_or_default();
         if records.is_empty() {
             return Ok(());

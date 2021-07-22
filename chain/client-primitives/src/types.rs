@@ -16,7 +16,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockReference, EpochReference, MaybeBlockId, ShardId,
+    AccountId, BlockHeight, BlockReference, EpochReference, MaybeBlockId, ShardOrd,
     TransactionOrReceiptId,
 };
 use near_primitives::utils::generate_random_string;
@@ -132,7 +132,7 @@ pub enum SyncStatus {
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockHeight, highest_height: BlockHeight },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownload>),
+    StateSync(CryptoHash, HashMap<ShardOrd, ShardSyncDownload>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.
@@ -212,8 +212,8 @@ impl Message for GetBlockWithMerkleTree {
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
 pub enum GetChunk {
-    Height(BlockHeight, ShardId),
-    BlockHash(CryptoHash, ShardId),
+    Height(BlockHeight, ShardOrd),
+    BlockHash(CryptoHash, ShardOrd),
     ChunkHash(ChunkHash),
 }
 
@@ -282,7 +282,7 @@ pub enum QueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
     NoSyncedBlocks,
     #[error("The node does not track the shard ID {requested_shard_id}")]
-    UnavailableShard { requested_shard_id: near_primitives::types::ShardId },
+    UnavailableShard { requested_shard_id: near_primitives::types::ShardOrd },
     #[error("Account ID {requested_account_id} is invalid")]
     InvalidAccount {
         requested_account_id: near_primitives::types::AccountId,
@@ -618,7 +618,7 @@ pub enum GetExecutionOutcomeError {
     #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
     InconsistentState {
         number_or_shards: usize,
-        execution_outcome_shard_id: near_primitives::types::ShardId,
+        execution_outcome_shard_id: near_primitives::types::ShardOrd,
     },
     #[error("{transaction_or_receipt_id} has not been confirmed")]
     NotConfirmed { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
@@ -627,7 +627,7 @@ pub enum GetExecutionOutcomeError {
     #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
     UnavailableShard {
         transaction_or_receipt_id: near_primitives::hash::CryptoHash,
-        shard_id: near_primitives::types::ShardId,
+        shard_id: near_primitives::types::ShardOrd,
     },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
@@ -678,7 +678,7 @@ pub struct GetExecutionOutcomesForBlock {
 }
 
 impl Message for GetExecutionOutcomesForBlock {
-    type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
+    type Result = Result<HashMap<ShardOrd, Vec<ExecutionOutcomeWithIdView>>, String>;
 }
 
 pub struct GetBlockProof {

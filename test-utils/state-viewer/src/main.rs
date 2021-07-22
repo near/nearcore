@@ -22,7 +22,7 @@ use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, ShardId, StateRoot};
+use near_primitives::types::{BlockHeight, ShardOrd, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
@@ -215,7 +215,7 @@ fn apply_block_at_height(
     home_dir: &Path,
     near_config: &NearConfig,
     height: BlockHeight,
-    shard_id: ShardId,
+    shard_id: ShardOrd,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
@@ -345,7 +345,7 @@ fn view_chain(
         if chunk_header.height_included() == block.header().height() {
             chunk_extras.push((
                 i,
-                chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone(),
+                chain_store.get_chunk_extra(&block.hash(), i as ShardOrd).unwrap().clone(),
             ));
             chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
         }
@@ -356,7 +356,10 @@ fn view_chain(
         .enumerate()
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
-                Some((i, chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone()))
+                Some((
+                    i,
+                    chain_store.get_chunk_extra(&block.hash(), i as ShardOrd).unwrap().clone(),
+                ))
             } else {
                 None
             }

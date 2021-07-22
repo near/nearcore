@@ -10,7 +10,7 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::types::changes::{RpcStateChangesRequest, RpcStateChangesResponse};
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardId};
+use near_primitives::types::{BlockId, BlockReference, MaybeBlockId, ShardOrd};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
@@ -20,7 +20,7 @@ use near_primitives::views::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ChunkId {
-    BlockShardId(BlockId, ShardId),
+    BlockShardId(BlockId, ShardOrd),
     Hash(CryptoHash),
 }
 

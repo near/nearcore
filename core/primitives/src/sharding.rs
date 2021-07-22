@@ -9,7 +9,7 @@ use crate::merkle::{combine_hash, merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
-use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
+use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardOrd, StateRoot};
 use crate::validator_signer::ValidatorSigner;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::version::ProtocolFeature;
@@ -51,7 +51,7 @@ impl From<CryptoHash> for ChunkHash {
 }
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ShardInfo(pub ShardId, pub ChunkHash);
+pub struct ShardInfo(pub ShardOrd, pub ChunkHash);
 
 /// Contains the information that is used to sync state for shards as epochs switch
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
@@ -81,7 +81,7 @@ pub struct ShardChunkHeaderInner {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
     /// Gas limit voted by validators.
@@ -130,7 +130,7 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardId {
+    pub fn shard_id(&self) -> ShardOrd {
         self.shard_id
     }
 
@@ -212,7 +212,7 @@ impl ShardChunkHeaderV2 {
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
@@ -278,7 +278,7 @@ impl ShardChunkHeaderV3 {
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
@@ -427,7 +427,7 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardId {
+    pub fn shard_id(&self) -> ShardOrd {
         match self {
             Self::V1(header) => header.inner.shard_id,
             Self::V2(header) => header.inner.shard_id,
@@ -572,7 +572,7 @@ impl ShardChunkHeaderV1 {
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
@@ -732,8 +732,8 @@ impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardProof {
-    pub from_shard_id: ShardId,
-    pub to_shard_id: ShardId,
+    pub from_shard_id: ShardOrd,
+    pub to_shard_id: ShardOrd,
     pub proof: MerklePath,
 }
 
@@ -841,7 +841,7 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardId {
+    pub fn shard_id(&self) -> ShardOrd {
         match self {
             Self::V1(chunk) => chunk.header.inner.shard_id,
             Self::V2(chunk) => chunk.header.shard_id(),
@@ -920,7 +920,7 @@ impl EncodedShardChunkBody {
 }
 
 #[derive(BorshSerialize, Serialize, Debug, Clone)]
-pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
+pub struct ReceiptList<'a>(pub ShardOrd, pub &'a Vec<Receipt>);
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
@@ -988,7 +988,7 @@ impl EncodedShardChunk {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardId {
+    pub fn shard_id(&self) -> ShardOrd {
         match self {
             Self::V1(chunk) => chunk.header.inner.shard_id,
             Self::V2(chunk) => chunk.header.shard_id(),
@@ -1084,7 +1084,7 @@ impl EncodedShardChunk {
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         rs: &mut ReedSolomonWrapper,
         gas_used: Gas,
         gas_limit: Gas,

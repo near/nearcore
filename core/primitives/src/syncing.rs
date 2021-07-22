@@ -10,7 +10,7 @@ use crate::receipt::Receipt;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
-use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
+use crate::types::{BlockHeight, ShardOrd, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
@@ -23,10 +23,10 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
+pub struct StateHeaderKey(pub ShardOrd, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
+pub struct StatePartKey(pub CryptoHash, pub ShardOrd, pub u64 /* PartId */);
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct ShardStateSyncResponseHeaderV1 {

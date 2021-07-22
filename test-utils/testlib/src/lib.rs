@@ -11,7 +11,7 @@ use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardOrd};
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
 
@@ -93,8 +93,8 @@ pub fn start_nodes(
             let shards_per_node =
                 num_shards as usize / (num_tracking_nodes - num_validator_seats as usize);
             let (from, to) = (
-                ((i - num_validator_seats as usize) * shards_per_node) as ShardId,
-                ((i - (num_validator_seats as usize) + 1) * shards_per_node) as ShardId,
+                ((i - num_validator_seats as usize) * shards_per_node) as ShardOrd,
+                ((i - (num_validator_seats as usize) + 1) * shards_per_node) as ShardOrd,
             );
             near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
         }

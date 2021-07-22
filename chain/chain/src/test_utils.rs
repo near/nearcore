@@ -28,7 +28,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode,
+    ShardOrd, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -89,7 +89,7 @@ pub struct KeyValueRuntime {
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardOrd {
     u64::from((hash(&account_id.clone().into_bytes()).0)[0]) % num_shards
 }
 
@@ -300,11 +300,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+    fn get_trie_for_shard(&self, shard_id: ShardOrd) -> Trie {
         self.tries.get_trie_for_shard(shard_id)
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
+    fn get_view_trie_for_shard(&self, shard_id: ShardOrd) -> Trie {
         self.tries.get_view_trie_for_shard(shard_id)
     }
 
@@ -343,7 +343,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _signature: &Signature,
         _prev_block_hash: &CryptoHash,
         _height_created: BlockHeight,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
     ) -> Result<bool, Error> {
         Ok(true)
     }
@@ -440,19 +440,19 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
-        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let validators_per_shard = validators.len() as ShardOrd / self.validator_groups;
+        let coef = validators.len() as ShardOrd / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id().clone())
     }
 
-    fn num_shards(&self) -> ShardId {
+    fn num_shards(&self) -> ShardOrd {
         self.num_shards
     }
 
@@ -470,7 +470,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
+    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardOrd {
         account_id_to_shard_id(account_id, self.num_shards())
     }
 
@@ -486,7 +486,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         _is_me: bool,
     ) -> bool {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
@@ -496,8 +496,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators[epoch_valset.1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
-        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let validators_per_shard = validators.len() as ShardOrd / self.validator_groups;
+        let coef = validators.len() as ShardOrd / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
         if let Some(account_id) = account_id {
@@ -514,7 +514,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         _is_me: bool,
     ) -> bool {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
@@ -524,8 +524,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
-        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let validators_per_shard = validators.len() as ShardOrd / self.validator_groups;
+        let coef = validators.len() as ShardOrd / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
@@ -552,7 +552,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _gas_price: Balance,
         _gas_limit: Gas,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
         _state_root: StateRoot,
         _next_block_height: BlockHeight,
         transactions: &mut dyn PoolIterator,
@@ -590,7 +590,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions_with_optional_storage_proof(
         &self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         state_root: &StateRoot,
         _height: BlockHeight,
         _block_timestamp: u64,
@@ -774,7 +774,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn check_state_transition(
         &self,
         _partial_storage: PartialStorage,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
         _state_root: &StateRoot,
         _height: BlockHeight,
         _block_timestamp: u64,
@@ -795,7 +795,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
@@ -865,7 +865,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn obtain_state_part(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -893,7 +893,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_state_part(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
         state_root: &StateRoot,
         part_id: u64,
         _num_parts: u64,
@@ -913,7 +913,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_state_root_node(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardOrd,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
         Ok(StateRootNode {

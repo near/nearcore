@@ -11,7 +11,7 @@ use crate::hash::CryptoHash;
 use crate::logging;
 use crate::serialize::{option_base64_format, u128_dec_format_compatible};
 use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance, ShardId};
+use crate::types::{AccountId, Balance, ShardOrd};
 use crate::utils::system_account;
 
 /// Receipts are used for a cross-shard communication.
@@ -174,4 +174,4 @@ pub struct DelayedReceiptIndices {
 }
 
 /// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
+pub type ReceiptResult = HashMap<ShardOrd, Vec<Receipt>>;

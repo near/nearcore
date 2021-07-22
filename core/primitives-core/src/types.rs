@@ -19,7 +19,7 @@ pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
-pub type ShardId = u64;
+pub type ShardOrd = u64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = u128;
 /// Gas is a type for storing amount of gas.

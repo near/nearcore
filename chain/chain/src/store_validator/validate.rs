@@ -13,7 +13,7 @@ use near_primitives::syncing::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use near_primitives::types::{BlockHeight, EpochId, ShardOrd};
 use near_primitives::utils::{get_block_shard_id, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
@@ -518,7 +518,7 @@ pub(crate) fn canonical_prev_block_validity(
 
 pub(crate) fn trie_changes_chunk_extra_exists(
     sv: &mut StoreValidator,
-    (block_hash, shard_id): &(CryptoHash, ShardId),
+    (block_hash, shard_id): &(CryptoHash, ShardOrd),
     trie_changes: &TrieChanges,
 ) -> Result<(), StoreValidatorError> {
     let new_root = trie_changes.new_root;
@@ -771,7 +771,7 @@ pub(crate) fn epoch_validity(
 
 pub(crate) fn last_block_chunk_included(
     sv: &mut StoreValidator,
-    shard_id: &ShardId,
+    shard_id: &ShardOrd,
     block_hash: &CryptoHash,
 ) -> Result<(), StoreValidatorError> {
     let block = unwrap_or_err_db!(

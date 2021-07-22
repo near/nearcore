@@ -12,7 +12,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{ShardId, StateRoot, StateRootNode};
+use near_primitives::types::{ShardOrd, StateRoot, StateRootNode};
 
 use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
@@ -468,7 +468,7 @@ pub struct ApplyStatePartResult {
 }
 
 impl Trie {
-    pub fn new(store: Box<dyn TrieStorage>, _shard_id: ShardId) -> Self {
+    pub fn new(store: Box<dyn TrieStorage>, _shard_id: ShardOrd) -> Self {
         Trie { storage: store, counter: TouchedNodesCounter::default() }
     }
 
@@ -770,7 +770,7 @@ mod tests {
     fn test_clear_trie(
         tries: &ShardTries,
         root: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         changes: TrieChanges,
     ) -> CryptoHash {
         let trie = tries.get_trie_for_shard(shard_id);

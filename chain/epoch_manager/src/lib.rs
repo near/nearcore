@@ -13,7 +13,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardOrd,
     ValidatorId, ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
@@ -162,7 +162,7 @@ impl EpochManager {
         &self,
         epoch_info: &EpochInfo,
         block_validator_tracker: &HashMap<ValidatorId, ValidatorStats>,
-        chunk_validator_tracker: &HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        chunk_validator_tracker: &HashMap<ShardOrd, HashMap<ValidatorId, ValidatorStats>>,
         slashed: &HashMap<AccountId, SlashState>,
         prev_validator_kickout: &HashMap<AccountId, ValidatorKickoutReason>,
     ) -> (HashMap<AccountId, ValidatorKickoutReason>, HashMap<AccountId, BlockChunkValidatorStats>)
@@ -674,7 +674,7 @@ impl EpochManager {
         &mut self,
         epoch_id: &EpochId,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
@@ -736,7 +736,7 @@ impl EpochManager {
         &mut self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<bool, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
@@ -746,7 +746,7 @@ impl EpochManager {
         &mut self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<bool, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
@@ -915,12 +915,12 @@ impl EpochManager {
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
         let mut validator_to_shard = (0..cur_epoch_info.validators_len())
             .map(|_| HashSet::default())
-            .collect::<Vec<HashSet<ShardId>>>();
+            .collect::<Vec<HashSet<ShardOrd>>>();
         for (shard_id, validators) in
             cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
         {
             for validator_id in validators {
-                validator_to_shard[*validator_id as usize].insert(shard_id as ShardId);
+                validator_to_shard[*validator_id as usize].insert(shard_id as ShardOrd);
             }
         }
 
@@ -942,7 +942,7 @@ impl EpochManager {
                         let mut shards = validator_to_shard[validator_id]
                             .iter()
                             .cloned()
-                            .collect::<Vec<ShardId>>();
+                            .collect::<Vec<ShardOrd>>();
                         shards.sort();
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
@@ -976,7 +976,7 @@ impl EpochManager {
                         let mut shards = validator_to_shard[validator_id]
                             .clone()
                             .into_iter()
-                            .collect::<Vec<ShardId>>();
+                            .collect::<Vec<ShardOrd>>();
                         shards.sort();
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
@@ -1002,7 +1002,7 @@ impl EpochManager {
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
         let mut next_validator_to_shard = (0..next_epoch_info.validators_len())
             .map(|_| HashSet::default())
-            .collect::<Vec<HashSet<ShardId>>>();
+            .collect::<Vec<HashSet<ShardOrd>>>();
         for (shard_id, validators) in
             next_epoch_info.chunk_producers_settlement().iter().enumerate()
         {
@@ -1017,7 +1017,7 @@ impl EpochManager {
                 let mut shards = next_validator_to_shard[validator_id]
                     .clone()
                     .into_iter()
-                    .collect::<Vec<ShardId>>();
+                    .collect::<Vec<ShardOrd>>();
                 shards.sort();
                 let (account_id, public_key, stake) = info.destructure();
                 NextEpochValidatorInfo { account_id, public_key, stake, shards }
@@ -1098,7 +1098,7 @@ impl EpochManager {
         &mut self,
         epoch_id: EpochId,
         account_id: &AccountId,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
         let chunk_producers = epoch_info.chunk_producers_settlement();
@@ -1121,7 +1121,7 @@ impl EpochManager {
     pub(crate) fn chunk_producer_from_info(
         epoch_info: &EpochInfo,
         height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> ValidatorId {
         let cp_settlement = epoch_info.chunk_producers_settlement();
         let shard_cps = &cp_settlement[shard_id as usize];

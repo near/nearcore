@@ -24,7 +24,7 @@ use near_primitives::{
     trie_key::TrieKey,
     types::{
         validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas,
-        RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+        RawStateChangesWithTrieKey, ShardOrd, StateChangeCause, StateRoot,
     },
     utils::{
         create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -1445,7 +1445,7 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         tries: ShardTries,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         validators: &[(AccountId, PublicKey, Balance)],
         genesis: &Genesis,
         config: &RuntimeConfig,

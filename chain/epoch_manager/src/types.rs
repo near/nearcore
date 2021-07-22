@@ -8,7 +8,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStats,
+    AccountId, BlockHeight, EpochId, ShardOrd, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
 
@@ -22,7 +22,7 @@ pub struct EpochInfoAggregator {
     /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
     pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
     /// For each shard, a map of validator id to (num_chunks_produced, num_chunks_expected) so far in the given epoch.
-    pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+    pub shard_tracker: HashMap<ShardOrd, HashMap<ValidatorId, ValidatorStats>>,
     /// Latest protocol version that each validator supports.
     pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
     /// All proposals in this epoch up to this block.
@@ -79,9 +79,9 @@ impl EpochInfoAggregator {
             let chunk_validator_id = EpochManager::chunk_producer_from_info(
                 epoch_info,
                 prev_block_height + 1,
-                i as ShardId,
+                i as ShardOrd,
             );
-            let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
+            let tracker = self.shard_tracker.entry(i as ShardOrd).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_validator_id)
                 .and_modify(|stats| {

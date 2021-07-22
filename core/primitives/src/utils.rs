@@ -11,7 +11,7 @@ use serde;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardId};
+use crate::types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardOrd};
 use crate::version::{
     ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
     CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
@@ -69,7 +69,7 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     }
 }
 
-pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardOrd) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
     res.extend_from_slice(&shard_id.to_le_bytes());
@@ -78,7 +78,7 @@ pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8>
 
 pub fn get_block_shard_id_rev(
     key: &[u8],
-) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error>> {
+) -> Result<(CryptoHash, ShardOrd), Box<dyn std::error::Error>> {
     if key.len() != 40 {
         return Err(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
@@ -88,7 +88,7 @@ pub fn get_block_shard_id_rev(
     let block_hash = CryptoHash::try_from(block_hash_vec)?;
     let mut shard_id_arr: [u8; 8] = Default::default();
     shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
-    let shard_id = ShardId::from_le_bytes(shard_id_arr);
+    let shard_id = ShardOrd::from_le_bytes(shard_id_arr);
     Ok((block_hash, shard_id))
 }
 

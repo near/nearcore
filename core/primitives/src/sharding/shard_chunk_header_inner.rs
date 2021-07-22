@@ -2,7 +2,7 @@ use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, Validato
 use crate::types::StateRoot;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardId};
+use near_primitives_core::types::{Balance, BlockHeight, Gas, ShardOrd};
 use serde::Serialize;
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
@@ -61,7 +61,7 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
-    pub fn shard_id(&self) -> ShardId {
+    pub fn shard_id(&self) -> ShardOrd {
         match self {
             Self::V1(inner) => inner.shard_id,
             Self::V2(inner) => inner.shard_id,
@@ -128,7 +128,7 @@ pub struct ShardChunkHeaderInnerV1 {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
     /// Gas limit voted by validators.
@@ -155,7 +155,7 @@ pub struct ShardChunkHeaderInnerV2 {
     pub encoded_length: u64,
     pub height_created: BlockHeight,
     /// Shard index.
-    pub shard_id: ShardId,
+    pub shard_id: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
     /// Gas limit voted by validators.

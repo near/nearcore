@@ -38,7 +38,7 @@ pub enum RpcLightClientProofError {
     #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
     InconsistentState {
         number_or_shards: usize,
-        execution_outcome_shard_id: near_primitives::types::ShardId,
+        execution_outcome_shard_id: near_primitives::types::ShardOrd,
     },
     #[error("{transaction_or_receipt_id} has not been confirmed")]
     NotConfirmed { transaction_or_receipt_id: near_primitives::hash::CryptoHash },
@@ -47,7 +47,7 @@ pub enum RpcLightClientProofError {
     #[error("Node doesn't track the shard where {transaction_or_receipt_id} is executed")]
     UnavailableShard {
         transaction_or_receipt_id: near_primitives::hash::CryptoHash,
-        shard_id: near_primitives::types::ShardId,
+        shard_id: near_primitives::types::ShardOrd,
     },
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },

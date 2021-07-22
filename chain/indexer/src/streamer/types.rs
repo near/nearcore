@@ -39,7 +39,7 @@ pub struct IndexerExecutionOutcomeWithReceipt {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexerShard {
-    pub shard_id: types::ShardId,
+    pub shard_id: types::ShardOrd,
     pub chunk: Option<IndexerChunkView>,
     pub receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt>,
 }

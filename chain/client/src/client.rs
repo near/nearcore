@@ -38,7 +38,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::NumBlocks;
-use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, ShardOrd};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -197,7 +197,7 @@ impl Client {
 
     pub fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
+            let shard_id = shard_id as ShardOrd;
             if block.header().height() == chunk_header.height_included() {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
@@ -220,7 +220,7 @@ impl Client {
 
     pub fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
+            let shard_id = shard_id as ShardOrd;
             if block.header().height() == chunk_header.height_included() {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
@@ -513,7 +513,7 @@ impl Client {
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let validator_signer = self
             .validator_signer
@@ -618,7 +618,7 @@ impl Client {
     /// Prepares an ordered list of valid transactions from the pool up the limits.
     fn prepare_transactions(
         &mut self,
-        shard_id: ShardId,
+        shard_id: ShardOrd,
         chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<Vec<SignedTransaction>, Error> {
@@ -1538,7 +1538,7 @@ impl Client {
     }
 
     /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.
-    fn active_validator(&self, shard_id: ShardId) -> Result<bool, Error> {
+    fn active_validator(&self, shard_id: ShardOrd) -> Result<bool, Error> {
         let head = self.chain.head()?;
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
 

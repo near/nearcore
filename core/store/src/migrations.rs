@@ -715,7 +715,7 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
-        BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
+        BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardOrd, ValidatorId,
         ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;
@@ -732,7 +732,7 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
     #[derive(BorshDeserialize)]
     pub struct OldEpochInfoAggregator {
         pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        pub shard_tracker: HashMap<ShardOrd, HashMap<ValidatorId, ValidatorStats>>,
         pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
         pub all_proposals: BTreeMap<AccountId, ValidatorStakeV1>,
         pub epoch_id: EpochId,
@@ -741,7 +741,7 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
     #[derive(BorshSerialize)]
     pub struct NewEpochInfoAggregator {
         pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
-        pub shard_tracker: HashMap<ShardId, HashMap<ValidatorId, ValidatorStats>>,
+        pub shard_tracker: HashMap<ShardOrd, HashMap<ValidatorId, ValidatorStats>>,
         pub version_tracker: HashMap<ValidatorId, ProtocolVersion>,
         pub all_proposals: BTreeMap<AccountId, ValidatorStake>,
         pub epoch_id: EpochId,

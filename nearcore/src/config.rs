@@ -26,7 +26,7 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    NumShards, ShardOrd,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -419,7 +419,7 @@ pub struct Config {
     pub network: Network,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
-    pub tracked_shards: Vec<ShardId>,
+    pub tracked_shards: Vec<ShardOrd>,
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     #[serde(default = "default_gc_blocks_limit")]
