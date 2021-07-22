@@ -27,7 +27,7 @@ members = [
     "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
     "test-utils/actix-test-utils",
-    "test-utils/testlib",
+    "test-utils/loadtester",
     "test-utils/runtime-tester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
@@ -44,7 +44,7 @@ members = [
     "tools/storage-usage-delta-calculator",
     "tools/restored-receipts-verifier",
     "integration-tests",
-    "integration-tests/loadtester",
+    "integration-tests/testlib",
 ]
 
 [patch.crates-io]

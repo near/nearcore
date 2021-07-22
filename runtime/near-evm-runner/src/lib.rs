@@ -12,7 +12,7 @@ mod near_ext;
 #[cfg(feature = "protocol_feature_evm")]
 mod pricer;
 #[cfg(feature = "protocol_feature_evm")]
-mod runner;
+pub mod runner;
 #[cfg(feature = "protocol_feature_evm")]
 pub mod types;
 

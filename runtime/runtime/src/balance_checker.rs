@@ -18,7 +18,7 @@ use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
 
-pub(crate) fn check_balance(
+pub fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
     initial_state: &TrieUpdate,
     final_state: &TrieUpdate,

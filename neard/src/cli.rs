@@ -314,7 +314,7 @@ pub(super) struct TestnetCmd {
 
 impl TestnetCmd {
     pub(super) fn run(self, home_dir: &Path) {
-        nearcore::config::init_testnet_configs(
+        testlib::nearcore_test_utils::init_testnet_configs(
             home_dir,
             self.shards,
             self.validators,

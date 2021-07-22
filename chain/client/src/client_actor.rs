@@ -13,7 +13,6 @@ use log::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
 use near_chain::StoreValidator;
@@ -39,6 +38,7 @@ use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::serialize::to_base;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
@@ -111,6 +111,10 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
             std::cmp::min(Duration::from_secs(10), Duration::from_secs(chrono_seconds as u64));
         thread::sleep(wait);
     }
+}
+
+fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..6].to_string()
 }
 
 impl ClientActor {

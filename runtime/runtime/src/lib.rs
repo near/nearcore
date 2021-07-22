@@ -65,14 +65,14 @@ use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
-mod balance_checker;
+pub mod balance_checker;
 pub mod cache;
 pub mod config;
 pub mod ext;
 mod genesis;
 mod metrics;
 pub mod state_viewer;
-mod verifier;
+pub mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
 
@@ -1379,7 +1379,7 @@ impl Runtime {
     }
 
     // Adds the given receipt into the end of the delayed receipt queue in the state.
-    fn delay_receipt(
+    pub fn delay_receipt(
         state_update: &mut TrieUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         receipt: &Receipt,

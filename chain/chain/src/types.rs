@@ -29,7 +29,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX, PROTOCOL_VERSION,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
 use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTrieChanges};
@@ -717,6 +717,23 @@ pub struct LatestKnown {
 pub enum ValidatorInfoIdentifier {
     EpochId(EpochId),
     BlockHash(CryptoHash),
+}
+
+impl ChainGenesis {
+    pub fn test() -> Self {
+        ChainGenesis {
+            time: Utc::now(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 0,
+            max_gas_price: 1_000_000_000,
+            total_supply: 1_000_000_000,
+            gas_price_adjustment_rate: Rational::from_integer(0),
+            transaction_validity_period: 100,
+            epoch_length: 5,
+            protocol_version: PROTOCOL_VERSION,
+        }
+    }
 }
 
 #[cfg(test)]

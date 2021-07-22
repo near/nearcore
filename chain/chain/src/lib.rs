@@ -16,7 +16,7 @@ mod lightclient;
 mod metrics;
 pub mod migrations;
 pub mod missing_chunks;
-mod store;
+pub mod store;
 pub mod store_validator;
 pub mod test_utils;
 pub mod types;

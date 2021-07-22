@@ -27,7 +27,7 @@ use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
 
-mod validate;
+pub mod validate;
 
 fn to_string<T: std::fmt::Debug>(v: &T) -> String {
     format!("{:?}", v)
@@ -39,7 +39,7 @@ pub struct StoreValidatorCache {
     header_head: BlockHeight,
     tail: BlockHeight,
     chunk_tail: BlockHeight,
-    block_heights_less_tail: Vec<CryptoHash>,
+    pub block_heights_less_tail: Vec<CryptoHash>,
     gc_col: Vec<u64>,
     tx_refcount: HashMap<CryptoHash, u64>,
     receipt_refcount: HashMap<CryptoHash, u64>,
@@ -76,7 +76,7 @@ pub struct StoreValidator {
     config: GenesisConfig,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     store: Arc<Store>,
-    inner: StoreValidatorCache,
+    pub inner: StoreValidatorCache,
     timeout: Option<u64>,
     start_time: Instant,
 
@@ -135,7 +135,7 @@ impl StoreValidator {
     fn process_error<K: std::fmt::Debug>(&mut self, err: StoreValidatorError, key: K, col: DBCol) {
         self.errors.push(ErrorMessage { key: to_string(&key), col: to_string(&col), err })
     }
-    fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
+    pub fn validate_col(&mut self, col: DBCol) -> Result<(), StoreValidatorError> {
         for (key, value) in self.store.clone().iter_without_rc_logic(col) {
             let key_ref = key.as_ref();
             let value_ref = value.as_ref();
@@ -400,96 +400,6 @@ impl StoreValidator {
         self.tests += 1;
         if let Err(e) = f(self, key, value) {
             self.process_error(e, key, col);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use near_store::test_utils::create_test_store;
-
-    use crate::test_utils::KeyValueRuntime;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
-
-    use super::*;
-
-    fn init() -> (Chain, StoreValidator) {
-        let store = create_test_store();
-        let chain_genesis = ChainGenesis::test();
-        let runtime_adapter = Arc::new(KeyValueRuntime::new(store.clone()));
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
-        let chain =
-            Chain::new(runtime_adapter.clone(), &chain_genesis, DoomslugThresholdMode::NoApprovals)
-                .unwrap();
-        (chain, StoreValidator::new(None, genesis.clone(), runtime_adapter, store))
-    }
-
-    #[test]
-    fn test_io_error() {
-        let (mut chain, mut sv) = init();
-        let mut store_update = chain.store().owned_store().store_update();
-        assert!(sv.validate_col(DBCol::ColBlock).is_ok());
-        store_update
-            .set_ser::<Vec<u8>>(
-                DBCol::ColBlock,
-                chain.get_block_by_height(0).unwrap().hash().as_ref(),
-                &vec![123],
-            )
-            .unwrap();
-        store_update.commit().unwrap();
-        match sv.validate_col(DBCol::ColBlock) {
-            Err(StoreValidatorError::IOError(_)) => {}
-            _ => assert!(false),
-        }
-    }
-
-    #[test]
-    fn test_db_corruption() {
-        let (chain, mut sv) = init();
-        let mut store_update = chain.store().owned_store().store_update();
-        assert!(sv.validate_col(DBCol::ColTrieChanges).is_ok());
-        store_update.set_ser::<Vec<u8>>(DBCol::ColTrieChanges, "567".as_ref(), &vec![123]).unwrap();
-        store_update.commit().unwrap();
-        match sv.validate_col(DBCol::ColTrieChanges) {
-            Err(StoreValidatorError::DBCorruption(_)) => {}
-            _ => assert!(false),
-        }
-    }
-
-    #[test]
-    fn test_db_not_found() {
-        let (mut chain, mut sv) = init();
-        let block = chain.get_block_by_height(0).unwrap();
-        assert!(validate::block_header_exists(&mut sv, &block.hash(), block).is_ok());
-        match validate::block_header_exists(&mut sv, &CryptoHash::default(), block) {
-            Err(StoreValidatorError::DBNotFound { .. }) => {}
-            _ => assert!(false),
-        }
-    }
-
-    #[test]
-    fn test_discrepancy() {
-        let (mut chain, mut sv) = init();
-        let block_header = chain.get_header_by_height(0).unwrap();
-        assert!(validate::block_header_hash_validity(&mut sv, block_header.hash(), block_header)
-            .is_ok());
-        match validate::block_header_hash_validity(&mut sv, &CryptoHash::default(), block_header) {
-            Err(StoreValidatorError::Discrepancy { .. }) => {}
-            _ => assert!(false),
-        }
-    }
-
-    #[test]
-    fn test_validation_failed() {
-        let (_chain, mut sv) = init();
-        assert!(validate::block_height_cmp_tail_final(&mut sv).is_ok());
-        sv.inner.block_heights_less_tail.push(CryptoHash::default());
-        assert!(validate::block_height_cmp_tail_final(&mut sv).is_ok());
-        sv.inner.block_heights_less_tail.push(CryptoHash::default());
-        match validate::block_height_cmp_tail_final(&mut sv) {
-            Err(StoreValidatorError::ValidationFailed { .. }) => {}
-            _ => assert!(false),
         }
     }
 }

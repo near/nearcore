@@ -35,7 +35,12 @@ type HttpRequest<T> = LocalBoxFuture<'static, Result<T, String>>;
 type RpcRequest<T> = LocalBoxFuture<'static, Result<T, RpcError>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
-fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
+pub fn call_method<P, R>(
+    client: &Client,
+    server_addr: &str,
+    method: &str,
+    params: P,
+) -> RpcRequest<R>
 where
     P: Serialize,
     R: serde::de::DeserializeOwned + 'static,

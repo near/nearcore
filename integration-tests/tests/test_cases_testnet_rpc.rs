@@ -1,8 +1,7 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
 #[cfg(feature = "expensive_tests")]
-#[cfg(test)]
-mod test {
+mod tests {
     use std::thread;
     use std::time::Duration;
 

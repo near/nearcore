@@ -1,7 +1,6 @@
 //! Simply starts and runs TestNet for a while.
-#[cfg(test)]
 #[cfg(feature = "expensive_tests")]
-mod test {
+mod tests {
     use near_logger_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};

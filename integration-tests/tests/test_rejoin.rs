@@ -1,7 +1,6 @@
 //! Tests whether nodes can leave and rejoin the consensus.
-#[cfg(test)]
 #[cfg(feature = "expensive_tests")]
-mod test {
+mod tests {
     use std::process::Command;
     use std::sync::{Arc, RwLock};
     use std::thread;

@@ -3,8 +3,7 @@
 //! no choking on transactions). The input tps -- is how fast the nodes can be accepting
 //! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
 #[cfg(any(feature = "expensive_tests", feature = "regression_tests"))]
-#[cfg(test)]
-mod test {
+mod tests {
     use std::io::stdout;
     use std::io::Write;
     use std::sync::{Arc, RwLock};

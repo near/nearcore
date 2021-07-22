@@ -52,5 +52,20 @@ near-crypto = { path = "../../core/crypto" }
 [features]
 protocol_feature_evm = ["near-vm-logic/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-errors/protocol_feature_alt_bn128"]
 
+[[test]]
+name = "failures"
+path = "tests/failures.rs"
+required-features = ["protocol_feature_evm"]
+
+[[test]]
+name = "standard_ops"
+path = "tests/standard_ops.rs"
+required-features = ["protocol_feature_evm"]
+
+[[bench]]
+name = "bench"
+required-features = ["protocol_feature_evm"]
+harness = false
+
 [package.metadata.workspaces]
 independent = true

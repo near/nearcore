@@ -5,13 +5,14 @@ use std::time::{Duration, Instant};
 
 use near_chain::{Block, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{BlockHeight, Nonce};
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
+use testlib::client_test_utils::TestEnv;
+use testlib::nearcore_test_utils::GenesisExt;
 
 use serde::{Deserialize, Serialize};
 

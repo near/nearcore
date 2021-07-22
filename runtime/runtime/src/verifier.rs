@@ -233,7 +233,7 @@ pub fn verify_and_charge_transaction(
 
 /// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
 /// the validity of the Action or Data receipt.
-pub(crate) fn validate_receipt(
+pub fn validate_receipt(
     limit_config: &VMLimitConfig,
     receipt: &Receipt,
 ) -> Result<(), ReceiptValidationError> {
@@ -257,7 +257,7 @@ pub(crate) fn validate_receipt(
 
 /// Validates given ActionReceipt. Checks validity of the signer account ID, validity of all
 /// data receiver account IDs, the number of input data dependencies and all actions.
-fn validate_action_receipt(
+pub fn validate_action_receipt(
     limit_config: &VMLimitConfig,
     receipt: &ActionReceipt,
 ) -> Result<(), ReceiptValidationError> {
@@ -284,7 +284,7 @@ fn validate_action_receipt(
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
-fn validate_data_receipt(
+pub fn validate_data_receipt(
     limit_config: &VMLimitConfig,
     receipt: &DataReceipt,
 ) -> Result<(), ReceiptValidationError> {
@@ -302,7 +302,7 @@ fn validate_data_receipt(
 /// Checks that the total number of actions doesn't exceed the limit.
 /// Validates each individual action.
 /// Checks that the total prepaid gas doesn't exceed the limit.
-pub(crate) fn validate_actions(
+pub fn validate_actions(
     limit_config: &VMLimitConfig,
     actions: &[Action],
 ) -> Result<(), ActionsValidationError> {
@@ -353,7 +353,7 @@ pub fn validate_action(
 }
 
 /// Validates `DeployContractAction`. Checks that the given contract size doesn't exceed the limit.
-fn validate_deploy_contract_action(
+pub fn validate_deploy_contract_action(
     limit_config: &VMLimitConfig,
     action: &DeployContractAction,
 ) -> Result<(), ActionsValidationError> {

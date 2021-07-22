@@ -164,7 +164,7 @@ pub(crate) fn head_tail_validity(sv: &mut StoreValidator) -> Result<(), StoreVal
     Ok(())
 }
 
-pub(crate) fn block_header_hash_validity(
+pub fn block_header_hash_validity(
     _sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     header: &BlockHeader,
@@ -236,7 +236,7 @@ pub(crate) fn block_indexed_by_height(
     Ok(())
 }
 
-pub(crate) fn block_header_exists(
+pub fn block_header_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
     _block: &Block,
@@ -900,9 +900,7 @@ pub(crate) fn state_part_header_exists(
 
 // Final checks
 
-pub(crate) fn block_height_cmp_tail_final(
-    sv: &mut StoreValidator,
-) -> Result<(), StoreValidatorError> {
+pub fn block_height_cmp_tail_final(sv: &mut StoreValidator) -> Result<(), StoreValidatorError> {
     if sv.inner.block_heights_less_tail.len() >= 2 {
         let len = sv.inner.block_heights_less_tail.len();
         let blocks = &sv.inner.block_heights_less_tail;

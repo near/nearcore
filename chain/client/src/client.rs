@@ -11,7 +11,6 @@ use chrono::Utc;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
-use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
     BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug, DoomslugThresholdMode, ErrorKind,
@@ -29,6 +28,7 @@ use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::serialize::to_base;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
     ShardChunkHeader,
@@ -72,7 +72,7 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub validator_signer: Option<Arc<dyn ValidatorSigner>>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
+    pub pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
@@ -87,12 +87,16 @@ pub struct Client {
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// A ReedSolomon instance to reconstruct shard.
-    rs: ReedSolomonWrapper,
+    pub rs: ReedSolomonWrapper,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
     rebroadcasted_blocks: SizedCache<CryptoHash, ()>,
     /// Last time the head was updated, or our head was rebroadcasted. Used to re-broadcast the head
     /// again to prevent network from stalling if a large percentage of the network missed a block
     last_time_head_progress_made: Instant,
+}
+
+fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..6].to_string()
 }
 
 impl Client {
@@ -1660,199 +1664,5 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::sync::Arc;
-
-    use cached::Cached;
-
-    use near_chain::Provenance;
-    use near_chain::{ChainGenesis, RuntimeAdapter};
-    use near_chain_configs::Genesis;
-    use near_chunks::test_utils::ChunkForwardingTestFixture;
-    use near_chunks::ProcessPartialEncodedChunkResult;
-    use near_crypto::KeyType;
-    use near_primitives::block::{Approval, ApprovalInner};
-    use near_primitives::hash::hash;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_primitives::version::ProtocolFeature;
-    use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_test_store;
-    use nearcore::config::GenesisExt;
-
-    use crate::test_utils::TestEnv;
-    use near_network::test_utils::MockNetworkAdapter;
-    use near_network::types::PartialEncodedChunkForwardMsg;
-    use near_primitives::block_header::ApprovalType;
-    use near_primitives::network::PeerId;
-    #[cfg(feature = "protocol_feature_block_header_v3")]
-    use near_primitives::sharding::ShardChunkHeaderInner;
-    use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
-    use near_primitives::utils::MaybeValidated;
-
-    pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-        (0..n)
-            .map(|_| {
-                Arc::new(nearcore::NightshadeRuntime::new(
-                    Path::new("."),
-                    create_test_store(),
-                    &genesis,
-                    vec![],
-                    vec![],
-                    None,
-                    None,
-                )) as Arc<dyn RuntimeAdapter>
-            })
-            .collect()
-    }
-
-    fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
-        let genesis = Genesis::test(vec!["test0", "test1"], 1);
-        create_nightshade_runtimes(&genesis, n)
-    }
-
-    #[test]
-    fn test_pending_approvals() {
-        let runtimes = create_runtimes(1);
-        let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
-        let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
-        let parent_hash = hash(&[1]);
-        let approval = Approval::new(parent_hash, 0, 1, &signer);
-        let peer_id = PeerId::random();
-        env.clients[0]
-            .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
-        let approvals =
-            env.clients[0].pending_approvals.cache_remove(&ApprovalInner::Endorsement(parent_hash));
-        let expected = vec![("test0".to_string(), (approval, ApprovalType::PeerApproval(peer_id)))]
-            .into_iter()
-            .collect::<HashMap<_, _>>();
-        assert_eq!(approvals, Some(expected));
-    }
-
-    #[test]
-    fn test_invalid_approvals() {
-        let runtimes = create_runtimes(1);
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
-        let mut env = TestEnv::new_with_runtime_and_network_adapter(
-            ChainGenesis::test(),
-            1,
-            1,
-            runtimes,
-            vec![network_adapter.clone()],
-        );
-        let signer = InMemoryValidatorSigner::from_seed("random", KeyType::ED25519, "random");
-        let parent_hash = hash(&[1]);
-        // Approval not from a validator. Should be dropped
-        let approval = Approval::new(parent_hash, 1, 3, &signer);
-        let peer_id = PeerId::random();
-        env.clients[0]
-            .collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id.clone()));
-        assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
-        // Approval with invalid signature. Should be dropped
-        let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "random");
-        let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let approval = Approval::new(genesis_hash, 0, 1, &signer);
-        env.clients[0].collect_block_approval(&approval, ApprovalType::PeerApproval(peer_id));
-        assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
-    }
-
-    #[test]
-    fn test_cap_max_gas_price() {
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
-        let epoch_length = 5;
-        genesis.config.min_gas_price = 1_000;
-        genesis.config.max_gas_price = 1_000_000;
-        genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
-        genesis.config.epoch_length = epoch_length;
-        let chain_genesis = ChainGenesis::from(&genesis);
-        let runtimes = create_nightshade_runtimes(&genesis, 1);
-        let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
-
-        for i in 1..epoch_length {
-            let block = env.clients[0].produce_block(i).unwrap().unwrap();
-            env.process_block(0, block, Provenance::PRODUCED);
-        }
-
-        let last_block =
-            env.clients[0].chain.get_block_by_height(epoch_length - 1).unwrap().clone();
-        let protocol_version = env.clients[0]
-            .runtime_adapter
-            .get_epoch_protocol_version(last_block.header().epoch_id())
-            .unwrap();
-        let min_gas_price =
-            env.clients[0].chain.block_economics_config.min_gas_price(protocol_version);
-        let max_gas_price =
-            env.clients[0].chain.block_economics_config.max_gas_price(protocol_version);
-        assert!(max_gas_price <= 20 * min_gas_price);
-    }
-
-    #[test]
-    fn test_process_partial_encoded_chunk_with_missing_block() {
-        let runtimes = create_runtimes(1);
-        let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
-        let client = &mut env.clients[0];
-        let chunk_producer = ChunkForwardingTestFixture::default();
-        let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);
-        // change the prev_block to some unknown block
-        match &mut mock_chunk.header {
-            ShardChunkHeader::V1(ref mut header) => {
-                header.inner.prev_block_hash = hash(b"some_prev_block");
-                header.init();
-            }
-            ShardChunkHeader::V2(ref mut header) => {
-                header.inner.prev_block_hash = hash(b"some_prev_block");
-                header.init();
-            }
-            #[cfg(feature = "protocol_feature_block_header_v3")]
-            ShardChunkHeader::V3(header) => {
-                match &mut header.inner {
-                    ShardChunkHeaderInner::V1(inner) => {
-                        inner.prev_block_hash = hash(b"some_prev_block")
-                    }
-                    ShardChunkHeaderInner::V2(inner) => {
-                        inner.prev_block_hash = hash(b"some_prev_block")
-                    }
-                }
-                header.init();
-            }
-        }
-
-        let mock_forward = PartialEncodedChunkForwardMsg::from_header_and_parts(
-            &mock_chunk.header,
-            mock_chunk.parts.clone(),
-        );
-
-        // process_partial_encoded_chunk should return Ok(NeedBlock) if the chunk is
-        // based on a missing block.
-        let result = client.shards_mgr.process_partial_encoded_chunk(
-            MaybeValidated::NotValidated(&mock_chunk),
-            client.chain.mut_store(),
-            &mut client.rs,
-            PROTOCOL_VERSION,
-        );
-        assert!(matches!(result, Ok(ProcessPartialEncodedChunkResult::NeedBlock)));
-
-        // Client::process_partial_encoded_chunk should not return an error
-        // if the chunk is based on a missing block.
-        let result = client.process_partial_encoded_chunk(MaybeValidated::NotValidated(
-            PartialEncodedChunk::V2(mock_chunk),
-        ));
-        match result {
-            Ok(accepted_blocks) => assert!(accepted_blocks.is_empty()),
-            Err(e) => panic!("Client::process_partial_encoded_chunk failed with {:?}", e),
-        }
-
-        // process_partial_encoded_chunk_forward should return UnknownChunk if it is based on a
-        // a missing block.
-        let result = client.process_partial_encoded_chunk_forward(mock_forward);
-        assert!(matches!(
-            result,
-            Err(near_client_primitives::types::Error::Chunk(near_chunks::Error::UnknownChunk))
-        ));
     }
 }

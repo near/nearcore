@@ -76,16 +76,16 @@ mod test {
 
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
-    use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::NumBlocks;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::genesis_validate::validate_genesis;
     use nearcore::NightshadeRuntime;
+    use testlib::client_test_utils::TestEnv;
+    use testlib::nearcore_test_utils::GenesisExt;
 
     use crate::state_dump::state_dump;
 
