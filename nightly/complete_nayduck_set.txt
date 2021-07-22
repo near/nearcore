@@ -241,8 +241,6 @@ expensive integration-tests test_cases_testnet_rpc test::test_create_account_tes
 expensive integration-tests test_cases_testnet_rpc test::test_create_account_testnet --features nightly_protocol --features nightly_protocol_features
 expensive integration-tests test_cases_testnet_rpc test::test_create_account_again_testnet
 expensive integration-tests test_cases_testnet_rpc test::test_create_account_again_testnet --features nightly_protocol --features nightly_protocol_features
-expensive integration-tests test_cases_testnet_rpc test::test_create_account_failure_invalid_name_testnet
-expensive integration-tests test_cases_testnet_rpc test::test_create_account_failure_invalid_name_testnet --features nightly_protocol --features nightly_protocol_features
 expensive integration-tests test_cases_testnet_rpc test::test_create_account_failure_already_exists_testnet
 expensive integration-tests test_cases_testnet_rpc test::test_create_account_failure_already_exists_testnet --features nightly_protocol --features nightly_protocol_features
 expensive integration-tests test_cases_testnet_rpc test::test_swap_key_testnet
