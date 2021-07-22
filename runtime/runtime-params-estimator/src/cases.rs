@@ -231,6 +231,9 @@ pub enum Metric {
     data_receipt_base_10b_1000,
     data_receipt_10b_1000,
     data_receipt_100kib_1000,
+    data_receipt_base_10b_1000_TEST,
+    data_receipt_10b_1000_TEST,
+    data_receipt_100kib_1000_TEST,
     cpu_ram_soak_test,
 }
 
@@ -602,6 +605,9 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     eprintln!("222222222");
     let v = calls_helper! {
+        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
+        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
+        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         cpu_ram_soak_test => cpu_ram_soak_test,
         base_1M => base_1M,
         read_memory_10b_10k => read_memory_10b_10k,
@@ -745,6 +751,10 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     };
     RuntimeFeesConfig {
         action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
+        data_receipt_creation_config_TEST: DataReceiptCreationConfig {
+            base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase_TEST]),
+            cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte_TEST]),
+        },
         data_receipt_creation_config: DataReceiptCreationConfig {
             base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase]),
             cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte]),

@@ -59,6 +59,7 @@ pub struct RuntimeFeesConfig {
     ///     `promise_batch_create`
     /// - `exec` cost is burned when the receipt is being executed.
     pub action_receipt_creation_config: Fee,
+    pub data_receipt_creation_config_TEST: DataReceiptCreationConfig,
     /// Describes the cost of creating a data receipt, `DataReceipt`.
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
@@ -243,6 +244,18 @@ impl Default for RuntimeFeesConfig {
                 send_not_sir: 108059500000,
                 execution: 108059500000,
             },
+            data_receipt_creation_config_TEST: DataReceiptCreationConfig {
+                base_cost: Fee {
+                    send_sir: 4697339419375,
+                    send_not_sir: 4697339419375,
+                    execution: 4697339419375,
+                },
+                cost_per_byte: Fee {
+                    send_sir: 59357464,
+                    send_not_sir: 59357464,
+                    execution: 59357464,
+                },
+            },
             data_receipt_creation_config: DataReceiptCreationConfig {
                 base_cost: Fee {
                     send_sir: 4697339419375,
@@ -340,6 +353,10 @@ impl RuntimeFeesConfig {
         let free = Fee { send_sir: 0, send_not_sir: 0, execution: 0 };
         RuntimeFeesConfig {
             action_receipt_creation_config: free.clone(),
+            data_receipt_creation_config_TEST: DataReceiptCreationConfig {
+                base_cost: free.clone(),
+                cost_per_byte: free.clone(),
+            },
             data_receipt_creation_config: DataReceiptCreationConfig {
                 base_cost: free.clone(),
                 cost_per_byte: free.clone(),

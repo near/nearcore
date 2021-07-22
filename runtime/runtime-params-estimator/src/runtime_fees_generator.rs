@@ -14,6 +14,8 @@ pub enum ReceiptFees {
     ActionSirReceiptCreation,
     DataReceiptCreationBase,
     DataReceiptCreationPerByte,
+    DataReceiptCreationBase_TEST,
+    DataReceiptCreationPerByte_TEST,
     ActionCreateAccount,
     ActionDeployContractBase,
     ActionDeployContractPerByte,
@@ -44,6 +46,24 @@ impl RuntimeFeesGenerator {
         res.insert(
             ReceiptFees::ActionSirReceiptCreation,
             Ratio::new(self.aggregated[&Metric::SirReceipt].upper(), 1),
+        );
+        res.insert(
+            ReceiptFees::DataReceiptCreationBase_TEST,
+            Ratio::new(
+                self.aggregated[&Metric::data_receipt_10b_1000_TEST]
+                    .upper_with_base(&self.aggregated[&Metric::data_receipt_base_10b_1000_TEST]),
+                1000,
+            ),
+        );
+        // Note we subtract base that has a denominator as well. This is fine, since per byte
+        // denominator is much larger (100K times)
+        res.insert(
+            ReceiptFees::DataReceiptCreationPerByte_TEST,
+            Ratio::new(
+                self.aggregated[&Metric::data_receipt_100kib_1000_TEST]
+                    .upper_with_base(&self.aggregated[&Metric::data_receipt_10b_1000_TEST]),
+                1000 * 100 * 1024,
+            ),
         );
         res.insert(
             ReceiptFees::DataReceiptCreationBase,
