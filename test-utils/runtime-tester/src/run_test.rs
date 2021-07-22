@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use near_chain::{Block, ChainGenesis, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
@@ -19,7 +20,7 @@ impl Scenario {
         serde_json::from_str::<Scenario>(&std::fs::read_to_string(path)?).map_err(io::Error::from)
     }
 
-    pub fn run(&self) -> RuntimeStats {
+    pub fn run(&self) -> Result<RuntimeStats, Error> {
         let genesis = Genesis::test(
             self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect(),
             1,
@@ -53,7 +54,9 @@ impl Scenario {
 
             let start_time = Instant::now();
 
-            last_block = env.clients[0].produce_block(block.height).unwrap().unwrap();
+            last_block = env.clients[0]
+                .produce_block(block.height)?
+                .ok_or_else(|| Error::Other(String::from("No block has been produced")))?;
             env.process_block(0, last_block.clone(), Provenance::PRODUCED);
 
             block_stats.block_production_time = start_time.elapsed();
@@ -61,7 +64,7 @@ impl Scenario {
             runtime_stats.blocks_stats.push(block_stats);
         }
 
-        runtime_stats
+        Ok(runtime_stats)
     }
 }
 
@@ -91,15 +94,21 @@ pub struct TransactionConfig {
     pub actions: Vec<Action>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct RuntimeStats {
     pub blocks_stats: Vec<BlockStats>,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct BlockStats {
     pub height: u64,
     pub block_production_time: Duration,
+}
+
+impl std::fmt::Debug for Scenario {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string_pretty(&self).unwrap())
+    }
 }
 
 impl BlockConfig {

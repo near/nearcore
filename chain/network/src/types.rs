@@ -136,7 +136,7 @@ impl TryFrom<&str> for PeerInfo {
 
 /// Peer chain information.
 /// TODO: Remove in next version
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -147,7 +147,7 @@ pub struct PeerChainInfo {
 }
 
 /// Peer chain information.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfoV2 {
     /// Chain Id and hash of genesis block.
     pub genesis_id: GenesisId,
@@ -190,7 +190,7 @@ pub enum PeerStatus {
     Banned(ReasonForBan),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum HandshakeFailureReason {
     ProtocolVersionMismatch { version: u32, oldest_supported_version: u32 },
     GenesisMismatch(GenesisId),
@@ -205,7 +205,7 @@ impl fmt::Display for HandshakeFailureReason {
 
 impl std::error::Error for HandshakeFailureReason {}
 
-#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     pub version: u32,
     /// Oldest supported protocol version.
@@ -226,7 +226,7 @@ pub struct Handshake {
 /// It is used to automatically derive BorshDeserialize.
 /// Struct describing the layout for Handshake.
 /// It is used to automatically derive BorshDeserialize.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeAutoDes {
     /// Protocol version.
     pub version: u32,
@@ -309,7 +309,7 @@ impl From<HandshakeAutoDes> for Handshake {
 }
 
 // TODO: Remove Handshake V2 in next iteration
-#[derive(BorshSerialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, PartialEq, Eq, Clone, Debug)]
 pub struct HandshakeV2 {
     pub version: u32,
     pub oldest_supported_version: u32,
@@ -415,20 +415,20 @@ impl From<HandshakeV2> for Handshake {
 }
 
 /// Account route description
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
     pub signature: Signature,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
@@ -552,13 +552,13 @@ impl Debug for RoutedMessageBody {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 // Defines the destination for a network request.
 // The request should be sent either to the `account_id` as a routed message, or directly to
 // any peer that tracks the shard.
@@ -578,7 +578,7 @@ impl AccountIdOrPeerTrackingShard {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 pub enum AccountOrPeerIdOrHash {
     AccountId(AccountId),
     PeerId(PeerId),
@@ -702,7 +702,7 @@ impl Message for RoutedMessageFrom {
     type Result = bool;
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct SyncData {
     pub edges: Vec<Edge>,
     pub accounts: Vec<AnnounceAccount>,
@@ -982,7 +982,7 @@ impl KnownPeerStatus {
 }
 
 /// Information node stores about known peers.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -1356,21 +1356,21 @@ impl Message for NetworkRequests {
     type Result = NetworkResponses;
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateResponseInfoV1 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponseV1,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum StateResponseInfo {
     V1(StateResponseInfoV1),
     V2(StateResponseInfoV2),
@@ -1629,14 +1629,14 @@ impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedChunkRequestMsg {
     pub chunk_hash: ChunkHash,
     pub part_ords: Vec<u64>,
     pub tracking_shards: HashSet<ShardId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
@@ -1646,7 +1646,7 @@ pub struct PartialEncodedChunkResponseMsg {
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,

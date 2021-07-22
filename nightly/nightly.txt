@@ -1,6 +1,3 @@
-# basic tests (the ones we run in CI)
-basic --timeout=1800
-
 # python sanity tests
 pytest sanity/block_production.py
 pytest sanity/transactions.py
@@ -174,4 +171,3 @@ expensive --timeout=600 nearcore test_simple test::test_7_10_multiple_nodes
 expensive --timeout=1200 nearcore test_rejoin test::test_4_20_kill1
 expensive --timeout=1200 nearcore test_rejoin test::test_4_20_kill1_two_shards
 expensive --timeout=1200 nearcore test_rejoin test::test_4_20_kill2
-
