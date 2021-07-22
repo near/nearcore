@@ -93,14 +93,14 @@ impl ProfileData {
 impl fmt::Debug for ProfileData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use num_rational::Ratio;
-        let all_gas = self.all_gas();
+        let all_gas = self.all_gas() as u128;
         if all_gas == 0 {
             writeln!(f, "ERROR: No gas profiled")?;
             return Ok(());
         }
-        let host_gas = self.host_gas();
-        let action_gas = self.action_gas();
-        let wasm_gas = self.wasm_gas();
+        let host_gas = self.host_gas() as u128;
+        let action_gas = self.action_gas() as u128;
+        let wasm_gas = self.wasm_gas() as u128;
 
         writeln!(f, "------------------------------")?;
         writeln!(f, "Total gas: {}", all_gas)?;
@@ -124,7 +124,7 @@ impl fmt::Debug for ProfileData {
         )?;
         writeln!(f, "------ Host functions --------")?;
         for e in 0..ExtCosts::count() {
-            let d = self.get_ext_cost(e);
+            let d = self.get_ext_cost(e) as u128;
             if d != 0 {
                 writeln!(
                     f,
@@ -138,7 +138,7 @@ impl fmt::Debug for ProfileData {
         }
         writeln!(f, "------ Actions --------")?;
         for e in 0..ActionCosts::count() {
-            let d = self.get_action_cost(e);
+            let d = self.get_action_cost(e) as u128;
             if d != 0 {
                 writeln!(
                     f,
