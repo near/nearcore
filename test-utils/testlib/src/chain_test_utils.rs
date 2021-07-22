@@ -5,8 +5,6 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use near_primitives::num_rational::Rational;
-use serde::Serialize;
 use tracing::debug;
 
 use near_chain::near_chain_primitives::{Error, ErrorKind};
@@ -18,6 +16,7 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::num_rational::Rational;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ChunkHash;
@@ -55,12 +54,10 @@ use near_chain_configs::ProtocolConfig;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::state_record::StateRecord;
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 struct KVState {
     amounts: HashMap<AccountId, u128>,
     receipt_nonces: HashSet<CryptoHash>,
@@ -93,7 +90,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> 
     u64::from((hash(&account_id.clone().into_bytes()).0)[0]) % num_shards
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize)]
 struct ReceiptNonce {
     from: String,
     to: String,
