@@ -9,11 +9,23 @@ Here we describe its implementation details which are closely related to Runtime
 
 ### Trie
 
-Base structure. Almost never called directly from `Runtime`, modifications are made using `TrieUpdate`.
+Base structure. 
+It is stored in the RocksDB, which is persistent across node restarts. Trie communicates with database using `TrieStorage`.
+Trie data is stored in key-value format in `ColState` column, wherein nodes are stored altogether with `Vec<u8>` values.
+
+For trie node, hash of `TrieKey` maps to `RawTrieNodeWithSize` serialized by custom algorithm.
+
+For value, its hash maps to the value itself. So, value can be obtained from `TrieKey` as follows:
+- compute hash of `TrieKey`
+- get serialized `RawTrieNodeWithSize` from storage and deserialize it
+- extract underlying `RawTrieNode`. If it is a `Leaf` or a `Branch` where some key ends, it should contain hash of the value.
+- get value from storage by its hash.
+
+Note that `Trie` is almost never called directly from `Runtime`, modifications are made using `TrieUpdate`.
 
 ### TrieUpdate
 
-Provides a way to access Storage and record changes to commit in the future. Update is prepared as follows:
+Provides a way to access storage and record changes to commit in the future. Update is prepared as follows:
 
 - changes are made using `set` and `remove` methods, which are added to `prospective` field,
 - call `commit` method which moves `prospective` changes to `committed`,
