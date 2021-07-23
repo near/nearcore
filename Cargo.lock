@@ -4383,18 +4383,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "run-nodes"
-version = "0.1.0"
-dependencies = [
- "clap 2.33.3",
- "integration-tests",
- "near-logger-utils",
-]
-
-[[package]]
 name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
+ "anyhow",
  "borsh 0.8.1",
  "cfg-if 1.0.0",
  "clap 3.0.0-beta.2",
