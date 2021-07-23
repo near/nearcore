@@ -249,7 +249,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         .open("/host/tmp/data/profile.txt")
         .unwrap();
 
-    if let Err(e) = writeln!(file, ProfileData::new()) {
+    if let Err(e) = writeln!(file, "{:?}", ProfileData::new()) {
         eprintln!("Couldn't write to file: {}", e);
     }
 

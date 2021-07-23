@@ -134,7 +134,7 @@ pub fn run_vm(
             .open("/host/tmp/data/profile.txt")
             .unwrap();
 
-        if let Err(e) = writeln!(file, profile) {
+        if let Err(e) = writeln!(file, "{:?}", profile) {
             eprintln!("Couldn't write to file: {}", e);
         }
     }
