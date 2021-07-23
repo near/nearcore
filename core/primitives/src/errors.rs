@@ -358,9 +358,6 @@ impl From<FunctionCallErrorSer> for ContractCallError {
             FunctionCallErrorSer::WasmUnknownError => {
                 ContractCallError::ExecutionError { msg: "unknown error".to_string() }
             }
-            FunctionCallErrorSer::EvmError(e) => {
-                ContractCallError::ExecutionError { msg: format!("EVM: {:?}", e) }
-            }
             FunctionCallErrorSer::WasmTrap(e) => {
                 ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
             }

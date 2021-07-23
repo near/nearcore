@@ -50,16 +50,6 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
-    # evm support has some legacy. Updating it fails at this point.
-    # to fully update, need to fork half of parity libraries, as they stopped development.
-    # See: https://github.com/near/nearcore/issues/3506
-    { name = "digest", version = "=0.8.1" },
-    { name = "proc-macro2", version = "=0.4.30" },
-    { name = "quote", version = "=0.6.13" },
-    { name = "rustc-hex", version = "=1.0.0" },
-    { name = "syn", version = "=0.15.44" },
-    { name = "unicode-xid", version = "=0.1.0" },
-
     # param estimator uses newer imports, but it's not part of neard
     { name = "indicatif", version = "=0.15.0" },
     { name = "rand_xorshift", version = "=0.2.0" },
@@ -84,9 +74,6 @@ skip = [
     { name = "parking_lot", version = "=0.10.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
-
-    # ethereum-types via old evm (openethereum)
-    { name = "ethereum-types", version = "=0.10.0" },
 
     # chrono uses old time crate
     { name = "time", version = "=0.1.43" },

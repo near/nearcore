@@ -24,5 +24,4 @@ lazy_static = "1.4"
 
 [features]
 default = []
-protocol_feature_evm = []
 protocol_feature_alt_bn128 = []
