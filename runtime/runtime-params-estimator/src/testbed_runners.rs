@@ -241,6 +241,6 @@ where
         }
     }
     bar.finish();
-    measurements.print();
+    // measurements.print();
     testbed
 }

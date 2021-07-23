@@ -9,6 +9,8 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMOutcome};
 
 use crate::VMKind;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 /// `run` does the following:
 /// - deserializes and validate the `code` binary (see `prepare::prepare_contract`)
@@ -126,7 +128,15 @@ pub fn run_vm(
         profile.set_burnt_gas(*burnt_gas)
     }
     if method_name == "data_receipt_100kib_1000" {
-        eprintln!("{:?}", profile);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("/host/tmp/data/profile.txt")
+            .unwrap();
+
+        if let Err(e) = writeln!(file, profile) {
+            eprintln!("Couldn't write to file: {}", e);
+        }
     }
     (outcome, error)
 }
