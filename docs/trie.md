@@ -19,10 +19,9 @@ Provides a way to access Storage and record changes to commit in the future. Upd
 - call `commit` method which moves `prospective` changes to `committed`,
 - call `finalize` method which prepares `TrieChanges` and state changes based on `committed` field.
 
-Note that `finalize` does not modify `Trie` itself, it only prepares changes to be passed to `ChainStore`.
-`Trie::insert` and `Trie::update` also does not modify `Trie`. The former one puts new nodes to temporary memory object, and the latter one prepares `TrieChanges` object.
-
-`Trie` is actually updated when `ShardTries::apply_insertions` is called, which puts new values to `ColState` part of key-value database.
+Note that `finalize`, `Trie::insert` and `Trie::update` do not update the database storage. 
+These functions only modify trie nodes in memory.
+Instead, these functions prepares `TrieChanges` object, and `Trie` is actually updated when `ShardTries::apply_insertions` is called, which puts new values to `ColState` part of key-value database.
 
 ### TrieStorage
 
