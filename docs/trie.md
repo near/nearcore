@@ -79,10 +79,12 @@ Stores result of updating `Trie`.
 
 ### TrieRefcountChange
 
-Because we remove unused nodes using garbage collector, we need to track reference count (`rc`) for each node. 
+Because we remove unused nodes using garbage collector, we need to track reference count (`rc`) for each node.
+Also, we may store equal values in different `Trie` nodes, like empty contracts under different accounts. So we currently compress them into one value and track its count.
+
 This structure is used to update `rc` in the database:
 
 - `key_hash` - hash of `TrieKey`,
 - `value` - value corresponding to trie key, e.g. contract code,
-- `rc`.
+- `rc` - change of reference count.
 
