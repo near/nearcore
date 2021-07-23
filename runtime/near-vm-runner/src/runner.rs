@@ -62,8 +62,9 @@ pub fn run_vm(
     vm_kind: VMKind,
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
-    profile: ProfileData,
+    _profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let profile = ProfileData::new();
     let _span = tracing::debug_span!(target: "vm", "run_vm").entered();
 
     #[cfg(feature = "wasmer0_vm")]
