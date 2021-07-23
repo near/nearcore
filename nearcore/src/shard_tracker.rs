@@ -236,7 +236,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards};
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
