@@ -420,7 +420,7 @@ impl BlockInfoV1 {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
