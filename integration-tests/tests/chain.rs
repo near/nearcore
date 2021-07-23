@@ -1,6 +1,5 @@
 mod chain {
     mod challenges;
-    mod doomslug;
     mod gc;
     mod simple_chain;
     mod store;
