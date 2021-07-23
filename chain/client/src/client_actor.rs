@@ -49,6 +49,7 @@ use near_primitives::views::ValidatorInfo;
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
+use crate::client::format_hash;
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
@@ -111,10 +112,6 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
             std::cmp::min(Duration::from_secs(10), Duration::from_secs(chrono_seconds as u64));
         thread::sleep(wait);
     }
-}
-
-fn format_hash(h: CryptoHash) -> String {
-    to_base(&h)[..6].to_string()
 }
 
 impl ClientActor {

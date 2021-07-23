@@ -28,6 +28,7 @@ use near_store::{create_store, Store, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
+use testlib::chain_test_utils;
 
 mod state_dump;
 
@@ -103,10 +104,6 @@ fn load_trie_stop_at_height(
     (runtime, state_roots, last_block.header().clone())
 }
 
-pub fn format_hash(h: CryptoHash) -> String {
-    to_base(&h)[..7].to_string()
-}
-
 fn print_chain(
     store: Arc<Store>,
     home_dir: &Path,
@@ -130,7 +127,11 @@ fn print_chain(
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
             if height == 0 {
-                println!("{: >3} {}", header.height(), format_hash(*header.hash()));
+                println!(
+                    "{: >3} {}",
+                    header.height(),
+                    chain_test_utils::format_hash(*header.hash())
+                );
             } else {
                 let parent_header = chain_store.get_block_header(header.prev_hash()).unwrap();
                 let epoch_id = runtime.get_epoch_id_from_prev_block(header.prev_hash()).unwrap();
@@ -140,7 +141,7 @@ fn print_chain(
                     account_id_to_blocks = HashMap::new();
                     println!(
                         "Epoch {} Validators {:?}",
-                        format_hash(epoch_id.0),
+                        chain_test_utils::format_hash(epoch_id.0),
                         runtime
                             .get_epoch_block_producers_ordered(&epoch_id, &header.hash())
                             .unwrap()
@@ -155,10 +156,10 @@ fn print_chain(
                 println!(
                     "{: >3} {} | {: >10} | parent: {: >3} {}",
                     header.height(),
-                    format_hash(*header.hash()),
+                    chain_test_utils::format_hash(*header.hash()),
                     block_producer,
                     parent_header.height(),
-                    format_hash(*parent_header.hash()),
+                    chain_test_utils::format_hash(*parent_header.hash()),
                 );
             }
         } else {

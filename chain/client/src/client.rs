@@ -95,7 +95,7 @@ pub struct Client {
     last_time_head_progress_made: Instant,
 }
 
-fn format_hash(h: CryptoHash) -> String {
+pub(crate) fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..6].to_string()
 }
 
