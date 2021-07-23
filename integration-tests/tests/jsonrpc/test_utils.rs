@@ -3,17 +3,17 @@ use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde_json::json;
 
 use near_chain_configs::GenesisConfig;
-use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_network::test_utils::open_port;
 use near_primitives::types::NumBlocks;
+use testlib::client_test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 
 use near_jsonrpc_primitives::message::{from_slice, Message};
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
-        GenesisConfig::from_json(include_str!("../../../../nearcore/res/genesis_config.json"));
+        GenesisConfig::from_json(include_str!("../../../nearcore/res/genesis_config.json"));
 }
 
 pub enum NodeType {
@@ -49,6 +49,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     (view_client_addr, addr)
 }
 
+#[macro_export]
 #[allow(unused_macros)] // Suppress Rustc warnings even though this macro is used.
 macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {

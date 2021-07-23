@@ -5,11 +5,11 @@ use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
-use num_rational::Rational;
+use near_primitives::num_rational::Rational;
 use serde::Serialize;
 use tracing::debug;
 
-use near_chain_primitives::{Error, ErrorKind};
+use near_chain::near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -42,14 +42,14 @@ use near_store::{
     WrappedTrieChanges,
 };
 
-use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
-use crate::store::ChainStoreAccess;
-use crate::types::{
+use near_chain::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use near_chain::types::{
     ApplyTransactionResult, BlockHeaderInfo, ChainGenesis, ValidatorInfoIdentifier,
 };
+use near_chain::ChainStoreAccess;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use crate::Doomslug;
-use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use near_chain::Doomslug;
+use near_chain::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
 use near_chain_configs::ProtocolConfig;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::block_header::{Approval, ApprovalInner};
@@ -803,7 +803,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         block_hash: &CryptoHash,
         _epoch_id: &EpochId,
         request: &QueryRequest,
-    ) -> Result<QueryResponse, near_chain_primitives::error::QueryError> {
+    ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
@@ -1291,23 +1291,6 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     }
 }
 
-impl ChainGenesis {
-    pub fn test() -> Self {
-        ChainGenesis {
-            time: Utc::now(),
-            height: 0,
-            gas_limit: 1_000_000,
-            min_gas_price: 0,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Rational::from_integer(0),
-            transaction_validity_period: 100,
-            epoch_length: 5,
-            protocol_version: PROTOCOL_VERSION,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::time::Instant;
@@ -1321,7 +1304,7 @@ mod test {
     use near_primitives::types::NumShards;
     use near_store::test_utils::create_test_store;
 
-    use crate::RuntimeAdapter;
+    use near_chain::RuntimeAdapter;
 
     use super::KeyValueRuntime;
 
