@@ -135,7 +135,6 @@ pub fn epoch_config(
 ) -> EpochConfig {
     EpochConfig {
         epoch_length,
-        num_shards,
         num_block_producer_seats,
         num_block_producer_seats_per_shard: get_num_seats_per_shard(
             num_shards,
