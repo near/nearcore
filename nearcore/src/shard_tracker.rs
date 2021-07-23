@@ -236,7 +236,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards};
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
@@ -245,11 +245,10 @@ mod tests {
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
-    fn get_epoch_manager(num_shards: NumShards) -> Arc<RwLock<EpochManager>> {
+    fn get_epoch_manager() -> Arc<RwLock<EpochManager>> {
         let store = create_test_store();
         let initial_epoch_config = EpochConfig {
             epoch_length: 1,
-            num_shards,
             num_block_producer_seats: 1,
             num_block_producer_seats_per_shard: vec![1],
             avg_hidden_validator_seats_per_shard: vec![],
@@ -320,7 +319,7 @@ mod tests {
     #[test]
     fn test_track_new_accounts_and_shards() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(num_shards);
+        let epoch_manager = get_epoch_manager();
         let mut tracker =
             ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager, num_shards);
         tracker.track_accounts(&["test1".to_string(), "test2".to_string()]);
@@ -336,7 +335,7 @@ mod tests {
     #[test]
     fn test_untrack_accounts() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(num_shards);
+        let epoch_manager = get_epoch_manager();
         let mut tracker = ShardTracker::new(
             vec![],
             vec![],
@@ -368,7 +367,7 @@ mod tests {
     #[test]
     fn test_untrack_shards() {
         let num_shards = 4;
-        let epoch_manager = get_epoch_manager(num_shards);
+        let epoch_manager = get_epoch_manager();
         let mut tracker = ShardTracker::new(
             vec![],
             vec![],
