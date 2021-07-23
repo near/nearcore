@@ -18,7 +18,6 @@ pub mod migrations;
 pub mod missing_chunks;
 pub mod store;
 pub mod store_validator;
-pub mod test_utils;
 pub mod types;
 pub mod validate;
 

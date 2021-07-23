@@ -3358,19 +3358,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-jsonrpc-test-utils"
-version = "0.1.0"
-dependencies = [
- "actix",
- "lazy_static",
- "near-chain-configs",
- "near-client",
- "near-jsonrpc",
- "near-network",
- "near-primitives",
-]
-
-[[package]]
 name = "near-logger-utils"
 version = "0.1.0"
 dependencies = [

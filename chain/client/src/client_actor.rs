@@ -38,7 +38,6 @@ use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::serialize::to_base;
 use near_primitives::types::{BlockHeight, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};

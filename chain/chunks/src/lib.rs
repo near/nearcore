@@ -44,7 +44,6 @@ pub use crate::types::Error;
 use rand::Rng;
 
 mod chunk_cache;
-pub mod test_utils;
 mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;

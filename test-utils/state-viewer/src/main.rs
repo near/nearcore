@@ -18,7 +18,6 @@ use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
