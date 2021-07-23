@@ -2,7 +2,6 @@ use actix::System;
 use futures::{future, FutureExt};
 
 use crate::jsonrpc::test_utils;
-use crate::test_with_client;
 use near_actix_test_utils::run_actix;
 use near_jsonrpc::client::new_http_client;
 use near_logger_utils::init_test_logger;

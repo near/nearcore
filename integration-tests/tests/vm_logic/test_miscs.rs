@@ -1,5 +1,4 @@
 mod tests {
-    #[macro_use]
     use crate::map;
     use crate::vm_logic::fixtures::get_context;
     use crate::vm_logic::helpers::*;

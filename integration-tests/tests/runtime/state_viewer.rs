@@ -1,32 +1,15 @@
 mod tests {
     #[cfg(feature = "protocol_feature_evm")]
     use near_chain_configs::TESTNET_EVM_CHAIN_ID;
-    use near_primitives::{
-        account::{AccessKey, Account},
-        borsh::BorshDeserialize,
-        config::VMLimitConfig,
-        contract::ContractCode,
-        errors::InvalidTxError,
-        hash::CryptoHash,
-        receipt::ActionReceipt,
-        runtime::{
-            apply_state::ApplyState,
-            config::RuntimeConfig,
-            migration_data::{MigrationData, MigrationFlags},
-        },
-        serialize::to_base64,
-        test_utils::MockEpochInfoProvider,
-        transaction::FunctionCallAction,
-        trie_key::{trie_key_parsers, TrieKey},
-        types::{AccountId, EpochId, EpochInfoProvider, Gas, StateChangeCause},
-        version::PROTOCOL_VERSION,
-        views::{StateItem, ViewApplyState, ViewStateResult},
-    };
-    use near_runtime_utils::is_valid_account_id;
-    use near_store::{get_access_key, get_account, get_code, set_account, TrieUpdate};
-    use near_vm_logic::ReturnData;
+    use near_primitives::account::Account;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::test_utils::MockEpochInfoProvider;
+    use near_primitives::trie_key::TrieKey;
+    use near_primitives::types::{AccountId, EpochId, StateChangeCause};
+    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::views::{StateItem, ViewApplyState};
+    use near_store::set_account;
     use node_runtime::state_viewer::{errors, TrieViewer};
-    use std::{str, sync::Arc, time::Instant};
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };

@@ -5,10 +5,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::AccessKey;
     use near_primitives::contract::ContractCode;
-    use near_primitives::errors::{
-        BalanceMismatchError, IntegerOverflowError, ReceiptValidationError, RuntimeError,
-        StorageError,
-    };
+    use near_primitives::errors::{ReceiptValidationError, RuntimeError, StorageError};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::profile::ProfileData;
     use near_primitives::receipt::{ActionReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum};
@@ -23,16 +20,13 @@ mod tests {
     };
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{
-        validator_stake::ValidatorStake, AccountId, Balance, EpochInfoProvider, Gas, MerkleHash,
-        RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+        AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, StateChangeCause,
     };
     use near_primitives::utils::create_receipt_id_from_transaction;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_tries;
     use near_store::{
-        get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-        set_access_key, set_account, set_postponed_receipt, set_received_data, PartialStorage,
-        ShardTries, StoreCompiledContractCache, Trie, TrieChanges, TrieUpdate,
+        get_account, set, set_access_key, set_account, ShardTries, StoreCompiledContractCache,
     };
     use near_vm_runner::{get_contract_cache_key, VMKind};
     use node_runtime::config::{safe_add_gas, total_prepaid_exec_fees};

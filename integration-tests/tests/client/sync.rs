@@ -3,22 +3,18 @@ mod tests {
     use std::thread;
     use std::time::Duration as TimeDuration;
 
-    use near_chain::{Chain, RuntimeAdapter};
     use near_chain::{ChainGenesis, Provenance};
     use near_client::sync::{get_locator_heights, BlockSync, HeaderSync};
-    use near_client_primitives::types::{
-        DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
-    };
+    use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
     use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfoV2;
-    use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
     use near_network::PeerInfo;
-    use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
+    use near_network::{FullPeerInfo, NetworkRequests};
     use near_primitives::block::Tip;
     use near_primitives::block::{Approval, Block, GenesisId};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::network::PeerId;
     use near_primitives::num_rational::Ratio;

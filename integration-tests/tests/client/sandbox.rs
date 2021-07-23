@@ -1,26 +1,16 @@
 mod tests {
     use std::path::Path;
-
     use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
     use near_chain_configs::Genesis;
-
-    use testlib::client_test_utils::TestEnv;
-
     use near_crypto::{InMemorySigner, KeyType};
-
-    use near_primitives::serialize::{from_base64, to_base64};
-    use near_primitives::state_record::StateRecord;
-
     use near_primitives::transaction::{
         Action, DeployContractAction, FunctionCallAction, SignedTransaction,
     };
-
     use near_primitives::types::{AccountId, BlockHeight, Nonce};
-
-    use near_primitives::account::Account;
     use near_store::test_utils::create_test_store;
+    use testlib::client_test_utils::TestEnv;
     use testlib::nearcore_test_utils::GenesisExt;
 
     fn test_setup() -> (TestEnv, InMemorySigner) {
