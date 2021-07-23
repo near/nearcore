@@ -605,9 +605,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
 
     eprintln!("222222222");
     let v = calls_helper! {
-        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
-        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
-        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         cpu_ram_soak_test => cpu_ram_soak_test,
         base_1M => base_1M,
         read_memory_10b_10k => read_memory_10b_10k,
@@ -626,6 +623,9 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         utf16_log_10kib_10k => utf16_log_10kib_10k,
         nul_utf16_log_10b_10k => nul_utf16_log_10b_10k,
         nul_utf16_log_10kib_10k => nul_utf16_log_10kib_10k,
+        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
+        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
+        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         sha256_10b_10k => sha256_10b_10k,
         sha256_10kib_10k => sha256_10kib_10k,
         keccak256_10b_10k => keccak256_10b_10k,
@@ -649,6 +649,9 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
         storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
         storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000,
         storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
         storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
         storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
@@ -658,10 +661,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
         promise_return_100k => promise_return_100k,
         data_producer_10b => data_producer_10b,
-        data_producer_100kib => data_producer_100kib,
-        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-        data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000
+        data_producer_100kib => data_producer_100kib
     };
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
