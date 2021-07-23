@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use futures::{future, FutureExt};
 use rand::{thread_rng, Rng};
 
-use near_chain::test_utils::KeyValueRuntime;
+use crate::chain_test_utils::KeyValueRuntime;
 use near_chain::{
     Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Provenance, RuntimeAdapter,
 };
@@ -42,13 +42,13 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 #[cfg(feature = "adversarial")]
-use crate::AdversarialControls;
-use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_client::AdversarialControls;
+use near_client::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use num_rational::Rational;
 use std::mem::swap;
 use std::time::Instant;
 

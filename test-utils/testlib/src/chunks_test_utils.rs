@@ -2,9 +2,12 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_chain::test_utils::KeyValueRuntime;
+use crate::chain_test_utils::KeyValueRuntime;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStore;
+use near_chunks::{
+    Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
+};
 use near_crypto::KeyType;
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::block::BlockHeader;
@@ -18,10 +21,6 @@ use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Store;
-
-use crate::{
-    Seal, SealsManager, ShardsManager, ACCEPTING_SEAL_PERIOD_MS, PAST_SEAL_HEIGHT_HORIZON,
-};
 
 pub struct SealsManagerTestFixture {
     pub mock_chunk_producer: AccountId,
