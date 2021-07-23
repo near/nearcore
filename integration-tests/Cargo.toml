@@ -58,7 +58,7 @@ near-vm-logic = { path = "../runtime/near-vm-logic", version = "3.0.0", features
 near-vm-runner = {path = "../runtime/near-vm-runner" }
 nearcore = { path = "../nearcore" }
 node-runtime = { path = "../runtime/runtime"}
-testlib = { path = "./testlib" }
+testlib = { path = "../test-utils/testlib" }
 
 
 [features]

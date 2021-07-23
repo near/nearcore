@@ -19,7 +19,7 @@ node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
 nearcore = { path = "../../nearcore" }
-testlib = { path = "../../integration-tests/testlib" }
+testlib = { path = "../../test-utils/testlib" }
 integration-tests = { path = "../../integration-tests" }
 
 [dev-dependencies]

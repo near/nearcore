@@ -17,4 +17,4 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 nearcore = { path = "../../nearcore" }
-testlib = { path = "../../integration-tests/testlib" }
+testlib = { path = "../../test-utils/testlib" }

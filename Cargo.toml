@@ -31,6 +31,7 @@ members = [
     "test-utils/runtime-tester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
+    "test-utils/testlib",
     "neard",
     "nearcore",
     "tools/rpctypegen/core",
@@ -44,7 +45,6 @@ members = [
     "tools/storage-usage-delta-calculator",
     "tools/restored-receipts-verifier",
     "integration-tests",
-    "integration-tests/testlib",
 ]
 
 [patch.crates-io]

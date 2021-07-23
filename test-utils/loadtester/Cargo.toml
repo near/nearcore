@@ -27,4 +27,4 @@ near-store = { path = "../../core/store" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 nearcore = { path = "../../nearcore" }
 node-runtime = { path = "../../runtime/runtime" }
-testlib = { path = "../../integration-tests/testlib" }
+testlib = { path = "../../test-utils/testlib" }
