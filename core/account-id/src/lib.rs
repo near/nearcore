@@ -103,7 +103,7 @@ impl AccountId {
     }
 
     /// Returns true if the account ID length is 64 characters and it's a hex representation.
-    pub fn is_64_len_hex(account_id: impl AsRef<str>) -> bool {
+    pub fn is_implicit(account_id: impl AsRef<str>) -> bool {
         let account_id = account_id.as_ref();
         account_id.len() == 64
             && account_id.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
@@ -493,13 +493,13 @@ mod tests {
             assert!(
                 matches!(
                     valid_account_id.parse::<AccountId>(),
-                    Ok(account_id) if AccountId::is_64_len_hex(&account_id)
+                    Ok(account_id) if AccountId::is_implicit(&account_id)
                 ),
                 "Account ID {} should be valid 64-len hex",
                 valid_account_id
             );
             assert!(
-                AccountId::is_64_len_hex(valid_account_id),
+                AccountId::is_implicit(valid_account_id),
                 "Account ID {} should be valid 64-len hex",
                 valid_account_id
             );
@@ -517,13 +517,13 @@ mod tests {
             assert!(
                 !matches!(
                     invalid_account_id.parse::<AccountId>(),
-                    Ok(account_id) if AccountId::is_64_len_hex(&account_id)
+                    Ok(account_id) if AccountId::is_implicit(&account_id)
                 ),
                 "Account ID {} should be invalid 64-len hex",
                 invalid_account_id
             );
             assert!(
-                !AccountId::is_64_len_hex(invalid_account_id),
+                !AccountId::is_implicit(invalid_account_id),
                 "Account ID {} should be invalid 64-len hex",
                 invalid_account_id
             );

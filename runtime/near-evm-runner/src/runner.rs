@@ -516,7 +516,7 @@ impl<'a> EvmContext<'a> {
     }
 
     fn pay_gas_for_transfer(&mut self, account_id: &AccountId) -> Result<()> {
-        if AccountId::is_64_len_hex(&account_id) {
+        if AccountId::is_implicit(&account_id) {
             self.gas_counter.pay_action_base(
                 &self.fees_config.action_creation_config.create_account_cost,
                 false,
