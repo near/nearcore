@@ -1,0 +1,59 @@
+[
+  {
+    "payable": true,
+    "stateMutability": "payable",
+    "type": "fallback"
+  },
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_salt",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_contractBytecode",
+        "type": "bytes"
+      }
+    ],
+    "name": "deploy",
+    "outputs": [
+      {
+        "internalType": "address payable",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "payable": false,
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_salt",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_contractBytecode",
+        "type": "bytes"
+      }
+    ],
+    "name": "testDoubleDeploy",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "payable": true,
+    "stateMutability": "payable",
+    "type": "function"
+  }
+]
