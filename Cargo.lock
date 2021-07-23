@@ -1544,42 +1544,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ethabi"
-version = "13.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53d4e679d6864bc26210feb5cf044e245741cd9d7701b35c00440a6e84d61399"
-dependencies = [
- "anyhow",
- "ethereum-types 0.10.0",
- "hex",
- "serde",
- "serde_json",
- "sha3",
- "thiserror",
- "uint",
-]
-
-[[package]]
-name = "ethabi-contract"
-version = "11.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88d4002f1f77d8233685dafd8589efe1c9dfa63e21ca6c11134372acc7f68032"
-
-[[package]]
-name = "ethabi-derive"
-version = "13.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9b05d8ec904da6703f5ba32273f8f0d2bea25f7be4940c5e1eb617ccfdeb215"
-dependencies = [
- "anyhow",
- "ethabi",
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "ethbloom"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1590,13 +1554,6 @@ dependencies = [
  "impl-rlp",
  "impl-serde",
  "tiny-keccak",
-]
-
-[[package]]
-name = "ethereum-types"
-version = "0.10.0"
-dependencies = [
- "ethereum-types 0.11.0",
 ]
 
 [[package]]
@@ -2830,7 +2787,7 @@ dependencies = [
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
- "ethereum-types 0.11.0",
+ "ethereum-types",
  "hex-literal",
  "lazy_static",
  "libc",
@@ -3403,7 +3360,7 @@ dependencies = [
  "base64 0.11.0",
  "borsh",
  "byteorder",
- "ethereum-types 0.11.0",
+ "ethereum-types",
  "hex",
  "indicatif 0.13.0",
  "lazy_static",
@@ -4357,10 +4314,6 @@ dependencies = [
  "cfg-if 1.0.0",
  "clap 2.33.3",
  "csv",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
- "ethereum-types 0.11.0",
  "glob",
  "gnuplot",
  "hex",
@@ -5004,10 +4957,6 @@ dependencies = [
  "borsh",
  "byteorder",
  "clap 2.33.3",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
- "ethereum-types 0.11.0",
  "futures",
  "hex",
  "lazy-static-include",
@@ -6216,3 +6165,7 @@ dependencies = [
  "rand 0.8.3",
  "rustc-hex",
 ]
+
+[[patch.unused]]
+name = "ethereum-types"
+version = "0.10.0"

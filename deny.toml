@@ -74,6 +74,7 @@ skip = [
     { name = "parking_lot", version = "=0.10.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
+    { name = "digest", version = "=0.8.1" },
 
     # chrono uses old time crate
     { name = "time", version = "=0.1.43" },
