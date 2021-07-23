@@ -9,7 +9,8 @@ use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use nearcore::{config::GenesisExt, load_test_config, start_with_config};
+use nearcore::start_with_config;
+use testlib::nearcore_test_utils::{load_test_config, GenesisExt};
 use testlib::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.

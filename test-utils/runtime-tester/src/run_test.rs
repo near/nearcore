@@ -11,7 +11,8 @@ use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{BlockHeight, Nonce};
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
+use testlib::nearcore_test_utils::GenesisExt;
 
 use serde::{Deserialize, Serialize};
 

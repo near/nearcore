@@ -1679,8 +1679,9 @@ mod test {
     };
     use near_store::create_store;
 
-    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
+    use testlib::nearcore_test_utils::GenesisExt;
 
     use super::*;
 

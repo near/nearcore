@@ -61,10 +61,11 @@ use near_primitives::views::{
 };
 use near_store::get;
 use near_store::test_utils::create_test_store;
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
+use testlib::nearcore_test_utils::GenesisExt;
 
 fn set_block_protocol_version(
     block: &mut Block,

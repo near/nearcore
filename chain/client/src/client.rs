@@ -1683,7 +1683,7 @@ mod test {
     use near_primitives::version::ProtocolFeature;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
-    use nearcore::config::GenesisExt;
+    use testlib::nearcore_test_utils::GenesisExt;
 
     use crate::test_utils::TestEnv;
     use near_network::test_utils::MockNetworkAdapter;

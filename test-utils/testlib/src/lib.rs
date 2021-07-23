@@ -13,9 +13,11 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, load_test_config, start_with_config, NightshadeRuntime};
+use nearcore::{start_with_config, NightshadeRuntime};
+use nearcore_test_utils::{load_test_config, GenesisExt};
 
 pub mod fees_utils;
+pub mod nearcore_test_utils;
 pub mod node;
 pub mod runtime_utils;
 #[cfg(feature = "protocol_feature_evm")]

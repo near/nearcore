@@ -11,8 +11,8 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::test_utils::create_test_store;
-use nearcore::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
+use testlib::nearcore_test_utils::GenesisExt;
 
 use primitive_types::U256;
 

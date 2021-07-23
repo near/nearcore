@@ -19,6 +19,7 @@ node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
 nearcore = { path = "../../nearcore" }
+testlib = { path = "../../test-utils/testlib" }
 
 [dev-dependencies]
 serde_json = "1"

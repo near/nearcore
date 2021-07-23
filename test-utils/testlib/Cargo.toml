@@ -11,6 +11,8 @@ path = "src/run_nodes.rs"
 actix = "=0.11.0-beta.2"
 actix-rt = "2"
 clap = "2.33"
+chrono = { version = "0.4.4", features = ["serde"] }
+easy-ext = "0.2"
 log = "0.4"
 rand = "0.7"
 serde_json = "1"
@@ -26,6 +28,7 @@ ethabi = "13.0.0"
 ethabi-contract = "11.0.0"
 ethabi-derive = "13.0.0"
 ethereum-types = "0.11.0"
+tracing = "0.1.13"
 
 borsh = "0.8.1"
 
@@ -43,6 +46,7 @@ near-jsonrpc = { path = "../../chain/jsonrpc" }
 near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
+near-rosetta-rpc = { path = "../../chain/rosetta-rpc", optional = true }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 nearcore = { path = "../../nearcore" }
 near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }

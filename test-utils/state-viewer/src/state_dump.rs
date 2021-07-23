@@ -82,10 +82,10 @@ mod test {
     use near_primitives::types::NumBlocks;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::genesis_validate::validate_genesis;
     use nearcore::NightshadeRuntime;
+    use testlib::nearcore_test_utils::GenesisExt;
 
     use crate::state_dump::state_dump;
 

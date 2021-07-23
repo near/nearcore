@@ -18,7 +18,7 @@ use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
-pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+pub use crate::config::{init_configs, load_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
     migrate_24_to_25,

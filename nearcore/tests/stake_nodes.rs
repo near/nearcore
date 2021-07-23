@@ -19,8 +19,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
+use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::{start_with_config, NearConfig, NEAR_BASE};
+use testlib::nearcore_test_utils::{load_test_config, GenesisExt};
 use testlib::{genesis_hash, test_helpers::heavy_test};
 
 use {near_primitives::types::BlockId, primitive_types::U256};

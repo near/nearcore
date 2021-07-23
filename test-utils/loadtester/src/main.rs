@@ -17,9 +17,9 @@ use near_primitives::types::{NumSeats, NumShards};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_store::{create_store, ColState};
-use nearcore::config::create_testnet_configs;
 use nearcore::{get_default_home, get_store_path};
 use remote_node::RemoteNode;
+use testlib::nearcore_test_utils::create_testnet_configs;
 
 use crate::transactions_executor::Executor;
 use crate::transactions_generator::TransactionType;

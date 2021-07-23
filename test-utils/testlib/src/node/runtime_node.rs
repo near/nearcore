@@ -1,12 +1,13 @@
 use std::sync::{Arc, RwLock};
 
+use crate::nearcore_test_utils::GenesisExt;
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
+use nearcore::config::TESTING_INIT_BALANCE;
 
 use crate::node::Node;
 use crate::runtime_utils::{

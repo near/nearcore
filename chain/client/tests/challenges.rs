@@ -31,9 +31,10 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use nearcore::config::{GenesisExt, FISHERMEN_THRESHOLD};
+use nearcore::config::FISHERMEN_THRESHOLD;
 use nearcore::NightshadeRuntime;
 use num_rational::Rational;
+use testlib::nearcore_test_utils::GenesisExt;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {

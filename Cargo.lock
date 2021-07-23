@@ -3741,6 +3741,7 @@ dependencies = [
  "near-rust-allocator-proxy",
  "nearcore",
  "openssl-probe",
+ "testlib",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -5300,6 +5301,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "serde_json",
+ "testlib",
 ]
 
 [[package]]
@@ -5545,7 +5547,9 @@ dependencies = [
  "assert_matches",
  "borsh",
  "byteorder",
+ "chrono",
  "clap 2.33.3",
+ "easy-ext",
  "ethabi",
  "ethabi-contract",
  "ethabi-derive",
@@ -5567,6 +5571,7 @@ dependencies = [
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-rosetta-rpc",
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
@@ -5576,6 +5581,7 @@ dependencies = [
  "rand 0.7.3",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

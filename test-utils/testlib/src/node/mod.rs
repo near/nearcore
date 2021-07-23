@@ -1,6 +1,9 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 
+use crate::nearcore_test_utils::{
+    create_testnet_configs, create_testnet_configs_from_seeds, GenesisExt,
+};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
@@ -9,9 +12,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
-use nearcore::config::{
-    create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt,
-};
+use nearcore::config::Config;
 use nearcore::NearConfig;
 
 pub use crate::node::process_node::ProcessNode;
@@ -19,7 +20,7 @@ pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_primitives::contract::ContractCode;
-use num_rational::Rational;
+use near_primitives::num_rational::Rational;
 
 mod process_node;
 mod runtime_node;
@@ -29,7 +30,7 @@ pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> Genesis {
-    Genesis::test(vec!["alice.near", "bob.near"], 2)
+    GenesisExt::test(vec!["alice.near", "bob.near"], 2)
 }
 
 /// Config that can be used to start a node or connect to an existing node.
