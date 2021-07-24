@@ -20,7 +20,7 @@ pub enum ParseAccountError {
 
 /// Account identifier. Provides access to user's state.
 ///
-/// *Note: Every owned Account ID has ensured its validity.*
+/// This guarantees all properly constructed AccountId's are valid for the NEAR network.
 #[derive(
     Eq,
     Ord,
@@ -78,7 +78,19 @@ impl AccountId {
         }
     }
 
+    /// Creates an AccountId without any validation
+    ///
+    /// Useful in cases where pre-validation causes unforseen issues.
+    ///
+    /// Note: this is restrictively for internal use only, and, being behind a feature flag,
+    /// this could be removed later in the future.
+    ///
+    /// # Safety
+    ///
+    /// You must ensure to manually call the [`AccountId::validate`] function on the
+    /// AccountId sometime after its creation but before it's use.
     #[cfg(feature = "internal_unsafe")]
+    #[deprecated(since = "#4440", note = "unchecked AccountId construction is illegal")]
     pub fn new_unchecked(account_id: String) -> Self {
         Self(account_id.into())
     }

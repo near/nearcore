@@ -2163,9 +2163,16 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(utf8_decoding_base)?;
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
 
-        let result =
-            String::from_utf8(buf).map(AccountId::new_unchecked).map_err(|_| HostError::BadUTF8)?;
-        Ok(result)
+        // We return an unsafely constructed AccountId here for the sole purpose of
+        // ensuring backwards compatibility, we go ahead to validate this further down the line
+        // in node-runtime/verifier.rs#fn(validate_receipt)
+        let account_id = String::from_utf8(buf)
+            .map(
+                #[allow(deprecated)]
+                AccountId::new_unchecked,
+            )
+            .map_err(|_| HostError::BadUTF8)?;
+        Ok(account_id)
     }
 
     /// Writes key-value into storage.
