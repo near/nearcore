@@ -15,8 +15,8 @@ This crate implements the specification of the interface that Near blockchain ex
 [dependencies]
 borsh = "0.8.1"
 serde = { version = "1", features = ["derive"] }
-wasmer-runtime = { version="0.17.1", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
-wasmer-runtime-core = {version = "0.17.4", package = "wasmer-runtime-core-near", optional = true}
+wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
+wasmer-runtime-core = { version = "0.18.1", package = "wasmer-runtime-core-near", optional = true}
 wasmparser = "0.51"
 wasmer = { version = "1.0.2", optional = true }
 wasmer-types = { version = "1.0.2", optional = true }
@@ -40,7 +40,6 @@ threadpool = "1.8.1"
 near-test-contracts = { path = "../near-test-contracts" }
 assert_matches = "1.3"
 wat = "1.0"
-bencher = "^0.1.5"
 base64 = "0.13"
 
 [features]
@@ -69,10 +68,6 @@ protocol_feature_alt_bn128 = [
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]
-
-[[bench]]
-name = "bench"
-harness = false
 
 [package.metadata.workspaces]
 independent = true
