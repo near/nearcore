@@ -16,9 +16,9 @@ pub mod stats;
 pub mod testbed;
 // Prepares transactions and feeds them to the testbed in batches. Performs the warm up, takes care
 // of nonces.
+mod function_call;
 mod gas_metering;
 pub mod testbed_runners;
-mod function_call;
 
 /// Lazily loads contract's code from a directory in the source tree.
 pub(crate) struct TestContract {
