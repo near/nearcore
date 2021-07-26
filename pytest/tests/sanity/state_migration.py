@@ -19,13 +19,10 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout
+from utils import wait_for_blocks_or_timeout, get_near_tempdir
 
 def main():
-    node_root = '/tmp/near/state_migration'
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
+    node_root = get_near_tempdir('state_migration', clean=True)
 
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test("beta")
