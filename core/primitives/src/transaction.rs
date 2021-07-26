@@ -12,12 +12,12 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::serialize::{base64_format, u128_dec_format, u128_dec_format_compatible};
+use crate::serialize::{base64_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Gas, Nonce};
 
 pub type LogEntry = String;
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
@@ -198,7 +198,7 @@ impl From<DeleteAccountAction> for Action {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone)]
 #[borsh_init(init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
@@ -251,7 +251,7 @@ impl Borrow<CryptoHash> for SignedTransaction {
 }
 
 /// The status of execution for a transaction or a receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
@@ -286,11 +286,10 @@ impl Default for ExecutionStatus {
 }
 
 /// ExecutionOutcome for proof. Excludes logs and metadata
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
 struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
-    #[serde(with = "u128_dec_format")]
     pub tokens_burnt: Balance,
     pub executor_id: AccountId,
     pub status: PartialExecutionStatus,
@@ -309,7 +308,7 @@ impl From<&ExecutionOutcome> for PartialExecutionOutcome {
 }
 
 /// ExecutionStatus for proof. Excludes failure debug info.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
 pub enum PartialExecutionStatus {
     Unknown,
     Failure,
@@ -329,7 +328,7 @@ impl From<ExecutionStatus> for PartialExecutionStatus {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, PartialEq, Clone, Default, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq)]
 pub struct ExecutionOutcome {
     /// Logs from this transaction or receipt.
     pub logs: Vec<LogEntry>,
@@ -392,7 +391,7 @@ impl fmt::Debug for ExecutionOutcome {
 /// Execution outcome with the identifier.
 /// For a signed transaction, the ID is the hash of the transaction.
 /// For a receipt, the ID is the receipt ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Serialize, Eq)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
     pub id: CryptoHash,
@@ -409,7 +408,7 @@ impl ExecutionOutcomeWithId {
 }
 
 /// Execution outcome with path from it to the outcome root and ID.
-#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Serialize, Eq)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
 pub struct ExecutionOutcomeWithIdAndProof {
     pub proof: MerklePath,
     pub block_hash: CryptoHash,
