@@ -80,7 +80,7 @@ Stores result of updating `Trie`.
 ### TrieRefcountChange
 
 Because we remove unused nodes using garbage collector, we need to track reference count (`rc`) for each node.
-Also, we may store equal values in different `Trie` nodes, like empty contracts under different accounts. So we currently compress them into one value and track its count.
+Another reason is that we can dedup values. If the same contract is deployed 1000 times, we only store one contract binary in storage and track its count.
 
 This structure is used to update `rc` in the database:
 
