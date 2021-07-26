@@ -1,5 +1,5 @@
-mod runtime;
 mod rpc;
+mod runtime;
 
 use std::sync::Arc;
 
