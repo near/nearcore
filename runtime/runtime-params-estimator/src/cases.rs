@@ -510,7 +510,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     testbed =
         measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
-    let ad: Vec<_> = good_code_accounts.into_iter().collect();
+    let ad: Vec<_> = good_code_accounts.clone().into_iter().collect();
 
     testbed = measure_function(
         Metric::warmup,
@@ -625,6 +625,34 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     }
 
     // let mut testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)));
+    let curr_code = RefCell::new(SMALLEST_CODE.to_vec());
+    let mut accounts_deployed = HashSet::new();
+    let mut good_code_accounts = HashSet::new();
+    let good_account = RefCell::new(false);
+    let mut f = || {
+        let account_idx = loop {
+            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+            if accounts_deployed.contains(&x) {
+                continue;
+            }
+            break x;
+        };
+        accounts_deployed.insert(account_idx);
+        if *good_account.borrow() {
+            good_code_accounts.insert(account_idx);
+        }
+        let account_id = get_account_id(account_idx);
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+        SignedTransaction::from_actions(
+            nonce as u64,
+            account_id.clone(),
+            account_id,
+            &signer,
+            vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
+            CryptoHash::default(),
+        )
+    };
     let mut testbed =
         measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
 
@@ -661,7 +689,43 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     testbed =
         measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
 
-    let ad: Vec<_> = good_code_accounts.into_iter().collect();
+    let ad: Vec<_> = good_code_accounts.clone().into_iter().collect();
+
+    testbed = measure_function(
+        Metric::warmup,
+        "noop",
+        &mut m,
+        testbed,
+        &ad,
+        &mut nonces,
+        &config,
+        false,
+        vec![],
+    );
+
+    testbed = measure_function(
+        Metric::noop_1MiB,
+        "noop",
+        &mut m,
+        testbed,
+        &ad,
+        &mut nonces,
+        &config,
+        false,
+        (&[0u8; 1024 * 1024]).to_vec(),
+    );
+
+    testbed = measure_function(
+        Metric::noop,
+        "noop",
+        &mut m,
+        testbed,
+        &ad,
+        &mut nonces,
+        &config,
+        false,
+        vec![],
+    );
 
     let v = calls_helper! {
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
