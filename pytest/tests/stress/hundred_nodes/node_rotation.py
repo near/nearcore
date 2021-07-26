@@ -1,9 +1,11 @@
-import sys
-from enum import Enum
-import random
 import base58
-import time
+from enum import Enum
 import os
+import pathlib
+import random
+import sys
+import tempfile
+import time
 
 sys.path.append('lib')
 from cluster import GCloudNode, Key
@@ -41,9 +43,9 @@ class NodeState(Enum):
 class RemoteNode(GCloudNode):
     def __init__(self, instance_name, node_dir):
         super().__init__(instance_name)
-        self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
-        self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(os.path.join(node_dir, "signer0_key.json"))
+        self.validator_key = Key.from_json_file(node_dir / 'validator_key.json')
+        self.node_key = Key.from_json_file(node_dir / 'node_key.json')
+        self.signer_key = Key.from_json_file(node_dir / 'signer0_key.json')
         self.last_synced_height = 0
 
         try:
@@ -115,7 +117,9 @@ class RemoteNode(GCloudNode):
 
 num_nodes = 100
 collect_gcloud_config(num_nodes)
-nodes = [RemoteNode(f'pytest-node-{user_name()}-{i}', f'/tmp/near/node{i}') for i in range(num_nodes)]
+nodes = [RemoteNode(f'pytest-node-{user_name()}-{i}',
+                    pathlib.Path(tempfile.gettempdir()) / 'near' / f'node{i}')
+         for i in range(num_nodes)]
 
 while True:
     # find a node that is not syncing and get validator information

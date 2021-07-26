@@ -1,7 +1,9 @@
 from rc import gcloud
-import sys
-import json
 import datetime
+import json
+import pathlib
+import sys
+import tempfile
 
 machines = gcloud.list()
 pytest_nodes = list(filter(lambda m: m.name.startswith('pytest-node'), machines))
@@ -11,11 +13,13 @@ data = []
 for node in pytest_nodes:
     data.append({'targets': [f'{node.ip}:3030'], 'labels': {'test_id': test_id, 'name': node.name}})
 
-with open('/tmp/near/targets.json', 'w') as f:
+targets_file = pathlib.Path(tempfile.gettempdir()) / 'near' / 'targets.json'
+targets_file.parent.mkdir(parents=True, exist_ok=True)
+with open(targets_file, 'w') as f:
     json.dump(data, f)
 
 prometheus = gcloud.get('prometheus-grafana')
-prometheus.upload('/tmp/near/targets.json', '/mnt/disks/sdb/prometheus')
+prometheus.upload(str(targets_file), '/mnt/disks/sdb/prometheus')
 prometheus.run('bash', input='''
 cd /mnt/disks/sdb/prometheus
 docker stop prometheus

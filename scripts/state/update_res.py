@@ -3,11 +3,14 @@
 # update_res.py: update nearcore/res/genesis_config.json to be current `near init` without records
 # update_res.py check: check nearcore/res/genesis_config.json matches current `near init`
 
-import subprocess
-import sys
+from collections import OrderedDict
 import json
 import os
-from collections import OrderedDict
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
 
 
 def main():
@@ -25,13 +28,15 @@ genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
 
 
 def near_init_genesis():
-    subprocess.check_output(
-        'rm -rf /tmp/near/update_res && mkdir -p /tmp/near/update_res',
-        shell=True)
-    subprocess.check_output(
-        'cargo run -p neard --bin neard -- --home /tmp/near/update_res init --chain-id sample',
-        shell=True)
-    genesis = json.load(open('/tmp/near/update_res/genesis.json'),
+    tempdir = pathlib.Path(tempfile.gettempdir()) / 'update_res'
+    if tempdir.exists():
+        shutil.rmtree(node_root)
+    tempdir.mkdir(parents=True, exist_ok=True)
+
+    subprocess.check_output(('cargo', 'run', '-p', 'neard', '--bin', 'neard',
+                             '--' ,'--home', tempdir, 'init' ,'--chain-id',
+                             'sample'))
+    genesis = json.load(open(tempdir / 'genesis.json'),
                         object_pairs_hook=OrderedDict)
     genesis['records'] = []
     # To avoid nearcore/res/genesis_config.json doesn't change everytime
