@@ -32,6 +32,8 @@ pub struct RuntimeTestbed {
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
     epoch_info_provider: MockEpochInfoProvider,
+    /// debug
+    pub blocks_count: u64,
 }
 
 impl RuntimeTestbed {
@@ -108,6 +110,7 @@ impl RuntimeTestbed {
             apply_state,
             epoch_info_provider: MockEpochInfoProvider::default(),
             genesis,
+            blocks_count: 0
         }
     }
 
@@ -116,6 +119,7 @@ impl RuntimeTestbed {
         transactions: &[SignedTransaction],
         allow_failures: bool,
     ) -> Gas {
+        self.blocks_count += 1;
         let apply_result = self
             .runtime
             .apply(

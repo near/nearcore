@@ -128,13 +128,16 @@ pub fn run_vm(
     if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
         profile.set_burnt_gas(*burnt_gas)
     }
-    if method_name == "data_receipt_100kib_1000" {
+    if method_name.starts_with("data_receipt") || method_name.starts_with("storage_") {
         let mut file = OpenOptions::new()
             .write(true)
             .append(true)
             .open("/host/tmp/data/profile.txt")
             .unwrap();
 
+        if let Err(e) = writeln!(file, "--- Profile {} ---", method_name) {
+            eprintln!("Couldn't write to file: {}", e);
+        }
         if let Err(e) = writeln!(file, "{:?}", profile) {
             eprintln!("Couldn't write to file: {}", e);
         }

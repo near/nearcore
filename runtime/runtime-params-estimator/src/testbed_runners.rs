@@ -13,6 +13,8 @@ use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use std::fs::OpenOptions;
+use near_primitives::profile::ProfileData;
 
 /// Get account id from its index.
 pub fn get_account_id(account_index: usize) -> String {
@@ -191,6 +193,12 @@ pub fn measure_transactions<F>(
 where
     F: FnMut() -> SignedTransaction,
 {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open("/host/tmp/data/profile.txt")
+        .unwrap();
+
     let testbed = match testbed.clone() {
         Some(x) => {
             println!("{:?}. Reusing testbed.", metric);
@@ -232,9 +240,14 @@ where
             let block: Vec<_> = (0..block_size).map(|_| (*f)()).collect();
             let mut testbed_inner = testbed_clone.lock().unwrap();
             let start = start_count(config.metric);
+            // debug
+            testbed_inner.blocks_count = 0;
             testbed_inner.process_block(&block, allow_failures);
             testbed_inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
+            if let Err(e) = writeln!(file, "METRIC: {:?} PROCESSED BLOCKS: {}", metric, testbed_inner.blocks_count) {
+                eprintln!("Couldn't write to file: {}", e);
+            }
             measurements.record_measurement(metric.clone(), block_size, measured);
             bar.inc(block_size as _);
             bar.set_message(format!("Block size: {}", block_size).as_str());
