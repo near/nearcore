@@ -204,6 +204,7 @@ pub(crate) fn action_function_call(
                 .into());
                 false
             }
+            FunctionCallError::_EVMError => unreachable!(),
         },
         Some(VMError::ExternalError(serialized_error)) => {
             let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
