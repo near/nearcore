@@ -18,7 +18,6 @@ use smart_default::SmartDefault;
 
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -134,7 +133,6 @@ impl From<&GenesisConfig> for EpochConfig {
     fn from(config: &GenesisConfig) -> Self {
         EpochConfig {
             epoch_length: config.epoch_length,
-            num_shards: config.num_block_producer_seats_per_shard.len() as NumShards,
             num_block_producer_seats: config.num_block_producer_seats,
             num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: config
