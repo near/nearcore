@@ -3677,7 +3677,6 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "base64 0.13.0",
- "bencher",
  "borsh 0.8.1",
  "cached",
  "near-evm-runner",
