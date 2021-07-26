@@ -591,9 +591,15 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
         storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
         storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
+        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
+        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
+        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
         storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
         storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000,
         storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
         storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
         storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k,
@@ -601,10 +607,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
         promise_return_100k => promise_return_100k,
         data_producer_10b => data_producer_10b,
-        data_producer_100kib => data_producer_100kib,
-        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
-        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
-        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000
+        data_producer_100kib => data_producer_100kib
     };
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
@@ -624,28 +627,28 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         );
     }
 
-    let mut testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)));
-    let v = calls_helper! {
-        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-        data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000
-    };
-    for (metric, method_name) in v {
-        if let Err(e) = writeln!(file, "Measure {}", method_name) {
-            eprintln!("Couldn't write to file: {}", e);
-        }
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
-    }
+    // let mut testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)));
+    // let v = calls_helper! {
+    //     data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+    //     data_receipt_10b_1000 => data_receipt_10b_1000,
+    //     data_receipt_100kib_1000 => data_receipt_100kib_1000
+    // };
+    // for (metric, method_name) in v {
+    //     if let Err(e) = writeln!(file, "Measure {}", method_name) {
+    //         eprintln!("Couldn't write to file: {}", e);
+    //     }
+    //     testbed = measure_function(
+    //         metric,
+    //         method_name,
+    //         &mut m,
+    //         testbed,
+    //         &ad,
+    //         &mut nonces,
+    //         &config,
+    //         false,
+    //         vec![],
+    //     );
+    // }
 
     get_runtime_config(&m, &config)
 
