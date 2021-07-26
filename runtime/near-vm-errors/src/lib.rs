@@ -34,6 +34,9 @@ pub enum FunctionCallError {
         debug_message: String,
     },
     HostError(HostError),
+    // Unused, can be reused by a future error but must be exactly one error to keep Nondeterministic
+    // error borsh serialized at correct index
+    _EVMError,
     /// Non-deterministic error.
     Nondeterministic(String),
 }
@@ -56,6 +59,9 @@ pub enum FunctionCallErrorSer {
     WasmTrap(WasmTrap),
     WasmUnknownError,
     HostError(HostError),
+    // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
+    // error borsh serialized at correct index
+    _EVMError,
     ExecutionError(String),
 }
 
