@@ -240,95 +240,6 @@ pub enum Metric {
     cpu_ram_soak_test,
 }
 
-pub fn build_testbed<F>(
-    m: &mut Measurements,
-    config: &Config,
-    f: &mut F,
-    good_account: RefCell<bool>,
-    curr_code: RefCell<Vec<u8>>,
-    nonces: &mut HashMap<usize, u64>,
-    good_code_accounts: HashSet<usize>,
-) -> (Arc<Mutex<RuntimeTestbed>>, Vec<usize>)
-where
-    F: FnMut() -> SignedTransaction,
-{
-    let mut testbed =
-        measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
-
-    *good_account.borrow_mut() = true;
-    *curr_code.borrow_mut() = CODE_10K.to_vec();
-
-    testbed = measure_transactions(
-        Metric::ActionDeploy10K,
-        &mut m,
-        &config,
-        Some(testbed),
-        &mut f,
-        false,
-    );
-
-    // Deploying more small code accounts. It's important that they are the same size to correctly
-    // deduct base
-    for _ in 0..2 {
-        testbed =
-            measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
-    }
-
-    *good_account.borrow_mut() = false;
-    *curr_code.borrow_mut() = CODE_100K.to_vec();
-    testbed = measure_transactions(
-        Metric::ActionDeploy100K,
-        &mut m,
-        &config,
-        Some(testbed),
-        &mut f,
-        false,
-    );
-    *curr_code.borrow_mut() = CODE_1M.to_vec();
-    testbed =
-        measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
-
-    let ad: Vec<_> = good_code_accounts.into_iter().collect();
-
-    testbed = measure_function(
-        Metric::warmup,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        vec![],
-    );
-
-    testbed = measure_function(
-        Metric::noop_1MiB,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        (&[0u8; 1024 * 1024]).to_vec(),
-    );
-
-    testbed = measure_function(
-        Metric::noop,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        vec![],
-    );
-
-    (testbed, ad)
-}
-
 #[allow(unused_variables)]
 pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     // test write
@@ -563,8 +474,79 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
             CryptoHash::default(),
         )
     };
+    let mut testbed =
+        measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
 
-    let (mut testbed, ad) = build_testbed(&mut m, &config, &mut f, good_account.clone(), curr_code.clone(), &mut nonces.clone(), good_code_accounts.clone());
+    *good_account.borrow_mut() = true;
+    *curr_code.borrow_mut() = CODE_10K.to_vec();
+
+    testbed = measure_transactions(
+        Metric::ActionDeploy10K,
+        &mut m,
+        &config,
+        Some(testbed),
+        &mut f,
+        false,
+    );
+
+    // Deploying more small code accounts. It's important that they are the same size to correctly
+    // deduct base
+    for _ in 0..2 {
+        testbed =
+            measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
+    }
+
+    *good_account.borrow_mut() = false;
+    *curr_code.borrow_mut() = CODE_100K.to_vec();
+    testbed = measure_transactions(
+        Metric::ActionDeploy100K,
+        &mut m,
+        &config,
+        Some(testbed),
+        &mut f,
+        false,
+    );
+    *curr_code.borrow_mut() = CODE_1M.to_vec();
+    testbed =
+        measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
+
+    let ad: Vec<_> = good_code_accounts.into_iter().collect();
+
+    testbed = measure_function(
+        Metric::warmup,
+        "noop",
+        &mut m,
+        testbed,
+        &ad,
+        &mut nonces,
+        &config,
+        false,
+        vec![],
+    );
+
+    testbed = measure_function(
+        Metric::noop_1MiB,
+        "noop",
+        &mut m,
+        testbed,
+        &ad,
+        &mut nonces,
+        &config,
+        false,
+        (&[0u8; 1024 * 1024]).to_vec(),
+    );
+
+    testbed = measure_function(
+        Metric::noop,
+        "noop",
+        &mut m,
+        testbed,
+        &ad,
+        &mut nonces,
+        &config,
+        false,
+        vec![],
+    );
 
     config.block_sizes = vec![2];
 
@@ -642,7 +624,45 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         );
     }
 
-    let (mut testbed, ad) = build_testbed(&mut m, &config, &mut f, good_account, curr_code, &mut nonces, good_code_accounts);
+    // let mut testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)));
+    let mut testbed =
+        measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
+
+    *good_account.borrow_mut() = true;
+    *curr_code.borrow_mut() = CODE_10K.to_vec();
+
+    testbed = measure_transactions(
+        Metric::ActionDeploy10K,
+        &mut m,
+        &config,
+        Some(testbed),
+        &mut f,
+        false,
+    );
+
+    // Deploying more small code accounts. It's important that they are the same size to correctly
+    // deduct base
+    for _ in 0..2 {
+        testbed =
+            measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
+    }
+
+    *good_account.borrow_mut() = false;
+    *curr_code.borrow_mut() = CODE_100K.to_vec();
+    testbed = measure_transactions(
+        Metric::ActionDeploy100K,
+        &mut m,
+        &config,
+        Some(testbed),
+        &mut f,
+        false,
+    );
+    *curr_code.borrow_mut() = CODE_1M.to_vec();
+    testbed =
+        measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
+
+    let ad: Vec<_> = good_code_accounts.into_iter().collect();
+
     let v = calls_helper! {
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
