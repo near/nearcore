@@ -109,21 +109,22 @@ pub fn compute_function_call_cost(
     let promise_results = vec![];
 
     // Warmup.
-    let result = run_vm(
-        &contract,
-        "hello0",
-        &mut fake_external,
-        fake_context.clone(),
-        &vm_config,
-        &fees,
-        &promise_results,
-        vm_kind,
-        ProtocolVersion::MAX,
-        cache,
-        ProfileData::new(),
-    );
-    assert!(result.1.is_none());
-
+    if repeats != 1 {
+        let result = run_vm(
+            &contract,
+            "hello0",
+            &mut fake_external,
+            fake_context.clone(),
+            &vm_config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            ProtocolVersion::MAX,
+            cache,
+            ProfileData::new(),
+        );
+        assert!(result.1.is_none());
+    }
     // Run with gas metering.
     let start = start_count(gas_metric);
     for _ in 0..repeats {
