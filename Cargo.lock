@@ -3708,7 +3708,7 @@ name = "near-vm-runner-standalone"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "clap 2.33.3",
+ "clap 3.0.0-beta.2",
  "hex",
  "near-primitives",
  "near-primitives-core",
@@ -4881,7 +4881,7 @@ version = "3.0.0"
 dependencies = [
  "borsh 0.8.1",
  "cfg-if 1.0.0",
- "clap 2.33.3",
+ "clap 3.0.0-beta.2",
  "csv",
  "ethabi",
  "ethabi-contract",
