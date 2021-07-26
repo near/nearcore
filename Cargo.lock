@@ -2529,12 +2529,16 @@ dependencies = [
 name = "integration-tests"
 version = "1.2.0"
 dependencies = [
+ "assert_matches",
  "funty",
+ "hex",
  "near-chain-configs",
  "near-crypto",
+ "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-network",
  "near-primitives",
+ "near-vm-errors",
  "nearcore",
  "rand 0.7.3",
  "testlib",
