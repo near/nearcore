@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::fs::OpenOptions;
+use std::io::prelude::*;
 use near_primitives::profile::ProfileData;
 
 /// Get account id from its index.
@@ -245,10 +246,7 @@ where
             testbed_inner.process_block(&block, allow_failures);
             testbed_inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(config.metric, &start);
-            if let Err(e) = writeln!(file, "METRIC: {:?}", metric) {
-                eprintln!("Couldn't write to file: {}", e);
-            }
-            if let Err(e) = writeln!(file, "PROCESSED BLOCKS: {}", testbed_inner.blocks_count) {
+            if let Err(e) = writeln!(file, "METRIC: {:?} PROCESSED BLOCKS: {}", metric, testbed_inner.blocks_count) {
                 eprintln!("Couldn't write to file: {}", e);
             }
             measurements.record_measurement(metric.clone(), block_size, measured);
