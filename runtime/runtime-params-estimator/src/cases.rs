@@ -247,7 +247,8 @@ pub fn build_testbed<F>(
     good_account: RefCell<bool>,
     curr_code: RefCell<Vec<u8>>,
     nonces: &mut HashMap<usize, u64>,
-) -> Arc<Mutex<RuntimeTestbed>>
+    good_code_accounts: HashSet<usize>,
+) -> (Arc<Mutex<RuntimeTestbed>>, Vec<usize>)
 where
     F: FnMut() -> SignedTransaction,
 {
@@ -325,7 +326,7 @@ where
         vec![],
     );
 
-    testbed
+    (testbed, ad)
 }
 
 #[allow(unused_variables)]
@@ -563,7 +564,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         )
     };
 
-    let mut testbed = build_testbed(&mut m, &config, &mut f, good_account.clone(), curr_code.clone(), &mut nonces.clone());
+    let (mut testbed, ad) = build_testbed(&mut m, &config, &mut f, good_account.clone(), curr_code.clone(), &mut nonces.clone(), good_code_accounts.clone());
 
     config.block_sizes = vec![2];
 
@@ -641,7 +642,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         );
     }
 
-    let mut testbed = build_testbed(&mut m, &config, &mut f, good_account, curr_code, &mut nonces);
+    let (mut testbed, ad) = build_testbed(&mut m, &config, &mut f, good_account, curr_code, &mut nonces, good_code_accounts);
     let v = calls_helper! {
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
