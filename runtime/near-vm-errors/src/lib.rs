@@ -310,6 +310,7 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::Nondeterministic(msg) => {
                 write!(f, "Nondeterministic error during contract execution: {}", msg)
             }
+            FunctionCallError::_EVMError => unreachable!(),
         }
     }
 }
