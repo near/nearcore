@@ -28,6 +28,11 @@ pub fn aurora_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("aurora_engine.wasm").unwrap()).as_slice()
 }
 
+pub fn multisig_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("multisig.wasm").unwrap()).as_slice()
+}
+
 fn read_contract(file_name: &str) -> io::Result<Vec<u8>> {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = base.join("res").join(file_name);
