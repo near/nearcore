@@ -307,6 +307,12 @@ class RainbowBridge:
         self.cli_dir = os.path.join(self.bridge_dir, 'cli')
         if not os.path.exists(self.bridge_dir):
             self.git_clone_install()
+        # TODO(aurora-is-near/rainbow-bridge#150): Rainbow Bridge has some tools
+        # written in Go [yuck] and the tests assemble and run all the things
+        # related to the bridge which means that it requires Go compiler.  See
+        # <https://github.com/aurora-is-near/rainbow-bridge/tree/master/eth2near/ethashproof/ethash>
+        # for an example.  Delete this check once the dependency on Go is no
+        # longer there.
         if not os.path.exists(os.path.expanduser("~/go")):
             logger.error('Go must be installed')
             assert False
