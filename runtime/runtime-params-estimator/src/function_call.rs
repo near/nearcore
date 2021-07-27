@@ -7,13 +7,15 @@ use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
+use near_test_contracts::{
+    aurora_contract, get_aurora_contract_data, get_multisig_contract_data, get_voting_contract_data,
+};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
+use num_rational::Ratio;
 use std::fmt::Write;
 use std::sync::Arc;
-use near_test_contracts::{aurora_contract, get_aurora_contract_data, get_multisig_contract_data, get_voting_contract_data};
-use num_rational::Ratio;
 
 const REPEATS: u64 = 50;
 
@@ -75,13 +77,22 @@ fn compare_function_call_icount() {
     // Base comparison
     // test_function_call(GasMetric::ICount, VMKind::Wasmer0);
 
-    let contracts_data = vec![get_aurora_contract_data(), get_multisig_contract_data(), get_voting_contract_data()];
-    for (contract, method_name) in contracts_data.iter().cloned() {
+    let contracts_data =
+        vec![get_aurora_contract_data(), get_multisig_contract_data(), get_voting_contract_data()];
+    for (contract, method_name, init_args) in contracts_data.iter().cloned() {
         println!("{}", method_name);
         // Actual cost
         let contract = ContractCode::new(contract.iter().cloned().collect(), None);
-        let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract, method_name);
-        let actual_gas = ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
+        let cost = compute_function_call_cost(
+            GasMetric::ICount,
+            VMKind::Wasmer0,
+            REPEATS,
+            &contract,
+            method_name,
+            init_args,
+        );
+        let actual_gas =
+            ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
         println!("actual = {}", actual_gas);
 
         // Old estimation
@@ -117,7 +128,7 @@ fn make_many_methods_contract(method_count: i32) -> ContractCode {
             ",
             i = i
         )
-            .unwrap();
+        .unwrap();
     }
 
     let code = format!(
@@ -136,6 +147,7 @@ pub fn compute_function_call_cost(
     repeats: u64,
     contract: &ContractCode,
     method_name: &str,
+    init_args: Option<Vec<u8>>,
 ) -> u64 {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
@@ -146,6 +158,23 @@ pub fn compute_function_call_cost(
     let fake_context = create_context(vec![]);
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
+
+    match init_args {
+        Some(args) => run_vm(
+            &contract,
+            "new",
+            &mut fake_external,
+            create_context(args),
+            &vm_config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            ProtocolVersion::MAX,
+            cache,
+            ProfileData::new(),
+        ),
+        None => {}
+    };
 
     // Warmup.
     if repeats != 1 {
@@ -164,7 +193,7 @@ pub fn compute_function_call_cost(
         );
         if result.1.is_some() {
             println!("{:?}", result);
-            return 0u64
+            return 0u64;
         }
         assert!(result.1.is_none());
     }

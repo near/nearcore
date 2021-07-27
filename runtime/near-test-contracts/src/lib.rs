@@ -28,19 +28,31 @@ pub fn aurora_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("aurora_engine.wasm").unwrap()).as_slice()
 }
 
-pub fn get_aurora_contract_data() -> (&'static [u8], &'static str) {
+pub fn get_aurora_contract_data() -> (&'static [u8], &'static str, Option<Vec<u8>>) {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    (CONTRACT.get_or_init(|| read_contract("aurora_engine.wasm").unwrap()).as_slice(), "state_migration")
+    (
+        CONTRACT.get_or_init(|| read_contract("aurora_engine.wasm").unwrap()).as_slice(),
+        "state_migration",
+        None,
+    )
 }
 
-pub fn get_multisig_contract_data() -> (&'static [u8], &'static str) {
+pub fn get_multisig_contract_data() -> (&'static [u8], &'static str, Option<Vec<u8>>) {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    (CONTRACT.get_or_init(|| read_contract("multisig.wasm").unwrap()).as_slice(), "get_request_nonce")
+    (
+        CONTRACT.get_or_init(|| read_contract("multisig.wasm").unwrap()).as_slice(),
+        "get_request_nonce",
+        Some(json!({"num_confirmations": 1}).to_string().as_bytes().to_vec()),
+    )
 }
 
-pub fn get_voting_contract_data() -> (&'static [u8], &'static str) {
+pub fn get_voting_contract_data() -> (&'static [u8], &'static str, Option<Vec<u8>>) {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    (CONTRACT.get_or_init(|| read_contract("voting_contract.wasm").unwrap()).as_slice(), "get_result")
+    (
+        CONTRACT.get_or_init(|| read_contract("voting_contract.wasm").unwrap()).as_slice(),
+        "get_result",
+        Some(vec![]),
+    )
 }
 
 fn read_contract(file_name: &str) -> io::Result<Vec<u8>> {
