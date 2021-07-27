@@ -13,12 +13,14 @@ use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
 use near_test_contracts::aurora_contract;
+use num_rational::Ratio;
+
+const REPEATS: u64 = 50;
 
 #[allow(dead_code)]
 fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
     let mut xs = vec![];
     let mut ys = vec![];
-    const REPEATS: u64 = 50;
     for method_count in vec![5, 20, 30, 50, 100, 200, 1000] {
         let contract = make_many_methods_contract(method_count);
         println!("LEN = {}", contract.get_code().len());
@@ -66,6 +68,30 @@ fn test_function_call_icount() {
     test_function_call(GasMetric::ICount, VMKind::Wasmer0);
     test_function_call(GasMetric::ICount, VMKind::Wasmer1);
     test_function_call(GasMetric::ICount, VMKind::Wasmtime);
+}
+
+#[test]
+fn compare_function_call_icount() {
+    // Base comparison
+    test_function_call(GasMetric::ICount, VMKind::Wasmer0);
+
+    // Actual cost
+    let contract = ContractCode::new(aurora_contract().iter().cloned().collect(), None);
+    let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract);
+    let actual_gas = ratio_to_gas_signed(metric, Ratio::new(cost as i128, REPEATS as i128));
+    println!("actual = {}", actual_gas);
+
+    // Old estimation
+    let runtime_fees_config = RuntimeFeesConfig::default();
+    let fee = runtime_fees_config.action_creation_config.function_call_cost.execution;
+    // runtime_fees_config.action_creation_config.function_call_cost_per_byte is negligible here
+    println!("old estimation = {}", fee);
+
+    // New estimation
+    let new_fee = 37_732_719_837 + 76_128_437 * contract.get_code().len();
+    println!("new estimation = {}", fee);
+
+    println!("{},{},{}", actual_gas, fee, new_fee);
 }
 
 fn make_many_methods_contract(method_count: i32) -> ContractCode {
