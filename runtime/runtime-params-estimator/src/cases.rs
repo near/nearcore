@@ -588,7 +588,13 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
         storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
         storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
+        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
+        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
+        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000,
         storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
         storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
         storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
@@ -601,10 +607,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         promise_and_100k_on_1k_and => promise_and_100k_on_1k_and,
         promise_return_100k => promise_return_100k,
         data_producer_10b => data_producer_10b,
-        data_producer_100kib => data_producer_100kib,
-        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
-        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
-        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000
+        data_producer_100kib => data_producer_100kib
     };
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
@@ -625,129 +628,129 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     }
 
     // let mut testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)));
-    let curr_code = RefCell::new(SMALLEST_CODE.to_vec());
-    let mut accounts_deployed = HashSet::new();
-    let mut good_code_accounts = HashSet::new();
-    let good_account = RefCell::new(false);
-    let mut f = || {
-        let account_idx = loop {
-            let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-            if accounts_deployed.contains(&x) {
-                continue;
-            }
-            break x;
-        };
-        accounts_deployed.insert(account_idx);
-        if *good_account.borrow() {
-            good_code_accounts.insert(account_idx);
-        }
-        let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-        let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
-        SignedTransaction::from_actions(
-            nonce as u64,
-            account_id.clone(),
-            account_id,
-            &signer,
-            vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
-            CryptoHash::default(),
-        )
-    };
-    let mut testbed =
-        measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
-
-    *good_account.borrow_mut() = true;
-    *curr_code.borrow_mut() = CODE_10K.to_vec();
-
-    testbed = measure_transactions(
-        Metric::ActionDeploy10K,
-        &mut m,
-        &config,
-        Some(testbed),
-        &mut f,
-        false,
-    );
-
-    // Deploying more small code accounts. It's important that they are the same size to correctly
-    // deduct base
-    for _ in 0..2 {
-        testbed =
-            measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
-    }
-
-    *good_account.borrow_mut() = false;
-    *curr_code.borrow_mut() = CODE_100K.to_vec();
-    testbed = measure_transactions(
-        Metric::ActionDeploy100K,
-        &mut m,
-        &config,
-        Some(testbed),
-        &mut f,
-        false,
-    );
-    *curr_code.borrow_mut() = CODE_1M.to_vec();
-    testbed =
-        measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
-
-    let ad: Vec<_> = good_code_accounts.clone().into_iter().collect();
-
-    testbed = measure_function(
-        Metric::warmup,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        vec![],
-    );
-
-    testbed = measure_function(
-        Metric::noop_1MiB,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        (&[0u8; 1024 * 1024]).to_vec(),
-    );
-
-    testbed = measure_function(
-        Metric::noop,
-        "noop",
-        &mut m,
-        testbed,
-        &ad,
-        &mut nonces,
-        &config,
-        false,
-        vec![],
-    );
-
-    let v = calls_helper! {
-        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-        data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000
-    };
-    for (metric, method_name) in v {
-        if let Err(e) = writeln!(file, "Measure {}", method_name) {
-            eprintln!("Couldn't write to file: {}", e);
-        }
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
-    }
+    // let curr_code = RefCell::new(SMALLEST_CODE.to_vec());
+    // let mut accounts_deployed = HashSet::new();
+    // let mut good_code_accounts = HashSet::new();
+    // let good_account = RefCell::new(false);
+    // let mut f = || {
+    //     let account_idx = loop {
+    //         let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
+    //         if accounts_deployed.contains(&x) {
+    //             continue;
+    //         }
+    //         break x;
+    //     };
+    //     accounts_deployed.insert(account_idx);
+    //     if *good_account.borrow() {
+    //         good_code_accounts.insert(account_idx);
+    //     }
+    //     let account_id = get_account_id(account_idx);
+    //     let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+    //     let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
+    //     SignedTransaction::from_actions(
+    //         nonce as u64,
+    //         account_id.clone(),
+    //         account_id,
+    //         &signer,
+    //         vec![Action::DeployContract(DeployContractAction { code: curr_code.borrow().clone() })],
+    //         CryptoHash::default(),
+    //     )
+    // };
+    // let mut testbed =
+    //     measure_transactions(Metric::ActionDeploySmallest, &mut m, &config, None, &mut f, false);
+    //
+    // *good_account.borrow_mut() = true;
+    // *curr_code.borrow_mut() = CODE_10K.to_vec();
+    //
+    // testbed = measure_transactions(
+    //     Metric::ActionDeploy10K,
+    //     &mut m,
+    //     &config,
+    //     Some(testbed),
+    //     &mut f,
+    //     false,
+    // );
+    //
+    // // Deploying more small code accounts. It's important that they are the same size to correctly
+    // // deduct base
+    // for _ in 0..2 {
+    //     testbed =
+    //         measure_transactions(Metric::warmup, &mut m, &config, Some(testbed), &mut f, false);
+    // }
+    //
+    // *good_account.borrow_mut() = false;
+    // *curr_code.borrow_mut() = CODE_100K.to_vec();
+    // testbed = measure_transactions(
+    //     Metric::ActionDeploy100K,
+    //     &mut m,
+    //     &config,
+    //     Some(testbed),
+    //     &mut f,
+    //     false,
+    // );
+    // *curr_code.borrow_mut() = CODE_1M.to_vec();
+    // testbed =
+    //     measure_transactions(Metric::ActionDeploy1M, &mut m, &config, Some(testbed), &mut f, false);
+    //
+    // let ad: Vec<_> = good_code_accounts.clone().into_iter().collect();
+    //
+    // testbed = measure_function(
+    //     Metric::warmup,
+    //     "noop",
+    //     &mut m,
+    //     testbed,
+    //     &ad,
+    //     &mut nonces,
+    //     &config,
+    //     false,
+    //     vec![],
+    // );
+    //
+    // testbed = measure_function(
+    //     Metric::noop_1MiB,
+    //     "noop",
+    //     &mut m,
+    //     testbed,
+    //     &ad,
+    //     &mut nonces,
+    //     &config,
+    //     false,
+    //     (&[0u8; 1024 * 1024]).to_vec(),
+    // );
+    //
+    // testbed = measure_function(
+    //     Metric::noop,
+    //     "noop",
+    //     &mut m,
+    //     testbed,
+    //     &ad,
+    //     &mut nonces,
+    //     &config,
+    //     false,
+    //     vec![],
+    // );
+    //
+    // let v = calls_helper! {
+    //     data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+    //     data_receipt_10b_1000 => data_receipt_10b_1000,
+    //     data_receipt_100kib_1000 => data_receipt_100kib_1000
+    // };
+    // for (metric, method_name) in v {
+    //     if let Err(e) = writeln!(file, "Measure {}", method_name) {
+    //         eprintln!("Couldn't write to file: {}", e);
+    //     }
+    //     testbed = measure_function(
+    //         metric,
+    //         method_name,
+    //         &mut m,
+    //         testbed,
+    //         &ad,
+    //         &mut nonces,
+    //         &config,
+    //         false,
+    //         vec![],
+    //     );
+    // }
 
     get_runtime_config(&m, &config)
 
