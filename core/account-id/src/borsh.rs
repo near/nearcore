@@ -12,7 +12,7 @@ impl BorshSerialize for AccountId {
 
 impl BorshDeserialize for AccountId {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let account_id = BorshDeserialize::deserialize(buf)?;
+        let account_id = Box::<str>::deserialize(buf)?;
         Self::validate(&account_id)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
         Ok(Self(account_id))

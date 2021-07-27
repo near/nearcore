@@ -35,9 +35,7 @@ impl AccountId {
         self.0.len()
     }
 
-    pub fn validate(account_id: impl AsRef<str>) -> Result<(), ParseAccountError> {
-        let account_id = account_id.as_ref();
-
+    pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
         if account_id.len() < MIN_ACCOUNT_ID_LEN {
             Err(ParseAccountError(ParseErrorKind::TooShort))
         } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
