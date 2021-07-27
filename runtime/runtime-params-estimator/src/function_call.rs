@@ -73,10 +73,11 @@ fn test_function_call_icount() {
 #[test]
 fn compare_function_call_icount() {
     // Base comparison
-    test_function_call(GasMetric::ICount, VMKind::Wasmer0);
+    // test_function_call(GasMetric::ICount, VMKind::Wasmer0);
 
     let contracts_data = vec![get_aurora_contract_data(), get_multisig_contract_data()];
     for (contract, method_name) in contracts_data.iter().cloned() {
+        println!("{}", method_name);
         // Actual cost
         let contract = ContractCode::new(contract.iter().cloned().collect(), None);
         let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract, method_name);
@@ -161,6 +162,9 @@ pub fn compute_function_call_cost(
             cache,
             ProfileData::new(),
         );
+        if result.1.is_some() {
+            println!("{:?}", result);
+        }
         assert!(result.1.is_none());
     }
     // Run with gas metering.

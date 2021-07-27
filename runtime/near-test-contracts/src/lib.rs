@@ -38,6 +38,11 @@ pub fn get_multisig_contract_data() -> (&'static [u8], &'static str) {
     (CONTRACT.get_or_init(|| read_contract("multisig.wasm").unwrap()).as_slice(), "get_request_nonce")
 }
 
+pub fn get_voting_contract_data() -> (&'static [u8], &'static str) {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    (CONTRACT.get_or_init(|| read_contract("voting_contract.wasm").unwrap()).as_slice(), "get_result")
+}
+
 fn read_contract(file_name: &str) -> io::Result<Vec<u8>> {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
     let path = base.join("res").join(file_name);
