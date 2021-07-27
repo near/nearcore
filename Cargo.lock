@@ -2998,7 +2998,6 @@ name = "near-account-id"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "derive_more",
  "paperclip",
  "serde",
  "serde_json",

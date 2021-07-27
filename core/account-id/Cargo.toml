@@ -16,7 +16,6 @@ internal_unsafe = []
 borsh = { version = "0.8.1", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 thiserror = "1"
-derive_more = "0.99.3"
 
 [dependencies.paperclip]
 git = "https://github.com/near/paperclip"

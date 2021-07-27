@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, str::FromStr};
+use std::{convert::TryFrom, fmt, str::FromStr};
 
 mod error;
 
@@ -15,19 +15,7 @@ pub const MAX_ACCOUNT_ID_LEN: usize = 64;
 /// Account identifier. Provides access to user's state.
 ///
 /// This guarantees all properly constructed AccountId's are valid for the NEAR network.
-#[derive(
-    Eq,
-    Ord,
-    Hash,
-    Clone,
-    Debug,
-    PartialEq,
-    PartialOrd,
-    derive_more::Into,
-    derive_more::AsRef,
-    derive_more::Display,
-)]
-#[as_ref(forward)]
+#[derive(Eq, Ord, Hash, Clone, Debug, PartialEq, PartialOrd)]
 pub struct AccountId(Box<str>);
 
 impl AccountId {
@@ -128,6 +116,15 @@ impl AccountId {
     }
 }
 
+impl<T: ?Sized> AsRef<T> for AccountId
+where
+    Box<str>: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.0.as_ref()
+    }
+}
+
 impl std::borrow::Borrow<str> for AccountId {
     fn borrow(&self) -> &str {
         self.as_ref()
@@ -155,6 +152,18 @@ impl TryFrom<String> for AccountId {
 impl From<AccountId> for String {
     fn from(account_id: AccountId) -> Self {
         account_id.0.into_string()
+    }
+}
+
+impl fmt::Display for AccountId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<AccountId> for Box<str> {
+    fn from(value: AccountId) -> Box<str> {
+        value.0
     }
 }
 
