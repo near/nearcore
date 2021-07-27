@@ -160,19 +160,21 @@ pub fn compute_function_call_cost(
     let promise_results = vec![];
 
     match init_args {
-        Some(args) => run_vm(
-            &contract,
-            "new",
-            &mut fake_external,
-            create_context(args),
-            &vm_config,
-            &fees,
-            &promise_results,
-            vm_kind,
-            ProtocolVersion::MAX,
-            cache,
-            ProfileData::new(),
-        ),
+        Some(args) => {
+            run_vm(
+                &contract,
+                "new",
+                &mut fake_external,
+                create_context(args),
+                &vm_config,
+                &fees,
+                &promise_results,
+                vm_kind,
+                ProtocolVersion::MAX,
+                cache,
+                ProfileData::new(),
+            );
+        },
         None => {}
     };
 
