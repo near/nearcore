@@ -1,3 +1,17 @@
+# TODO(#4552): Those tests were identified as missing from any of the test list
+# files.  It’s not entirely clear why so some investigation is necessary to
+# figure that out.  The tests need to either be enabled or removed completely if
+# they are no longer needed/valid.
+# pytest adversarial/gc_rollback.py
+# pytest sanity/concurrent_function_calls.py
+# pytest sanity/proxy_example.py
+# pytest sanity/restart.py
+# pytest sanity/rpc_finality.py
+# pytest sanity/rpc_tx_submission.py
+# pytest sanity/state_migration.py
+# pytest stress/network_stress.py
+# pytest stress/saturate_routing_table.py
+
 # python sanity tests
 pytest sanity/block_production.py
 pytest sanity/block_production.py --features nightly_protocol --features nightly_protocol_features
