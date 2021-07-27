@@ -91,20 +91,14 @@ impl AccountId {
     }
 
     /// Returns true if the account ID length is 64 characters and it's a hex representation.
-    pub fn is_implicit(account_id: impl AsRef<str>) -> bool {
-        let account_id = account_id.as_ref();
+    pub fn is_implicit(account_id: &str) -> bool {
         account_id.len() == 64
             && account_id.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
     }
 
-    /// Returns true if the account ID is suppose to be EVM machine.
-    pub fn is_evm(account_id: impl AsRef<str>) -> bool {
-        account_id.as_ref() == "evm"
-    }
-
     /// Returns true if the account ID is the system account.
-    pub fn is_system(account_id: impl AsRef<str>) -> bool {
-        account_id.as_ref() == "system"
+    pub fn is_system(&self) -> bool {
+        self.as_ref() == "system"
     }
 
     pub fn system_account() -> Self {
@@ -419,7 +413,7 @@ mod tests {
             assert!(
                 matches!(
                     valid_account_id.parse::<AccountId>(),
-                    Ok(account_id) if AccountId::is_implicit(&account_id)
+                    Ok(account_id) if AccountId::is_implicit(account_id.as_ref())
                 ),
                 "Account ID {} should be valid 64-len hex",
                 valid_account_id
@@ -443,7 +437,7 @@ mod tests {
             assert!(
                 !matches!(
                     invalid_account_id.parse::<AccountId>(),
-                    Ok(account_id) if AccountId::is_implicit(&account_id)
+                    Ok(account_id) if AccountId::is_implicit(account_id.as_ref())
                 ),
                 "Account ID {} should be invalid 64-len hex",
                 invalid_account_id

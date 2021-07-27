@@ -55,7 +55,7 @@ pub(crate) fn execute_function_call(
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
     if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
-        && AccountId::is_evm(&account_id)
+        && account_id.as_ref() == "evm"
     {
         #[cfg(not(feature = "protocol_feature_evm"))]
         unreachable!();
