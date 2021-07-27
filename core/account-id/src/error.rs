@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// An error occurred when parsing an invalid Account ID with [`AccountId::validate`](crate::AccountId::validate).
-#[derive(Debug)]
+#[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub struct ParseAccountError(pub(crate) ParseErrorKind);
 
 impl ParseAccountError {
@@ -18,7 +18,7 @@ impl fmt::Display for ParseAccountError {
 }
 
 /// A list of errors that occur when parsing an invalid Account ID.
-#[derive(Debug)]
+#[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub enum ParseErrorKind {
     TooLong,
     TooShort,
