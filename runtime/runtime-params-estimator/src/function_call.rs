@@ -24,7 +24,7 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
     for method_count in vec![5, 20, 30, 50, 100, 200, 1000] {
         let contract = make_many_methods_contract(method_count);
         println!("LEN = {}", contract.get_code().len());
-        let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
+        let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract, "hello0");
         println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
         xs.push(contract.get_code().len() as u64);
         ys.push(cost / REPEATS);
@@ -77,7 +77,7 @@ fn compare_function_call_icount() {
 
     // Actual cost
     let contract = ContractCode::new(aurora_contract().iter().cloned().collect(), None);
-    let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract);
+    let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract, "state_migration");
     let actual_gas = ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
     println!("actual = {}", actual_gas);
 
@@ -127,6 +127,7 @@ pub fn compute_function_call_cost(
     vm_kind: VMKind,
     repeats: u64,
     contract: &ContractCode,
+    method_name: &str,
 ) -> u64 {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
@@ -137,8 +138,6 @@ pub fn compute_function_call_cost(
     let fake_context = create_context(vec![]);
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
-    // let method_name = "hello0";
-    let method_name = "state_migration"; // aurora
 
     // Warmup.
     if repeats != 1 {
