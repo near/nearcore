@@ -1609,7 +1609,7 @@ impl<'a> VMLogic<'a> {
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
         let is_receiver_implicit =
             is_implicit_account_creation_enabled(self.current_protocol_version)
-                && AccountId::is_implicit(receiver_id);
+                && AccountId::is_implicit(receiver_id.as_ref());
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
