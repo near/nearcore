@@ -78,7 +78,7 @@ fn compare_function_call_icount() {
     // Actual cost
     let contract = ContractCode::new(aurora_contract().iter().cloned().collect(), None);
     let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract);
-    let actual_gas = ratio_to_gas_signed(metric, Ratio::new(cost as i128, REPEATS as i128));
+    let actual_gas = ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
     println!("actual = {}", actual_gas);
 
     // Old estimation
