@@ -1,22 +1,16 @@
 use std::{convert::TryFrom, str::FromStr};
 
+mod error;
+
 #[cfg(feature = "borsh")]
 mod borsh;
 #[cfg(feature = "serde")]
 mod serde;
 
+pub use error::{ParseAccountError, ParseErrorKind};
+
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
-
-#[derive(Debug, thiserror::Error)]
-pub enum ParseAccountError {
-    #[error("the value is too long for account ID")]
-    TooLong,
-    #[error("the value is too short for account ID")]
-    TooShort,
-    #[error("the value has invalid characters for account ID")]
-    Invalid,
-}
 
 /// Account identifier. Provides access to user's state.
 ///
@@ -45,9 +39,9 @@ impl AccountId {
         let account_id = account_id.as_ref();
 
         if account_id.len() < MIN_ACCOUNT_ID_LEN {
-            Err(ParseAccountError::TooShort)
+            Err(ParseAccountError(ParseErrorKind::TooShort))
         } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
-            Err(ParseAccountError::TooLong)
+            Err(ParseAccountError(ParseErrorKind::TooLong))
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
 
@@ -62,15 +56,15 @@ impl AccountId {
                 let current_char_is_separator = match c {
                     b'a'..=b'z' | b'0'..=b'9' => false,
                     b'-' | b'_' | b'.' => true,
-                    _ => return Err(ParseAccountError::Invalid),
+                    _ => return Err(ParseAccountError(ParseErrorKind::Invalid)),
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError::Invalid);
+                    return Err(ParseAccountError(ParseErrorKind::Invalid));
                 }
                 last_char_is_separator = current_char_is_separator;
             }
 
-            (!last_char_is_separator).then(|| ()).ok_or(ParseAccountError::Invalid)
+            (!last_char_is_separator).then(|| ()).ok_or(ParseAccountError(ParseErrorKind::Invalid))
         }
     }
 
@@ -170,7 +164,9 @@ impl TryFrom<&[u8]> for AccountId {
     type Error = ParseAccountError;
 
     fn try_from(account_id: &[u8]) -> Result<Self, Self::Error> {
-        std::str::from_utf8(account_id).map_err(|_| Self::Error::Invalid)?.parse()
+        std::str::from_utf8(account_id)
+            .map_err(|_| ParseAccountError(ParseErrorKind::Invalid))?
+            .parse()
     }
 }
 
