@@ -12,7 +12,7 @@ use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
-use near_test_contracts::{aurora_contract, get_aurora_contract_data, get_multisig_contract_data};
+use near_test_contracts::{aurora_contract, get_aurora_contract_data, get_multisig_contract_data, get_voting_contract_data};
 use num_rational::Ratio;
 
 const REPEATS: u64 = 50;
@@ -75,7 +75,7 @@ fn compare_function_call_icount() {
     // Base comparison
     // test_function_call(GasMetric::ICount, VMKind::Wasmer0);
 
-    let contracts_data = vec![get_aurora_contract_data(), get_multisig_contract_data()];
+    let contracts_data = vec![get_aurora_contract_data(), get_multisig_contract_data(), get_voting_contract_data()];
     for (contract, method_name) in contracts_data.iter().cloned() {
         println!("{}", method_name);
         // Actual cost
@@ -164,6 +164,7 @@ pub fn compute_function_call_cost(
         );
         if result.1.is_some() {
             println!("{:?}", result);
+            return 0u64
         }
         assert!(result.1.is_none());
     }
