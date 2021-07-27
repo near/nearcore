@@ -8,7 +8,6 @@ import sys
 import os
 import subprocess
 import time
-import shutil
 import base58
 import json
 
@@ -16,15 +15,11 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import load_test_contract
+from utils import load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 def main():
-    node_root = "/tmp/near/backward"
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
-
+    node_root = get_near_tempdir('backward', clean=True)
     branch = branches.latest_rc_branch()
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test(branch)
@@ -42,11 +37,11 @@ def main():
         'binary_name': "near-%s" % stable_branch
     }
     stable_node = cluster.spin_up_node(config, near_root,
-                                       os.path.join(node_root, "test0"), 0,
+                                       str(node_root / 'test0'), 0,
                                        None, None)
     config["binary_name"] = "near-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
-                                        os.path.join(node_root, "test1"), 1,
+                                        str(node_root / 'test1'), 1,
                                         stable_node.node_key.pk,
                                         stable_node.addr())
 

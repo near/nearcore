@@ -150,9 +150,8 @@ impl fmt::Debug for DataReceipt {
 /// stored in a state trie with a key = `account_id` + `data_id` until
 /// `input_data_ids` of all incoming Receipts are satisfied
 /// None means data retrieval was failed
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct ReceivedData {
-    #[serde(with = "option_base64_format")]
     pub data: Option<Vec<u8>>,
 }
 

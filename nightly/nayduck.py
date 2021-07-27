@@ -26,7 +26,7 @@ import requests
 import json
 import os
 
-from colorama import Fore
+import colorama
 
 
 DEFAULT_TEST_FILE = 'tests_for_nayduck.txt'
@@ -99,7 +99,5 @@ if __name__ == "__main__":
     print('Sending request ...')
     res = requests.post('http://nayduck.eastus.cloudapp.azure.com:5005/request_a_run', json=post)
     json_res = json.loads(res.text)
-    if json_res['code'] == 0:
-        print(Fore.GREEN + json_res['response'])
-    else:
-        print(Fore.RED + json_res['response'])
+    color = colorama.Fore.RED if json_res['code'] else colorama.Fore.GREEN
+    print(color + json_res['response'] + colorama.Style.RESET_ALL)
