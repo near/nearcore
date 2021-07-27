@@ -1,9 +1,9 @@
 use std::{convert::TryFrom, str::FromStr};
 
 #[cfg(feature = "borsh")]
-use borsh::{BorshDeserialize, BorshSerialize};
+mod borsh;
 #[cfg(feature = "serde")]
-use serde::{self, de};
+mod serde;
 
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
 pub const MAX_ACCOUNT_ID_LEN: usize = 64;
@@ -34,11 +34,7 @@ pub enum ParseAccountError {
     derive_more::Display,
 )]
 #[as_ref(forward)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "borsh", derive(BorshSerialize))]
-pub struct AccountId(
-    #[cfg_attr(feature = "serde", serde(deserialize_with = "serde_validate_account_id"))] Box<str>,
-);
+pub struct AccountId(Box<str>);
 
 impl AccountId {
     pub fn len(&self) -> usize {
@@ -178,163 +174,88 @@ impl TryFrom<&[u8]> for AccountId {
     }
 }
 
-#[cfg(feature = "serde")]
-fn serde_validate_account_id<'de, D>(d: D) -> Result<Box<str>, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let account_id = de::Deserialize::deserialize(d)?;
-    AccountId::validate(&account_id).map_err(de::Error::custom)?;
-    Ok(account_id)
-}
-
-#[cfg(feature = "borsh")]
-impl BorshDeserialize for AccountId {
-    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
-        let account_id = BorshDeserialize::deserialize(buf)?;
-        Self::validate(&account_id)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-        Ok(Self(account_id))
-    }
-}
-
 #[cfg(feature = "paperclip")]
-mod paperclip {
-    use super::AccountId;
+const _: () = {
     use paperclip::v2::{models::DataType, schema::TypedData};
     impl TypedData for AccountId {
         fn data_type() -> DataType {
             DataType::String
         }
     }
-}
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "borsh")]
-    use borsh::{BorshDeserialize, BorshSerialize};
-    #[cfg(feature = "serde")]
-    use serde_json::json;
+
+    pub const OK_ACCOUNT_IDS: [&str; 24] = [
+        "aa",
+        "a-a",
+        "a-aa",
+        "100",
+        "0o",
+        "com",
+        "near",
+        "bowen",
+        "b-o_w_e-n",
+        "b.owen",
+        "bro.wen",
+        "a.ha",
+        "a.b-a.ra",
+        "system",
+        "over.9000",
+        "google.com",
+        "illia.cheapaccounts.near",
+        "0o0ooo00oo00o",
+        "alex-skidanov",
+        "10-4.8-2",
+        "b-o_w_e-n",
+        "no_lols",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        // Valid, but can't be created
+        "near.a",
+    ];
+
+    pub const BAD_ACCOUNT_IDS: [&str; 24] = [
+        "a",
+        "A",
+        "Abc",
+        "-near",
+        "near-",
+        "-near-",
+        "near.",
+        ".near",
+        "near@",
+        "@near",
+        "неар",
+        "@@@@@",
+        "0__0",
+        "0_-_0",
+        "0_-_0",
+        "..",
+        "a..near",
+        "nEar",
+        "_bowen",
+        "hello world",
+        "abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz",
+        "01234567890123456789012345678901234567890123456789012345678901234",
+        // `@` separators are banned now
+        "some-complex-address@gmail.com",
+        "sub.buy_d1gitz@atata@b0-rg.c_0_m",
+    ];
 
     #[test]
     fn test_is_valid_account_id() {
-        let ok_account_ids = [
-            "aa",
-            "a-a",
-            "a-aa",
-            "100",
-            "0o",
-            "com",
-            "near",
-            "bowen",
-            "b-o_w_e-n",
-            "b.owen",
-            "bro.wen",
-            "a.ha",
-            "a.b-a.ra",
-            "system",
-            "over.9000",
-            "google.com",
-            "illia.cheapaccounts.near",
-            "0o0ooo00oo00o",
-            "alex-skidanov",
-            "10-4.8-2",
-            "b-o_w_e-n",
-            "no_lols",
-            "0123456789012345678901234567890123456789012345678901234567890123",
-            // Valid, but can't be created
-            "near.a",
-        ];
-        for account_id in ok_account_ids.iter().cloned() {
-            let _parsed_account_id = AccountId::from_str(account_id).unwrap_or_else(|err| {
-                panic!("Valid account id {:?} marked invalid: {}", account_id, err)
-            });
-
-            #[cfg(feature = "serde")]
-            {
-                let deserialized_account_id: AccountId = serde_json::from_value(json!(account_id))
-                    .unwrap_or_else(|err| {
-                        panic!("failed to deserialize account ID {:?}: {}", account_id, err)
-                    });
-                assert_eq!(deserialized_account_id, _parsed_account_id);
-
-                let serialized_account_id = serde_json::to_value(&deserialized_account_id)
-                    .unwrap_or_else(|err| {
-                        panic!("failed to serialize account ID {:?}: {}", account_id, err)
-                    });
-                assert_eq!(serialized_account_id, json!(account_id));
-            };
-
-            #[cfg(feature = "borsh")]
-            {
-                let str_serialized_account_id = account_id.try_to_vec().unwrap();
-
-                let deserialized_account_id = AccountId::try_from_slice(&str_serialized_account_id)
-                    .unwrap_or_else(|err| {
-                        panic!("failed to deserialize account ID {:?}: {}", account_id, err)
-                    });
-                assert_eq!(deserialized_account_id, _parsed_account_id);
-
-                let serialized_account_id =
-                    deserialized_account_id.try_to_vec().unwrap_or_else(|err| {
-                        panic!("failed to serialize account ID {:?}: {}", account_id, err)
-                    });
-                assert_eq!(serialized_account_id, str_serialized_account_id);
-            };
+        for account_id in OK_ACCOUNT_IDS.iter().cloned() {
+            if let Err(err) = AccountId::validate(account_id) {
+                panic!("Valid account id {:?} marked invalid: {}", account_id, err);
+            }
         }
 
-        let bad_account_ids = [
-            "a",
-            "A",
-            "Abc",
-            "-near",
-            "near-",
-            "-near-",
-            "near.",
-            ".near",
-            "near@",
-            "@near",
-            "неар",
-            "@@@@@",
-            "0__0",
-            "0_-_0",
-            "0_-_0",
-            "..",
-            "a..near",
-            "nEar",
-            "_bowen",
-            "hello world",
-            "abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz",
-            "01234567890123456789012345678901234567890123456789012345678901234",
-            // `@` separators are banned now
-            "some-complex-address@gmail.com",
-            "sub.buy_d1gitz@atata@b0-rg.c_0_m",
-        ];
-        for account_id in bad_account_ids.iter().cloned() {
-            assert!(
-                AccountId::validate(account_id).is_err(),
-                "Invalid account id {:?} marked valid",
-                account_id
-            );
-
-            #[cfg(feature = "serde")]
-            assert!(
-                serde_json::from_value::<AccountId>(json!(account_id)).is_err(),
-                "successfully deserialized invalid account ID {:?}",
-                account_id
-            );
-
-            #[cfg(feature = "borsh")]
-            {
-                let str_serialized_account_id = account_id.try_to_vec().unwrap();
-
-                assert!(
-                    AccountId::try_from_slice(&str_serialized_account_id).is_err(),
-                    "successfully deserialized invalid account ID {:?}",
-                    account_id
-                );
-            };
+        for account_id in BAD_ACCOUNT_IDS.iter().cloned() {
+            if let Ok(_) = AccountId::validate(account_id) {
+                panic!("Valid account id {:?} marked valid", account_id);
+            }
         }
     }
 
