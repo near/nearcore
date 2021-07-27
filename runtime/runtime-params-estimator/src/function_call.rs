@@ -12,7 +12,7 @@ use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
-use near_test_contracts::aurora_contract;
+use near_test_contracts::{aurora_contract, get_aurora_contract_data, get_multisig_contract_data};
 use num_rational::Ratio;
 
 const REPEATS: u64 = 50;
@@ -75,23 +75,30 @@ fn compare_function_call_icount() {
     // Base comparison
     test_function_call(GasMetric::ICount, VMKind::Wasmer0);
 
-    // Actual cost
-    let contract = ContractCode::new(aurora_contract().iter().cloned().collect(), None);
-    let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract, "state_migration");
-    let actual_gas = ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
-    println!("actual = {}", actual_gas);
+    let contracts_data = vec![get_aurora_contract_data(), get_multisig_contract_data()];
+    for (contract, method_name) in contracts_data.iter().cloned() {
+        // Actual cost
+        let contract = ContractCode::new(contract.iter().cloned().collect(), None);
+        let cost = compute_function_call_cost(GasMetric::ICount, VMKind::Wasmer0, REPEATS, &contract, method_name);
+        let actual_gas = ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
+        println!("actual = {}", actual_gas);
 
-    // Old estimation
-    let runtime_fees_config = RuntimeFeesConfig::default();
-    let fee = runtime_fees_config.action_creation_config.function_call_cost.execution;
-    // runtime_fees_config.action_creation_config.function_call_cost_per_byte is negligible here
-    println!("old estimation = {}", fee);
+        // Old estimation
+        let runtime_fees_config = RuntimeFeesConfig::default();
+        let fee = runtime_fees_config.action_creation_config.function_call_cost.execution;
+        // runtime_fees_config.action_creation_config.function_call_cost_per_byte is negligible here
+        println!("old estimation = {}", fee);
 
-    // New estimation
-    let new_fee = 37_732_719_837 + 76_128_437 * contract.get_code().len();
-    println!("new estimation = {}", fee);
+        // New estimation
+        // Prev computed:
+        // let new_fee = 37_732_719_837 + 76_128_437 * contract.get_code().len();
+        // Newly:
+        // Wasmer0 ICount function call base 48080046101 gas, per byte 207939579 gas
+        let new_fee = 48_080_046_101 + 207_939_579 * contract.get_code().len();
+        println!("new estimation = {}", new_fee);
 
-    println!("{},{},{}", actual_gas, fee, new_fee);
+        println!("{},{},{},{}", method_name, actual_gas, fee, new_fee);
+    }
 }
 
 fn make_many_methods_contract(method_count: i32) -> ContractCode {

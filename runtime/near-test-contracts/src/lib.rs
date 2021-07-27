@@ -28,9 +28,14 @@ pub fn aurora_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("aurora_engine.wasm").unwrap()).as_slice()
 }
 
-pub fn multisig_contract() -> &'static [u8] {
+pub fn get_aurora_contract_data() -> (&'static [u8], &str) {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("multisig.wasm").unwrap()).as_slice()
+    (CONTRACT.get_or_init(|| read_contract("aurora_engine.wasm").unwrap()).as_slice(), "state_migration")
+}
+
+pub fn get_multisig_contract_data() -> (&'static [u8], &str) {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    (CONTRACT.get_or_init(|| read_contract("multisig.wasm").unwrap()).as_slice(), "get_request_nonce")
 }
 
 fn read_contract(file_name: &str) -> io::Result<Vec<u8>> {
