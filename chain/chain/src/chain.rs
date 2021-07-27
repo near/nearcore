@@ -2101,6 +2101,7 @@ impl Chain {
         tree_size: u64,
         tree_nodes: &mut HashMap<(u64, u64), Option<MerkleHash>>,
     ) -> Result<Option<MerkleHash>, Error> {
+        //println!("get index {}, level {}, counter {}", index, level, counter);
         if let Some(hash) = tree_nodes.get(&(index, level)) {
             Ok(hash.clone())
         } else {
@@ -2115,21 +2116,25 @@ impl Chain {
             } else {
                 let cur_tree_size = (index + 1) * counter;
                 let maybe_hash = if cur_tree_size > tree_size {
-                    let left_hash = self.get_merkle_tree_node(
-                        index * 2,
-                        level - 1,
-                        counter / 2,
-                        tree_size,
-                        tree_nodes,
-                    )?;
-                    let right_hash = self.reconstruct_merkle_tree_node(
-                        index * 2 + 1,
-                        level - 1,
-                        counter / 2,
-                        tree_size,
-                        tree_nodes,
-                    )?;
-                    Self::combine_maybe_hashes(left_hash, right_hash)
+                    if index * counter <= tree_size {
+                        let left_hash = self.get_merkle_tree_node(
+                            index * 2,
+                            level - 1,
+                            counter / 2,
+                            tree_size,
+                            tree_nodes,
+                        )?;
+                        let right_hash = self.reconstruct_merkle_tree_node(
+                            index * 2 + 1,
+                            level - 1,
+                            counter / 2,
+                            tree_size,
+                            tree_nodes,
+                        )?;
+                        Self::combine_maybe_hashes(left_hash, right_hash)
+                    } else {
+                        None
+                    }
                 } else {
                     Some(
                         *self
@@ -2216,7 +2221,7 @@ impl Chain {
         let mut path = vec![];
         let mut tree_nodes = HashMap::new();
         let mut iter = tree_size;
-        while iter >= 1 {
+        while iter > 1 {
             if cur_index % 2 == 0 {
                 cur_index += 1
             } else {
@@ -2239,7 +2244,7 @@ impl Chain {
                 path.push(MerklePathItem { hash, direction });
             }
             cur_index /= 2;
-            iter /= 2;
+            iter = (iter + 1) / 2;
             level += 1;
             counter *= 2;
         }
