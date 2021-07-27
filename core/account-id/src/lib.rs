@@ -160,16 +160,6 @@ impl From<AccountId> for String {
     }
 }
 
-impl TryFrom<&[u8]> for AccountId {
-    type Error = ParseAccountError;
-
-    fn try_from(account_id: &[u8]) -> Result<Self, Self::Error> {
-        std::str::from_utf8(account_id)
-            .map_err(|_| ParseAccountError(ParseErrorKind::Invalid))?
-            .parse()
-    }
-}
-
 #[cfg(feature = "paperclip")]
 const _: () = {
     use paperclip::v2::{models::DataType, schema::TypedData};

@@ -244,22 +244,38 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id_prefix = &account_id_prefix[..account_data_separator_position];
-        AccountId::try_from(account_id_prefix).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be TrieKey::ContractData",
-            )
-        })
+        std::str::from_utf8(account_id_prefix)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key AccountId has invalid UTF-8 format to be TrieKey::ContractData",
+                )
+            })?
+            .parse()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key does not have a valid AccountId to be TrieKey::ContractData",
+                )
+            })
     }
 
     pub fn parse_account_id_from_account_key(raw_key: &[u8]) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::ACCOUNT, raw_key)?;
-        AccountId::try_from(account_id).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be TrieKey::Account",
-            )
-        })
+        std::str::from_utf8(account_id)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key AccountId has invalid UTF-8 format to be TrieKey::Account",
+                )
+            })?
+            .parse()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key does not have a valid AccountId to be TrieKey::Account",
+                )
+            })
     }
 
     pub fn parse_account_id_from_access_key_key(
@@ -282,24 +298,40 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id = &account_id_prefix[..public_key_position];
-        AccountId::try_from(account_id).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be TrieKey::AccessKey",
-            )
-        })
+        std::str::from_utf8(account_id)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key AccountId has invalid UTF-8 format to be TrieKey::AccessKey",
+                )
+            })?
+            .parse()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key does not have a valid AccountId to be TrieKey::AccessKey",
+                )
+            })
     }
 
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::CONTRACT_CODE, raw_key)?;
-        AccountId::try_from(account_id).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be TrieKey::ContractCode",
-            )
-        })
+        std::str::from_utf8(account_id)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key AccountId has invalid UTF-8 format to be TrieKey::ContractCode",
+                )
+            })?
+            .parse()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key does not have a valid AccountId to be TrieKey::ContractCode",
+                )
+            })
     }
 
     pub fn parse_trie_key_access_key_from_raw_key(
@@ -330,12 +362,20 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id_prefix = &account_id_prefix[..account_data_separator_position];
-        AccountId::try_from(account_id_prefix).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "raw key does not have a valid AccountId to be TrieKey::ReceivedData",
-            )
-        })
+        std::str::from_utf8(account_id_prefix)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key AccountId has invalid UTF-8 format to be TrieKey::ReceivedData",
+                )
+            })?
+            .parse()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "raw key does not have a valid AccountId to be TrieKey::ReceivedData",
+                )
+            })
     }
 
     pub fn parse_data_id_from_received_data_key(
