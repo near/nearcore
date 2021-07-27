@@ -144,7 +144,6 @@ impl RuntimeUser {
             is_new_chunk: true,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: TESTNET_EVM_CHAIN_ID,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         }

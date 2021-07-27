@@ -245,7 +245,6 @@ impl TrieViewer {
             is_new_chunk: false,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: view_state.evm_chain_id,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };

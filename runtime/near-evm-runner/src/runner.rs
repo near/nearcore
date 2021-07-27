@@ -698,6 +698,7 @@ pub fn run_evm(
                 burnt_gas: context.gas_counter.burnt_gas(),
                 used_gas: context.gas_counter.used_gas(),
                 logs: context.logs,
+                profile: Default::default(),
             };
             (Some(outcome), None)
         }

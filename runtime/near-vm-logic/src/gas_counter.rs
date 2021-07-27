@@ -74,7 +74,6 @@ impl GasCounter {
         max_gas_burnt: Gas,
         prepaid_gas: Gas,
         is_view: bool,
-        profile: ProfileData,
     ) -> Self {
         Self {
             ext_costs_config,
@@ -83,7 +82,7 @@ impl GasCounter {
             max_gas_burnt,
             prepaid_gas,
             is_view,
-            profile,
+            profile: Default::default(),
         }
     }
 

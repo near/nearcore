@@ -188,6 +188,7 @@ fn main() {
         .unwrap()
     );
 
-    assert_eq!(all_gas, results.profile.all_gas());
-    println!("{:#?}", results.profile);
+    // TODO: replace with results' outcomes' profile
+    // assert_eq!(all_gas, results.profile.all_gas());
+    // println!("{:#?}", results.profile);
 }

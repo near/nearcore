@@ -434,7 +434,6 @@ impl NightshadeRuntime {
             is_new_chunk,
             #[cfg(feature = "protocol_feature_evm")]
             evm_chain_id: self.evm_chain_id(),
-            profile: Default::default(),
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
                 is_first_block_of_version,

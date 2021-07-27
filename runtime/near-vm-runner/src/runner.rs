@@ -1,9 +1,7 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{
-    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
-};
+use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMOutcome};
@@ -32,7 +30,6 @@ pub fn run<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
-    profile: &ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     run_vm(
         code,
@@ -45,7 +42,6 @@ pub fn run<'a>(
         VMKind::default(),
         current_protocol_version,
         cache,
-        profile.clone(),
     )
 }
 
@@ -60,7 +56,6 @@ pub fn run_vm(
     vm_kind: VMKind,
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
-    profile: ProfileData,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::debug_span!(target: "vm", "run_vm").entered();
 
@@ -83,7 +78,6 @@ pub fn run_vm(
             wasm_config,
             fees_config,
             promise_results,
-            profile.clone(),
             current_protocol_version,
             cache,
         ),
@@ -98,7 +92,6 @@ pub fn run_vm(
             wasm_config,
             fees_config,
             promise_results,
-            profile.clone(),
             current_protocol_version,
             cache,
         ),
@@ -115,16 +108,15 @@ pub fn run_vm(
             wasm_config,
             fees_config,
             promise_results,
-            profile.clone(),
             current_protocol_version,
             cache,
         ),
         #[cfg(not(feature = "wasmer1_vm"))]
         VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     };
-    if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
-        profile.set_burnt_gas(*burnt_gas)
-    }
+    // if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
+    //     profile.set_burnt_gas(*burnt_gas)
+    // }
     (outcome, error)
 }
 

@@ -173,7 +173,6 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    profile,
                                     current_protocol_version,
                                 )
                             }
@@ -203,7 +202,6 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    profile,
                                     current_protocol_version,
                                 )
                             }

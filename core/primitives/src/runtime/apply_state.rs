@@ -40,8 +40,6 @@ pub struct ApplyState {
     /// Ethereum chain id.
     #[cfg(feature = "protocol_feature_evm")]
     pub evm_chain_id: u64,
-    /// Data collected from making a contract call
-    pub profile: crate::profile::ProfileData,
     /// Data for migrations that may need to be applied at the start of an epoch when protocol
     /// version changes
     pub migration_data: Arc<MigrationData>,

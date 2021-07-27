@@ -110,7 +110,6 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         ext.reset_touched_nodes_counter();
@@ -128,7 +127,6 @@ impl<'a> VMLogic<'a> {
             max_gas_burnt,
             context.prepaid_gas,
             context.is_view,
-            profile,
         );
         Self {
             ext,
@@ -160,7 +158,6 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: ProfileData,
     ) -> Self {
         Self::new_with_protocol_version(
             ext,
@@ -169,7 +166,6 @@ impl<'a> VMLogic<'a> {
             fees_config,
             promise_results,
             memory,
-            profile,
             LEGACY_DEFAULT_PROTOCOL_VERSION,
         )
     }
@@ -2509,6 +2505,7 @@ impl<'a> VMLogic<'a> {
             burnt_gas: self.gas_counter.burnt_gas(),
             used_gas: self.gas_counter.used_gas(),
             logs: self.logs,
+            profile: Default::default(),
         }
     }
 
@@ -2523,6 +2520,7 @@ impl<'a> VMLogic<'a> {
             burnt_gas: self.gas_counter.burnt_gas(),
             used_gas: self.gas_counter.used_gas(),
             logs,
+            profile: Default::default(),
         }
     }
 
@@ -2542,6 +2540,9 @@ pub struct VMOutcome {
     pub burnt_gas: Gas,
     pub used_gas: Gas,
     pub logs: Vec<String>,
+    #[serde(skip)]
+    /// Data collected from making a contract call
+    pub profile: ProfileData,
 }
 
 impl std::fmt::Debug for VMOutcome {
