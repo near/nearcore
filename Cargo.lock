@@ -3001,7 +3001,6 @@ dependencies = [
  "paperclip",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
