@@ -375,13 +375,13 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
         self.epoch_info_provider
-            .validator_stake(self.epoch_id, self.last_block_hash, account_id)
+            .validator_stake(self.epoch_id, self.prev_block_hash, account_id)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
     fn validator_total_stake(&self) -> ExtResult<Balance> {
         self.epoch_info_provider
-            .validator_total_stake(self.epoch_id, self.last_block_hash)
+            .validator_total_stake(self.epoch_id, self.prev_block_hash)
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 }

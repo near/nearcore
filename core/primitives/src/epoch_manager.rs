@@ -5,8 +5,8 @@ use serde::Serialize;
 use crate::challenge::SlashedValidator;
 use crate::types::validator_stake::ValidatorStakeV1;
 use crate::types::{
-    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards,
-    ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, ProtocolVersion,
+    ValidatorId, ValidatorKickoutReason,
 };
 use crate::version::PROTOCOL_VERSION;
 use near_primitives_core::hash::CryptoHash;
@@ -24,8 +24,6 @@ pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,
-    /// Number of shards currently.
-    pub num_shards: NumShards,
     /// Number of seats for block producers.
     pub num_block_producer_seats: NumSeats,
     /// Number of seats of block producers per each shard.
@@ -422,7 +420,7 @@ impl BlockInfoV1 {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

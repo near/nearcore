@@ -7,7 +7,6 @@ At the end run for 3 epochs and observe that current protocol version of the net
 
 import os
 import subprocess
-import shutil
 import sys
 import time
 import base58
@@ -17,17 +16,13 @@ sys.path.append('lib')
 import branches
 import cluster
 from configured_logger import logger
-from utils import wait_for_blocks_or_timeout, load_test_contract
+from utils import wait_for_blocks_or_timeout, load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
     sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 
 def main():
-    node_root = "/tmp/near/upgradable"
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
-
+    node_root = get_near_tempdir('upgradable', clean=True)
     branch = branches.latest_rc_branch()
     logger.info(f"Latest rc release branch is {branch}")
     near_root, (stable_branch,
@@ -135,33 +130,6 @@ def main():
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
     assert hex_account_balance == 10 ** 25
-
-    hash = status0['sync_info']['latest_block_hash']
-
-    new_account_id = f'new.{nodes[0].signer_key.account_id}'
-    new_signer_key = cluster.Key(new_account_id, nodes[0].signer_key.pk, nodes[0].signer_key.sk)
-    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(nodes[0].signer_key, new_account_id,
-                                                                                new_signer_key, 10 ** 24, 6,
-                                                                                base58.b58decode(hash.encode('utf8')))
-    res = nodes[0].send_tx_and_wait(create_account_tx, timeout=20)
-    # Successfully created a new account
-    assert 'error' not in res, res
-    assert 'Failure' not in res['result']['status'], res
-
-    hash = status0['sync_info']['latest_block_hash']
-
-    status = nodes[0].get_status()
-    block_height = status['sync_info']['latest_block_height']
-    beneficiary_account_id = '1982374698376abd09265034ef35034756298375462323456294875193563756'
-    tx = sign_delete_account_tx(key=new_signer_key,
-                                to=new_account_id,
-                                beneficiary=beneficiary_account_id,
-                                nonce=block_height * 1_000_000 - 1,
-                                block_hash=base58.b58decode(hash.encode('utf8')))
-    res = nodes[0].send_tx_and_wait(tx, timeout=20)
-    # Successfully deleted an account
-    assert 'error' not in res, res
-    assert 'Failure' not in res['result']['status'], res
 
 
 if __name__ == "__main__":

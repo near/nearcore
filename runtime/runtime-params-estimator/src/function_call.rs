@@ -18,15 +18,14 @@ use near_test_contracts::aurora_contract;
 fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
     let mut xs = vec![];
     let mut ys = vec![];
-    const REPEATS: i32 = 50;
+    const REPEATS: u64 = 50;
     for method_count in vec![5, 20, 30, 50, 100, 200, 1000] {
-        let contract = make_many_methods_contact(method_count);
+        let contract = make_many_methods_contract(method_count);
         println!("LEN = {}", contract.get_code().len());
-        let cost =
-            compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
-        println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / (REPEATS as u64));
+        let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
+        println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
         xs.push(contract.get_code().len() as u64);
-        ys.push(cost / (REPEATS as u64));
+        ys.push(cost / REPEATS);
     }
 
     // Regression analysis only makes sense for additive metrics.
@@ -38,7 +37,8 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
 
     println!(
         "{:?} {:?} function call base {} gas, per byte {} gas",
-        vm_kind, metric,
+        vm_kind,
+        metric,
         ratio_to_gas_signed(metric, cost_base),
         ratio_to_gas_signed(metric, cost_byte),
     );
@@ -47,18 +47,18 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
 #[test]
 fn test_function_call_time() {
     // Run with
-    // cargo test --release --lib function_call::test_function_call_time -- --exact --nocapture
+    // cargo test --release --lib function_call::test_function_call_time
+    //    --features required  -- --exact --nocapture
     test_function_call(GasMetric::Time, VMKind::Wasmer0);
     test_function_call(GasMetric::Time, VMKind::Wasmer1);
     test_function_call(GasMetric::Time, VMKind::Wasmtime);
-
 }
 
 #[test]
 fn test_function_call_icount() {
     // Use smth like
     // CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER=./runner.sh \
-    // cargo test --release --features no_cpu_compatibility_checks \
+    // cargo test --release --features no_cpu_compatibility_checks,required  \
     // --lib function_call::test_function_call_icount -- --exact --nocapture
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
@@ -68,38 +68,38 @@ fn test_function_call_icount() {
     test_function_call(GasMetric::ICount, VMKind::Wasmtime);
 }
 
-fn make_many_methods_contact(method_count: i32) -> ContractCode {
-    let _ = method_count;
-    // let mut methods = String::new();
-    // for i in 0..method_count {
-    //     write!(
-    //         &mut methods,
-    //         "
-    //         (export \"hello{}\" (func {}))
-    //           (func (;{};)
-    //             i32.const {}
-    //             drop
-    //             return
-    //           )
-    //         ", i, i, i, i)
-    //         .unwrap();
-    // }
-    //
-    // let code = format!(
-    //     "
-    //     (module
-    //         {}
-    //         )",
-    //     methods
-    // );
-    // ContractCode::new(wabt::wat2wasm(code.as_bytes()).unwrap(), None)
-    ContractCode::new(aurora_contract().iter().cloned().collect(), None)
+fn make_many_methods_contract(method_count: i32) -> ContractCode {
+    let mut methods = String::new();
+    for i in 0..method_count {
+        write!(
+            &mut methods,
+            "
+            (export \"hello{}\" (func {i}))
+              (func (;{i};)
+                i32.const {i}
+                drop
+                return
+              )
+            ",
+            i = i
+        )
+            .unwrap();
+    }
+
+    let code = format!(
+        "
+        (module
+            {}
+            )",
+        methods
+    );
+    ContractCode::new(wat::parse_str(code).unwrap(), None)
 }
 
 pub fn compute_function_call_cost(
     gas_metric: GasMetric,
     vm_kind: VMKind,
-    repeats: i32,
+    repeats: u64,
     contract: &ContractCode,
 ) -> u64 {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
@@ -111,29 +111,32 @@ pub fn compute_function_call_cost(
     let fake_context = create_context(vec![]);
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
+    // let method_name = "hello0";
+    let method_name = "state_migration"; // aurora
 
     // Warmup.
-    let result = run_vm(
-        &contract,
-        "state_migration",
-        &mut fake_external,
-        fake_context.clone(),
-        &vm_config,
-        &fees,
-        &promise_results,
-        vm_kind,
-        ProtocolVersion::MAX,
-        cache,
-        ProfileData::new(),
-    );
-    assert!(result.1.is_none());
-
+    if repeats != 1 {
+        let result = run_vm(
+            &contract,
+            method_name,
+            &mut fake_external,
+            fake_context.clone(),
+            &vm_config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            ProtocolVersion::MAX,
+            cache,
+            ProfileData::new(),
+        );
+        assert!(result.1.is_none());
+    }
     // Run with gas metering.
     let start = start_count(gas_metric);
     for _ in 0..repeats {
         let result = run_vm(
             &contract,
-            "state_migration",
+            method_name,
             &mut fake_external,
             fake_context.clone(),
             &vm_config,

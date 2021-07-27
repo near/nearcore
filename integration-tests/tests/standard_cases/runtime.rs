@@ -1,5 +1,5 @@
-#[cfg(test)]
 mod test {
+    use crate::*;
     use near_chain_configs::Genesis;
     use near_primitives::state_record::StateRecord;
     use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
@@ -7,7 +7,6 @@ mod test {
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
     #[cfg(feature = "protocol_feature_evm")]
     use testlib::standard_evm_cases::*;
-    use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
@@ -300,12 +299,6 @@ mod test {
     fn test_delete_account_no_account_runtime() {
         let node = create_runtime_node();
         test_delete_account_no_account(node);
-    }
-
-    #[test]
-    fn test_delete_account_implicit_beneficiary_account_runtime() {
-        let node = create_runtime_node();
-        test_delete_account_implicit_beneficiary_account(node);
     }
 
     #[test]
