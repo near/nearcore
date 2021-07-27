@@ -18,7 +18,6 @@ use nearcore::{config::GenesisExt, load_test_config, start_with_config, Nightsha
 pub mod fees_utils;
 pub mod node;
 pub mod runtime_utils;
-pub mod standard_test_cases;
 pub mod test_helpers;
 pub mod user;
 

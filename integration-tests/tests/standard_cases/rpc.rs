@@ -1,15 +1,14 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
 #[cfg(feature = "expensive_tests")]
-#[cfg(test)]
 mod test {
     use std::thread;
     use std::time::Duration;
 
+    use crate::*;
     use near_logger_utils::init_test_module_logger;
     use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
     use testlib::runtime_utils::alice_account;
-    use testlib::standard_test_cases::*;
     use testlib::test_helpers::heavy_test;
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {

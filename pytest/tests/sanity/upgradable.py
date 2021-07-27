@@ -7,7 +7,6 @@ At the end run for 3 epochs and observe that current protocol version of the net
 
 import os
 import subprocess
-import shutil
 import sys
 import time
 import base58
@@ -17,17 +16,13 @@ sys.path.append('lib')
 import branches
 import cluster
 from configured_logger import logger
-from utils import wait_for_blocks_or_timeout, load_test_contract
+from utils import wait_for_blocks_or_timeout, load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, \
     sign_create_account_tx, sign_delete_account_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 
 def main():
-    node_root = "/tmp/near/upgradable"
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
-
+    node_root = get_near_tempdir('upgradable', clean=True)
     branch = branches.latest_rc_branch()
     logger.info(f"Latest rc release branch is {branch}")
     near_root, (stable_branch,
