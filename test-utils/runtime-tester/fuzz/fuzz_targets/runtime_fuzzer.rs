@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use runtime_tester::{Scenario};
+use runtime_tester::Scenario;
 use std::fs::File;
 
 fuzz_target!(|scenario: Scenario| {
