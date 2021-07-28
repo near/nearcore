@@ -1,4 +1,3 @@
 *.wasm
 !test_contract_ts.wasm
 !near_evm.wasm
-!ZombieOwnership.bin
