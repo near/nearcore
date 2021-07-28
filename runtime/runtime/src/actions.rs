@@ -39,7 +39,6 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
-use near_vm_logic::profile::ProfileData;
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
