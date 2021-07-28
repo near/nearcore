@@ -793,5 +793,5 @@ fn call_promise() {
 
 #[no_mangle]
 pub unsafe fn hello0() {
-    
+
 }
