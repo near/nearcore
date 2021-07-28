@@ -161,11 +161,13 @@ pub fn compute_function_call_cost(
 
     match init_args {
         Some(args) => {
+            let mut init_context = create_context(args);
+            init_context.attached_deposit = 0;
             let result = run_vm(
                 &contract,
                 "new",
                 &mut fake_external,
-                create_context(args),
+                init_context,
                 &vm_config,
                 &fees,
                 &promise_results,
