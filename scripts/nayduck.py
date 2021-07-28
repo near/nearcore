@@ -63,7 +63,8 @@ def read_tests_from_file(path: pathlib.Path, *,
             line = line.strip()
             if line.startswith('./'):
                 yield from read_tests_from_file(
-                    path, include_comments=include_comments, depth=depth + 1)
+                    path.parent / line,
+                    include_comments=include_comments, depth=depth + 1)
             elif include_comments or (line and line[0] != '#'):
                 yield line
 
