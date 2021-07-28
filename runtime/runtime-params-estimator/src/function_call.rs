@@ -16,6 +16,7 @@ use nearcore::get_store_path;
 use num_rational::Ratio;
 use std::fmt::Write;
 use std::sync::Arc;
+use near_vm_logic::ExtCostsConfig;
 
 const REPEATS: u64 = 50;
 
@@ -77,12 +78,22 @@ fn compare_function_call_icount() {
     // Base comparison
     // test_function_call(GasMetric::ICount, VMKind::Wasmer0);
 
+    let runtime_fees_config = RuntimeFeesConfig::default();
+    let ext_costs_config = ExtCostsConfig::default();
+
+    let old_function_call_fee = runtime_fees_config.action_creation_config.function_call_cost.execution;
+    println!("old_function_call_fee = {}", old_function_call_fee);
+
     let contracts_data =
         vec![get_aurora_contract_data(), get_multisig_contract_data(), get_voting_contract_data()];
     for (contract, method_name, init_args) in contracts_data.iter().cloned() {
         println!("{}", method_name);
+
         // Actual cost
         let contract = ContractCode::new(contract.iter().cloned().collect(), None);
+        let contract_len = contract.get_code().len();
+        println!("contract length = {}", contract_len);
+
         let cost = compute_function_call_cost(
             GasMetric::ICount,
             VMKind::Wasmer0,
@@ -96,17 +107,17 @@ fn compare_function_call_icount() {
         println!("actual = {}", actual_gas);
 
         // Old estimation
-        let runtime_fees_config = RuntimeFeesConfig::default();
-        let fee = runtime_fees_config.action_creation_config.function_call_cost.execution;
+        let fee = old_function_call_fee + ext_costs_config.contract_compile_base + ext_costs_config.contract_compile_bytes * contract_len;
         // runtime_fees_config.action_creation_config.function_call_cost_per_byte is negligible here
         println!("old estimation = {}", fee);
 
+        let fee_with_compile
         // New estimation
         // Prev computed:
         // let new_fee = 37_732_719_837 + 76_128_437 * contract.get_code().len();
         // Newly:
         // Wasmer0 ICount function call base 48080046101 gas, per byte 207939579 gas
-        let new_fee = 48_080_046_101 + 207_939_579 * contract.get_code().len();
+        let new_fee = 48_080_046_101 + 207_939_579 * contract_len;
         println!("new estimation = {}", new_fee);
 
         println!("{},{},{},{}", method_name, actual_gas, fee, new_fee);
