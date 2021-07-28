@@ -62,6 +62,8 @@ use near_primitives::version::{
 };
 use std::rc::Rc;
 use std::sync::Arc;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 mod actions;
 pub mod adapter;
@@ -821,11 +823,19 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
+        // test write
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("/host/tmp/data/profile.txt")
+            .unwrap();
+
         let _span = tracing::debug_span!(target: "runtime", "Runtime::process_receipt").entered();
 
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
+                writeln!(file, "set_received_data");
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -844,12 +854,14 @@ impl Runtime {
                         data_id: data_receipt.data_id,
                     },
                 )? {
+                    writeln!(file, "remove_postponed_receipt_id");
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update.remove(TrieKey::PostponedReceiptId {
                         receiver_id: account_id.clone(),
                         data_id: data_receipt.data_id,
                     });
+                    writeln!(file, "get_pending_data");
                     // Checking how many input data items is pending for the receipt.
                     let pending_data_count: u32 = get(
                         state_update,
@@ -918,10 +930,13 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
+                    writeln!(file, "get_received_data");
                     if get_received_data(state_update, account_id, *data_id)?.is_none() {
+
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
+                        writeln!(file, "set_postponed_receipt_id");
                         set(
                             state_update,
                             TrieKey::PostponedReceiptId {
