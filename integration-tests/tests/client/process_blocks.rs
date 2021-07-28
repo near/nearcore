@@ -3099,6 +3099,7 @@ mod access_key_nonce_range_tests {
 
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 mod protocol_feature_restore_receipts_after_fix_tests {
+    use super::*;
     use near_primitives::runtime::migration_data::MigrationData;
     use near_primitives::version::ProtocolFeature;
 
