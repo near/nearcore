@@ -18,7 +18,11 @@ pub type Nonce = u64;
 pub type BlockHeight = u64;
 /// Height of the epoch.
 pub type EpochHeight = u64;
-/// Shard index, from 0 to NUM_SHARDS - 1.
+/// A ordinal number ranging from 0 to NUM_SHARDS - 1.
+/// This data type is used on the protocol level.
+/// Different validators use the same ShardOrd for the same shard.
+/// There is another data type ShardId, which is only used inside a validator's internal state
+/// and should never be exposed. See https://github.com/near/NEPs/pull/241 for more details
 pub type ShardOrd = u64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = u128;

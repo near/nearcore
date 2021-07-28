@@ -80,7 +80,7 @@ pub struct ShardChunkHeaderInner {
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockHeight,
-    /// Shard index.
+    /// Shard ordinal.
     pub shard_ord: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,

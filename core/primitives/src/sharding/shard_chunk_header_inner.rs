@@ -127,7 +127,8 @@ pub struct ShardChunkHeaderInnerV1 {
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockHeight,
-    /// Shard index.
+    /// Shard ordinal instead of shard id is used here as ShardChunkHeader is a protocol-level
+    /// data structure
     pub shard_ord: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
@@ -154,7 +155,7 @@ pub struct ShardChunkHeaderInnerV2 {
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: BlockHeight,
-    /// Shard index.
+    /// Shard ordinal.
     pub shard_ord: ShardOrd,
     /// Gas used in this chunk.
     pub gas_used: Gas,
