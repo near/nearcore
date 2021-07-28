@@ -359,10 +359,9 @@ impl Default for ExtCostsConfig {
             keccak256_byte: SAFETY_MULTIPLIER * 7157035,
             keccak512_base: SAFETY_MULTIPLIER * 1937129412,
             keccak512_byte: SAFETY_MULTIPLIER * 12216567,
-            ripemd160_base: SAFETY_MULTIPLIER * 284558362,
-            // Cost per byte is 3542227. There are 64 bytes in a block.
-            ripemd160_block: SAFETY_MULTIPLIER * 226702528,
-            ecrecover_base: SAFETY_MULTIPLIER * 1121789875000,
+            ripemd160_base: SAFETY_MULTIPLIER * 833023667,
+            ripemd160_block: SAFETY_MULTIPLIER * 312554207,
+            ecrecover_base: SAFETY_MULTIPLIER * 93050471854,
             log_base: SAFETY_MULTIPLIER * 1181104350,
             log_byte: SAFETY_MULTIPLIER * 4399597,
             storage_write_base: SAFETY_MULTIPLIER * 21398912000,
