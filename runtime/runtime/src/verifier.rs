@@ -227,7 +227,7 @@ pub(crate) fn validate_receipt(
     receipt: &Receipt,
 ) -> Result<(), ReceiptValidationError> {
     // We retain these checks here as to maintain backwards compatibility
-    // with AccountId validation since we unsafely parse an AccountId
+    // with AccountId validation since we illegally parse an AccountId
     // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
     AccountId::validate(receipt.predecessor_id.as_ref()).map_err(|_| {
         ReceiptValidationError::InvalidPredecessorId { account_id: receipt.predecessor_id.clone() }

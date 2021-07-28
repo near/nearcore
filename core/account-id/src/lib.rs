@@ -65,9 +65,9 @@ impl AccountId {
     ///
     /// You must ensure to manually call the [`AccountId::validate`] function on the
     /// AccountId sometime after its creation but before it's use.
-    #[cfg(feature = "internal_unsafe")]
-    #[deprecated(since = "#4440", note = "unchecked AccountId construction is illegal")]
-    pub fn new_unchecked(account_id: String) -> Self {
+    #[cfg(feature = "internal_unstable")]
+    #[deprecated(since = "#4440", note = "AccountId construction without validation is illegal")]
+    pub fn new_unvalidated(account_id: String) -> Self {
         Self(account_id.into())
     }
 
