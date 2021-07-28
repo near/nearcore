@@ -2,15 +2,12 @@ use std::sync::{Arc, RwLock};
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_primitives::account::Account;
-use near_primitives::hash::CryptoHash;
-use near_primitives::state_record::StateRecord;
 use near_primitives::types::AccountId;
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
+use nearcore::config::GenesisExt;
 
 use crate::node::Node;
 use crate::runtime_utils::{
-    add_test_contract, alice_account, bob_account, evm_account, get_runtime_and_trie_from_genesis,
+    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
 };
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
@@ -27,10 +24,6 @@ impl RuntimeNode {
             Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
         add_test_contract(&mut genesis, &alice_account());
         add_test_contract(&mut genesis, &bob_account());
-        genesis.records.as_mut().push(StateRecord::Account {
-            account_id: evm_account(),
-            account: Account::new(TESTING_INIT_BALANCE, 0, CryptoHash::default(), 0),
-        });
         Self::new_from_genesis(account_id, genesis)
     }
 

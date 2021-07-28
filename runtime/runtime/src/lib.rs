@@ -1582,8 +1582,6 @@ mod tests {
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             is_new_chunk: true,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
             profile: ProfileData::new(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),

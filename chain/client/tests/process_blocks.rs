@@ -3443,8 +3443,6 @@ mod contract_precompilation_tests {
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
     use near_vm_runner::{get_contract_cache_key, VMKind};
-    #[cfg(feature = "protocol_feature_evm")]
-    use nearcore::config::TESTNET_EVM_CHAIN_ID;
     use node_runtime::state_viewer::TrieViewer;
     use std::rc::Rc;
 
@@ -3549,8 +3547,6 @@ mod contract_precompilation_tests {
             block_timestamp: block.header().raw_timestamp(),
             current_protocol_version: PROTOCOL_VERSION,
             cache: Some(caches[1].clone()),
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         viewer
             .call_function(

@@ -92,9 +92,6 @@ pub struct ViewApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
-    /// EVM chain ID
-    #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {

@@ -663,9 +663,6 @@ pub trait RuntimeAdapter: Send + Sync {
         header_head: &CryptoHash,
     ) -> Result<bool, Error>;
 
-    #[cfg(feature = "protocol_feature_evm")]
-    fn evm_chain_id(&self) -> u64;
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
     /// Get previous epoch id by hash of previous block.

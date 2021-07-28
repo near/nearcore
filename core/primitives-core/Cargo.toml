@@ -26,5 +26,4 @@ near-account-id = { path = "../account-id" }
 
 [features]
 default = []
-protocol_feature_evm = []
 protocol_feature_alt_bn128 = []
