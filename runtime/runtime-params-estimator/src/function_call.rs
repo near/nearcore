@@ -105,7 +105,7 @@ fn compare_function_call_icount() {
         // println!("actual = {}", actual_gas);
 
         // Old estimation
-        let fee = old_function_call_fee + ext_costs_config.contract_compile_base + ext_costs_config.contract_compile_bytes * contract_len;
+        let fee = old_function_call_fee + ext_costs_config.contract_compile_base + ext_costs_config.contract_compile_bytes * contract_len as u64;
         // runtime_fees_config.action_creation_config.function_call_cost_per_byte is negligible here
         // println!("old estimation = {}", fee);
 
