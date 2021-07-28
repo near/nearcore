@@ -24,19 +24,21 @@ import pathlib
 import subprocess
 
 
-DEFAULT_TEST_FILE = 'tests_for_nayduck.txt'
-DEFAULT_TEST_PATH = (pathlib.Path(__file__).parent.parent /
-                     'nightly' / DEFAULT_TEST_FILE)
+DEFAULT_TEST_FILE = 'nightly/nightly.txt'
 
 
 def _parse_args():
     import argparse
+
+    default_test_path = (pathlib.Path(__file__).parent.parent /
+                         DEFAULT_TEST_FILE)
+
     parser = argparse.ArgumentParser(description='Run tests.')
     parser.add_argument('--branch', '-b',
                         help='Branch to test. By default gets current one.' )
     parser.add_argument('--sha', '-s',
                         help='Sha to test. By default gets current one.')
-    parser.add_argument('--test-file', '-t', default=DEFAULT_TEST_PATH,
+    parser.add_argument('--test-file', '-t', default=default_test_path,
                         help=('Test file with list of tests. '
                               f'By default {DEFAULT_TEST_FILE}'))
     return parser.parse_args()
