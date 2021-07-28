@@ -246,6 +246,10 @@ pub struct ExtCostsConfig {
     /// Storage trie write cost per byte of evicted value.
     pub storage_write_evicted_byte: Gas,
 
+    pub storage_read_base_TEST: Gas,
+    pub storage_read_key_byte_TEST: Gas,
+    pub storage_read_value_byte_TEST: Gas,
+
     /// Storage trie read key base cost
     pub storage_read_base: Gas,
     /// Storage trie read key per byte cost
@@ -369,6 +373,9 @@ impl Default for ExtCostsConfig {
             storage_write_key_byte: SAFETY_MULTIPLIER * 23494289,
             storage_write_value_byte: SAFETY_MULTIPLIER * 10339513,
             storage_write_evicted_byte: SAFETY_MULTIPLIER * 10705769,
+            storage_read_base_TEST: SAFETY_MULTIPLIER * 18785615250,
+            storage_read_key_byte_TEST: SAFETY_MULTIPLIER * 10317511,
+            storage_read_value_byte_TEST: SAFETY_MULTIPLIER * 1870335,
             storage_read_base: SAFETY_MULTIPLIER * 18785615250,
             storage_read_key_byte: SAFETY_MULTIPLIER * 10317511,
             storage_read_value_byte: SAFETY_MULTIPLIER * 1870335,
@@ -442,6 +449,9 @@ impl ExtCostsConfig {
             storage_write_key_byte: 0,
             storage_write_value_byte: 0,
             storage_write_evicted_byte: 0,
+            storage_read_base_TEST: 0,
+            storage_read_key_byte_TEST: 0,
+            storage_read_value_byte_TEST: 0,
             storage_read_base: 0,
             storage_read_key_byte: 0,
             storage_read_value_byte: 0,
@@ -516,6 +526,9 @@ pub enum ExtCosts {
     storage_write_key_byte,
     storage_write_value_byte,
     storage_write_evicted_byte,
+    storage_read_base_TEST,
+    storage_read_key_byte_TEST,
+    storage_read_value_byte_TEST,
     storage_read_base,
     storage_read_key_byte,
     storage_read_value_byte,
@@ -643,6 +656,9 @@ impl ExtCosts {
             storage_write_key_byte => config.storage_write_key_byte,
             storage_write_value_byte => config.storage_write_value_byte,
             storage_write_evicted_byte => config.storage_write_evicted_byte,
+            storage_read_base_TEST => config.storage_read_base_TEST,
+            storage_read_key_byte_TEST => config.storage_read_key_byte_TEST,
+            storage_read_value_byte_TEST => config.storage_read_value_byte_TEST,
             storage_read_base => config.storage_read_base,
             storage_read_key_byte => config.storage_read_key_byte,
             storage_read_value_byte => config.storage_read_value_byte,

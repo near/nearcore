@@ -95,16 +95,19 @@ fn measure_function(
         f_write(account_idx, "noop");
         match metric {
             Metric::storage_has_key_10b_key_10b_value_1k
+            | Metric::storage_read_10b_key_10b_value_1k_TEST
             | Metric::storage_read_10b_key_10b_value_1k
             | Metric::storage_remove_10b_key_10b_value_1k => {
                 f_write(account_idx, "storage_write_10b_key_10b_value_1k")
             }
             Metric::storage_has_key_10kib_key_10b_value_1k
+            | Metric::storage_read_10kib_key_10b_value_1k_TEST
             | Metric::storage_read_10kib_key_10b_value_1k
             | Metric::storage_remove_10kib_key_10b_value_1k => {
                 f_write(account_idx, "storage_write_10kib_key_10b_value_1k")
             }
             Metric::storage_has_key_10b_key_10kib_value_1k
+            | Metric::storage_read_10b_key_10kib_value_1k_TEST
             | Metric::storage_read_10b_key_10kib_value_1k
             | Metric::storage_remove_10b_key_10kib_value_1k
             | Metric::storage_write_10b_key_10kib_value_1k_evict => {
@@ -216,6 +219,9 @@ pub enum Metric {
     storage_write_10kib_key_10b_value_1k,
     storage_write_10b_key_10kib_value_1k,
     storage_write_10b_key_10kib_value_1k_evict,
+    storage_read_10b_key_10b_value_1k_TEST,
+    storage_read_10kib_key_10b_value_1k_TEST,
+    storage_read_10b_key_10kib_value_1k_TEST,
     storage_read_10b_key_10b_value_1k,
     storage_read_10kib_key_10b_value_1k,
     storage_read_10b_key_10kib_value_1k,
@@ -585,22 +591,25 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_1_1k => alt_bn128_pairing_check_1_1k,
         #["protocol_feature_alt_bn128"] alt_bn128_pairing_check_10_1k => alt_bn128_pairing_check_10_1k,
         storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
-        storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
         storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
         storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
-        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
-        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
-        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
+        storage_read_10b_key_10b_value_1k_TEST => storage_read_10b_key_10b_value_1k,
+        storage_read_10kib_key_10b_value_1k_TEST => storage_read_10kib_key_10b_value_1k,
+        storage_read_10b_key_10kib_value_1k_TEST => storage_read_10b_key_10kib_value_1k,
         storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
+        storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
+        storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
+        storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
         data_receipt_100kib_1000 => data_receipt_100kib_1000,
-        storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
+        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
+        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
+        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
         storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
         storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
         storage_write_10b_key_10kib_value_1k_evict => storage_write_10b_key_10kib_value_1k,
-        storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
         storage_has_key_10b_key_10kib_value_1k => storage_has_key_10b_key_10kib_value_1k,
         storage_remove_10b_key_10kib_value_1k =>   storage_remove_10b_key_10kib_value_1k,
         promise_and_100k => promise_and_100k,
@@ -903,6 +912,9 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         storage_write_key_byte: measured_to_gas(metric, &measured, storage_write_key_byte),
         storage_write_value_byte: measured_to_gas(metric, &measured, storage_write_value_byte),
         storage_write_evicted_byte: measured_to_gas(metric, &measured, storage_write_evicted_byte),
+        storage_read_base_TEST: measured_to_gas(metric, &measured, storage_read_base_TEST),
+        storage_read_key_byte_TEST: measured_to_gas(metric, &measured, storage_read_key_byte_TEST),
+        storage_read_value_byte_TEST: measured_to_gas(metric, &measured, storage_read_value_byte_TEST),
         storage_read_base: measured_to_gas(metric, &measured, storage_read_base),
         storage_read_key_byte: measured_to_gas(metric, &measured, storage_read_key_byte),
         storage_read_value_byte: measured_to_gas(metric, &measured, storage_read_value_byte),
