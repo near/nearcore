@@ -271,7 +271,6 @@ mod tests {
             proposals_to_epoch_info(
                 &EpochConfig {
                     epoch_length: 2,
-                    num_shards: 5,
                     num_block_producer_seats: 6,
                     num_block_producer_seats_per_shard: vec![6, 2, 2, 2, 2],
                     avg_hidden_validator_seats_per_shard: vec![6, 2, 2, 2, 2],

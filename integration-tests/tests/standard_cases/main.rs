@@ -1,6 +1,9 @@
 use std::convert::TryFrom;
 use std::sync::Arc;
 
+mod rpc;
+mod runtime;
+
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_primitives::errors::ServerError;
@@ -18,10 +21,10 @@ use near_primitives::views::{
 use near_vm_errors::MethodResolveError;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
-use crate::fees_utils::FeeHelper;
-use crate::node::Node;
-use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
-use crate::user::User;
+use testlib::fees_utils::FeeHelper;
+use testlib::node::Node;
+use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
+use testlib::user::User;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
