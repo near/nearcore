@@ -15,6 +15,9 @@ import typing
 
 import yaml
 
+import nayduck
+
+
 # List of globs of Python scripts in the pytest/tests directory which are not
 # test but rather helper scripts and libraries.
 HELPER_SCRIPTS = [
@@ -68,15 +71,16 @@ def list_nayduck_tests(directory: pathlib.Path) -> StrGenerator:
     """
     for filename in os.listdir(directory):
         if filename.endswith('.txt'):
-            with open(directory / filename) as rd:
-                yield from read_nayduck_tests(rd)
+            yield from read_nayduck_tests(nayduck.read_tests_from_file(
+                directory / filename, include_comments=True))
 
 
-def read_nayduck_tests(rd: typing.TextIO) -> StrGenerator:
-    """Reads NayDuck test file and yields all tests mentioned there.
+def read_nayduck_tests(lines: typing.Iterable[str]) -> StrGenerator:
+    """Reads NayDuck test lines and yields all tests mentioned there.
 
     Args:
-        rd: An open text stream for the NayDuck test list file.
+        lines: An iterable over lines of a NayDuck test list file.  Among other
+            things, this may be file-like opened in text mode.
     Yields:
         pytest and mocknet tests mentioned in the file.  May include duplicates.
     """
@@ -90,7 +94,7 @@ def read_nayduck_tests(rd: typing.TextIO) -> StrGenerator:
             pass
 
     found_todo = False
-    for line in rd:
+    for line in lines:
         line = line.strip()
         line = re.sub(r'\s+', ' ', line)
         if re.search(r'^\s*(?:pytest|mocknet)\s+', line):
