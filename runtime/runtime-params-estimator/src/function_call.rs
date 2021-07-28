@@ -161,7 +161,7 @@ pub fn compute_function_call_cost(
 
     match init_args {
         Some(args) => {
-            run_vm(
+            let result = run_vm(
                 &contract,
                 "new",
                 &mut fake_external,
@@ -174,6 +174,11 @@ pub fn compute_function_call_cost(
                 cache,
                 ProfileData::new(),
             );
+            if result.1.is_some() {
+                println!("{:?}", result);
+                return 0u64;
+            }
+            assert!(result.1.is_none());
         },
         None => {}
     };
