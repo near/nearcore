@@ -7,9 +7,7 @@ use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
-use near_test_contracts::{
-    aurora_contract, get_aurora_contract_data, get_multisig_contract_data, get_voting_contract_data,
-};
+use near_test_contracts::{aurora_contract, get_aurora_contract_data, get_multisig_contract_data, get_voting_contract_data, get_rs_contract_data};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
@@ -85,7 +83,7 @@ fn compare_function_call_icount() {
     println!("old_function_call_fee = {}", old_function_call_fee);
 
     let contracts_data =
-        vec![get_aurora_contract_data(), get_multisig_contract_data(), get_voting_contract_data()];
+        vec![get_aurora_contract_data(), get_multisig_contract_data(), get_voting_contract_data(), get_rs_contract_data()];
     for (contract, method_name, init_args) in contracts_data.iter().cloned() {
         println!("{}", method_name);
 
@@ -104,23 +102,22 @@ fn compare_function_call_icount() {
         );
         let actual_gas =
             ratio_to_gas_signed(GasMetric::ICount, Ratio::new(cost as i128, REPEATS as i128));
-        println!("actual = {}", actual_gas);
+        // println!("actual = {}", actual_gas);
 
         // Old estimation
         let fee = old_function_call_fee + ext_costs_config.contract_compile_base + ext_costs_config.contract_compile_bytes * contract_len;
         // runtime_fees_config.action_creation_config.function_call_cost_per_byte is negligible here
-        println!("old estimation = {}", fee);
+        // println!("old estimation = {}", fee);
 
-        let fee_with_compile
         // New estimation
         // Prev computed:
         // let new_fee = 37_732_719_837 + 76_128_437 * contract.get_code().len();
         // Newly:
         // Wasmer0 ICount function call base 48080046101 gas, per byte 207939579 gas
         let new_fee = 48_080_046_101 + 207_939_579 * contract_len;
-        println!("new estimation = {}", new_fee);
+        // println!("new estimation = {}", new_fee);
 
-        println!("{},{},{},{}", method_name, actual_gas, fee, new_fee);
+        println!("{},{},{},{},{}", method_name, contract_len, actual_gas, fee, new_fee);
     }
 }
 
