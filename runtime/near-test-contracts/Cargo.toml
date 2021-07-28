@@ -12,3 +12,4 @@ serde_json = "1"
 
 [[bin]]
 path = "build.rs"
+name = "build"
