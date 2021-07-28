@@ -266,7 +266,7 @@ pub(crate) fn action_function_call(
         // `FunctionCall`s error.
         result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
         result.logs.extend(outcome.logs.into_iter());
-        result.profile.merge(outcome.profile);
+        result.profile.merge(&outcome.profile);
         if execution_succeeded {
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);

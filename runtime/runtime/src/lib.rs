@@ -152,7 +152,7 @@ impl ActionResult {
             next_result.gas_burnt_for_function_call,
         )?;
         self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
-        self.profile.merge(next_result.profile);
+        self.profile.merge(&next_result.profile);
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
         if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
