@@ -12,7 +12,7 @@ steps:
   - label: "cargo test nightly"
     command: |
       source ~/.cargo/env
-      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,protocol_feature_evm
+      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
 
     timeout: 60
     agents:
@@ -34,6 +34,7 @@ steps:
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
       python3 scripts/state/update_res.py check
       python3 scripts/check_nightly.py
+      python3 scripts/check_pytests.py
     timeout: 30
     agents:
     - "distro=amazonlinux"
