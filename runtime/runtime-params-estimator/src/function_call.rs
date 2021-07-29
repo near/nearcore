@@ -65,6 +65,7 @@ fn measure_function_call_1s() {
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
     let gas_metric = GasMetric::Time;
+    let vm_kind = VMKind::Wasmer0;
 
     let start = start_count(gas_metric);
     let mut i = 0;
