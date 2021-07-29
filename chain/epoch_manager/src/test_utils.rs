@@ -7,7 +7,7 @@ use near_primitives::challenge::SlashedValidator;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ValidatorWeight};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardsInfo, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -22,6 +22,7 @@ use crate::proposals::find_threshold;
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
 
+use near_primitives::shard_layout::ShardLayout;
 use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
@@ -50,6 +51,7 @@ pub fn epoch_info(
     validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
+    num_shards: NumShards,
 ) -> EpochInfo {
     let num_seats = block_producers_settlement.len() as u64;
     epoch_info_with_num_seats(
@@ -64,6 +66,7 @@ pub fn epoch_info(
         validator_reward,
         minted_amount,
         num_seats,
+        num_shards,
     )
 }
 
@@ -79,6 +82,7 @@ pub fn epoch_info_with_num_seats(
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     num_seats: NumSeats,
+    num_shards: NumShards,
 ) -> EpochInfo {
     let seat_price =
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
@@ -121,6 +125,7 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
+        ShardsInfo::default(num_shards),
     )
 }
 
@@ -132,8 +137,8 @@ pub fn epoch_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
-) -> EpochConfig {
-    EpochConfig {
+) -> AllEpochConfig {
+    let epoch_config = EpochConfig {
         epoch_length,
         num_block_producer_seats,
         num_block_producer_seats_per_shard: get_num_seats_per_shard(
@@ -151,7 +156,9 @@ pub fn epoch_config(
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
-    }
+        shard_layout: ShardLayout::default(num_shards),
+    };
+    AllEpochConfig::new(epoch_config, None)
 }
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {

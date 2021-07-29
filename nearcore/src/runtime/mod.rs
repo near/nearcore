@@ -25,7 +25,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -57,7 +57,7 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use crate::shard_tracker::ShardTracker;
 use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
@@ -156,8 +156,11 @@ impl NightshadeRuntime {
         let genesis_config = genesis.config.clone();
         let runtime_config =
             ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
         let initial_epoch_config = EpochConfig::from(&genesis_config);
+        let all_epoch_config = AllEpochConfig::new(
+            initial_epoch_config,
+            genesis.config.simple_nightshade_shard_config,
+        );
         let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
@@ -168,7 +171,7 @@ impl NightshadeRuntime {
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
-                initial_epoch_config,
+                all_epoch_config,
                 genesis_config.protocol_version,
                 reward_calculator,
                 genesis_config.validators(),
@@ -180,7 +183,6 @@ impl NightshadeRuntime {
             initial_tracking_shards,
             EpochId::default(),
             epoch_manager.clone(),
-            num_shards,
         );
         NightshadeRuntime {
             genesis_config,
@@ -949,7 +951,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+        self.shard_tracker.account_id_to_internal_shard_id(account_id)
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
