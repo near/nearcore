@@ -545,6 +545,7 @@ impl Genesis {
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
             protocol_reward_rate: PROTOCOL_REWARD_RATE,
+            total_supply: get_initial_supply(&records),
             max_inflation_rate: MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
@@ -945,7 +946,7 @@ pub fn init_configs(
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
                 protocol_reward_rate: PROTOCOL_REWARD_RATE,
                 max_inflation_rate: MAX_INFLATION_RATE,
-                total_supply: 0,
+                total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
@@ -1156,4 +1157,14 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
+}
+
+fn get_initial_supply(records: &[StateRecord]) -> Balance {
+    let mut total_supply = 0;
+    for record in records {
+        if let StateRecord::Account { account, .. } = record {
+            total_supply += account.amount() + account.locked();
+        }
+    }
+    total_supply
 }
