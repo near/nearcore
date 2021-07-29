@@ -1468,7 +1468,6 @@ mod tests {
     use near_primitives::contract::ContractCode;
     use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
-    use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
