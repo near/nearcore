@@ -175,7 +175,6 @@ impl<'a> EvmContext<'a> {
                 max_gas_burnt,
                 prepaid_gas,
                 is_view,
-                Default::default(),
             ),
             evm_gas_counter: EvmGasCounter::new(0.into(), evm_gas),
             fees_config,
