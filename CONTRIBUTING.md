@@ -49,8 +49,11 @@ The `test plan` should describe in detail what tests are presented, and what cas
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within 48 hours. The reviewers will first review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
+2. Once the CI passes, you should expect the first feedback to appear within 48 hours. 
+   The reviewers will first review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
+   If you would like to request review from a specific review, feel free to do so [through the github UI](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
 3. Once you address all the comments, and your PR is accepted, we will take care of merging it.
+4. If your PR introduces a new protocol feature, please document it in [CHANGELOG.md](CHANGELOG.md) under `unreleased`.
 
 ## Proposing new ideas and features
 
@@ -85,10 +88,9 @@ This is required by [cargo-workspaces](https://github.com/pksunkara/cargo-worksp
 
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 
-You should expect the changes from `master` to get merged into `beta` branch the next time `nightly` test run completes, assuming it passes.
-Releases to the `stable` branch are manual, but generally contain a contiguous prefix of commits from `beta` branch.
-Note, that the goal is to maintain `beta` as stable as possible and `stable` completely stable. Hence if your change is breaking something that gets detected down the line - it will rolled back and requested to address the issue with additional test coverage.
-
+On [betanet](https://docs.near.org/docs/concepts/networks#betanet) we run nightly build from master with all the nightly protocol feature enabled.
+Every six weeks, we stabilize some protocol features and make a release candidate for testnet.
+After the release candidate has been running on testnet for 2 weeks and no issue is observed, we stabilize and publish the release for mainnet.
 
 ## Issue Labels
 
