@@ -179,9 +179,13 @@ pub mod wasmer0_cache {
         match cache.get(&key.0) {
             Ok(serialized) => match serialized {
                 Some(serialized) => {
+                    eprintln!("deserialize_wasmer");
                     deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
                 }
-                None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
+                None => {
+                    eprintln!("compile_and_serialize_wasmer");
+                    compile_and_serialize_wasmer(wasm_code, config, &key, cache)
+                },
             },
             Err(_) => Err(VMError::CacheError(ReadError)),
         }
