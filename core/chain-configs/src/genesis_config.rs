@@ -15,6 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use smart_default::SmartDefault;
 
+use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
@@ -368,13 +369,15 @@ impl GenesisJsonHasher {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis = Self { config, records, records_file: PathBuf::new() };
-        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        validate_genesis(&genesis);
         genesis
     }
 
     pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
-        Self { config, records: GenesisRecords(vec![]), records_file }
+        let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
+        validate_genesis(&genesis);
+        genesis
     }
 
     /// Reads Genesis from a single file.
@@ -382,7 +385,7 @@ impl Genesis {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
         let genesis: Genesis =
             serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
-        assert_eq!(get_initial_supply(genesis.records.as_ref()), genesis.config.total_supply);
+        validate_genesis(&genesis);
         genesis
     }
 
@@ -434,16 +437,6 @@ impl Genesis {
             }
         }
     }
-}
-
-pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
-    for record in records {
-        if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
-        }
-    }
-    total_supply
 }
 
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
