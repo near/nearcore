@@ -11,7 +11,7 @@ use near_primitives::block::{genesis_chunks, Block};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::account_new;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
-use near_primitives::types::{EpochId, StateRoot};
+use near_primitives::types::{AccountId, EpochId, StateRoot};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Rational;
@@ -24,10 +24,10 @@ fn create_transaction() -> SignedTransaction {
     SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
-            signer_id: "123213123123".to_string(),
+            signer_id: "123213123123".parse().unwrap(),
             public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
-            receiver_id: "1231231232131".to_string(),
+            receiver_id: "1231231232131".parse().unwrap(),
             block_hash: Default::default(),
             actions,
         },
@@ -45,7 +45,7 @@ fn create_block() -> Block {
         1_000,
         CryptoHash::default(),
     );
-    let signer = InMemoryValidatorSigner::from_random("".to_string(), KeyType::ED25519);
+    let signer = InMemoryValidatorSigner::from_random(AccountId::test_account(), KeyType::ED25519);
     Block::produce(
         PROTOCOL_VERSION,
         genesis.header(),

@@ -411,7 +411,7 @@ impl RoutingTable {
         // Add account to store
         let mut update = self.store.store_update();
         if let Err(e) = update
-            .set_ser(ColAccountAnnouncements, account_id.as_bytes(), &announce_account)
+            .set_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes(), &announce_account)
             .and_then(|_| update.commit())
         {
             warn!(target: "network", "Error saving announce account to store: {:?}", e);
@@ -719,7 +719,7 @@ impl RoutingTable {
             Some(announce_account.clone())
         } else {
             self.store
-                .get_ser(ColAccountAnnouncements, account_id.as_bytes())
+                .get_ser(ColAccountAnnouncements, account_id.as_ref().as_bytes())
                 .and_then(|res: Option<AnnounceAccount>| {
                     if let Some(announce_account) = res {
                         self.add_account(announce_account.clone());
