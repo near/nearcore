@@ -28,7 +28,6 @@ use near_primitives::{
     },
     utils::{
         create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
-        system_account,
     },
 };
 use near_store::{
@@ -307,7 +306,7 @@ impl Runtime {
         result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = receipt.predecessor_id == system_account();
+        let is_refund = AccountId::is_system(&receipt.predecessor_id);
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -557,7 +556,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if receipt.predecessor_id == system_account() {
+        let gas_deficit_amount = if AccountId::is_system(&receipt.predecessor_id) {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -569,6 +568,7 @@ impl Runtime {
                 result.gas_burnt = 0;
                 result.gas_used = 0;
             }
+
             // If the refund fails tokens are burned.
             if result.result.is_err() {
                 stats.other_burnt_amount = safe_add_balance(
@@ -607,7 +607,7 @@ impl Runtime {
 
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
-            if receipt.predecessor_id == system_account() { 0 } else { result.gas_burnt };
+            if AccountId::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
@@ -1462,7 +1462,6 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
     use near_primitives::contract::ContractCode;
-    use near_primitives::errors::ReceiptValidationError;
     use near_primitives::hash::hash;
     use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
@@ -1546,8 +1545,11 @@ mod tests {
         let root = MerkleHash::default();
         let runtime = Runtime::new();
         let account_id = alice_account();
-        let signer =
-            Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+        let signer = Arc::new(InMemorySigner::from_seed(
+            account_id.clone(),
+            KeyType::ED25519,
+            account_id.as_ref(),
+        ));
 
         let mut initial_state = tries.new_trie_update(0, root);
         let mut initial_account = account_new(initial_balance, hash(&[]));
@@ -1557,7 +1559,7 @@ mod tests {
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         set_access_key(
             &mut initial_state,
-            account_id.clone(),
+            account_id,
             signer.public_key(),
             &AccessKey::full_access(),
         );
@@ -2095,88 +2097,6 @@ mod tests {
             ],
             "STEP #5 failed",
         );
-    }
-
-    #[test]
-    fn test_apply_invalid_incoming_receipts() {
-        let initial_balance = to_yocto(1_000_000);
-        let initial_locked = to_yocto(500_000);
-        let small_transfer = to_yocto(10_000);
-        let gas_limit = 1;
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-            setup_runtime(initial_balance, initial_locked, gas_limit);
-
-        let n = 1;
-        let mut receipts = generate_receipts(small_transfer, n);
-        let invalid_account_id = "Invalid".to_string();
-        receipts.get_mut(0).unwrap().predecessor_id = invalid_account_id.clone();
-
-        let err = runtime
-            .apply(
-                tries.get_trie_for_shard(0),
-                root,
-                &None,
-                &apply_state,
-                &receipts,
-                &[],
-                &epoch_info_provider,
-                None,
-            )
-            .err()
-            .unwrap();
-        assert_eq!(
-            err,
-            RuntimeError::ReceiptValidationError(ReceiptValidationError::InvalidPredecessorId {
-                account_id: invalid_account_id
-            })
-        )
-    }
-
-    #[test]
-    fn test_apply_invalid_delayed_receipts() {
-        let initial_balance = to_yocto(1_000_000);
-        let initial_locked = to_yocto(500_000);
-        let small_transfer = to_yocto(10_000);
-        let gas_limit = 1;
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
-            setup_runtime(initial_balance, initial_locked, gas_limit);
-
-        let n = 1;
-        let mut invalid_receipt = generate_receipts(small_transfer, n).pop().unwrap();
-        let invalid_account_id = "Invalid".to_string();
-        invalid_receipt.predecessor_id = invalid_account_id.clone();
-
-        // Saving invalid receipt to the delayed receipts.
-        let mut state_update = tries.new_trie_update(0, root);
-        let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        Runtime::delay_receipt(&mut state_update, &mut delayed_receipts_indices, &invalid_receipt)
-            .unwrap();
-        set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-        state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
-        let trie_changes = state_update.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
-        store_update.commit().unwrap();
-
-        let err = runtime
-            .apply(
-                tries.get_trie_for_shard(0),
-                root,
-                &None,
-                &apply_state,
-                &[],
-                &[],
-                &epoch_info_provider,
-                None,
-            )
-            .err()
-            .unwrap();
-        assert_eq!(
-            err,
-            RuntimeError::StorageError(StorageError::StorageInconsistentState(format!(
-                "Delayed receipt #0 in the state is invalid: {}",
-                ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
-            )))
-        )
     }
 
     #[test]

@@ -29,7 +29,8 @@ pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> Genesis {
-    Genesis::test(vec!["alice.near", "bob.near"], 2)
+    use super::runtime_utils::{alice_account, bob_account};
+    Genesis::test(vec![alice_account(), bob_account()], 2)
 }
 
 /// Config that can be used to start a node or connect to an existing node.
@@ -156,7 +157,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         for record in genesis.records.as_mut() {
             if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
             {
-                if *record_account_id == seed {
+                if record_account_id.as_ref() == &seed {
                     is_account_record_found = true;
                     account.set_code_hash(ContractCode::new(code.to_vec(), None).get_hash());
                 }
@@ -166,7 +167,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         genesis
             .records
             .as_mut()
-            .push(StateRecord::Contract { account_id: seed, code: code.to_vec() });
+            .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec() });
     }
     near_configs_to_node_configs(configs, validator_signers, network_signers, genesis)
 }
