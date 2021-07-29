@@ -132,7 +132,7 @@ impl fmt::Debug for ProfileData {
                     ExtCosts::name_of(e),
                     d,
                     Ratio::new(d * 100, all_gas).to_integer(),
-                    Ratio::new(d * 100, host_gas).to_integer(),
+                    Ratio::new(d * 100, core::cmp::max(host_gas, 1)).to_integer(),
                 )?;
             }
         }
