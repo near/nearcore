@@ -1,4 +1,4 @@
-use near_chain_configs::{Genesis, GenesisConfig};
+use crate::genesis_config::{Genesis, GenesisConfig};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
 use num_rational::Rational;
@@ -134,7 +134,7 @@ impl<'a> GenesisValidator<'a> {
 mod test {
     use super::*;
 
-    use near_chain_configs::GenesisRecords;
+    use crate::GenesisRecords;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account};
     use near_primitives::types::AccountInfo;
