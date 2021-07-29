@@ -48,6 +48,46 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
 }
 
 #[test]
+fn measure_function_call_1s() {
+    let (contract, method_name, init_args) = get_rs_contract_data();
+    let contract = ContractCode::new(contract.iter().cloned().collect(), None);
+    let contract_len = contract.get_code().len();
+    println!("contract length = {}", contract_len);
+
+    let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
+    let store = create_store(&get_store_path(workdir.path()));
+    let cache_store = Arc::new(StoreCompiledContractCache { store });
+    let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
+    let vm_config = VMConfig::default();
+    let mut fake_external = MockedExternal::new();
+    let fake_context = create_context(vec![]);
+    let fees = RuntimeFeesConfig::default();
+    let promise_results = vec![];
+    let gas_metric = GasMetric::Time;
+
+    let start = start_count(gas_metric);
+    for _ in 0..repeats {
+        let result = run_vm(
+            &contract,
+            method_name,
+            &mut fake_external,
+            fake_context.clone(),
+            &vm_config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            ProtocolVersion::MAX,
+            cache,
+            ProfileData::new(),
+        );
+        assert!(result.1.is_none());
+    }
+    let total_raw = end_count(gas_metric, &start) as i128;
+
+    println!("cost is {}", total_raw);
+}
+
+#[test]
 fn test_function_call_time() {
     // Run with
     // cargo test --release --lib function_call::test_function_call_time
