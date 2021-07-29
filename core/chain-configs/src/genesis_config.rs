@@ -436,16 +436,6 @@ impl Genesis {
     }
 }
 
-pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
-    for record in records {
-        if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
-        }
-    }
-    total_supply
-}
-
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
