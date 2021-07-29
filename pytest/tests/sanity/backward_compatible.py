@@ -39,7 +39,8 @@ def main():
     stable_node = cluster.spin_up_node(config, near_root,
                                        str(node_root / 'test0'), 0,
                                        None, None)
-    config["binary_name"] = "near-%s" % current_branch
+    if not os.getenv('NAYDUCK'):
+        config["binary_name"] = "near-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
                                         str(node_root / 'test1'), 1,
                                         stable_node.node_key.pk,
