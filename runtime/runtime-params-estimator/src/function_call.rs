@@ -1,5 +1,5 @@
 use crate::cases::ratio_to_gas_signed;
-use crate::testbed_runners::{end_count, start_count, GasMetric};
+use crate::testbed_runners::{end_count, start_count, GasMetric, Consumed};
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
@@ -53,6 +53,7 @@ fn measure_function_call_1s() {
     let contract = ContractCode::new(contract.iter().cloned().collect(), None);
     let contract_len = contract.get_code().len();
     println!("contract length = {}", contract_len);
+    println!("method name = {}", method_name);
 
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
@@ -66,7 +67,8 @@ fn measure_function_call_1s() {
     let gas_metric = GasMetric::Time;
 
     let start = start_count(gas_metric);
-    for _ in 0..repeats {
+    let mut i = 0;
+    loop {
         let result = run_vm(
             &contract,
             method_name,
@@ -80,11 +82,15 @@ fn measure_function_call_1s() {
             cache,
             ProfileData::new(),
         );
+        i += 1;
         assert!(result.1.is_none());
+        let nanos = end_count(gas_metric, &start) as i128;
+        if nanos > 1_000_000_000 {
+            break;
+        }
     }
-    let total_raw = end_count(gas_metric, &start) as i128;
 
-    println!("cost is {}", total_raw);
+    println!("iters = {}", i);
 }
 
 #[test]
