@@ -9,7 +9,7 @@ use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
 use near_test_contracts::{aurora_contract, get_aurora_contract_data, get_multisig_contract_data, get_voting_contract_data, get_rs_contract_data};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{run_vm, VMKind};
+use near_vm_runner::{run_vm, VMKind, precompile_contract};
 use nearcore::get_store_path;
 use num_rational::Ratio;
 use std::fmt::Write;
@@ -66,6 +66,7 @@ fn measure_function_call_1s() {
     let promise_results = vec![];
     let gas_metric = GasMetric::Time;
     let vm_kind = VMKind::Wasmer0;
+    precompile_contract(&contract, &vm_config, cache);
 
     let start = start_count(gas_metric);
     let mut i = 0;
@@ -215,6 +216,7 @@ pub fn compute_function_call_cost(
     let fake_context = create_context(vec![]);
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
+    precompile_contract(&contract, &vm_config, cache);
 
     match init_args {
         Some(args) => {
