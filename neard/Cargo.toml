@@ -26,8 +26,8 @@ tokio = "1.1"
 futures = "0.3"
 
 nearcore = { path = "../nearcore" }
-near-performance-metrics = { path = "../utils/near-performance-metrics" }
 near-primitives = { path = "../core/primitives" }
+near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [features]
 default = ["json_rpc"]
