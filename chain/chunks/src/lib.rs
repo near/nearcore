@@ -1725,8 +1725,11 @@ mod test {
     fn test_request_partial_encoded_chunk_from_self() {
         let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
         let network_adapter = Arc::new(MockNetworkAdapter::default());
-        let mut shards_manager =
-            ShardsManager::new(Some("test".to_string()), runtime_adapter, network_adapter.clone());
+        let mut shards_manager = ShardsManager::new(
+            Some("test".parse().unwrap()),
+            runtime_adapter,
+            network_adapter.clone(),
+        );
         shards_manager.requested_partial_encoded_chunks.insert(
             ChunkHash(hash(&[1])),
             ChunkRequestInfo {
@@ -1765,10 +1768,10 @@ mod test {
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
             create_test_store(),
             vec![vec![
-                "test".to_string(),
-                "test1".to_string(),
-                "test2".to_string(),
-                "test3".to_string(),
+                "test".parse().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
             ]],
             1,
             1,
@@ -1777,11 +1780,12 @@ mod test {
         let network_adapter = Arc::new(MockNetworkAdapter::default());
         let mut chain_store = ChainStore::new(create_test_store(), 0);
         let mut shards_manager = ShardsManager::new(
-            Some("test".to_string()),
+            Some("test".parse().unwrap()),
             runtime_adapter.clone(),
             network_adapter.clone(),
         );
-        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let signer =
+            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         let mut rs = ReedSolomonWrapper::new(4, 10);
         let (encoded_chunk, proof) = shards_manager
             .create_encoded_shard_chunk(
