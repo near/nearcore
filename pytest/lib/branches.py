@@ -66,22 +66,15 @@ def escaped(branch):
 def compile_current():
     """Compile current branch."""
     branch = current_branch()
-    try:
-        # Accommodate rename from near to neard
-        subprocess.check_call(['cargo', 'build', '-p', 'neard',
-                               '--bin', 'neard'])
-        subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
-    except:
-        subprocess.check_output(['cargo', 'build', '-p', 'near'])
-    subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
+    # Accommodate rename from near to neard
+    subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
+    subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
+    subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
-    if os.path.exists('../target/debug/neard'):
-        os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
-    else:
-        os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
+    os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer',
               '../target/debug/state-viewer-%s' % branch)
-    subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
+    subprocess.check_call(['git', 'checkout', '../Cargo.lock'])
 
 
 def download_binary(uname, branch):
