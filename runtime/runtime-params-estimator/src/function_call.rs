@@ -85,10 +85,12 @@ fn measure_function_call_1s() {
         );
         i += 1;
         assert!(result.1.is_none());
-        let nanos = end_count(gas_metric, &start) as i128;
-        if nanos > 1_000_000_000 {
-            break;
-        }
+        if i % 20 == 0 {
+            let nanos = end_count(gas_metric, &start) as i128;
+            if nanos > 1_000_000_000 {
+                break;
+            }
+        };
     }
 
     println!("iters = {}", i);
