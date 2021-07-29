@@ -132,6 +132,11 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_failure_invalid_name_testnet() {
+        run_testnet_test!(test_create_account_failure_invalid_name);
+    }
+
+    #[test]
     fn test_create_account_failure_already_exists_testnet() {
         run_testnet_test!(test_create_account_failure_already_exists);
     }

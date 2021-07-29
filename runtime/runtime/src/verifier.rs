@@ -9,12 +9,13 @@ use near_primitives::{
     },
     receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum},
     transaction::{
-        Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
-        StakeAction,
+        Action, AddKeyAction, DeleteAccountAction, DeployContractAction, FunctionCallAction,
+        SignedTransaction, StakeAction,
     },
-    types::{AccountId, Balance},
+    types::Balance,
     version::ProtocolVersion,
 };
+use near_runtime_utils::is_valid_account_id;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -36,6 +37,15 @@ pub fn validate_transaction(
 ) -> Result<TransactionCost, RuntimeError> {
     let transaction = &signed_transaction.transaction;
     let signer_id = &transaction.signer_id;
+    if !is_valid_account_id(&signer_id) {
+        return Err(InvalidTxError::InvalidSignerId { signer_id: signer_id.clone() }.into());
+    }
+    if !is_valid_account_id(&transaction.receiver_id) {
+        return Err(InvalidTxError::InvalidReceiverId {
+            receiver_id: transaction.receiver_id.clone(),
+        }
+        .into());
+    }
 
     if verify_signature
         && !signed_transaction
@@ -221,21 +231,22 @@ pub fn verify_and_charge_transaction(
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
 
-/// Validates a given receipt. Checks validity of the Action or Data receipt.
+/// Validates a given receipt. Checks validity of the predecessor and receiver account IDs and
+/// the validity of the Action or Data receipt.
 pub(crate) fn validate_receipt(
     limit_config: &VMLimitConfig,
     receipt: &Receipt,
 ) -> Result<(), ReceiptValidationError> {
-    // We retain these checks here as to maintain backwards compatibility
-    // with AccountId validation since we illegally parse an AccountId
-    // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
-    AccountId::validate(receipt.predecessor_id.as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidPredecessorId { account_id: receipt.predecessor_id.clone() }
-    })?;
-    AccountId::validate(receipt.receiver_id.as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id.clone() }
-    })?;
-
+    if !is_valid_account_id(&receipt.predecessor_id) {
+        return Err(ReceiptValidationError::InvalidPredecessorId {
+            account_id: receipt.predecessor_id.clone(),
+        });
+    }
+    if !is_valid_account_id(&receipt.receiver_id) {
+        return Err(ReceiptValidationError::InvalidReceiverId {
+            account_id: receipt.receiver_id.clone(),
+        });
+    }
     match &receipt.receipt {
         ReceiptEnum::Action(action_receipt) => {
             validate_action_receipt(limit_config, action_receipt)
@@ -244,11 +255,24 @@ pub(crate) fn validate_receipt(
     }
 }
 
-/// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
+/// Validates given ActionReceipt. Checks validity of the signer account ID, validity of all
+/// data receiver account IDs, the number of input data dependencies and all actions.
 fn validate_action_receipt(
     limit_config: &VMLimitConfig,
     receipt: &ActionReceipt,
 ) -> Result<(), ReceiptValidationError> {
+    if !is_valid_account_id(&receipt.signer_id) {
+        return Err(ReceiptValidationError::InvalidSignerId {
+            account_id: receipt.signer_id.clone(),
+        });
+    }
+    for data_receiver in &receipt.output_data_receivers {
+        if !is_valid_account_id(&data_receiver.receiver_id) {
+            return Err(ReceiptValidationError::InvalidDataReceiverId {
+                account_id: data_receiver.receiver_id.clone(),
+            });
+        }
+    }
     if receipt.input_data_ids.len() as u64 > limit_config.max_number_input_data_dependencies {
         return Err(ReceiptValidationError::NumberInputDataDependenciesExceeded {
             number_of_input_data_dependencies: receipt.input_data_ids.len() as u64,
@@ -274,12 +298,10 @@ fn validate_data_receipt(
     Ok(())
 }
 
-/// Validates given actions:
-///
-/// - Checks limits if applicable.
-/// - Checks that the total number of actions doesn't exceed the limit.
-/// - Validates each individual action.
-/// - Checks that the total prepaid gas doesn't exceed the limit.
+/// Validates given actions. Checks limits and validates `account_id` if applicable.
+/// Checks that the total number of actions doesn't exceed the limit.
+/// Validates each individual action.
+/// Checks that the total prepaid gas doesn't exceed the limit.
 pub(crate) fn validate_actions(
     limit_config: &VMLimitConfig,
     actions: &[Action],
@@ -313,7 +335,7 @@ pub(crate) fn validate_actions(
     Ok(())
 }
 
-/// Validates a single given action. Checks limits if applicable.
+/// Validates a single given action. Checks limits and validates `account_id` if applicable.
 pub fn validate_action(
     limit_config: &VMLimitConfig,
     action: &Action,
@@ -326,7 +348,7 @@ pub fn validate_action(
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
-        Action::DeleteAccount(_) => Ok(()),
+        Action::DeleteAccount(a) => validate_delete_account_action(a),
     }
 }
 
@@ -383,14 +405,19 @@ fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationEr
     Ok(())
 }
 
-/// Validates `AddKeyAction`. If the access key permission is `FunctionCall`, checks that the
-/// total number of bytes of the method names doesn't exceed the limit and
-/// every method name length doesn't exceed the limit.
+/// Validates `AddKeyAction`. If the access key permission is `FunctionCall` checks that the
+/// `receiver_id` is a valid account ID, checks the total number of bytes of the method names
+/// doesn't exceed the limit and every method name length doesn't exceed the limit.
 fn validate_add_key_action(
     limit_config: &VMLimitConfig,
     action: &AddKeyAction,
 ) -> Result<(), ActionsValidationError> {
     if let AccessKeyPermission::FunctionCall(fc) = &action.access_key.permission {
+        if !is_valid_account_id(&fc.receiver_id) {
+            return Err(ActionsValidationError::InvalidAccountId {
+                account_id: fc.receiver_id.clone(),
+            });
+        }
         // Checking method name length limits
         let mut total_number_of_bytes = 0;
         for method_name in &fc.method_names {
@@ -415,6 +442,19 @@ fn validate_add_key_action(
     Ok(())
 }
 
+/// Validates `DeleteAccountAction`. Checks that the `beneficiary_id` is a valid account ID.
+fn validate_delete_account_action(
+    action: &DeleteAccountAction,
+) -> Result<(), ActionsValidationError> {
+    if !is_valid_account_id(&action.beneficiary_id) {
+        return Err(ActionsValidationError::InvalidAccountId {
+            account_id: action.beneficiary_id.clone(),
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -422,9 +462,10 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
     use near_primitives::account::{AccessKey, Account, FunctionCallPermission};
     use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::receipt::DataReceiver;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
-        CreateAccountAction, DeleteAccountAction, DeleteKeyAction, StakeAction, TransferAction,
+        CreateAccountAction, DeleteKeyAction, StakeAction, TransferAction,
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -454,11 +495,8 @@ mod tests {
         let root = MerkleHash::default();
 
         let account_id = alice_account();
-        let signer = Arc::new(InMemorySigner::from_seed(
-            account_id.clone(),
-            KeyType::ED25519,
-            account_id.as_ref(),
-        ));
+        let signer =
+            Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
 
         let mut initial_state = tries.new_trie_update(0, root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
@@ -560,6 +598,56 @@ mod tests {
         let access_key =
             get_access_key(&state_update, &alice_account(), &signer.public_key()).unwrap().unwrap();
         assert_eq!(access_key.nonce, 1);
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_signer_id() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+
+        let invalid_account_id = "WHAT?".to_string();
+        assert_err_both_validations(
+            &config,
+            &mut state_update,
+            gas_price,
+            &SignedTransaction::send_money(
+                1,
+                invalid_account_id.clone(),
+                bob_account(),
+                &*signer,
+                100,
+                CryptoHash::default(),
+            ),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidSignerId {
+                signer_id: invalid_account_id.clone(),
+            }),
+        );
+    }
+
+    #[test]
+    fn test_validate_transaction_invalid_receiver_id() {
+        let config = RuntimeConfig::default();
+        let (signer, mut state_update, gas_price) =
+            setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
+
+        let invalid_account_id = "WHAT?".to_string();
+        assert_err_both_validations(
+            &config,
+            &mut state_update,
+            gas_price,
+            &SignedTransaction::send_money(
+                1,
+                alice_account(),
+                invalid_account_id.clone(),
+                &*signer,
+                100,
+                CryptoHash::default(),
+            ),
+            RuntimeError::InvalidTxError(InvalidTxError::InvalidReceiverId {
+                receiver_id: invalid_account_id,
+            }),
+        );
     }
 
     #[test]
@@ -1153,6 +1241,76 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_receipt_incorrect_predecessor_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        let mut receipt = Receipt::new_balance_refund(&alice_account(), 10);
+        receipt.predecessor_id = invalid_account_id.clone();
+        assert_eq!(
+            validate_receipt(&limit_config, &receipt).expect_err("expected an error"),
+            ReceiptValidationError::InvalidPredecessorId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_receipt_incorrect_receiver_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_receipt(&limit_config, &Receipt::new_balance_refund(&invalid_account_id, 10))
+                .expect_err("expected an error"),
+            ReceiptValidationError::InvalidReceiverId { account_id: invalid_account_id }
+        );
+    }
+
+    // ActionReceipt
+
+    #[test]
+    fn test_validate_action_receipt_invalid_signer_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_action_receipt(
+                &limit_config,
+                &ActionReceipt {
+                    signer_id: invalid_account_id.clone(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: vec![]
+                }
+            )
+            .expect_err("expected an error"),
+            ReceiptValidationError::InvalidSignerId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
+    fn test_validate_action_receipt_invalid_data_receiver_id() {
+        let limit_config = VMLimitConfig::default();
+        let invalid_account_id = "WHAT?".to_string();
+        assert_eq!(
+            validate_action_receipt(
+                &limit_config,
+                &ActionReceipt {
+                    signer_id: alice_account(),
+                    signer_public_key: PublicKey::empty(KeyType::ED25519),
+                    gas_price: 100,
+                    output_data_receivers: vec![DataReceiver {
+                        data_id: CryptoHash::default(),
+                        receiver_id: invalid_account_id.clone(),
+                    }],
+                    input_data_ids: vec![],
+                    actions: vec![]
+                }
+            )
+            .expect_err("expected an error"),
+            ReceiptValidationError::InvalidDataReceiverId { account_id: invalid_account_id }
+        );
+    }
+
+    #[test]
     fn test_validate_action_receipt_too_many_input_deps() {
         let mut limit_config = VMLimitConfig::default();
         limit_config.max_number_input_data_dependencies = 1;
@@ -1317,9 +1475,7 @@ mod tests {
             validate_actions(
                 &limit_config,
                 &vec![
-                    Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: "bob".parse().unwrap()
-                    }),
+                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
                     Action::CreateAccount(CreateAccountAction {}),
                 ]
             )
@@ -1337,9 +1493,7 @@ mod tests {
                 &limit_config,
                 &vec![
                     Action::CreateAccount(CreateAccountAction {}),
-                    Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: "bob".parse().unwrap()
-                    }),
+                    Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "bob".into() }),
                 ]
             ),
             Ok(()),

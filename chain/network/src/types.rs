@@ -111,11 +111,11 @@ impl FromStr for PeerInfo {
                 account_id = None;
             } else {
                 addr = None;
-                account_id = Some(chunks[1].parse().unwrap());
+                account_id = Some(chunks[1].to_string());
             }
         } else if chunks.len() == 3 {
             addr = Some(chunks[1].parse::<SocketAddr>()?);
-            account_id = Some(chunks[2].parse().unwrap());
+            account_id = Some(chunks[2].to_string());
         } else {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -1812,11 +1812,10 @@ mod tests {
         }
 
         check(
-            RoutedMessageBody::TxStatusRequest("test_x".parse().unwrap(), CryptoHash([42; 32])),
+            RoutedMessageBody::TxStatusRequest("x".to_string(), CryptoHash([42; 32])),
             &[
-                2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-                42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
-                42,
+                2, 1, 0, 0, 0, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
             ],
         );
 

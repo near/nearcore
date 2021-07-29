@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::BlockHeight;
 
-use crate::types::AccountId;
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TelemetryAgentInfo {
     pub name: String,
@@ -24,7 +22,7 @@ pub struct TelemetrySystemInfo {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TelemetryChainInfo {
     pub node_id: String,
-    pub account_id: Option<AccountId>,
+    pub account_id: String,
     pub is_validator: bool,
     pub status: String,
     pub latest_block_hash: String,

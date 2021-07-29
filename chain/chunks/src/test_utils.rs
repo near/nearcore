@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -51,7 +50,7 @@ impl Default for SealsManagerTestFixture {
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
 
-        let mock_me: Option<AccountId> = Some("me".parse().unwrap());
+        let mock_me: Option<AccountId> = Some("me".to_string());
         let mock_chunk_hash = ChunkHash(CryptoHash::default());
         let mock_distant_chunk_hash = ChunkHash(hash::hash(b"some_chunk"));
 
@@ -168,9 +167,9 @@ impl Default for ChunkForwardingTestFixture {
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
         let signer = InMemoryValidatorSigner::from_seed(
-            mock_chunk_producer.clone(),
+            &mock_chunk_producer,
             KeyType::ED25519,
-            mock_chunk_producer.as_ref(),
+            &mock_chunk_producer,
         );
         let mock_shard_tracker = validators
             .iter()
@@ -281,8 +280,14 @@ fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
         panic!("I can't make that many validators!");
     }
 
-    let letters =
-        ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
+    let letters = (b'a'..=b'z')
+        .take(n)
+        .map(|c| {
+            let mut s = String::with_capacity(1);
+            s.push(c as char);
+            s
+        })
+        .collect();
 
     vec![letters]
 }

@@ -13,6 +13,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::utils::system_account;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -101,7 +102,7 @@ pub(crate) fn check_balance(
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
-                if !AccountId::is_system(&receipt.predecessor_id) {
+                if receipt.predecessor_id != system_account() {
                     let mut total_gas = safe_add_gas(
                         transaction_costs.action_receipt_creation_config.exec_fee(),
                         total_prepaid_exec_fees(
@@ -350,11 +351,10 @@ mod tests {
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let tx = SignedTransaction::send_money(
             1,
-            account_id,
+            account_id.clone(),
             bob_account(),
             &signer,
             deposit,
@@ -410,11 +410,16 @@ mod tests {
         set_account(&mut initial_state, bob_id.clone(), &bob);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let signer =
-            InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
+        let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
 
-        let tx =
-            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
+        let tx = SignedTransaction::send_money(
+            0,
+            alice_id.clone(),
+            bob_id.clone(),
+            &signer,
+            1,
+            CryptoHash::default(),
+        );
 
         let receipt = Receipt {
             predecessor_id: tx.transaction.signer_id.clone(),

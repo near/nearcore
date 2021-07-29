@@ -13,13 +13,13 @@ use node_runtime::{state_viewer::TrieViewer, Runtime};
 use std::collections::HashSet;
 
 pub fn alice_account() -> AccountId {
-    "alice.near".parse().unwrap()
+    "alice.near".to_string()
 }
 pub fn bob_account() -> AccountId {
-    "bob.near".parse().unwrap()
+    "bob.near".to_string()
 }
 pub fn eve_dot_alice_account() -> AccountId {
-    "eve.alice.near".parse().unwrap()
+    "eve.alice.near".to_string()
 }
 
 lazy_static::lazy_static! {
@@ -78,9 +78,8 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis =
-        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
-    add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
+    let mut genesis = Genesis::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+    add_test_contract(&mut genesis, &AccountId::from("test.contract"));
     get_runtime_and_trie_from_genesis(&genesis)
 }
 

@@ -86,9 +86,9 @@ impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
         let signer = Arc::new(InMemorySigner::from_seed(
-            config.validator_signer.as_ref().unwrap().validator_id().clone(),
+            &config.validator_signer.as_ref().unwrap().validator_id(),
             KeyType::ED25519,
-            config.validator_signer.as_ref().unwrap().validator_id().as_ref(),
+            &config.validator_signer.as_ref().unwrap().validator_id(),
         ));
         ThreadNode {
             config,

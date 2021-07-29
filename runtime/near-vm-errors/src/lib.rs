@@ -1,7 +1,6 @@
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 
@@ -113,7 +112,7 @@ pub enum MethodResolveError {
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
 pub enum CompilationError {
-    CodeDoesNotExist { account_id: AccountId },
+    CodeDoesNotExist { account_id: String },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
     UnsupportedCompiler { msg: String },

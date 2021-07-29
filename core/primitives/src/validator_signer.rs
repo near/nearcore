@@ -60,9 +60,8 @@ pub trait ValidatorSigner: Sync + Send {
 
 /// Test-only signer that "signs" everything with 0s.
 /// Don't use in any production or code that requires signature verification.
-#[derive(smart_default::SmartDefault)]
+#[derive(Default)]
 pub struct EmptyValidatorSigner {
-    #[default(AccountId::test_account())]
     account_id: AccountId,
 }
 
@@ -104,7 +103,7 @@ impl ValidatorSigner for EmptyValidatorSigner {
 
     fn sign_account_announce(
         &self,
-        _account_id: &AccountId,
+        _account_id: &String,
         _peer_id: &PeerId,
         _epoch_id: &EpochId,
     ) -> Signature {
@@ -132,13 +131,17 @@ pub struct InMemoryValidatorSigner {
 
 impl InMemoryValidatorSigner {
     pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
-        let signer = Arc::new(InMemorySigner::from_random(account_id.clone(), key_type));
-        Self { account_id, signer }
+        Self {
+            account_id: account_id.clone(),
+            signer: Arc::new(InMemorySigner::from_random(account_id, key_type)),
+        }
     }
 
-    pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
-        let signer = Arc::new(InMemorySigner::from_seed(account_id.clone(), key_type, seed));
-        Self { account_id, signer }
+    pub fn from_seed(account_id: &str, key_type: KeyType, seed: &str) -> Self {
+        Self {
+            account_id: account_id.to_string(),
+            signer: Arc::new(InMemorySigner::from_seed(account_id, key_type, seed)),
+        }
     }
 
     pub fn public_key(&self) -> PublicKey {
