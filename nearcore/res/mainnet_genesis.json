@@ -28,6 +28,13 @@
     1,
     100
   ],
+  "protocol_upgrade_stake_threshold": [
+    4,
+    5
+  ],
+  "protocol_upgrade_num_epochs": 2,
+  "max_gas_price": "10000000000000000000000",
+  "minimum_stake_divisor": 10,
   "runtime_config": {
     "storage_amount_per_byte": "100000000000000000000",
     "transaction_costs": {
@@ -931,12 +938,5 @@
         "value": "CQAAAAAAAAAAAAAAaQAAAAAAAAAACQAAAAAAAAAAAAAAawAAAAAAAAAACQAAAAAAAAAAAAAAdg=="
       }
     }
-  ],
-  "protocol_upgrade_stake_threshold": [
-    4,
-    5
-  ],
-  "protocol_upgrade_num_epochs": 2,
-  "max_gas_price": "10000000000000000000000",
-  "minimum_stake_divisor": 10
+  ]
 }
