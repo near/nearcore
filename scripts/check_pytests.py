@@ -30,7 +30,7 @@ HELPER_SCRIPTS = [
 
 
 PYTEST_TESTS_DIRECTORY = pathlib.Path('pytest/tests')
-NIGHTLY_DIRECTORY = pathlib.Path('nightly')
+NIGHTLY_TESTS_FILE = pathlib.Path(nayduck.DEFAULT_TEST_FILE)
 BUILDKITE_PIPELINE_FILE = pathlib.Path('.buildkite/pipeline.yml')
 
 StrGenerator = typing.Generator[str, None, None]
@@ -54,33 +54,15 @@ def list_test_files(topdir: pathlib.Path) -> StrGenerator:
                 yield str(dirpath / filename)
 
 
-def list_nayduck_tests(directory: pathlib.Path) -> StrGenerator:
-    """Reads all NayDuck test list files and yields all tests mentioned there.
+def read_nayduck_tests(path: pathlib.Path) -> StrGenerator:
+    """Reads NayDuck test file and yields all tests mentioned there.
 
     The NayDuck test list files are ones with .txt extension.  Only pytest and
     mocknet tests are taken into account and returned.  Enabled tests as well as
     those commented out with a corresponding TODO comment are considered.
 
     Args:
-        directory: Path to the directory where to look for *.txt files.
-            Directory is not traversed recursively; i.e. only files directly in
-            the directory are read.
-    Yields:
-        pytest and mocknet tests mentioned in the test list files.  May include
-        duplicates.
-    """
-    for filename in os.listdir(directory):
-        if filename.endswith('.txt'):
-            yield from read_nayduck_tests(nayduck.read_tests_from_file(
-                directory / filename, include_comments=True))
-
-
-def read_nayduck_tests(lines: typing.Iterable[str]) -> StrGenerator:
-    """Reads NayDuck test lines and yields all tests mentioned there.
-
-    Args:
-        lines: An iterable over lines of a NayDuck test list file.  Among other
-            things, this may be file-like opened in text mode.
+        path: Path to the test set.
     Yields:
         pytest and mocknet tests mentioned in the file.  May include duplicates.
     """
@@ -94,7 +76,7 @@ def read_nayduck_tests(lines: typing.Iterable[str]) -> StrGenerator:
             pass
 
     found_todo = False
-    for line in lines:
+    for line in nayduck.read_tests_from_file(path, include_comments=True):
         line = line.strip()
         line = re.sub(r'\s+', ' ', line)
         if re.search(r'^\s*(?:pytest|mocknet)\s+', line):
@@ -176,7 +158,9 @@ list at the top of {this_file} file.'''.format(
 def main() -> int:
     """Main function of the script; returns integer exit code."""
     missing = set(list_test_files(PYTEST_TESTS_DIRECTORY))
-    missing.difference_update(list_nayduck_tests(NIGHTLY_DIRECTORY))
+    count = len(missing)
+    missing.difference_update(
+        read_nayduck_tests(pathlib.Path(nayduck.DEFAULT_TEST_FILE)))
     missing.difference_update(read_pipeline_tests(BUILDKITE_PIPELINE_FILE))
     missing = set(filename
                   for filename in missing
@@ -185,7 +169,7 @@ def main() -> int:
     if missing:
         print_error(missing)
         return 1
-    print('All tests included')
+    print(f'All {count} tests included')
     return 0
 
 

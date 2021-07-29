@@ -24,19 +24,21 @@ import pathlib
 import subprocess
 
 
-DEFAULT_TEST_FILE = 'tests_for_nayduck.txt'
-DEFAULT_TEST_PATH = (pathlib.Path(__file__).parent.parent /
-                     'nightly' / DEFAULT_TEST_FILE)
+DEFAULT_TEST_FILE = 'nightly/nightly.txt'
 
 
 def _parse_args():
     import argparse
+
+    default_test_path = (pathlib.Path(__file__).parent.parent /
+                         DEFAULT_TEST_FILE)
+
     parser = argparse.ArgumentParser(description='Run tests.')
     parser.add_argument('--branch', '-b',
                         help='Branch to test. By default gets current one.' )
     parser.add_argument('--sha', '-s',
                         help='Sha to test. By default gets current one.')
-    parser.add_argument('--test-file', '-t', default=DEFAULT_TEST_PATH,
+    parser.add_argument('--test-file', '-t', default=default_test_path,
                         help=('Test file with list of tests. '
                               f'By default {DEFAULT_TEST_FILE}'))
     return parser.parse_args()
@@ -54,19 +56,43 @@ def get_current_user():
 
 
 def read_tests_from_file(path: pathlib.Path, *,
-                         include_comments: bool=False, depth: int=0):
-    if depth >= 3:
-        print(f'Ignoring {path}; reached depth limit of {depth}')
-        return
-    with open(path) as rd:
-        for line in rd:
+                         include_comments: bool=False,
+                         reader=lambda path: path.read_text()):
+    """Reads lines from file in given directory handling `./<path>` includes.
+
+    Returns an iterable over lines in given file but also handles `./<path>`
+    syntax for including other files in the output and optionally filters
+    commented out lines.
+
+    A `./<path>` syntax acts like C's #include directive, Rust's `include!`
+    macro or shell's `source` command.  All lines are read from file at <path>
+    as if they were directly in the source file.  The `./<path>` directives are
+    handled recursively up to three levels deep.
+
+    Args:
+        path: Path to the file to read.
+        include_comments: By default empty lines and lines whose first non-space
+            character is hash are ignored and not included in the output.  With
+            this set to `True` such lines are included as well.
+        reader: A callback which reads text content of a given file.  This is
+            used by NayDuck.
+    Returns:
+        An iterable over lines in the given file.  All lines are stripped of
+        leading and trailing white space.
+    """
+    def impl(path: pathlib.Path, depth: int):
+        for lineno, line in enumerate(reader(path).splitlines()):
             line = line.strip()
             if line.startswith('./'):
-                yield from read_tests_from_file(
-                    path.parent / line,
-                    include_comments=include_comments, depth=depth + 1)
+                if depth == 3:
+                    print(f'{path}:{lineno+1}: ignoring {line}; '
+                          f'would exceed depth limit of {depth}')
+                else:
+                    yield from impl(path.parent / line, depth + 1)
             elif include_comments or (line and line[0] != '#'):
                 yield line
+
+    return impl(path, 1)
 
 
 def github_auth():

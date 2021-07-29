@@ -16,10 +16,10 @@ use std::time::Duration;
 
 fn default_vm_context() -> VMContext {
     return VMContext {
-        current_account_id: "alice".to_string(),
-        signer_account_id: "bob".to_string(),
+        current_account_id: "alice".parse().unwrap(),
+        signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2],
-        predecessor_account_id: "carol".to_string(),
+        predecessor_account_id: "carol".parse().unwrap(),
         input: vec![],
         block_index: 1,
         block_timestamp: 1586796191203000000,

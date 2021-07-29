@@ -56,8 +56,8 @@ def expensive_tests_in_file(file):
 
 
 def nightly_tests(repo_dir):
-    for test in nayduck.read_tests_from_file(repo_dir / 'nightly/nightly.txt',
-                                             include_comments=True):
+    for test in nayduck.read_tests_from_file(
+            repo_dir / nayduck.DEFAULT_TEST_FILE, include_comments=True):
         t = test.split()
         if ((len(t) >= 1 and t[0] in ('expensive', 'lib')) or
             (len(t) >= 2 and t[0] == '#' and t[1] in ('expensive', 'lib'))):
