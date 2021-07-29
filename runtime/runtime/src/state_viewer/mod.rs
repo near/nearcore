@@ -243,8 +243,6 @@ impl TrieViewer {
             config: config.clone(),
             cache: view_state.cache,
             is_new_chunk: false,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: view_state.evm_chain_id,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
@@ -302,8 +300,6 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_evm")]
-    use near_chain_configs::TESTNET_EVM_CHAIN_ID;
     use near_primitives::{
         test_utils::MockEpochInfoProvider,
         trie_key::TrieKey,
@@ -331,8 +327,6 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -361,8 +355,6 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         let result = viewer.call_function(
             root,
@@ -396,8 +388,6 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: 0x99,
         };
         let result = viewer.call_function(
             root,
@@ -430,8 +420,6 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: 0x99,
         };
         let view_call_result = viewer.call_function(
             root,
@@ -546,8 +534,6 @@ mod tests {
             block_timestamp: 1,
             current_protocol_version: PROTOCOL_VERSION,
             cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: 0x99,
         };
         let mut logs = vec![];
         viewer

@@ -99,8 +99,7 @@
         "MethodResolveError",
         "WasmTrap",
         "WasmUnknownError",
-        "HostError",
-        "EvmError"
+        "HostError"
       ],
       "props": {}
     },
