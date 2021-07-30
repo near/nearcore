@@ -172,7 +172,7 @@ fn main() {
     let mut results = script.run();
     let (outcome, err) = results.outcomes.pop().unwrap();
 
-    let _all_gas = match &outcome {
+    let all_gas = match &outcome {
         Some(outcome) => outcome.burnt_gas,
         _ => 1,
     };
@@ -180,7 +180,7 @@ fn main() {
     println!(
         "{}",
         serde_json::to_string(&StandaloneOutput {
-            outcome,
+            outcome: outcome.clone(),
             err,
             receipts: results.state.get_receipt_create_calls().clone(),
             state: State(results.state.fake_trie),
@@ -188,7 +188,11 @@ fn main() {
         .unwrap()
     );
 
-    // TODO: replace with results' outcomes' profile
-    // assert_eq!(all_gas, results.profile.all_gas());
-    // println!("{:#?}", results.profile);
+    match &outcome {
+        Some(outcome) => {
+            assert_eq!(all_gas, outcome.profile.all_gas());
+            println!("{:#?}", outcome.profile);
+        }
+        _ => {}
+    }
 }
