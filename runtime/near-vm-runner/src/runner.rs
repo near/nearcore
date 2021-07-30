@@ -114,9 +114,9 @@ pub fn run_vm(
         #[cfg(not(feature = "wasmer1_vm"))]
         VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     };
-    // if let Some(VMOutcome { burnt_gas, .. }) = &outcome {
-    //     profile.set_burnt_gas(*burnt_gas)
-    // }
+    if let Some(outcome) = &outcome {
+        outcome.profile.set_burnt_gas(outcome.burnt_gas)
+    }
     (outcome, error)
 }
 

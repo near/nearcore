@@ -215,6 +215,23 @@ fn vm_script_smoke_test() {
     assert_eq!(ret, expected);
 }
 
+#[test]
+fn profile_data_is_per_outcome() {
+    println!("start test");
+    let mut script = Script::default();
+    script.contract_cache(true);
+
+    let contract = script.contract(near_test_contracts::rs_contract().to_vec());
+
+    script.step(contract, "sum_n").input(100u64.to_le_bytes().to_vec());
+    script.step(contract, "write_key_value");
+    let res = script.run();
+    assert_eq!(res.outcomes.len(), 2);
+    assert_eq!(res.outcomes[0].0.as_ref().unwrap().profile.all_gas(), 37185589980);
+    println!("{:?}", res.outcomes[0].0.as_ref().unwrap().profile);
+    // println!("{:?}", res.outcomes[1].0.as_ref().unwrap().profile);
+}
+
 #[cfg(feature = "no_cache")]
 #[test]
 fn test_evm_slow_deserialize_repro() {
