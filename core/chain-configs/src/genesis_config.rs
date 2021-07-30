@@ -293,14 +293,14 @@ impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
     where
         A: MapAccess<'de>,
     {
-        let mut s = Some(self);
+        let mut me = Some(self);
         let mut has_records_field = false;
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "records" => {
-                    map.next_value_seed(
-                        s.take().ok_or_else(|| de::Error::custom("duplicate field: records"))?,
-                    )?;
+                    let me =
+                        me.take().ok_or_else(|| de::Error::custom("duplicate field: records"))?;
+                    map.next_value_seed(me)?;
                     has_records_field = true;
                 }
                 _ => {
