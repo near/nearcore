@@ -31,7 +31,8 @@ near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
 bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = true }
 
 [dev-dependencies]
-serde_json = {version= "1", features= ["preserve_order"]}
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_with = { version = "^1.9", features = ["hex"] }
 
 [features]
 default = []
