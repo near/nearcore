@@ -85,8 +85,6 @@ pytest sanity/repro_2916.py
 pytest sanity/repro_2916.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/switch_node_key.py
 pytest --timeout=240 sanity/switch_node_key.py --features nightly_protocol,nightly_protocol_features
-pytest --timeout=300 sanity/saturate_routing_table.py
-pytest --timeout=300 sanity/saturate_routing_table.py --features nightly_protocol,nightly_protocol_features
 # TODO: re-enable after #2949 is fixed
 # pytest --timeout=240 sanity/validator_switch_key.py
 # pytest --timeout=240 sanity/validator_switch_key.py --features nightly_protocol,nightly_protocol_features

@@ -12,5 +12,3 @@
 # pytest sanity/state_migration.py --features nightly_protocol,nightly_protocol_features
 # pytest stress/network_stress.py
 # pytest stress/network_stress.py --features nightly_protocol,nightly_protocol_features
-# pytest stress/saturate_routing_table.py
-# pytest stress/saturate_routing_table.py --features nightly_protocol,nightly_protocol_features
