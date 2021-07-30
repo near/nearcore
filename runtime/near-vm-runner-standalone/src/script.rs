@@ -223,9 +223,10 @@ fn profile_data_is_per_outcome() {
     let contract = script.contract(near_test_contracts::rs_contract().to_vec());
 
     script.step(contract, "sum_n").input(100u64.to_le_bytes().to_vec());
-    script.step(contract, "write_key_value").repeat(2);
+    script.step(contract, "log_something").repeat(2);
+    script.step(contract, "write_key_value");
     let res = script.run();
-    assert_eq!(res.outcomes.len(), 3);
+    assert_eq!(res.outcomes.len(), 4);
     assert!(
         res.outcomes[0].0.as_ref().unwrap().profile.all_gas()
             > res.outcomes[1].0.as_ref().unwrap().profile.all_gas()
@@ -237,6 +238,14 @@ fn profile_data_is_per_outcome() {
     assert_eq!(
         res.outcomes[1].0.as_ref().unwrap().profile.all_gas(),
         res.outcomes[2].0.as_ref().unwrap().profile.all_gas()
+    );
+    assert_eq!(
+        res.outcomes[1].0.as_ref().unwrap().profile.host_gas(),
+        res.outcomes[2].0.as_ref().unwrap().profile.host_gas()
+    );
+    assert!(
+        res.outcomes[1].0.as_ref().unwrap().profile.host_gas()
+            > res.outcomes[3].0.as_ref().unwrap().profile.host_gas()
     );
 }
 
