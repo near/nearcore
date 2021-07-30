@@ -247,14 +247,14 @@ class LocalNode(BaseNode):
                  near_root,
                  node_dir,
                  blacklist,
-                 binary_name='neard',
+                 binary_name=None,
                  single_node=False):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
         self.near_root = near_root
         self.node_dir = node_dir
-        self.binary_name = binary_name
+        self.binary_name = binary_name or 'neard'
         self.cleaned = False
         with open(os.path.join(node_dir, "config.json")) as f:
             config_json = json.loads(f.read())
@@ -702,7 +702,8 @@ def spin_up_node(config,
             for bl_ordinal in blacklist
         ]
         node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal, near_root,
-                         node_dir, blacklist, config.get('binary_name', 'near'), single_node)
+                         node_dir, blacklist, config.get('binary_name'),
+                         single_node)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(
@@ -743,7 +744,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
 
     is_local = config['local']
     near_root = config['near_root']
-    binary_name = config.get('binary_name', 'near')
+    binary_name = config.get('binary_name', 'neard')
 
     logger.info("Creating %s cluster configuration with %s nodes" %
           ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))

@@ -1,7 +1,7 @@
 steps:
   - label: "cargo test"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       RUSTFLAGS='-D warnings' cargo test --locked --workspace
 
     timeout: 60
@@ -11,7 +11,7 @@ steps:
 
   - label: "cargo test nightly"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
 
     timeout: 60
@@ -21,8 +21,7 @@ steps:
 
   - label: "sanity checks"
     command: |
-      source ~/.cargo/env
-      set -ex
+      source ~/.cargo/env && set -eux
       rustc --version && cargo --version
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
@@ -42,7 +41,7 @@ steps:
 
   - label: "nearlib test"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
       source ~/.yarn/yarn.sh
       rustup default nightly-2020-05-15
@@ -55,7 +54,7 @@ steps:
 
   - label: "backward compatible"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       pwd
@@ -69,7 +68,7 @@ steps:
 
   - label: "upgradable"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
@@ -80,7 +79,7 @@ steps:
 
   - label: "db migration"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/db_migration.py
@@ -91,7 +90,7 @@ steps:
 
   - label: "runtime params estimate"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd runtime/runtime-params-estimator/test-contract
       rustup target add wasm32-unknown-unknown
       ./build.sh
@@ -112,7 +111,7 @@ steps:
   # Disable rainbow bridge tests as they are temporary broken
   # - label: "rainbow-bridge test"
   #   command: |
-  #    source ~/.cargo/env
+  #    source ~/.cargo/env && set -eux
   #    source ~/.nvm/nvm.sh
 
   #    git clone https://github.com/near/rainbow-bridge
@@ -131,7 +130,7 @@ steps:
 
   - label: "cargo check nearcore library (without Cargo.lock)"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       rm Cargo.lock
       cd nearcore
       RUSTFLAGS='-D warnings' cargo check
