@@ -8,8 +8,8 @@ use crate::checked_feature;
 use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStakeV1;
 use crate::types::{
-    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, InternalShardId, NumSeats,
-    NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards,
+    ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use crate::version::PROTOCOL_VERSION;
 use near_primitives_core::hash::CryptoHash;
@@ -470,17 +470,31 @@ impl BlockInfoV1 {
     }
 }
 
+//  Internal shard id that can be used to uniquely identify shards across epochs.
+//  Only used in validators' internal states, not in protocol.
+#[derive(
+    BorshSerialize, BorshDeserialize, Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord,
+)]
+pub struct ShardUId {
+    pub id: u64,
+}
+
+impl ShardUId {
+    pub fn default() -> Self {
+        ShardUId { id: 0 }
+    }
+}
 #[derive(SmartDefault, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardsInfo {
     /// unique ids for the current shards
-    pub shards: Vec<InternalShardId>,
+    pub shards: Vec<ShardUId>,
     /// shard_id -> id of parent shard
-    pub parent_shards: Option<HashMap<InternalShardId, InternalShardId>>,
+    pub parent_shards: Option<HashMap<ShardUId, ShardUId>>,
 }
 
 impl ShardsInfo {
     pub fn default(num_shards: NumShards) -> Self {
-        let shards = (0..num_shards).collect();
+        let shards = (0..num_shards).map(|id| ShardUId { id }).collect();
         Self { shards, parent_shards: None }
     }
 }
@@ -492,9 +506,7 @@ pub struct ValidatorWeight(ValidatorId, u64);
 pub mod epoch_info {
     use crate::epoch_manager::{ShardsInfo, ValidatorWeight};
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-    use crate::types::{
-        BlockChunkValidatorStats, InternalShardId, NumShards, ValidatorKickoutReason,
-    };
+    use crate::types::{BlockChunkValidatorStats, NumShards, ShardUId, ValidatorKickoutReason};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;

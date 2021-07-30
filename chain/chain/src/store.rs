@@ -31,7 +31,7 @@ use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
     StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
-use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
+use near_primitives::utils::{get_block_shard_uid, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
 use near_store::{
     read_with_cache, ColBlock, ColBlockExtra, ColBlockHeader, ColBlockHeight, ColBlockInfo,
@@ -50,6 +50,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use near_primitives::epoch_manager::ShardUId;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -529,7 +530,7 @@ impl ChainStore {
     ) -> Result<Vec<CryptoHash>, Error> {
         Ok(self
             .store
-            .get_ser(ColOutcomeIds, &get_block_shard_id(block_hash, shard_id))?
+            .get_ser(ColOutcomeIds, &get_block_shard_uid(block_hash, shard_id))?
             .unwrap_or_default())
     }
 
@@ -853,16 +854,16 @@ impl ChainStoreAccess for ChainStore {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
                 ColChunkExtra,
                 &mut self.chunk_extras,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_uid(block_hash, shard_uid),
             ),
-            &format!("CHUNK EXTRA: {}:{}", block_hash, shard_id),
+            &format!("CHUNK EXTRA: {}:{}", block_hash, shard_uid),
         )
     }
 
@@ -957,7 +958,7 @@ impl ChainStoreAccess for ChainStore {
                 &*self.store,
                 ColOutgoingReceipts,
                 &mut self.outgoing_receipts,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_uid(block_hash, shard_id),
             ),
             &format!("OUTGOING RECEIPT: {}", block_hash),
         )
@@ -973,7 +974,7 @@ impl ChainStoreAccess for ChainStore {
                 &*self.store,
                 ColIncomingReceipts,
                 &mut self.incoming_receipts,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_uid(block_hash, shard_id),
             ),
             &format!("INCOMING RECEIPT: {}", block_hash),
         )
@@ -1024,7 +1025,7 @@ impl ChainStoreAccess for ChainStore {
             &*self.store,
             ColNextBlockWithNewChunk,
             &mut self.next_block_with_new_chunk,
-            &get_block_shard_id(block_hash, shard_id),
+            &get_block_shard_uid(block_hash, shard_id),
         )
         .map_err(|e| e.into())
     }
@@ -1107,7 +1108,7 @@ struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, BlockExtra>,
-    chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
+    chunk_extras: HashMap<(CryptoHash, ShardUId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
@@ -1328,14 +1329,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         if let Some(chunk_extra) =
-            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, shard_id))
+            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, shard_uid))
         {
             Ok(chunk_extra)
         } else {
-            self.chain_store.get_chunk_extra(block_hash, shard_id)
+            self.chain_store.get_chunk_extra(block_hash, shard_uid)
         }
     }
 
@@ -2008,14 +2009,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_id))?
                         .map(|trie_changes: TrieChanges| {
                             tries
                                 .revert_insertions(&trie_changes, shard_id, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, shard_id),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2028,14 +2029,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_id))?
                         .map(|trie_changes: TrieChanges| {
                             tries
                                 .apply_deletions(&trie_changes, shard_id, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, shard_id),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2049,7 +2050,7 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::StateSync { .. } => {
                 // Not apply the data from ColTrieChanges
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
-                    self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
+                    self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_id));
                 }
             }
         }
@@ -2062,7 +2063,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
         for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let block_shard_id = get_block_shard_id(&block_hash, shard_id);
+            let block_shard_id = get_block_shard_uid(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(ColIncomingReceipts, &block_shard_id);
             self.gc_col(ColChunkPerHeightShard, &block_shard_id);
@@ -2221,7 +2222,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        let key = get_block_shard_id(block_hash, shard_id);
+        let key = get_block_shard_uid(block_hash, shard_id);
         store_update.delete(ColOutgoingReceipts, &key);
         self.chain_store.outgoing_receipts.cache_remove(&key);
         self.inc_gc(ColOutgoingReceipts);
@@ -2250,7 +2251,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     )?;
                 }
             }
-            self.gc_col(ColOutcomeIds, &get_block_shard_id(block_hash, shard_id));
+            self.gc_col(ColOutcomeIds, &get_block_shard_uid(block_hash, shard_id));
         }
         self.merge(store_update);
         Ok(())
@@ -2479,7 +2480,7 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(
                 ColChunkExtra,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, *shard_id),
                 chunk_extra,
             )?;
         }
@@ -2559,7 +2560,7 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(
                 ColOutgoingReceipts,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, *shard_id),
                 receipt,
             )?;
         }
@@ -2568,7 +2569,7 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(
                 ColIncomingReceipts,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, *shard_id),
                 receipt,
             )?;
         }
@@ -2580,7 +2581,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
                 ColOutcomeIds,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, *shard_id),
                 &ids,
             )?;
         }
@@ -2593,7 +2594,7 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             store_update.set_ser(
                 ColNextBlockWithNewChunk,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, *shard_id),
                 next_block_hash,
             )?;
         }
@@ -2760,7 +2761,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.block_extras.cache_set(hash.into(), block_extra);
         }
         for ((block_hash, shard_id), chunk_extra) in chunk_extras {
-            let key = get_block_shard_id(&block_hash, shard_id);
+            let key = get_block_shard_uid(&block_hash, shard_id);
             self.chain_store.chunk_extras.cache_set(key, chunk_extra);
         }
         for (hash, chunk) in chunks {
@@ -2801,11 +2802,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.chain_store.my_last_approvals.cache_set(block_hash.into(), approval);
         }
         for ((block_hash, shard_id), shard_outgoing_receipts) in outgoing_receipts {
-            let key = get_block_shard_id(&block_hash, shard_id);
+            let key = get_block_shard_uid(&block_hash, shard_id);
             self.chain_store.outgoing_receipts.cache_set(key, shard_outgoing_receipts);
         }
         for ((block_hash, shard_id), shard_incoming_receipts) in incoming_receipts {
-            let key = get_block_shard_id(&block_hash, shard_id);
+            let key = get_block_shard_uid(&block_hash, shard_id);
             self.chain_store.incoming_receipts.cache_set(key, shard_incoming_receipts);
         }
         for (hash, invalid_chunk) in invalid_chunks {
@@ -2817,7 +2818,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for ((block_hash, shard_id), next_block_hash) in next_block_with_new_chunk {
             self.chain_store
                 .next_block_with_new_chunk
-                .cache_set(get_block_shard_id(&block_hash, shard_id), next_block_hash);
+                .cache_set(get_block_shard_uid(&block_hash, shard_id), next_block_hash);
         }
         for (shard_id, block_hash) in last_block_with_new_chunk {
             self.chain_store

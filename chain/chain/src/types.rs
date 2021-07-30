@@ -36,6 +36,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::epoch_manager::ShardUId;
 use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -244,10 +245,10 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_tries(&self) -> ShardTries;
 
     /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_trie_for_shard(&self, shard_id: ShardUId) -> Trie;
 
     /// Returns trie with view cache
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_view_trie_for_shard(&self, shard_id: ShardUId) -> Trie;
 
     fn verify_block_vrf(
         &self,
@@ -401,14 +402,17 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
+    fn shards(&self) -> Vec<ShardUId>;
 
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
 
-    /// Account Id to Shard Id mapping, given current number of shards.
+    /// Account Id to Shard Id mapping, given the shard layout in the current epoch
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+
+    /// Account Id to Internal Shard Id mapping, given the shard layout in the current epoch
+    fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
@@ -423,7 +427,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         is_me: bool,
     ) -> bool;
 
@@ -437,7 +441,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         is_me: bool,
     ) -> bool;
 
@@ -483,6 +487,14 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId) -> Result<ProtocolVersion, Error>;
+
+    fn shard_uid_to_id(
+        &self,
+        shard_id: ShardUId,
+        current_epoch_id: &EpochId,
+    ) -> Result<(EpochId, ShardId), Error>;
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
     fn epoch_sync_init_epoch_manager(

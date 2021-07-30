@@ -66,6 +66,7 @@ use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_primitives::epoch_manager::ShardUId;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -1179,17 +1180,17 @@ impl Chain {
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Vec<ShardId> {
-        (0..self.runtime_adapter.num_shards())
+        (0..self.runtime_adapter.shards().len())
             .filter(|shard_id| {
                 self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
                     parent_hash,
-                    *shard_id,
+                    shard_uid,
                     true,
                 ) && !self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     parent_hash,
-                    *shard_id,
+                    shard_uid,
                     true,
                 )
             })
@@ -2357,7 +2358,7 @@ impl Chain {
     pub fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_id: ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         self.store.get_chunk_extra(block_hash, shard_id)
     }
@@ -2579,12 +2580,12 @@ impl<'a> ChainUpdate<'a> {
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
-        for shard_id in 0..self.runtime_adapter.num_shards() {
-            if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+        for shard_id in self.runtime_adapter.shards() {
+            if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, &shard_id, true)
                 || self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
-                    shard_id,
+                    &shard_id,
                     true,
                 )
             {
@@ -2623,7 +2624,7 @@ impl<'a> ChainUpdate<'a> {
                 };
                 return Err(ErrorKind::InvalidChunkProofs(Box::new(chunk_proof)).into());
             }
-            let shard_id = shard_id as ShardId;
+            let shard_uid = self.runtime_adapter.shards()[shard_id];
             if chunk_header.height_included() == height {
                 let chunk_hash = chunk_header.chunk_hash();
 
@@ -2634,12 +2635,12 @@ impl<'a> ChainUpdate<'a> {
                 } else if self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     &parent_hash,
-                    shard_id,
+                    &shard_uid,
                     true,
                 ) || self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
-                    shard_id,
+                    &shard_uid,
                     true,
                 ) {
                     if let Err(_) = self.chain_store_update.get_chunk(&chunk_hash) {
@@ -2782,23 +2783,25 @@ impl<'a> ChainUpdate<'a> {
             (block.chunks().iter().zip(prev_block.chunks().iter())).enumerate()
         {
             let shard_id = shard_id as ShardId;
+            let shard_uid =
+                self.runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id())?;
             let care_about_shard = match mode {
                 ApplyChunksMode::ThisEpoch => self.runtime_adapter.cares_about_shard(
                     me.as_ref(),
                     &block.header().prev_hash(),
-                    shard_id,
+                    &shard_uid,
                     true,
                 ),
                 ApplyChunksMode::NextEpoch => {
                     self.runtime_adapter.will_care_about_shard(
                         me.as_ref(),
                         &block.header().prev_hash(),
-                        shard_id,
+                        &shard_uid,
                         true,
                     ) && !self.runtime_adapter.cares_about_shard(
                         me.as_ref(),
                         &block.header().prev_hash(),
-                        shard_id,
+                        &shard_uid,
                         true,
                     )
                 }

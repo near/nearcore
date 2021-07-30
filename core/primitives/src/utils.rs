@@ -8,6 +8,7 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde;
 
+use crate::epoch_manager::ShardUId;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
@@ -69,16 +70,16 @@ impl<T: Sized> Deref for MaybeValidated<T> {
     }
 }
 
-pub fn get_block_shard_id(block_hash: &CryptoHash, shard_id: ShardId) -> Vec<u8> {
+pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: ShardUId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
-    res.extend_from_slice(&shard_id.to_le_bytes());
+    res.extend_from_slice(&shard_uid.id.to_le_bytes());
     res
 }
 
-pub fn get_block_shard_id_rev(
+pub fn get_block_shard_uid_rev(
     key: &[u8],
-) -> Result<(CryptoHash, ShardId), Box<dyn std::error::Error>> {
+) -> Result<(CryptoHash, ShardUId), Box<dyn std::error::Error>> {
     if key.len() != 40 {
         return Err(
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
@@ -89,7 +90,7 @@ pub fn get_block_shard_id_rev(
     let mut shard_id_arr: [u8; 8] = Default::default();
     shard_id_arr.copy_from_slice(&key[key.len() - 8..]);
     let shard_id = ShardId::from_le_bytes(shard_id_arr);
-    Ok((block_hash, shard_id))
+    Ok((block_hash, ShardUId { id: shard_id }))
 }
 
 /// Creates a new Receipt ID from a given signed transaction and a block hash.

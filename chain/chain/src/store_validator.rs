@@ -19,7 +19,7 @@ use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, Sta
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, GCCount, ShardId};
-use near_primitives::utils::get_block_shard_id_rev;
+use near_primitives::utils::get_block_shard_uid_rev;
 use near_store::{
     decode_value_with_rc, DBCol, Store, TrieChanges, NUM_COLS, SHOULD_COL_GC, SKIP_COL_GC,
 };
@@ -199,12 +199,12 @@ impl StoreValidator {
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
                 }
                 DBCol::ColChunkExtra => {
-                    let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
+                    let (block_hash, _) = get_block_shard_uid_rev(key_ref)?;
                     let chunk_extra = ChunkExtra::try_from_slice(value_ref)?;
                     self.check(&validate::chunk_extra_block_exists, &block_hash, &chunk_extra, col);
                 }
                 DBCol::ColTrieChanges => {
-                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let (block_hash, shard_id) = get_block_shard_uid_rev(key_ref)?;
                     let trie_changes = TrieChanges::try_from_slice(value_ref)?;
                     // ShardChunk should exist for current TrieChanges
                     self.check(
@@ -232,7 +232,7 @@ impl StoreValidator {
                     );
                 }
                 DBCol::ColOutcomeIds => {
-                    let (block_hash, _) = get_block_shard_id_rev(key_ref)?;
+                    let (block_hash, _) = get_block_shard_uid_rev(key_ref)?;
                     let outcome_ids = Vec::<CryptoHash>::try_from_slice(value_ref)?;
                     // TransactionResult which can be indexed by Outcome id exists
                     self.check(

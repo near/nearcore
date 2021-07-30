@@ -317,13 +317,14 @@ mod tests {
     use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
     use crate::trie::iterator::IterStep;
     use crate::Trie;
+    use near_primitives::epoch_manager::ShardUId;
 
     #[test]
     fn test_iterator() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let trie = tries.get_trie_for_shard(ShardUId::default());
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
 
@@ -333,8 +334,12 @@ mod tests {
                     map.insert(key.clone(), value.clone());
                 }
             }
-            let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::empty_root(),
+                ShardUId::default(),
+                trie_changes.clone(),
+            );
 
             {
                 let result1: Vec<_> = trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
@@ -375,11 +380,15 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let trie = tries.get_trie_for_shard(ShardUId::default());
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
-            let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::empty_root(),
+                ShardUId::default(),
+                trie_changes.clone(),
+            );
             let mut iterator = trie.iter(&state_root).unwrap();
             loop {
                 let iter_step = match iterator.iter_step() {

@@ -4,12 +4,12 @@ use std::sync::{Arc, RwLock};
 use tracing::info;
 
 use near_epoch_manager::EpochManager;
-use near_primitives::epoch_manager::ShardsInfo;
+use near_primitives::epoch_manager::{ShardUId, ShardsInfo};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use node_runtime::near_primitives::types::InternalShardId;
+use node_runtime::near_primitives::types::ShardUId;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -20,15 +20,15 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 pub struct ShardTracker {
     /// Tracked accounts by shard id. For each shard id, the corresponding set of accounts should be
     /// non empty (otherwise the entry should not exist).
-    tracked_accounts: HashMap<InternalShardId, HashSet<AccountId>>,
+    tracked_accounts: HashMap<ShardUId, HashSet<AccountId>>,
     /// Tracked shards.
-    tracked_shards: HashSet<InternalShardId>,
+    tracked_shards: HashSet<ShardUId>,
     /// Combination of shards that correspond to tracked accounts and tracked shards.
-    actual_tracked_shards: HashSet<InternalShardId>,
+    actual_tracked_shards: HashSet<ShardUId>,
     /// Accounts that we stop tracking in the next epoch.
     pending_untracked_accounts: HashSet<AccountId>,
     /// Shards that we stop tracking in the next epoch.
-    pending_untracked_shards: HashSet<InternalShardId>,
+    pending_untracked_shards: HashSet<ShardUId>,
     /// Current epoch id. Used to determine whether we need to flush pending requests.
     current_epoch_id: EpochId,
     /// Epoch manager that for given block hash computes the epoch id.
@@ -55,8 +55,8 @@ impl ShardTracker {
         };
         let tracked_accounts = accounts.into_iter().fold(HashMap::new(), |mut acc, x| {
             let shard_id = account_id_to_shard_id(&x, &shard_layout);
-            let internal_shard_id = shards_info.shards[shard_id as usize];
-            acc.entry(internal_shard_id).or_insert_with(HashSet::new).insert(x);
+            let shard_uid = shards_info.shards[shard_id as usize];
+            acc.entry(shard_uid).or_insert_with(HashSet::new).insert(x);
             acc
         });
         let tracked_shards: HashSet<_> = shards.into_iter().collect();
@@ -79,7 +79,7 @@ impl ShardTracker {
     }
 
     fn track_account(&mut self, account_id: &AccountId) {
-        let shard_id = self.account_id_to_internal_shard_id(account_id);
+        let shard_id = self.account_id_to_shard_uid(account_id);
         self.tracked_accounts
             .entry(shard_id)
             .or_insert_with(HashSet::new)
@@ -87,7 +87,7 @@ impl ShardTracker {
         self.actual_tracked_shards.insert(shard_id);
     }
 
-    pub fn account_id_to_internal_shard_id(&self, account_id: &AccountId) -> InternalShardId {
+    pub fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
         let shard_id = account_id_to_shard_id(account_id, &self.current_shard_layout);
         self.current_shards_info.shards[shard_id as usize]
     }
@@ -118,7 +118,7 @@ impl ShardTracker {
     fn flush_pending(&mut self) {
         let mut shards_to_remove = HashSet::new();
         for account_id in self.pending_untracked_accounts.drain() {
-            let shard_id = self.account_id_to_internal_shard_id(&account_id);
+            let shard_id = self.account_id_to_shard_uid(&account_id);
             self.tracked_accounts.entry(shard_id).and_modify(|e| {
                 e.remove(&account_id);
             });
@@ -336,8 +336,8 @@ mod tests {
         tracker.track_accounts(&["test1".to_string(), "test2".to_string()]);
         tracker.track_shards(&[2, 3]);
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(tracker.account_id_to_internal_shard_id(&"test1".to_string()));
-        total_tracked_shards.insert(tracker.account_id_to_internal_shard_id(&"test2".to_string()));
+        total_tracked_shards.insert(tracker.account_id_to_shard_uid(&"test1".to_string()));
+        total_tracked_shards.insert(tracker.account_id_to_shard_uid(&"test2".to_string()));
         total_tracked_shards.insert(2);
         total_tracked_shards.insert(3);
         assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);
@@ -362,7 +362,7 @@ mod tests {
         tracker.update_epoch(&hash(&[2])).unwrap();
 
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(tracker.account_id_to_internal_shard_id(&"test1".to_string()));
+        total_tracked_shards.insert(tracker.account_id_to_shard_uid(&"test1".to_string()));
         total_tracked_shards.insert(2);
         total_tracked_shards.insert(3);
 
@@ -387,8 +387,7 @@ mod tests {
 
         let mut total_tracked_shards = HashSet::new();
         for account_id in vec!["test1", "test2", "test3"] {
-            total_tracked_shards
-                .insert(tracker.account_id_to_internal_shard_id(&account_id.to_string()));
+            total_tracked_shards.insert(tracker.account_id_to_shard_uid(&account_id.to_string()));
         }
 
         assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);

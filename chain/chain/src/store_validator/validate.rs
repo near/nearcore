@@ -14,7 +14,7 @@ use near_primitives::syncing::{
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::utils::{get_block_shard_id, index_to_bytes};
+use near_primitives::utils::{get_block_shard_uid, index_to_bytes};
 use near_store::{
     ColBlock, ColBlockHeader, ColBlockHeight, ColBlockInfo, ColBlockMisc, ColBlockPerHeight,
     ColChunkExtra, ColChunkHashesByHeight, ColChunks, ColHeaderHashesByHeight, ColOutcomeIds,
@@ -385,7 +385,7 @@ pub(crate) fn block_chunks_exist(
                     );
                     if cares_about_shard {
                         let block_shard_id =
-                            get_block_shard_id(block.hash(), chunk_header.shard_id());
+                            get_block_shard_uid(block.hash(), chunk_header.shard_id());
                         unwrap_or_err_db!(
                             sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_id.as_ref()),
                             "Can't get chunk extra for chunk {:?} from storage",
@@ -541,7 +541,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             let chunk_extra = unwrap_or_err_db!(
                 sv.store.get_ser::<ChunkExtra>(
                     ColChunkExtra,
-                    &get_block_shard_id(block_hash, *shard_id)
+                    &get_block_shard_uid(block_hash, *shard_id)
                 ),
                 "Can't get Chunk Extra from storage with key {:?} {:?}",
                 block_hash,
@@ -569,7 +569,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             }
             if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
                 ColChunkExtra,
-                &get_block_shard_id(block.header().prev_hash(), *shard_id),
+                &get_block_shard_uid(block.header().prev_hash(), *shard_id),
             ) {
                 check_discrepancy!(
                     prev_chunk_extra.state_root(),
@@ -691,7 +691,7 @@ pub(crate) fn outcome_indexed_by_block_hash(
                         outcome_ids.extend(unwrap_or_err_db!(
                             sv.store.get_ser::<Vec<CryptoHash>>(
                                 ColOutcomeIds,
-                                &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                                &get_block_shard_uid(block.hash(), chunk_header.shard_id())
                             ),
                             "Can't get Outcome ids by Block Hash"
                         ));

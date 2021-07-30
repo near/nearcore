@@ -8,14 +8,14 @@ use primitive_types::U256;
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
-use near_primitives::epoch_manager::ShardsInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, SlashState, AGGREGATOR_KEY};
+use near_primitives::epoch_manager::{ShardUId, ShardsInfo};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
-    InternalShardId, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId, ShardId,
+    ShardUId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
@@ -362,9 +362,8 @@ impl EpochManager {
         } else {
             let next_shard_id = prev_shards_info.shards.last().unwrap() + 1;
             let num_shards = epoch_config.shard_layout.num_shards();
-            let shards: Vec<InternalShardId> =
-                (next_shard_id..next_shard_id + num_shards).collect();
-            let mut parent_shards: HashMap<InternalShardId, InternalShardId> = HashMap::new();
+            let shards: Vec<ShardUId> = (next_shard_id..next_shard_id + num_shards).collect();
+            let mut parent_shards: HashMap<ShardUId, ShardUId> = HashMap::new();
             shards.iter().enumerate().for_each(|(shard_ord, shard_id)| {
                 let parent_shard_ord =
                     epoch_config.shard_layout.parent_shards().as_ref().unwrap()[shard_ord];
@@ -1439,6 +1438,25 @@ impl EpochManager {
         }
         self.epoch_info_aggregator = Some(aggregator);
         Ok(())
+    }
+
+    /// Converts shard_id to the shard_ord and epoch_id of a shard.
+    /// Current_epoch_id will be used as the starting search point, the function will only search for epoch T-1, T, T+1 if the current epoch is T.
+    /// If it cannot find the shard_id, it returns an EpochError.
+    pub fn shard_uid_to_id(
+        &self,
+        shard_id: ShardUId,
+        epoch_id: &EpochId,
+    ) -> Result<(EpochId, ShardId), EpochError> {
+    }
+
+    /// Converts shard_ord and epoch_id for a shard to its shard_id.
+    /// It returns an EpochError if such shard does not exist.
+    pub fn shard_id_to_uid(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, EpochError> {
     }
 }
 

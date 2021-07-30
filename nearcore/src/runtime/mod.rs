@@ -25,7 +25,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardUId};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -159,7 +159,7 @@ impl NightshadeRuntime {
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let all_epoch_config = AllEpochConfig::new(
             initial_epoch_config,
-            genesis.config.simple_nightshade_shard_config,
+            (&genesis.config.simple_nightshade_shard_config).clone(),
         );
         let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
@@ -951,7 +951,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        self.shard_tracker.account_id_to_internal_shard_id(account_id)
+        self.shard_tracker.account_id_to_shard_uid(account_id)
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
@@ -980,6 +980,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_me: bool,
     ) -> bool {
         self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+    }
+
+    fn shard_uid_to_id(
+        &self,
+        shard_uid: ShardUId,
+        epoch_id: &EpochId,
+    ) -> Result<(EpochId, ShardId), Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.shard_uid_to_id(shard_uid, epoch_id)?)
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.shard_id_to_uid(shard_id, epoch_id)?)
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {

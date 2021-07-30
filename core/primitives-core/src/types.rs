@@ -20,9 +20,6 @@ pub type BlockHeight = u64;
 pub type EpochHeight = u64;
 /// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
-//  Internal shard id that can be used to uniquely identify shards across epochs.
-//  Only used in validators' internal states, not in protocol.
-pub type InternalShardId = u64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = u128;
 /// Gas is a type for storing amount of gas.
