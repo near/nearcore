@@ -738,6 +738,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
+                // TODO: in expose profile data in execution outcome, action result's profile data will go in metadata v2 here
                 metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         })
