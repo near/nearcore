@@ -2531,7 +2531,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
     #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
@@ -2543,6 +2543,17 @@ pub struct VMOutcome {
     #[serde(skip)]
     /// Data collected from making a contract call
     pub profile: ProfileData,
+}
+
+impl PartialEq for VMOutcome {
+    fn eq(&self, other: &VMOutcome) -> bool {
+        self.balance == other.balance
+            && self.storage_usage == other.storage_usage
+            && self.return_data == other.return_data
+            && self.burnt_gas == other.burnt_gas
+            && self.used_gas == other.used_gas
+            && self.logs == other.logs
+    }
 }
 
 impl std::fmt::Debug for VMOutcome {
