@@ -557,6 +557,39 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     config.block_sizes = vec![2];
 
     let v = calls_helper! {
+        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
+        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
+        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
+        storage_read_10b_key_10b_value_1k_TEST => storage_read_10b_key_10b_value_1k,
+        storage_read_10kib_key_10b_value_1k_TEST => storage_read_10kib_key_10b_value_1k,
+        storage_read_10b_key_10kib_value_1k_TEST => storage_read_10b_key_10kib_value_1k,
+        storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
+        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
+        data_receipt_10b_1000 => data_receipt_10b_1000,
+        data_receipt_100kib_1000 => data_receipt_100kib_1000,
+        storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
+        storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
+        storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k
+    };
+    // Measure the speed of all extern function calls.
+    for (metric, method_name) in v {
+        if let Err(e) = writeln!(file, "Measure {}", method_name) {
+            eprintln!("Couldn't write to file: {}", e);
+        }
+        testbed = measure_function(
+            metric,
+            method_name,
+            &mut m,
+            testbed,
+            &ad,
+            &mut nonces,
+            &config,
+            false,
+            vec![],
+        );
+    }
+
+    let v = calls_helper! {
         cpu_ram_soak_test => cpu_ram_soak_test,
         base_1M => base_1M,
         read_memory_10b_10k => read_memory_10b_10k,
@@ -593,19 +626,6 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         storage_write_10b_key_10b_value_1k => storage_write_10b_key_10b_value_1k,
         storage_has_key_10b_key_10b_value_1k => storage_has_key_10b_key_10b_value_1k,
         storage_remove_10b_key_10b_value_1k => storage_remove_10b_key_10b_value_1k,
-        storage_read_10b_key_10b_value_1k_TEST => storage_read_10b_key_10b_value_1k,
-        storage_read_10kib_key_10b_value_1k_TEST => storage_read_10kib_key_10b_value_1k,
-        storage_read_10b_key_10kib_value_1k_TEST => storage_read_10b_key_10kib_value_1k,
-        storage_write_10kib_key_10b_value_1k => storage_write_10kib_key_10b_value_1k,
-        storage_read_10b_key_10b_value_1k => storage_read_10b_key_10b_value_1k,
-        storage_read_10kib_key_10b_value_1k => storage_read_10kib_key_10b_value_1k,
-        storage_read_10b_key_10kib_value_1k => storage_read_10b_key_10kib_value_1k,
-        data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
-        data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000,
-        data_receipt_base_10b_1000_TEST => data_receipt_base_10b_1000,
-        data_receipt_10b_1000_TEST => data_receipt_10b_1000,
-        data_receipt_100kib_1000_TEST => data_receipt_100kib_1000,
         storage_has_key_10kib_key_10b_value_1k => storage_has_key_10kib_key_10b_value_1k,
         storage_remove_10kib_key_10b_value_1k => storage_remove_10kib_key_10b_value_1k,
         storage_write_10b_key_10kib_value_1k => storage_write_10b_key_10kib_value_1k,
@@ -618,22 +638,9 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         data_producer_10b => data_producer_10b,
         data_producer_100kib => data_producer_100kib
     };
-    // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        if let Err(e) = writeln!(file, "Measure {}", method_name) {
-            eprintln!("Couldn't write to file: {}", e);
-        }
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
+        m.record_measurement(metric.clone(), 1, 1);
+        m.print();
     }
 
     // let mut testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)));
