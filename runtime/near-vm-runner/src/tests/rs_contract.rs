@@ -144,8 +144,9 @@ fn run_test_ext(
         None,
     );
 
-    // TODO: replace with profile in outcome
-    // assert_eq!(profile.action_gas(), 0);
+    if let Some(outcome) = &outcome {
+        assert_eq!(outcome.profile.action_gas(), 0);
+    }
 
     if let Some(_) = err {
         panic!("Failed execution: {:?}", err);
