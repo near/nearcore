@@ -14,7 +14,6 @@ use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -40,7 +39,7 @@ pub struct StandaloneRuntime {
 }
 
 impl StandaloneRuntime {
-    pub fn account_id(&self) -> AccountId {
+    pub fn account_id(&self) -> String {
         self.signer.account_id.clone()
     }
 
@@ -141,14 +140,14 @@ impl RuntimeMailbox {
 
 #[derive(Default)]
 pub struct RuntimeGroup {
-    pub mailboxes: (Mutex<HashMap<AccountId, RuntimeMailbox>>, Condvar),
+    pub mailboxes: (Mutex<HashMap<String, RuntimeMailbox>>, Condvar),
     pub state_records: Arc<Vec<StateRecord>>,
     pub signers: Vec<InMemorySigner>,
 
     /// Account id of the runtime on which the transaction was executed mapped to the transactions.
-    pub executed_transactions: Mutex<HashMap<AccountId, Vec<SignedTransaction>>>,
+    pub executed_transactions: Mutex<HashMap<String, Vec<SignedTransaction>>>,
     /// Account id of the runtime on which the receipt was executed mapped to the list of the receipts.
-    pub executed_receipts: Mutex<HashMap<AccountId, Vec<Receipt>>>,
+    pub executed_receipts: Mutex<HashMap<String, Vec<Receipt>>>,
     /// List of the transaction logs.
     pub transaction_logs: Mutex<Vec<ExecutionOutcomeWithId>>,
 }
@@ -167,15 +166,13 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.signers.push(signer.clone());
-            res.mailboxes.0.lock().unwrap().insert(signer.account_id, Default::default());
+            res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
         }
         Arc::new(res)
     }
 
     pub fn new(num_runtimes: u64, num_existing_accounts: u64, contract_code: &[u8]) -> Arc<Self> {
-        let account_ids = (0..num_runtimes)
-            .map(|i| AccountId::try_from(format!("near_{}", i)).unwrap())
-            .collect();
+        let account_ids = (0..num_runtimes).map(|i| format!("near_{}", i)).collect();
         Self::new_with_account_ids(account_ids, num_existing_accounts, contract_code)
     }
 
@@ -189,18 +186,14 @@ impl RuntimeGroup {
         let mut state_records = vec![];
         let mut signers = vec![];
         for (i, account_id) in account_ids.into_iter().enumerate() {
-            let signer = InMemorySigner::from_seed(
-                account_id.clone(),
-                KeyType::ED25519,
-                account_id.as_ref(),
-            );
+            let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
-                    account_id: account_id.clone(),
+                    account_id: account_id.to_string(),
                     account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
                 });
                 state_records.push(StateRecord::AccessKey {
-                    account_id: account_id.clone(),
+                    account_id: account_id.to_string(),
                     public_key: signer.public_key.clone(),
                     access_key: AccessKey::full_access().into(),
                 });
@@ -312,7 +305,7 @@ impl RuntimeGroup {
             .expect("The execution log of the given receipt is missing")
     }
 
-    pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (AccountId, Receipt) {
+    pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (String, Receipt) {
         for (executed_runtime, tls) in self.executed_receipts.lock().unwrap().iter() {
             if let Some(res) =
                 tls.iter().find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
@@ -368,8 +361,8 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id.as_ref(), $from);
-        assert_eq!(r.receiver_id.as_ref(), $to);
+        assert_eq!(r.predecessor_id, $from.to_string());
+        assert_eq!(r.receiver_id, $to.to_string());
         match &r.receipt {
             $receipt_pat => {
                 $receipt_assert

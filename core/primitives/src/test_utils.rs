@@ -247,14 +247,7 @@ impl SignedTransaction {
     }
 
     pub fn empty(block_hash: CryptoHash) -> Self {
-        Self::from_actions(
-            0,
-            AccountId::test_account(),
-            AccountId::test_account(),
-            &EmptySigner {},
-            vec![],
-            block_hash,
-        )
+        Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
     }
 }
 

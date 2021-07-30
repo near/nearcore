@@ -30,9 +30,7 @@ mod tests {
             store.clone(),
             validators
                 .into_iter()
-                .map(|inner| {
-                    inner.into_iter().map(|account_id| account_id.parse().unwrap()).collect()
-                })
+                .map(|inner| inner.into_iter().map(Into::into).collect())
                 .collect(),
             1,
             num_shards,
@@ -53,11 +51,8 @@ mod tests {
         verbose: bool,
     ) {
         let mut rng = rand::thread_rng();
-        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-            "test1".parse().unwrap(),
-            KeyType::ED25519,
-            "test1",
-        ));
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
         let num_shards = prev_state_roots.len() as u64;
         for i in 0..num_blocks {
             let block = Block::empty(&prev_block, &*signer);

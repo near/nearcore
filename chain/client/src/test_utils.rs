@@ -1,7 +1,6 @@
 use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -57,11 +56,11 @@ pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
-    validators: Vec<Vec<AccountId>>,
+    validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: NumShards,
     epoch_length: BlockHeightDelta,
-    account_id: AccountId,
+    account_id: &str,
     skip_sync_wait: bool,
     min_block_prod_time: u64,
     max_block_prod_time: u64,
@@ -76,7 +75,7 @@ pub fn setup(
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
         store,
-        validators,
+        validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         epoch_length,
@@ -102,11 +101,8 @@ pub fn setup(
     let mut chain = Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap().clone();
 
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        account_id.clone(),
-        KeyType::ED25519,
-        account_id.as_ref(),
-    ));
+    let signer =
+        Arc::new(InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
@@ -148,8 +144,8 @@ pub fn setup(
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock(
-    validators: Vec<AccountId>,
-    account_id: AccountId,
+    validators: Vec<&'static str>,
+    account_id: &'static str,
     skip_sync_wait: bool,
     enable_doomslug: bool,
     network_mock: Box<
@@ -171,8 +167,8 @@ pub fn setup_mock(
 }
 
 pub fn setup_mock_with_validity_period_and_no_epoch_sync(
-    validators: Vec<AccountId>,
-    account_id: AccountId,
+    validators: Vec<&'static str>,
+    account_id: &'static str,
     skip_sync_wait: bool,
     enable_doomslug: bool,
     mut network_mock: Box<
@@ -372,7 +368,7 @@ fn send_chunks<T, I, F>(
 ///                 the default action is performed, that might (and likely will) overwrite the
 ///                 `response` before it is sent back to the requester.
 pub fn setup_mock_all_validators(
-    validators: Vec<Vec<AccountId>>,
+    validators: Vec<Vec<&'static str>>,
     key_pairs: Vec<PeerInfo>,
     validator_groups: u64,
     skip_sync_wait: bool,
@@ -384,9 +380,7 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
-    network_mock: Arc<
-        RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
-    >,
+    network_mock: Arc<RwLock<Box<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs;
@@ -435,12 +429,11 @@ pub fn setup_mock_all_validators(
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
-            let _account_id = account_id.clone();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
                 let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
-                let (resp, perform_default) = guard.deref_mut()(account_id.clone(), msg);
+                let (resp, perform_default) = guard.deref_mut()(account_id.to_string(), msg);
                 drop(guard);
 
                 if perform_default {
@@ -448,7 +441,7 @@ pub fn setup_mock_all_validators(
                     let mut my_address = None;
                     let mut my_ord = None;
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                        if name == &account_id {
+                        if *name == account_id {
                             my_key_pair = Some(key_pairs[i].clone());
                             my_address = Some(addresses[i].clone());
                             my_ord = Some(i);
@@ -530,8 +523,8 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 Arc::clone(&connectors1),
-                                validators_clone2.iter().flatten().map(|s| Some(s.clone())).enumerate(),
-                                target.account_id.as_ref().map(|s| s.clone()),
+                                validators_clone2.iter().flatten().map(|s| Some(*s)).enumerate(),
+                                target.account_id.as_ref().map(|s| s.as_str()),
                                 drop_chunks,
                                 create_msg,
                             );
@@ -559,8 +552,8 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 Arc::clone(&connectors1),
-                                validators_clone2.iter().flatten().cloned().enumerate(),
-                                account_id.clone(),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
                                 drop_chunks,
                                 create_msg,
                             );
@@ -571,8 +564,8 @@ pub fn setup_mock_all_validators(
                             };
                             send_chunks(
                                 Arc::clone(&connectors1),
-                                validators_clone2.iter().flatten().cloned().enumerate(),
-                                account_id.clone(),
+                                validators_clone2.iter().flatten().copied().enumerate(),
+                                account_id.as_str(),
                                 drop_chunks,
                                 create_msg,
                             );
@@ -897,7 +890,7 @@ pub fn setup_mock_all_validators(
                 validator_groups,
                 num_shards,
                 epoch_length,
-                _account_id,
+                account_id,
                 skip_sync_wait,
                 block_prod_time,
                 block_prod_time * 3,
@@ -927,8 +920,8 @@ pub fn setup_mock_all_validators(
 
 /// Sets up ClientActor and ViewClientActor without network.
 pub fn setup_no_network(
-    validators: Vec<AccountId>,
-    account_id: AccountId,
+    validators: Vec<&'static str>,
+    account_id: &'static str,
     skip_sync_wait: bool,
     enable_doomslug: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
@@ -942,8 +935,8 @@ pub fn setup_no_network(
 }
 
 pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
-    validators: Vec<AccountId>,
-    account_id: AccountId,
+    validators: Vec<&'static str>,
+    account_id: &'static str,
     skip_sync_wait: bool,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
@@ -960,14 +953,14 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
 
 pub fn setup_client_with_runtime(
     num_validator_seats: NumSeats,
-    account_id: Option<AccountId>,
+    account_id: Option<&str>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
     let validator_signer = account_id.map(|x| {
-        Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
+        Arc::new(InMemoryValidatorSigner::from_seed(x, KeyType::ED25519, x))
             as Arc<dyn ValidatorSigner>
     });
     let mut config = ClientConfig::test(true, 10, 20, num_validator_seats, false, true);
@@ -987,10 +980,10 @@ pub fn setup_client_with_runtime(
 
 pub fn setup_client(
     store: Arc<Store>,
-    validators: Vec<Vec<AccountId>>,
+    validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: NumShards,
-    account_id: Option<AccountId>,
+    account_id: Option<&str>,
     enable_doomslug: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
@@ -998,7 +991,7 @@ pub fn setup_client(
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
     let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
         store,
-        validators,
+        validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
         num_shards,
         chain_genesis.epoch_length,
@@ -1025,9 +1018,8 @@ pub struct TestEnv {
 impl TestEnv {
     /// Create a `TestEnv` with `KeyValueRuntime`.
     pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
-        let validators: Vec<AccountId> = (0..num_validators)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
+        let validators: Vec<AccountId> =
+            (0..num_validators).map(|i| format!("test{}", i)).collect();
         let network_adapters =
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
         let clients = (0..num_clients)
@@ -1035,10 +1027,10 @@ impl TestEnv {
                 let store = create_test_store();
                 setup_client(
                     store,
-                    vec![validators.clone()],
+                    vec![validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
                     1,
                     1,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
+                    Some(&format!("test{}", i)),
                     false,
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
@@ -1074,14 +1066,13 @@ impl TestEnv {
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
         network_adapters: Vec<Arc<MockNetworkAdapter>>,
     ) -> Self {
-        let validators: Vec<AccountId> = (0..num_validator_seats)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
+        let validators: Vec<AccountId> =
+            (0..num_validator_seats).map(|i| format!("test{}", i)).collect();
         let clients = (0..num_clients)
             .map(|i| {
                 setup_client_with_runtime(
                     num_validator_seats,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
+                    Some(&format!("test{}", i)),
                     false,
                     network_adapters[i].clone(),
                     chain_genesis.clone(),
@@ -1116,11 +1107,11 @@ impl TestEnv {
     }
 
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".parse().unwrap(),
-            "test1".parse().unwrap(),
+            "test1".to_string(),
+            "test1".to_string(),
             &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
@@ -1182,10 +1173,10 @@ impl TestEnv {
         let store = self.clients[id].chain.store().owned_store();
         self.clients[id] = setup_client(
             store,
-            vec![self.validators.clone()],
+            vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
             1,
             1,
-            Some(AccountId::try_from(format!("test{}", id)).unwrap()),
+            Some(&format!("test{}", id)),
             false,
             self.network_adapters[id].clone(),
             self.chain_genesis.clone(),

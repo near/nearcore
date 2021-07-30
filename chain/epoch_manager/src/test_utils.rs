@@ -35,19 +35,19 @@ pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     result
 }
 
-pub fn change_stake(stake_changes: Vec<(AccountId, Balance)>) -> BTreeMap<AccountId, Balance> {
-    stake_changes.into_iter().collect()
+pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, Balance> {
+    stake_changes.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
 pub fn epoch_info(
     epoch_height: EpochHeight,
-    accounts: Vec<(AccountId, Balance)>,
+    accounts: Vec<(&str, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
     hidden_validators_settlement: Vec<ValidatorWeight>,
-    fishermen: Vec<(AccountId, Balance)>,
+    fishermen: Vec<(&str, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
-    validator_kickout: Vec<(AccountId, ValidatorKickoutReason)>,
+    validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
 ) -> EpochInfo {
@@ -69,13 +69,13 @@ pub fn epoch_info(
 
 pub fn epoch_info_with_num_seats(
     epoch_height: EpochHeight,
-    mut accounts: Vec<(AccountId, Balance)>,
+    mut accounts: Vec<(&str, Balance)>,
     block_producers_settlement: Vec<ValidatorId>,
     chunk_producers_settlement: Vec<Vec<ValidatorId>>,
     hidden_validators_settlement: Vec<ValidatorWeight>,
-    fishermen: Vec<(AccountId, Balance)>,
+    fishermen: Vec<(&str, Balance)>,
     stake_change: BTreeMap<AccountId, Balance>,
-    validator_kickout: Vec<(AccountId, ValidatorKickoutReason)>,
+    validator_kickout: Vec<(&str, ValidatorKickoutReason)>,
     validator_reward: HashMap<AccountId, Balance>,
     minted_amount: Balance,
     num_seats: NumSeats,
@@ -84,23 +84,28 @@ pub fn epoch_info_with_num_seats(
         find_threshold(&accounts.iter().map(|(_, s)| *s).collect::<Vec<_>>(), num_seats).unwrap();
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
-        acc.insert(x.0.clone(), i as u64);
+        acc.insert(x.0.to_string(), i as u64);
         acc
     });
-    let fishermen_to_index =
-        fishermen.iter().enumerate().map(|(i, (s, _))| (s.clone(), i as ValidatorId)).collect();
-    let account_to_validators = |accounts: Vec<(AccountId, Balance)>| -> Vec<ValidatorStake> {
+    let fishermen_to_index = fishermen
+        .iter()
+        .enumerate()
+        .map(|(i, (s, _))| ((*s).to_string(), i as ValidatorId))
+        .collect();
+    let account_to_validators = |accounts: Vec<(&str, Balance)>| -> Vec<ValidatorStake> {
         accounts
             .into_iter()
             .map(|(account_id, stake)| {
                 ValidatorStake::new(
-                    account_id.clone(),
-                    SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
+                    account_id.to_string(),
+                    SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                     stake,
                 )
             })
             .collect()
     };
+    let validator_kickout =
+        validator_kickout.into_iter().map(|(s, r)| (s.to_string(), r)).collect();
     EpochInfo::new(
         epoch_height,
         account_to_validators(accounts),
@@ -112,7 +117,7 @@ pub fn epoch_info_with_num_seats(
         fishermen_to_index,
         stake_change,
         validator_reward,
-        validator_kickout.into_iter().collect(),
+        validator_kickout,
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
@@ -149,9 +154,9 @@ pub fn epoch_config(
     }
 }
 
-pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
-    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
-    ValidatorStake::new(account_id, public_key, amount)
+pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
+    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
+    ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
 /// No-op reward calculator. Will produce no reward
@@ -161,19 +166,19 @@ pub fn default_reward_calculator() -> RewardCalculator {
         num_blocks_per_year: 1,
         epoch_length: 1,
         protocol_reward_rate: Rational::from_integer(0),
-        protocol_treasury_account: "near".parse().unwrap(),
+        protocol_treasury_account: "near".to_string(),
         online_min_threshold: Rational::new(90, 100),
         online_max_threshold: Rational::new(99, 100),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     }
 }
 
-pub fn reward(info: Vec<(AccountId, Balance)>) -> HashMap<AccountId, Balance> {
-    info.into_iter().collect()
+pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
+    info.into_iter().map(|(account_id, r)| (account_id.to_string(), r)).collect()
 }
 
 pub fn setup_epoch_manager(
-    validators: Vec<(AccountId, Balance)>,
+    validators: Vec<(&str, Balance)>,
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,
@@ -198,16 +203,13 @@ pub fn setup_epoch_manager(
         config,
         PROTOCOL_VERSION,
         reward_calculator,
-        validators
-            .iter()
-            .map(|(account_id, balance)| stake(account_id.clone(), *balance))
-            .collect(),
+        validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
     )
     .unwrap()
 }
 
 pub fn setup_default_epoch_manager(
-    validators: Vec<(AccountId, Balance)>,
+    validators: Vec<(&str, Balance)>,
     epoch_length: BlockHeightDelta,
     num_shards: NumShards,
     num_block_producer_seats: NumSeats,

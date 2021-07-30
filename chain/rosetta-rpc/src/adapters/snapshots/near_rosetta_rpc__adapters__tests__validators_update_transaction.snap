@@ -1,7 +1,6 @@
 ---
 source: chain/rosetta-rpc/src/adapters/mod.rs
 expression: validators_update_transaction
-
 ---
 Transaction {
     transaction_identifier: TransactionIdentifier {
@@ -19,9 +18,7 @@ Transaction {
                 Success,
             ),
             account: AccountIdentifier {
-                address: AccountId(
-                    "nfvalidator1.near",
-                ),
+                address: "nfvalidator1.near",
                 sub_account: None,
             },
             amount: Some(
@@ -46,9 +43,7 @@ Transaction {
                 Success,
             ),
             account: AccountIdentifier {
-                address: AccountId(
-                    "nfvalidator2.near",
-                ),
+                address: "nfvalidator2.near",
                 sub_account: None,
             },
             amount: Some(

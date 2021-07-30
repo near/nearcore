@@ -378,17 +378,14 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
 }
 
 pub fn migrate_24_to_25(path: &String) {
-    use smart_default::SmartDefault;
-
     let store = create_store(&path);
 
-    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, SmartDefault, Eq, Debug)]
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq, Debug)]
     pub struct OldExecutionOutcome {
         pub logs: Vec<LogEntry>,
         pub receipt_ids: Vec<CryptoHash>,
         pub gas_burnt: Gas,
         pub tokens_burnt: Balance,
-        #[default(AccountId::test_account())]
         pub executor_id: AccountId,
         pub status: ExecutionStatus,
     }
