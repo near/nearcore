@@ -110,7 +110,7 @@ const CACHE_SIZE: usize = 128;
 #[cfg(feature = "wasmer0_vm")]
 pub mod wasmer0_cache {
     use super::*;
-    use wasmer_runtime::{compiler_for_backend, Backend};
+    use wasmer_runtime::{compiler_for_backend, Backend, Compiler};
     use wasmer_runtime_core::cache::Artifact;
     use wasmer_runtime_core::load_cache_with;
 
@@ -141,6 +141,25 @@ pub mod wasmer0_cache {
         Ok(module)
     }
 
+    fn _deserialize_get_artifact() -> Artifact {
+        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer").entered();
+        Artifact::deserialize(serialized_artifact.as_slice())
+            .map_err(|_e| CacheError::DeserializationError)?
+    }
+
+    fn _deserialize_compiler_for_backend() -> Box<dyn Compiler> {
+        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer").entered();
+        compiler_for_backend(Backend::Singlepass).unwrap()
+    }
+
+    unsafe fn _deserialize_load_cache_with(artifact: Artifact, compiler: &dyn Compiler) -> Result<Result<wasmer_runtime::Module, VMError>, CacheError> {
+        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer").entered();
+        match load_cache_with(artifact, compiler) {
+            Ok(module) => Ok(Ok(module)),
+            Err(_) => Err(CacheError::DeserializationError),
+        }
+    }
+
     /// Deserializes contract or error from the binary data. Signature means that we could either
     /// return module or cached error, which both considered to be `Ok()`, or encounter an error during
     /// the deserialization process.
@@ -154,14 +173,10 @@ pub mod wasmer0_cache {
             CacheRecord::Error(err) => return Ok(Err(err)),
             CacheRecord::Code(code) => code,
         };
-        let artifact = Artifact::deserialize(serialized_artifact.as_slice())
-            .map_err(|_e| CacheError::DeserializationError)?;
+        let artifact = _deserialize_get_artifact();
         unsafe {
-            let compiler = compiler_for_backend(Backend::Singlepass).unwrap();
-            match load_cache_with(artifact, compiler.as_ref()) {
-                Ok(module) => Ok(Ok(module)),
-                Err(_) => Err(CacheError::DeserializationError),
-            }
+            let compiler = _deserialize_compiler_for_backend();
+            _deserialize_load_cache_with(artifact, compiler.as_ref())
         }
     }
 
