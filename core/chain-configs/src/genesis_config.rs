@@ -543,3 +543,157 @@ impl From<ProtocolConfig> for ProtocolConfigView {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::genesis_config::RecordsProcessor;
+    use near_primitives::state_record::StateRecord;
+    use serde::Deserializer;
+
+    fn stream_records_from_json_str(genesis: &str) -> serde_json::Result<()> {
+        let mut deserializer = serde_json::Deserializer::from_reader(genesis.as_bytes());
+        let records_processor = RecordsProcessor { sink: &mut |_record: StateRecord| {} };
+        deserializer.deserialize_any(records_processor)
+    }
+
+    #[test]
+    fn test_genesis_with_empty_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "records": []
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading empty records");
+    }
+
+    #[test]
+    #[should_panic(expected = "missing field: records")]
+    fn test_genesis_with_no_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random"
+        }"#;
+        stream_records_from_json_str(&genesis).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate field: records")]
+    fn test_genesis_with_several_records_fields() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "records": [{
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }],
+            "b": "random",
+            "records": [{
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }]
+        }"#;
+        stream_records_from_json_str(&genesis).unwrap();
+    }
+
+    #[test]
+    fn test_genesis_with_fields_after_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "records": [
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }
+            ],
+            "c": {
+                "d": 1,
+                "e": []
+            }
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading records with a field after");
+    }
+
+    #[test]
+    fn test_genesis_with_fields_before_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "c": {
+                "d": 1,
+                "e": []
+            },
+            "records": [
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }
+            ]
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+    }
+
+    #[test]
+    fn test_genesis_with_several_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "c": {
+                "d": 1,
+                "e": []
+            },
+            "records": [
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                },
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }
+            ]
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+    }
+}
