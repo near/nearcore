@@ -141,7 +141,7 @@ pub mod wasmer0_cache {
         Ok(module)
     }
 
-    fn _deserialize_get_artifact() -> Result<Artifact, CacheError> {
+    fn _deserialize_get_artifact(serialized_artifact: Vec<u8>) -> Result<Artifact, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer").entered();
         Artifact::deserialize(serialized_artifact.as_slice())
             .map_err(|_e| CacheError::DeserializationError)
@@ -173,7 +173,7 @@ pub mod wasmer0_cache {
             CacheRecord::Error(err) => return Ok(Err(err)),
             CacheRecord::Code(code) => code,
         };
-        let artifact = _deserialize_get_artifact()?;
+        let artifact = _deserialize_get_artifact(serialized_artifact)?;
         unsafe {
             let compiler = _deserialize_compiler_for_backend();
             _deserialize_load_cache_with(artifact, compiler.as_ref())
