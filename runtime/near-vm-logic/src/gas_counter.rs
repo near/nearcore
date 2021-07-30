@@ -52,7 +52,6 @@ impl GasCounter {
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
-        println!("gas counter new");
         Self {
             ext_costs_config,
             burnt_gas: 0,
@@ -99,7 +98,6 @@ impl GasCounter {
 
     #[inline]
     fn update_profile_host(&mut self, cost: ExtCosts, value: u64) {
-        println!("pay host gas {}", value);
         self.profile.add_ext_cost(cost, value)
     }
 
@@ -197,6 +195,10 @@ impl GasCounter {
     }
     pub fn used_gas(&self) -> Gas {
         self.used_gas
+    }
+
+    pub fn profile_data(&self) -> ProfileData {
+        self.profile.clone()
     }
 }
 

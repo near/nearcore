@@ -51,9 +51,7 @@ impl ProfileData {
     }
     #[inline]
     pub fn add_ext_cost(&self, ext: ExtCosts, value: u64) {
-        println!("add ext cost {} {}", ext, value);
         self.add_val(ProfileData::EXT_START + ext as usize, value);
-        println!("get {}", self.get_ext_cost(ext as usize));
     }
     #[inline]
     fn add_val(&self, index: usize, value: u64) {
@@ -80,7 +78,6 @@ impl ProfileData {
     }
 
     pub fn host_gas(&self) -> u64 {
-        println!("host gas");
         let mut host_gas = 0u64;
         for e in 0..ExtCosts::count() {
             host_gas += self.get_ext_cost(e);
@@ -107,7 +104,6 @@ impl ProfileData {
 
 impl fmt::Debug for ProfileData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        println!("debug");
         use num_rational::Ratio;
         let all_gas = self.all_gas();
         if all_gas == 0 {

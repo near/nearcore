@@ -2505,7 +2505,7 @@ impl<'a> VMLogic<'a> {
             burnt_gas: self.gas_counter.burnt_gas(),
             used_gas: self.gas_counter.used_gas(),
             logs: self.logs,
-            profile: Default::default(),
+            profile: self.gas_counter.profile_data(),
         }
     }
 
@@ -2520,7 +2520,7 @@ impl<'a> VMLogic<'a> {
             burnt_gas: self.gas_counter.burnt_gas(),
             used_gas: self.gas_counter.used_gas(),
             logs,
-            profile: Default::default(),
+            profile: self.gas_counter.profile_data(),
         }
     }
 
