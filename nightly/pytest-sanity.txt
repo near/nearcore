@@ -101,3 +101,9 @@ pytest sanity/network_drop_package.py --features nightly_protocol,nightly_protoc
 # pytest --timeout=900 sanity/sync_ban.py false --features nightly_protocol,nightly_protocol_features
 pytest sanity/block_chunk_signature.py
 pytest sanity/block_chunk_signature.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/concurrent_function_calls.py
+pytest sanity/concurrent_function_calls.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/proxy_example.py
+pytest sanity/proxy_example.py --features nightly_protocol,nightly_protocol_features
+pytest sanity/rpc_tx_submission.py
+pytest sanity/rpc_tx_submission.py --features nightly_protocol,nightly_protocol_features
