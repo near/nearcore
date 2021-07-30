@@ -4899,6 +4899,7 @@ dependencies = [
  "near-chain-configs",
  "near-crypto",
  "near-evm-runner",
+ "near-logger-utils",
  "near-primitives",
  "near-store",
  "near-test-contracts",

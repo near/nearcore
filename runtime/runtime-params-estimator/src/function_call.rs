@@ -15,6 +15,7 @@ use num_rational::Ratio;
 use std::fmt::Write;
 use std::sync::Arc;
 use near_vm_logic::ExtCostsConfig;
+use near_logger_utils::init_test_logger;
 
 const REPEATS: u64 = 50;
 
@@ -49,6 +50,8 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
 
 #[test]
 fn measure_function_call_1s() {
+    init_test_logger();
+
     let (contract, method_name, init_args) = get_rs_contract_data();
     let contract = ContractCode::new(contract.iter().cloned().collect(), None);
     let contract_len = contract.get_code().len();
