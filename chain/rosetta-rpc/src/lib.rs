@@ -482,10 +482,7 @@ async fn construction_derive(
     }
 
     Ok(Json(models::ConstructionDeriveResponse {
-        account_identifier: models::AccountIdentifier {
-            address: address.parse().unwrap(),
-            sub_account: None,
-        },
+        account_identifier: models::AccountIdentifier { address, sub_account: None },
     }))
 }
 

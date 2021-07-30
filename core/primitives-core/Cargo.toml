@@ -22,8 +22,6 @@ serde_json = "1"
 sha2 = "0.9"
 lazy_static = "1.4"
 
-near-account-id = { path = "../account-id" }
-
 [features]
 default = []
 protocol_feature_alt_bn128 = []

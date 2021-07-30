@@ -746,15 +746,10 @@ mod tests {
             1_000_000_000,
             Chain::compute_collection_hash(genesis_bps).unwrap(),
         );
-        let signer =
-            InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");
+        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header().verify_block_producer(&signer.public_key()));
-        let other_signer = InMemoryValidatorSigner::from_seed(
-            "other2".parse().unwrap(),
-            KeyType::ED25519,
-            "other2",
-        );
+        let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
         let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
@@ -779,7 +774,7 @@ mod tests {
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
                 tokens_burnt: 10000,
-                executor_id: "alice".parse().unwrap(),
+                executor_id: "alice".to_string(),
                 metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
@@ -791,7 +786,7 @@ mod tests {
                 receipt_ids: vec![],
                 gas_burnt: 0,
                 tokens_burnt: 0,
-                executor_id: "bob".parse().unwrap(),
+                executor_id: "bob".to_string(),
                 metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };

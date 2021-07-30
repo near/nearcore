@@ -22,7 +22,6 @@ dirs = "3"
 borsh = "0.8.1"
 thiserror = "1.0"
 tracing = "0.1.13"
-smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = "0.2.8"
 lazy-static-include = "3"

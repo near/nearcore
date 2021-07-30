@@ -1855,6 +1855,7 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
+ "near-runtime-utils",
  "nearcore",
  "node-runtime",
  "serde",
@@ -2676,16 +2677,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-account-id"
-version = "0.1.0"
-dependencies = [
- "borsh 0.8.1",
- "paperclip",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "near-actix-test-utils"
 version = "0.1.0"
 dependencies = [
@@ -2849,7 +2840,6 @@ dependencies = [
  "hex-literal",
  "lazy_static",
  "libc",
- "near-account-id",
  "parity-secp256k1",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -2963,6 +2953,7 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
+ "near-runtime-utils",
  "serde",
  "serde_json",
  "thiserror",
@@ -3116,7 +3107,6 @@ dependencies = [
  "derive_more",
  "hex",
  "lazy_static",
- "near-account-id",
  "num-rational",
  "serde",
  "serde_json",
@@ -3137,7 +3127,6 @@ dependencies = [
  "hex",
  "insta",
  "lazy_static",
- "near-account-id",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -3176,6 +3165,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-runtime-utils"
+version = "3.0.0"
+dependencies = [
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "near-rust-allocator-proxy"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3211,7 +3208,6 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
- "smart-default",
  "strum",
  "tempfile",
  "thiserror",
@@ -3247,7 +3243,6 @@ version = "3.0.0"
 dependencies = [
  "borsh 0.8.1",
  "hex",
- "near-account-id",
  "near-rpc-error-macro",
  "serde",
 ]
@@ -3260,10 +3255,10 @@ dependencies = [
  "borsh 0.8.1",
  "bs58",
  "byteorder",
- "near-account-id",
  "near-crypto",
  "near-primitives",
  "near-primitives-core",
+ "near-runtime-utils",
  "near-vm-errors",
  "ripemd160",
  "serde",
@@ -3367,7 +3362,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "smart-default",
  "tempfile",
  "testlib",
  "thiserror",
@@ -3423,6 +3417,7 @@ dependencies = [
  "near-crypto",
  "near-metrics",
  "near-primitives",
+ "near-runtime-utils",
  "near-store",
  "near-test-contracts",
  "near-vm-errors",

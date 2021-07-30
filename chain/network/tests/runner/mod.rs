@@ -36,8 +36,8 @@ pub type ActionFn =
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
-    account_id: AccountId,
-    validators: Vec<AccountId>,
+    account_id: String,
+    validators: Vec<String>,
     genesis_time: DateTime<Utc>,
     config: NetworkConfig,
 ) -> Addr<PeerManagerActor> {
@@ -47,15 +47,15 @@ pub fn setup_network_node(
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
-        vec![validators.clone()],
+        vec![validators.into_iter().map(Into::into).collect()],
         1,
         1,
         5,
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
-        account_id.clone(),
+        account_id.as_str(),
         KeyType::ED25519,
-        account_id.as_ref(),
+        account_id.as_str(),
     ));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let mut chain_genesis = ChainGenesis::test();
@@ -527,7 +527,7 @@ impl Runner {
             test_config
                 .boot_nodes
                 .iter()
-                .map(|ix| (accounts_id[*ix].as_ref(), ports[*ix]))
+                .map(|ix| (accounts_id[*ix].as_str(), ports[*ix]))
                 .collect(),
         );
 
@@ -540,7 +540,7 @@ impl Runner {
         }));
 
         let mut network_config =
-            NetworkConfig::from_seed(accounts_id[node_id].as_ref(), ports[node_id].clone());
+            NetworkConfig::from_seed(accounts_id[node_id].as_str(), ports[node_id].clone());
 
         network_config.ban_window = test_config.ban_window;
         network_config.max_num_peers = test_config.max_num_peers;
@@ -569,16 +569,14 @@ impl Runner {
     }
 
     fn build(&mut self) -> RunningInfo {
-        let accounts_id: Vec<_> = (0..self.num_nodes)
-            .map(|ix| format!("test{}", ix).parse::<AccountId>().unwrap())
-            .collect();
+        let accounts_id: Vec<_> = (0..self.num_nodes).map(|ix| format!("test{}", ix)).collect();
         let ports: Vec<_> = (0..self.num_nodes).map(|_| open_port()).collect();
 
         let validators: Vec<_> =
             accounts_id.iter().map(|x| x.clone()).take(self.num_validators).collect();
 
         let mut peers_info =
-            convert_boot_nodes(accounts_id.iter().map(|x| x.as_ref()).zip(ports.clone()).collect());
+            convert_boot_nodes(accounts_id.iter().map(|x| x.as_str()).zip(ports.clone()).collect());
 
         for (validator, peer_info) in validators.iter().zip(peers_info.iter_mut()) {
             peer_info.account_id = Some(validator.clone());
@@ -650,7 +648,7 @@ impl Actor for Runner {
 #[rtype(result = "()")]
 enum RunnerMessage {
     StartNode(usize),
-    ChangeAccountId(usize, AccountId),
+    ChangeAccountId(usize, String),
 }
 
 impl Handler<RunnerMessage> for Runner {
@@ -668,7 +666,7 @@ impl Handler<RunnerMessage> for Runner {
                 let info = self.info.as_ref().cloned().unwrap();
                 let mut write_info = info.write().unwrap();
 
-                write_info.peers_info[node_id].id = peer_id_from_seed(account_id.as_ref());
+                write_info.peers_info[node_id].id = peer_id_from_seed(account_id.as_str());
                 if write_info.peers_info[node_id].account_id.is_some() {
                     write_info.peers_info[node_id].account_id = Some(account_id);
                 }
@@ -803,7 +801,7 @@ pub fn ban_peer(target_peer: usize, banned_peer: usize) -> ActionFn {
 
 /// Change account id from a stopped peer. Notice this will also change its peer id, since
 /// peer_id is derived from account id with NetworkConfig::from_seed
-pub fn change_account_id(node_id: usize, account_id: AccountId) -> ActionFn {
+pub fn change_account_id(node_id: usize, account_id: String) -> ActionFn {
     Box::new(
         move |_info: SharedRunningInfo,
               flag: Arc<AtomicBool>,

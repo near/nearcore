@@ -653,7 +653,7 @@ fn main() {
                 if let Ok(contract_code) = runtime.view_contract_code(
                     shard_id as u64,
                     CryptoHash::try_from(state_root_vec).unwrap(),
-                    &account_id.parse().unwrap(),
+                    &account_id.to_string().into(),
                 ) {
                     dump_code(account_id, contract_code, args.value_of("output").unwrap());
                     std::process::exit(0);
@@ -681,7 +681,7 @@ fn main() {
             for (shard_id, state_root) in state_roots.iter().enumerate() {
                 let trie = runtime.get_trie_for_shard(shard_id as u64);
                 let key = TrieKey::ContractData {
-                    account_id: account_id.parse().unwrap(),
+                    account_id: account_id.to_string(),
                     key: storage_key.as_bytes().to_vec(),
                 };
                 let item = trie.get(state_root, &key.to_vec());

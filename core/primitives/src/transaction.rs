@@ -328,7 +328,7 @@ impl From<ExecutionStatus> for PartialExecutionStatus {
 }
 
 /// Execution outcome for one signed transaction or one receipt.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, smart_default::SmartDefault, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default, Eq)]
 pub struct ExecutionOutcome {
     /// Logs from this transaction or receipt.
     pub logs: Vec<LogEntry>,
@@ -342,7 +342,6 @@ pub struct ExecutionOutcome {
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
-    #[default(AccountId::test_account())]
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     /// NOTE: Should be the latest field since it contains unparsable by light client
@@ -445,12 +444,12 @@ mod tests {
 
     #[test]
     fn test_verify_transaction() {
-        let signer = InMemorySigner::from_random(AccountId::test_account(), KeyType::ED25519);
+        let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
         let transaction = Transaction {
-            signer_id: AccountId::test_account(),
+            signer_id: "".to_string(),
             public_key: signer.public_key(),
             nonce: 0,
-            receiver_id: AccountId::test_account(),
+            receiver_id: "".to_string(),
             block_hash: Default::default(),
             actions: vec![],
         }
@@ -473,10 +472,10 @@ mod tests {
     fn test_serialize_transaction() {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
         let transaction = Transaction {
-            signer_id: "test.near".parse().unwrap(),
+            signer_id: "test.near".to_string(),
             public_key: public_key.clone(),
             nonce: 1,
-            receiver_id: "123".parse().unwrap(),
+            receiver_id: "123".to_string(),
             block_hash: Default::default(),
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
@@ -495,15 +494,13 @@ mod tests {
                         nonce: 0,
                         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: None,
-                            receiver_id: "zzz".parse().unwrap(),
+                            receiver_id: "zzz".to_string(),
                             method_names: vec!["www".to_string()],
                         }),
                     },
                 }),
                 Action::DeleteKey(DeleteKeyAction { public_key }),
-                Action::DeleteAccount(DeleteAccountAction {
-                    beneficiary_id: "123".parse().unwrap(),
-                }),
+                Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
             ],
         };
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
@@ -524,7 +521,7 @@ mod tests {
             receipt_ids: vec![],
             gas_burnt: 123,
             tokens_burnt: 1234000,
-            executor_id: "alice".parse().unwrap(),
+            executor_id: "alice".to_string(),
             metadata: ExecutionMetadata::ExecutionMetadataV1,
         };
         let hashes = outcome.to_hashes();

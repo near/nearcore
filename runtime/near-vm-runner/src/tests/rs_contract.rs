@@ -129,8 +129,7 @@ fn run_test_ext(
 ) {
     let code = test_contract();
     let mut fake_external = MockedExternal::new();
-    fake_external.validators =
-        validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
+    fake_external.validators = validators.into_iter().map(|(s, b)| (s.to_string(), b)).collect();
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let context = create_context(input.to_vec());

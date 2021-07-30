@@ -3,10 +3,10 @@ use near_vm_logic::VMContext;
 #[allow(dead_code)]
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
     VMContext {
-        current_account_id: "alice.near".parse().unwrap(),
-        signer_account_id: "bob.near".parse().unwrap(),
+        current_account_id: "alice.near".to_string(),
+        signer_account_id: "bob.near".to_string(),
         signer_account_pk: vec![0, 1, 2],
-        predecessor_account_id: "carol.near".parse().unwrap(),
+        predecessor_account_id: "carol.near".to_string(),
         input,
         block_index: 0,
         block_timestamp: 0,
