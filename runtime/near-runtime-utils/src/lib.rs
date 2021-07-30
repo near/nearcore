@@ -66,11 +66,6 @@ pub fn is_account_id_64_len_hex(account_id: &str) -> bool {
         })
 }
 
-/// Returns true if the account ID is suppose to be EVM machine.
-pub fn is_account_evm(account_id: &str) -> bool {
-    account_id == "evm"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
