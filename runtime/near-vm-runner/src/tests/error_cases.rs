@@ -19,6 +19,7 @@ fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
         burnt_gas: gas,
         used_gas: gas,
         logs: vec![],
+        profile: Default::default(),
     }
 }
 

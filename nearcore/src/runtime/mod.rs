@@ -430,7 +430,6 @@ impl NightshadeRuntime {
             config: self.runtime_config.for_protocol_version(current_protocol_version).clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
-            profile: Default::default(),
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
                 is_first_block_of_version,

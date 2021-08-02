@@ -3,7 +3,6 @@ use crate::testbed_runners::{end_count, start_count, GasMetric};
 use crate::vm_estimator::{create_context, least_squares_method};
 use near_primitives::config::VMConfig;
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
@@ -194,7 +193,6 @@ pub fn compute_gas_metering_cost(
         vm_kind,
         ProtocolVersion::MAX,
         cache,
-        ProfileData::new(),
     );
     assert!(result.1.is_none());
 
@@ -212,7 +210,6 @@ pub fn compute_gas_metering_cost(
             vm_kind,
             ProtocolVersion::MAX,
             cache,
-            ProfileData::new(),
         );
         assert!(result.1.is_none());
     }
@@ -230,7 +227,6 @@ pub fn compute_gas_metering_cost(
         vm_kind,
         ProtocolVersion::MAX,
         cache,
-        ProfileData::new(),
     );
     assert!(result.1.is_none());
     let start = start_count(gas_metric);
@@ -246,7 +242,6 @@ pub fn compute_gas_metering_cost(
             vm_kind,
             ProtocolVersion::MAX,
             cache,
-            ProfileData::new(),
         );
         assert!(result.1.is_none());
     }
