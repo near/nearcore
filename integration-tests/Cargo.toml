@@ -13,8 +13,6 @@ cached = "0.23"
 chrono = { version = "0.4.4", features = ["serde"] }
 funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
 futures = "0.3"
-log = "0.4"
-futures = "0.3"
 hex = "0.4"
 log = "0.4"
 rand = "0.7"
