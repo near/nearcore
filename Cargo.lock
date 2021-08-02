@@ -3454,6 +3454,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "testlib",
  "thiserror",
  "tracing",
 ]
