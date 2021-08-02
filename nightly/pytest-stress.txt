@@ -16,5 +16,8 @@ pytest --timeout=2000 stress/stress.py 3 3 3 0 staking transactions node_restart
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set
 # pytest --timeout=2000 stress/stress.py 3 2 4 0 staking transactions node_set --features nightly_protocol,nightly_protocol_features
 
+pytest --timeout=300 stress/saturate_routing_table.py
+pytest --timeout=300 stress/saturate_routing_table.py --features nightly_protocol,nightly_protocol_features
+
 # pytest stress/network_stress.py
 # pytest stress/network_stress.py --features nightly_protocol,nightly_protocol_features

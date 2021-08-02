@@ -3,9 +3,7 @@ use crate::memory::WasmerMemory;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{
-    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
-};
+use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
@@ -218,7 +216,6 @@ pub fn run_wasmer<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -264,7 +261,6 @@ pub fn run_wasmer<'a>(
         fees_config,
         promise_results,
         &mut memory,
-        profile,
         current_protocol_version,
     );
 
@@ -318,7 +314,6 @@ pub(crate) fn run_wasmer0_module<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if method_name.is_empty() {
@@ -339,7 +334,6 @@ pub(crate) fn run_wasmer0_module<'a>(
         fees_config,
         promise_results,
         memory,
-        profile,
         current_protocol_version,
     );
 
