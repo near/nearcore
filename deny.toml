@@ -127,4 +127,8 @@ skip = [
     # dependency which conflicts with 0.6.7 that wasmer-engine-native
     # uses.
     { name = "libloading", version = "=0.7.0" },
+
+    # rocksdb-sys indrectly depends on these, which are older than ethereum-types used
+    { name = "radium", version = "0.5.3" },
+    { name = "bitvec", version = "0.19.5" },
 ]
