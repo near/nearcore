@@ -5,7 +5,6 @@ mod rs_contract;
 mod ts_contract;
 
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
 
 use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -80,7 +79,6 @@ fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
-        ProfileData::new(),
     )
 }
 
@@ -118,6 +116,5 @@ fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
-        ProfileData::new(),
     )
 }

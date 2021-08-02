@@ -93,7 +93,6 @@ impl RuntimeTestbed {
             config: Arc::new(runtime_config),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             is_new_chunk: true,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
