@@ -13,12 +13,12 @@ use near_primitives::types::AccountId;
 use nearcore::config::NearConfig;
 
 use crate::node::Node;
+use crate::user::rpc_user::RpcUser;
+use crate::user::User;
 use actix::{Actor, System};
 use futures::{FutureExt, TryFutureExt};
 use near_jsonrpc_client::new_client;
 use near_network::test_utils::WaitOrTimeout;
-use testlib::user::rpc_user::RpcUser;
-use testlib::user::User;
 
 pub enum ProcessNodeState {
     Stopped,
