@@ -26,8 +26,6 @@ near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
 near-client-primitives = { path = "../chain/client-primitives" }
 near-crypto = { path = "../core/crypto" }
-near-logger-utils = { path = "../test-utils/logger" }
-near-metrics = { path = "../core/metrics" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-logger-utils = { path = "../test-utils/logger" }
 near-metrics = { path = "../core/metrics" }
