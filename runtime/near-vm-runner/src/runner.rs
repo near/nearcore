@@ -73,6 +73,9 @@ pub fn run_vm(
     #[cfg(feature = "wasmer2_vm")]
     use crate::wasmer2_runner::run_wasmer2;
 
+    #[cfg(feature = "wasmer0_vm")]
+    wasmer_runtime_core::fault::ensure_sighandler();
+
     let (outcome, error) = match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => run_wasmer(
