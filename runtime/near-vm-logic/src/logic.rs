@@ -2545,6 +2545,8 @@ pub struct VMOutcome {
     pub profile: ProfileData,
 }
 
+// Compare VMOutcome skip profile data. Practically it's not possible to have burnt_gas and used_gas
+// same while profile doesn't match and this simplifies tests that compare VMOutcomes.
 impl PartialEq for VMOutcome {
     fn eq(&self, other: &VMOutcome) -> bool {
         self.balance == other.balance
