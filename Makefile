@@ -65,7 +65,7 @@ nightly-debug:
 	cargo build -p genesis-populate --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 sandbox:
-	CARGO_TARGET_DIR=sandbox CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --features sandbox
+	CARGO_TARGET_DIR=sandbox cargo build -p neard --features sandbox
 	mv sandbox/debug/neard target/debug/near-sandbox
 
 sandbox-release:
