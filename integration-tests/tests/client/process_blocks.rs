@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 
 use actix::System;
 use futures::{future, FutureExt};
-use num_rational::Rational;
+use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
@@ -2964,7 +2964,6 @@ fn test_validator_stake_host_function() {
     }
 }
 
-#[cfg(test)]
 mod access_key_nonce_range_tests {
     use super::*;
     use near_client::test_utils::create_chunk_with_transactions;
@@ -3099,7 +3098,6 @@ mod access_key_nonce_range_tests {
 }
 
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-#[cfg(test)]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
     use near_primitives::runtime::migration_data::MigrationData;
@@ -3249,7 +3247,6 @@ mod protocol_feature_restore_receipts_after_fix_tests {
 
 // This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
 // Otherwise `get_mut` for block header will panic.
-#[cfg(test)]
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod storage_usage_fix_tests {
     use super::*;
@@ -3334,7 +3331,6 @@ mod storage_usage_fix_tests {
     }
 }
 
-#[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
     use near_primitives::version::ProtocolFeature;
@@ -3375,7 +3371,6 @@ mod cap_max_gas_price_tests {
     }
 }
 
-#[cfg(test)]
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;
