@@ -7,6 +7,7 @@ use actix::{Addr, System};
 use futures::{future, FutureExt};
 use log::info;
 
+use crate::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
@@ -19,7 +20,6 @@ use near_network::types::AccountIdOrPeerTrackingShard;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use testlib::test_helpers::heavy_test;
 
 /// Runs block producing client and stops after network mock received seven blocks
 /// Confirms that the blocks form a chain (which implies the chunks are distributed).

@@ -7,12 +7,12 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
+    use crate::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
+    use crate::test_helpers::{heavy_test, wait, wait_for_catchup};
     use near_chain_configs::Genesis;
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
-    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
-    use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {

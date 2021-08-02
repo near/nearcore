@@ -20,8 +20,8 @@ use near_primitives::views::{
 use near_vm_errors::MethodResolveError;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
+use integration_tests::node::Node;
 use testlib::fees_utils::FeeHelper;
-use testlib::node::Node;
 use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use testlib::user::User;
 

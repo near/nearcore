@@ -8,8 +8,8 @@ use near_primitives::types::AccountId;
 use nearcore::{start_with_config, NearConfig};
 
 use crate::node::Node;
-use crate::user::rpc_user::RpcUser;
-use crate::user::User;
+use testlib::user::rpc_user::RpcUser;
+use testlib::user::User;
 
 pub enum ThreadNodeState {
     Stopped,

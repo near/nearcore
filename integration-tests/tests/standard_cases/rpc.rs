@@ -5,11 +5,11 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
+    use crate::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
+    use crate::test_helpers::heavy_test;
     use crate::*;
     use near_logger_utils::init_test_module_logger;
-    use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
     use testlib::runtime_utils::alice_account;
-    use testlib::test_helpers::heavy_test;
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");

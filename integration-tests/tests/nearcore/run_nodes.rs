@@ -7,8 +7,7 @@ use near_network::test_utils::WaitOrTimeout;
 use near_primitives::types::{BlockHeightDelta, NumSeats, NumShards};
 use rand::{thread_rng, Rng};
 
-mod node_cluster;
-use node_cluster::NodeCluster;
+use crate::node_cluster::NodeCluster;
 
 fn run_heavy_nodes(
     num_shards: NumShards,

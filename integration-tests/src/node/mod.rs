@@ -17,9 +17,9 @@ use nearcore::NearConfig;
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
-use crate::user::{AsyncUser, User};
 use near_primitives::contract::ContractCode;
-use num_rational::Rational;
+use near_primitives::num_rational::Rational;
+use testlib::user::{AsyncUser, User};
 
 mod process_node;
 mod runtime_node;

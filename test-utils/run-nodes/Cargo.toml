@@ -1,0 +1,15 @@
+[package]
+name = "run-nodes"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[[bin]]
+name = "run-nodes"
+path = "src/main.rs"
+
+[dependencies]
+clap = "2.33"
+
+near-logger-utils = { path = "../../test-utils/logger" }
+integration-tests = { path="../../integration-tests" }

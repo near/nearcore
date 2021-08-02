@@ -22,8 +22,7 @@ use near_primitives::types::{
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 use testlib::genesis_block;
 
-mod node_cluster;
-use node_cluster::NodeCluster;
+use crate::node_cluster::NodeCluster;
 
 macro_rules! panic_on_rpc_error {
     ($e:expr) => {

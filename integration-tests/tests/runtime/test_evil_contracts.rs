@@ -1,8 +1,8 @@
+use integration_tests::node::{Node, RuntimeNode};
 use near_primitives::errors::{ActionError, ActionErrorKind, ContractCallError};
 use near_primitives::serialize::to_base64;
 use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
-use testlib::node::{Node, RuntimeNode};
 
 use assert_matches::assert_matches;
 

@@ -19,8 +19,7 @@ use near_primitives::types::BlockId;
 
 use testlib::genesis_block;
 
-mod node_cluster;
-use node_cluster::NodeCluster;
+use crate::node_cluster::NodeCluster;
 
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
