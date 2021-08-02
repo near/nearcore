@@ -18,4 +18,3 @@ near-primitives = { path = "../primitives" }
 
 [features]
 default = []
-protocol_feature_evm = ["near-primitives/protocol_feature_evm"]

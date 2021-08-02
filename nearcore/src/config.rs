@@ -128,9 +128,6 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
 
-#[cfg(feature = "protocol_feature_evm")]
-pub const TESTNET_EVM_CHAIN_ID: u64 = 0x99;
-
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -914,17 +911,6 @@ pub fn init_configs(
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
-                CryptoHash::default(),
-            );
-            #[cfg(feature = "protocol_feature_evm")]
-            // EVM account is created here only for new generated genesis
-            // For existing network, evm account has to be created with linkdrop
-            add_account_with_key(
-                &mut records,
-                "evm",
-                &signer.public_key(),
-                TESTING_INIT_BALANCE,
-                0,
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
