@@ -8,7 +8,7 @@ use crate::types::Gas;
 type DataArray = [Cell<u64>; ProfileData::LEN];
 
 /// Profile of gas consumption.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProfileData {
     data: Rc<DataArray>,
 }
@@ -31,6 +31,14 @@ impl ProfileData {
 
         let data = Rc::new([ZERO; ProfileData::LEN]);
         ProfileData { data }
+    }
+
+    #[inline]
+    pub fn merge(&self, other: &ProfileData) {
+        for (dst, src) in self.data.iter().zip(other.data.iter()) {
+            let updated = dst.get().saturating_add(src.get());
+            dst.set(updated);
+        }
     }
 
     #[inline]
@@ -185,5 +193,23 @@ mod test {
 
         let res = profile_data.get_action_cost(ActionCosts::function_call as usize);
         assert_eq!(res, u64::MAX);
+    }
+
+    #[test]
+    fn test_merge() {
+        let profile_data = ProfileData::new();
+        profile_data.add_action_cost(ActionCosts::function_call, 111);
+        profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
+        profile_data.set_burnt_gas(1111);
+
+        let profile_data2 = ProfileData::new();
+        profile_data2.add_action_cost(ActionCosts::function_call, 222);
+        profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
+        profile_data2.set_burnt_gas(2222);
+
+        profile_data.merge(&profile_data2);
+        assert_eq!(profile_data.get_action_cost(ActionCosts::function_call as usize), 333);
+        assert_eq!(profile_data.get_ext_cost(ExtCosts::storage_read_base as usize), 33);
+        assert_eq!(profile_data.all_gas(), 3333);
     }
 }

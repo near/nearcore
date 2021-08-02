@@ -51,7 +51,6 @@ impl GasCounter {
         max_gas_burnt: Gas,
         prepaid_gas: Gas,
         is_view: bool,
-        profile: ProfileData,
     ) -> Self {
         Self {
             ext_costs_config,
@@ -60,7 +59,7 @@ impl GasCounter {
             max_gas_burnt,
             prepaid_gas,
             is_view,
-            profile,
+            profile: Default::default(),
         }
     }
 
@@ -197,6 +196,10 @@ impl GasCounter {
     pub fn used_gas(&self) -> Gas {
         self.used_gas
     }
+
+    pub fn profile_data(&self) -> ProfileData {
+        self.profile.clone()
+    }
 }
 
 #[cfg(test)]
@@ -206,8 +209,7 @@ mod tests {
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 10, 10, false, ProfileData::new());
+        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 10, false);
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -216,8 +218,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_prepaid_gas_min() {
-        let mut counter =
-            GasCounter::new(ExtCostsConfig::default(), 100, 10, false, ProfileData::new());
+        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 10, false);
         counter.deduct_gas(10, 5).unwrap();
     }
 }

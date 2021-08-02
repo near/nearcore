@@ -2,7 +2,7 @@ use crate::errors::IntoVMError;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{profile::ProfileData, types::CompiledContractCache};
+use near_primitives::types::CompiledContractCache;
 use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, WasmTrap,
 };
@@ -187,7 +187,6 @@ pub fn run_wasmer1(
     wasm_config: &VMConfig,
     fees_config: &RuntimeFeesConfig,
     promise_results: &[PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -238,7 +237,6 @@ pub fn run_wasmer1(
         fees_config,
         promise_results,
         &mut memory,
-        profile,
         current_protocol_version,
     );
 
@@ -339,7 +337,6 @@ pub(crate) fn run_wasmer1_module<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     // Do we really need that code?
@@ -362,7 +359,6 @@ pub(crate) fn run_wasmer1_module<'a>(
         fees_config,
         promise_results,
         memory,
-        profile,
         current_protocol_version,
     );
 
