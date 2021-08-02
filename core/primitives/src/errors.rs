@@ -144,7 +144,6 @@ pub enum InvalidTxError {
     /// An error occurred while validating actions of a Transaction.
     ActionsValidation(ActionsValidationError),
     /// The size of serialized transaction exceeded the limit.
-    #[cfg(feature = "protocol_feature_tx_size_limit")]
     TransactionSizeExceeded { size: u64, limit: u64 },
 }
 
@@ -359,9 +358,7 @@ impl From<FunctionCallErrorSer> for ContractCallError {
             FunctionCallErrorSer::WasmUnknownError => {
                 ContractCallError::ExecutionError { msg: "unknown error".to_string() }
             }
-            FunctionCallErrorSer::EvmError(e) => {
-                ContractCallError::ExecutionError { msg: format!("EVM: {:?}", e) }
-            }
+            FunctionCallErrorSer::_EVMError => unreachable!(),
             FunctionCallErrorSer::WasmTrap(e) => {
                 ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
             }
@@ -492,7 +489,6 @@ impl Display for InvalidTxError {
                     tx_nonce, upper_bound
                 )
             }
-            #[cfg(feature = "protocol_feature_tx_size_limit")]
             InvalidTxError::TransactionSizeExceeded { size, limit } => {
                 write!(f, "Size of serialized transaction {} exceeded the limit {}", size, limit)
             }

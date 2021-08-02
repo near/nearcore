@@ -8,6 +8,7 @@ import sys, time, base58
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from key import Key
 from transaction import sign_staking_tx, sign_create_account_with_full_access_key_and_balance_tx
 
@@ -29,7 +30,7 @@ nodes = start_cluster(
      ["chunk_producer_kickout_threshold", 10]], {1: node1_config})
 time.sleep(2)
 nodes[1].kill()
-print('node1 is killed')
+logger.info('node1 is killed')
 
 status = nodes[0].get_status()
 block_hash = status['sync_info']['latest_block_hash']
@@ -67,9 +68,9 @@ while cur_height < target_height:
     cur_height = status['sync_info']['latest_block_height']
     time.sleep(1)
 
-print('restart node1')
+logger.info('restart node1')
 nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
-print('node1 restarted')
+logger.info('node1 restarted')
 time.sleep(3)
 
 start_time = time.time()

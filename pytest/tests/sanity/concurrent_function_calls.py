@@ -8,6 +8,7 @@ import multiprocessing
 
 sys.path.append('lib')
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
@@ -48,7 +49,7 @@ def process():
         res = nodes[1].call_function(acc_id, 'read_value', base64.b64encode(bytes(key)).decode("ascii"))
         res = int.from_bytes(res["result"]["result"], byteorder='little')
         assert res == (i % 10)
-    print("all done")
+    logger.info("all done")
 
 ps = [ multiprocessing.Process(target=process, args=()) for i in range(6) ]
 for p in ps:

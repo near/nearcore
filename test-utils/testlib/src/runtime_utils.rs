@@ -21,13 +21,6 @@ pub fn bob_account() -> AccountId {
 pub fn eve_dot_alice_account() -> AccountId {
     "eve.alice.near".to_string()
 }
-pub fn evm_account() -> AccountId {
-    "evm".to_string()
-}
-
-pub fn implicit_account() -> AccountId {
-    "3885505359911f2493f0c40a2bf042981936ec5dddd59708581b155a047864d8".to_string()
-}
 
 lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(near_test_contracts::rs_contract());

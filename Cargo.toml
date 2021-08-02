@@ -7,7 +7,6 @@ members = [
     "core/primitives-core",
     "core/store",
     "core/metrics",
-    "runtime/near-evm-runner",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
@@ -29,6 +28,7 @@ members = [
     "test-utils/actix-test-utils",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "test-utils/runtime-tester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
     "neard",
@@ -47,11 +47,12 @@ members = [
 ]
 
 [patch.crates-io]
-ethereum-types = { path = "./patches/ethereum-types-0.10.0-to-0.11.0" }
+# Temporary wasmer fork which disables rayon (parallel compilation)
+# https://github.com/wasmerio/wasmer/pull/2262
+# Revome this when the new version of wasmer is published.
+wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "1.0.2-single-threaded" }
 
 [profile.release]
-lto = true        # Enable full link-time optimization.
-codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 overflow-checks = true
 
 [profile.bench]

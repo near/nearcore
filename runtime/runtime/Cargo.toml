@@ -9,6 +9,7 @@ byteorder = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
+tracing = "0.1"
 rand = "0.7"
 lazy_static = "1.4"
 num-rational = "0.3"
@@ -30,12 +31,10 @@ near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
 wasmer2_vm = ["near-vm-runner/wasmer2_vm"]
 wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
 wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
@@ -53,11 +52,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_tx_size_limit = []
-protocol_feature_allow_create_account_on_delete = ["near-primitives/protocol_feature_allow_create_account_on_delete", "near-vm-logic/protocol_feature_allow_create_account_on_delete"]
-protocol_feature_fix_storage_usage = ["near-primitives/protocol_feature_fix_storage_usage"]
 protocol_feature_restore_receipts_after_fix = []
-protocol_feature_count_refund_receipts_in_gas_limit = ["near-primitives/protocol_feature_count_refund_receipts_in_gas_limit"]
 sandbox = []
 
 [dev-dependencies]

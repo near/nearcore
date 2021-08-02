@@ -9,6 +9,7 @@ import sys, time, base58, random
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_staking_tx
 
 TIMEOUT = 360
@@ -71,11 +72,10 @@ def do_moar_stakes(last_block_hash, update_expected):
     if update_expected:
         fake_stakes = [0, 0, 0]
         all_stakes.append(stakes)
-        print("")
     else:
         fake_stakes = stakes
 
-    print("Sent %s staking txs: %s" %
+    logger.info("Sent %s staking txs: %s" %
           ("REAL" if update_expected else "fake", stakes))
 
 
@@ -106,7 +106,7 @@ def doit(seq=[]):
     height = status['sync_info']['latest_block_height']
     hash_ = status['sync_info']['latest_block_hash']
 
-    print("Initial stakes: %s" % get_stakes())
+    logger.info("Initial stakes: %s" % get_stakes())
     all_stakes.append(get_stakes())
 
     do_moar_stakes(hash_, True)
@@ -141,10 +141,10 @@ def doit(seq=[]):
 
         if send_fakes or send_reals:
             cur_stakes = get_stakes()
-            print("Current stakes: %s" % cur_stakes)
+            logger.info("Current stakes: %s" % cur_stakes)
             if len(all_stakes) > 1:
                 expected_stakes = get_expected_stakes()
-                print("Expect  stakes: %s" % expected_stakes)
+                logger.info("Expect  stakes: %s" % expected_stakes)
                 for (cur, expected) in zip(cur_stakes, expected_stakes):
                     if cur % 1000000 == 0:
                         assert cur == expected

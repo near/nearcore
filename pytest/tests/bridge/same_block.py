@@ -3,11 +3,12 @@
 # Guarantee that all txs will be in same block.
 
 import base58
+from configured_logger import logger
 from retrying import retry
 import sys, time
 
 if len(sys.argv) < 3:
-    print("python same_block.py <eth2near_tx_number> <near2eth_tx_number> [...]")
+    logger.info("python same_block.py <eth2near_tx_number> <near2eth_tx_number> [...]")
     exit(1)
 
 eth2near_tx_number = int(sys.argv[1])
@@ -24,7 +25,7 @@ from transaction import sign_function_call_tx
 @retry(wait_exponential_multiplier=1.2, wait_exponential_max=100)
 def send_tx(node, tx):
     res = node.send_tx(tx)
-    print(res)
+    logger.info(res)
     return res['result']
 
 def near2eth_custom_withdraw(tx, node, adapter):
@@ -52,7 +53,7 @@ while True:
         status = nodes[0].get_status(check_storage=False)
         hh = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8'))
         if h != hh:
-            print(h, status, "new block just appeared!")
+            logger.info(h, status, "new block just appeared!")
             h = hh
             break
     except:
@@ -79,7 +80,7 @@ for nonce_increment in range(near2eth_tx_number):
 status = nodes[0].get_status(check_storage=False)
 hh = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf8'))
 if h != hh:
-    print(h, status, "not succeded in putting all txs into one block")
+    logger.info(h, status, "not succeded in putting all txs into one block")
     assert False
 
 txs = []
@@ -95,4 +96,4 @@ assert exit_codes == [0 for _ in txs]
 bridge.check_balances(alice)
 
 
-print('EPIC')
+logger.info('EPIC')

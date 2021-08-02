@@ -50,11 +50,11 @@ impl From<CryptoHash> for ChunkHash {
     }
 }
 
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
 /// Contains the information that is used to sync state for shards as epochs switch
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct StateSyncInfo {
     /// The first block of the epoch for which syncing is happening
     pub epoch_tail_hash: CryptoHash,
@@ -70,7 +70,7 @@ pub use shard_chunk_header_inner::{
 };
 
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeaderInner {
     /// Previous block hash.
     pub prev_block_hash: CryptoHash,
@@ -165,7 +165,7 @@ impl ShardChunkHeaderInner {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV1 {
     pub inner: ShardChunkHeaderInnerV1,
@@ -179,7 +179,7 @@ pub struct ShardChunkHeaderV1 {
     pub hash: ChunkHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV2 {
     pub inner: ShardChunkHeaderInnerV1,
@@ -244,7 +244,7 @@ impl ShardChunkHeaderV2 {
 
 // V2 -> V3: Use versioned ShardChunkHeaderInner structure
 #[cfg(feature = "protocol_feature_block_header_v3")]
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 #[borsh_init(init)]
 pub struct ShardChunkHeaderV3 {
     pub inner: ShardChunkHeaderInner,
@@ -308,7 +308,7 @@ impl ShardChunkHeaderV3 {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum ShardChunkHeader {
     V1(ShardChunkHeaderV1),
     V2(ShardChunkHeaderV2),
@@ -544,9 +544,7 @@ impl ShardChunkHeader {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Hash, Eq, PartialEq, Clone, Debug, Default,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHashHeight(pub ChunkHash, pub BlockHeight);
 
 impl ShardChunkHeaderV1 {
@@ -602,7 +600,7 @@ impl ShardChunkHeaderV1 {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum PartialEncodedChunk {
     V1(PartialEncodedChunkV1),
     V2(PartialEncodedChunkV2),
@@ -686,7 +684,7 @@ impl PartialEncodedChunk {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkV2 {
     pub header: ShardChunkHeader,
     pub parts: Vec<PartialEncodedChunkPart>,
@@ -706,7 +704,7 @@ impl From<PartialEncodedChunk> for PartialEncodedChunkV2 {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkV1 {
     pub header: ShardChunkHeaderV1,
     pub parts: Vec<PartialEncodedChunkPart>,
@@ -730,25 +728,25 @@ impl From<PartialEncodedChunkWithArcReceipts> for PartialEncodedChunk {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardProof {
     pub from_shard_id: ShardId,
     pub to_shard_id: ShardId,
     pub proof: MerklePath,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 /// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkPart {
     pub part_ord: u64,
     pub part: Box<[u8]>,
     pub merkle_proof: MerklePath,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunkV1 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeaderV1,
@@ -756,7 +754,7 @@ pub struct ShardChunkV1 {
     pub receipts: Vec<Receipt>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunkV2 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
@@ -764,7 +762,7 @@ pub struct ShardChunkV2 {
     pub receipts: Vec<Receipt>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum ShardChunk {
     V1(ShardChunkV1),
     V2(ShardChunkV2),
@@ -888,7 +886,7 @@ impl ShardChunk {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Box<[u8]>>>,
 }
@@ -919,13 +917,13 @@ impl EncodedShardChunkBody {
     }
 }
 
-#[derive(BorshSerialize, Serialize, Debug, Clone)]
+#[derive(BorshSerialize, Debug, Clone)]
 pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkV1 {
     pub header: ShardChunkHeaderV1,
     pub content: EncodedShardChunkBody,
@@ -937,7 +935,7 @@ impl EncodedShardChunkV1 {
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunkV1, std::io::Error> {
-        let transaction_receipts = EncodedShardChunk::create_transaction_receipts(
+        let transaction_receipts = EncodedShardChunk::decode_transaction_receipts(
             &self.content.parts[0..data_parts],
             self.header.inner.encoded_length,
         )?;
@@ -951,13 +949,13 @@ impl EncodedShardChunkV1 {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct EncodedShardChunkV2 {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub enum EncodedShardChunk {
     V1(EncodedShardChunkV1),
     V2(EncodedShardChunkV2),
@@ -1035,25 +1033,25 @@ impl EncodedShardChunk {
         }
     }
 
-    pub fn new(
-        prev_block_hash: CryptoHash,
-        prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
-        height: BlockHeight,
-        shard_id: ShardId,
-        rs: &mut ReedSolomonWrapper,
-        gas_used: Gas,
-        gas_limit: Gas,
-        balance_burnt: Balance,
+    fn decode_transaction_receipts(
+        parts: &[Option<Box<[u8]>>],
+        encoded_length: u64,
+    ) -> Result<TransactionReceipt, std::io::Error> {
+        let encoded_data = parts
+            .iter()
+            .flat_map(|option| option.as_ref().expect("Missing shard").iter())
+            .cloned()
+            .take(encoded_length as usize)
+            .collect::<Vec<u8>>();
 
-        tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        TransactionReceipt::try_from_slice(&encoded_data)
+    }
+
+    fn encode_transaction_receipts(
+        rs: &mut ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
-        outgoing_receipts_root: CryptoHash,
-        signer: &dyn ValidatorSigner,
-        protocol_version: ProtocolVersion,
-    ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
+    ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {
         let mut bytes = TransactionReceipt(transactions, outgoing_receipts.clone()).try_to_vec()?;
 
         let mut parts = vec![];
@@ -1076,50 +1074,31 @@ impl EncodedShardChunk {
         for _ in data_parts..total_parts {
             parts.push(None);
         }
-
-        let (new_chunk, merkle_paths) = Self::from_parts_and_metadata(
-            prev_block_hash,
-            prev_state_root,
-            outcome_root,
-            height,
-            shard_id,
-            gas_used,
-            gas_limit,
-            balance_burnt,
-            outgoing_receipts_root,
-            tx_root,
-            validator_proposals,
-            encoded_length as u64,
-            parts,
-            rs,
-            signer,
-            protocol_version,
-        );
-        Ok((new_chunk, merkle_paths))
+        Ok((parts, encoded_length as u64))
     }
 
-    pub fn from_parts_and_metadata(
+    pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
         outcome_root: CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
+        rs: &mut ReedSolomonWrapper,
         gas_used: Gas,
         gas_limit: Gas,
         balance_burnt: Balance,
-        outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-
-        encoded_length: u64,
-        parts: Vec<Option<Box<[u8]>>>,
-
-        rs: &mut ReedSolomonWrapper,
-
+        transactions: Vec<SignedTransaction>,
+        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts_root: CryptoHash,
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
-    ) -> (Self, Vec<MerklePath>) {
-        let mut content = EncodedShardChunkBody { parts };
+    ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
+        let (transaction_receipts_parts, encoded_length) =
+            Self::encode_transaction_receipts(rs, transactions, outgoing_receipts)?;
+
+        let mut content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         content.reconstruct(rs).unwrap();
         let (encoded_merkle_root, merkle_paths) = content.get_merkle_hash_and_paths();
 
@@ -1149,7 +1128,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV1 { header, content };
-            (Self::V1(chunk), merkle_paths)
+            Ok((Self::V1(chunk), merkle_paths))
         } else if block_header_v3_version.is_none()
             || protocol_version < block_header_v3_version.unwrap()
         {
@@ -1173,7 +1152,7 @@ impl EncodedShardChunk {
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V2(header), content };
-            (Self::V2(chunk), merkle_paths)
+            Ok((Self::V2(chunk), merkle_paths))
         } else {
             #[cfg(not(feature = "protocol_feature_block_header_v3"))]
             unreachable!();
@@ -1196,7 +1175,7 @@ impl EncodedShardChunk {
                     signer,
                 );
                 let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
-                (Self::V2(chunk), merkle_paths)
+                Ok((Self::V2(chunk), merkle_paths))
             }
         }
     }
@@ -1260,20 +1239,6 @@ impl EncodedShardChunk {
         PartialEncodedChunkWithArcReceipts { header, parts, receipts }
     }
 
-    fn create_transaction_receipts(
-        parts: &[Option<Box<[u8]>>],
-        encoded_length: u64,
-    ) -> Result<TransactionReceipt, std::io::Error> {
-        let encoded_data = parts
-            .iter()
-            .flat_map(|option| option.as_ref().expect("Missing shard").iter())
-            .cloned()
-            .take(encoded_length as usize)
-            .collect::<Vec<u8>>();
-
-        TransactionReceipt::try_from_slice(&encoded_data)
-    }
-
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
         let parts = match self {
             Self::V1(chunk) => &chunk.content.parts[0..data_parts],
@@ -1284,7 +1249,7 @@ impl EncodedShardChunk {
             Self::V2(chunk) => chunk.header.encoded_length(),
         };
 
-        let transaction_receipts = Self::create_transaction_receipts(parts, encoded_length)?;
+        let transaction_receipts = Self::decode_transaction_receipts(parts, encoded_length)?;
 
         match self {
             Self::V1(chunk) => Ok(ShardChunk::V1(ShardChunkV1 {

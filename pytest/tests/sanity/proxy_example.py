@@ -11,6 +11,7 @@ import functools
 sys.path.append('lib')
 
 from cluster import start_cluster
+from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
 
@@ -26,7 +27,7 @@ class Handler(ProxyHandler):
 
     async def handle(self, msg, fr, to):
         if msg.enum.startswith('Peers'):
-            print(msg.enum, fr, to)
+            logger.info(f"{msg.enum} {fr} {to}")
 
         if to == 0 and msg.enum == 'PeersRequest':
             self.peers_request = msg
@@ -36,7 +37,7 @@ class Handler(ProxyHandler):
 
         if to == 1 and msg.enum == 'PeersResponse':
             self.peers_response += 1
-            print("Total PeersResponses =", self.peers_response)
+            logger.info(f"Total PeersResponses = {self.peers_response}")
             if self.peers_response == 2:
                 success.value = 1
 

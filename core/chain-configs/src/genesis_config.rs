@@ -18,7 +18,6 @@ use smart_default::SmartDefault;
 
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -34,18 +33,6 @@ use sha2::digest::Digest;
 use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
-
-#[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161556.json
-pub const BETANET_EVM_CHAIN_ID: u64 = 1313161556;
-
-#[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161555.json
-pub const TESTNET_EVM_CHAIN_ID: u64 = 1313161555;
-
-#[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161554.json
-pub const MAINNET_EVM_CHAIN_ID: u64 = 1313161554;
 
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
@@ -146,7 +133,6 @@ impl From<&GenesisConfig> for EpochConfig {
     fn from(config: &GenesisConfig) -> Self {
         EpochConfig {
             epoch_length: config.epoch_length,
-            num_shards: config.num_block_producer_seats_per_shard.len() as NumShards,
             num_block_producer_seats: config.num_block_producer_seats,
             num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: config

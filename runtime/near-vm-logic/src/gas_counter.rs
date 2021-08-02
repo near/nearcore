@@ -1,6 +1,4 @@
 use crate::{HostError, VMLogicError};
-#[cfg(feature = "protocol_feature_evm")]
-use near_primitives_core::runtime::fees::EvmGas;
 use near_primitives_core::runtime::fees::Fee;
 use near_primitives_core::{
     config::{ActionCosts, ExtCosts, ExtCostsConfig},
@@ -9,27 +7,6 @@ use near_primitives_core::{
 };
 use std::collections::HashMap;
 use std::fmt;
-
-#[cfg(feature = "protocol_feature_evm")]
-#[inline]
-fn with_evm_gas_counter(f: impl FnOnce(&mut EvmGas)) {
-    #[cfg(feature = "costs_counting")]
-    {
-        thread_local! {
-            static EVM_GAS_COUNTER: std::cell::RefCell<EvmGas> = Default::default();
-        }
-        EVM_GAS_COUNTER.with(|rc| f(&mut *rc.borrow_mut()));
-    }
-    #[cfg(not(feature = "costs_counting"))]
-    let _ = f;
-}
-
-#[cfg(feature = "protocol_feature_evm")]
-pub fn reset_evm_gas_counter() -> u64 {
-    let mut res = 0;
-    with_evm_gas_counter(|counter| std::mem::swap(counter, &mut res));
-    res
-}
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
@@ -115,12 +92,6 @@ impl GasCounter {
         }
     }
 
-    #[cfg(feature = "protocol_feature_evm")]
-    #[inline]
-    pub fn inc_evm_gas_counter(&mut self, value: EvmGas) {
-        with_evm_gas_counter(|c| *c += value);
-    }
-
     #[inline]
     fn inc_ext_costs_counter(&mut self, cost: ExtCosts, value: u64) {
         with_ext_cost_counter(|cc| *cc.entry(cost).or_default() += value)
@@ -140,22 +111,18 @@ impl GasCounter {
         self.deduct_gas(value, value)
     }
 
-    pub fn pay_evm_gas(&mut self, value: u64) -> Result<()> {
-        self.deduct_gas(value, value)
-    }
-
-    /// A helper function to pay per byte gas
-    pub fn pay_per_byte(&mut self, cost: ExtCosts, num_bytes: u64) -> Result<()> {
-        let use_gas = num_bytes
+    /// A helper function to pay a multiple of a cost.
+    pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
+        let use_gas = num
             .checked_mul(cost.value(&self.ext_costs_config))
             .ok_or(HostError::IntegerOverflow)?;
 
-        self.inc_ext_costs_counter(cost, num_bytes);
+        self.inc_ext_costs_counter(cost, num);
         self.update_profile_host(cost, use_gas);
         self.deduct_gas(use_gas, use_gas)
     }
 
-    /// A helper function to pay base cost gas
+    /// A helper function to pay base cost gas.
     pub fn pay_base(&mut self, cost: ExtCosts) -> Result<()> {
         let base_fee = cost.value(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);

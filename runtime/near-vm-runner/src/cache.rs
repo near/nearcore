@@ -20,8 +20,15 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
     #[allow(unused)]
-    Version1 { code_hash: CryptoHash, vm_config_non_crypto_hash: u64, vm_kind: VMKind },
-    Version2 {
+    Version1 {
+        code_hash: CryptoHash,
+        vm_config_non_crypto_hash: u64,
+        vm_kind: VMKind,
+    },
+    // unused
+    _Version2,
+    // bump to depreciate bincode/serde-bench based wasmer 0.x cache
+    Version3 {
         code_hash: CryptoHash,
         vm_config_non_crypto_hash: u64,
         vm_kind: VMKind,
@@ -49,7 +56,7 @@ pub fn get_contract_cache_key(
     config: &VMConfig,
 ) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
-    let key = ContractCacheKey::Version2 {
+    let key = ContractCacheKey::Version3 {
         code_hash: code.hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind,

@@ -3,6 +3,7 @@ import subprocess
 
 import semver
 import sys
+from configured_logger import logger
 from github import Github
 
 
@@ -65,29 +66,22 @@ def escaped(branch):
 def compile_current():
     """Compile current branch."""
     branch = current_branch()
-    try:
-        # Accommodate rename from near to neard
-        subprocess.check_output(['cargo', 'build', '-p', 'neard'])
-
-        subprocess.check_output(['cargo', 'build', '-p', 'near-test-contracts'])
-    except:
-        subprocess.check_output(['cargo', 'build', '-p', 'near'])
-    subprocess.check_output(['cargo', 'build', '-p', 'state-viewer'])
+    # Accommodate rename from near to neard
+    subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
+    subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
+    subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
-    if os.path.exists('../target/debug/near'):
-        os.rename('../target/debug/near', '../target/debug/near-%s' % branch)
-    else:
-        os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
+    os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
     os.rename('../target/debug/state-viewer',
               '../target/debug/state-viewer-%s' % branch)
-    subprocess.check_output(['git', 'checkout', '../Cargo.lock'])
+    subprocess.check_call(['git', 'checkout', '../Cargo.lock'])
 
 
 def download_binary(uname, branch):
     """Download binary for given platform and branch."""
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/near'
     proto = '"=https"' if uname == 'Darwin' else '=https'
-    print(f'Downloading near & state-viewer for {branch}@{uname}')
+    logger.info(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
         'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
         f'../target/debug/near-{branch}'
@@ -120,6 +114,6 @@ def prepare_ab_test(other_branch):
         if not os.getenv('NAYDUCK'):
             compile_binary(str(other_branch))
         else:
-            print('RC binary should be downloaded for NayDuck.')
+            logger.critical('RC binary should be downloaded for NayDuck.')
             sys.exit(1)
     return '../target/debug/', [other_branch, escaped(current_branch())]

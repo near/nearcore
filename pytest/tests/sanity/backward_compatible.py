@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 This script runs node from stable branch and from current branch and makes
 sure they are backward compatible.
@@ -8,7 +8,6 @@ import sys
 import os
 import subprocess
 import time
-import shutil
 import base58
 import json
 
@@ -16,15 +15,11 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import load_test_contract
+from utils import load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, sign_create_account_with_full_access_key_and_balance_tx
 
 def main():
-    node_root = "/tmp/near/backward"
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
-
+    node_root = get_near_tempdir('backward', clean=True)
     branch = branches.latest_rc_branch()
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test(branch)
@@ -42,11 +37,12 @@ def main():
         'binary_name': "near-%s" % stable_branch
     }
     stable_node = cluster.spin_up_node(config, near_root,
-                                       os.path.join(node_root, "test0"), 0,
+                                       str(node_root / 'test0'), 0,
                                        None, None)
-    config["binary_name"] = "near-%s" % current_branch
+    if not os.getenv('NAYDUCK'):
+        config["binary_name"] = "near-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
-                                        os.path.join(node_root, "test1"), 1,
+                                        str(node_root / 'test1'), 1,
                                         stable_node.node_key.pk,
                                         stable_node.addr())
 
@@ -80,6 +76,11 @@ def main():
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
+    tx = sign_deploy_contract_tx(stable_node.signer_key, load_test_contract(), 3,
+                                 block_hash)
+    res = stable_node.send_tx_and_wait(tx, timeout=20)
+    assert 'error' not in res, res
+
     tx = sign_function_call_tx(new_signer_key,
                                new_account_id,
                                'write_random_value', [], 10**13, 0, nonce + 1,
@@ -89,7 +90,7 @@ def main():
     assert 'Failure' not in res['result']['status'], res
 
     data = json.dumps([{"create": {
-        "account_id": "near_2",
+        "account_id": "test_account",
         "method_name": "call_promise",
         "arguments": [],
         "amount": "0",
@@ -97,14 +98,14 @@ def main():
     }, "id": 0 },
         {"then": {
             "promise_index": 0,
-            "account_id": "near_3",
+            "account_id": "test0",
             "method_name": "call_promise",
             "arguments": [],
             "amount": "0",
             "gas": 30000000000000,
         }, "id": 1}])
 
-    tx = sign_function_call_tx(new_signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, nonce + 2, block_hash)
+    tx = sign_function_call_tx(stable_node.signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, nonce + 2, block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
 
     assert 'error' not in res, res

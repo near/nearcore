@@ -1,24 +1,27 @@
-import sys
-from enum import Enum
-import random
 import base58
-import time
+from enum import Enum
 import os
+import pathlib
+import random
+import sys
+import tempfile
+import time
 
 sys.path.append('lib')
 from cluster import GCloudNode, Key
+from configured_logger import logger
 from transaction import sign_staking_tx
 from utils import user_name, collect_gcloud_config
 
 def stop_node(machine):
     machine.run('tmux send-keys -t python-rc C-c')
     machine.kill_detach_tmux()
-    print(f'{machine} killed')
+    logger.info(f'{machine} killed')
 
 def start_node(machine):
     machine.run_detach_tmux(
         'cd nearcore && export RUST_LOG=diagnostic=trace && export RUST_BACKTRACE=1 && target/release/near run')
-    print(f'{machine} started')
+    logger.info(f'{machine} started')
 
 
 class NodeState(Enum):
@@ -40,9 +43,9 @@ class NodeState(Enum):
 class RemoteNode(GCloudNode):
     def __init__(self, instance_name, node_dir):
         super().__init__(instance_name)
-        self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
-        self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
-        self.signer_key = Key.from_json_file(os.path.join(node_dir, "signer0_key.json"))
+        self.validator_key = Key.from_json_file(node_dir / 'validator_key.json')
+        self.node_key = Key.from_json_file(node_dir / 'node_key.json')
+        self.signer_key = Key.from_json_file(node_dir / 'signer0_key.json')
         self.last_synced_height = 0
 
         try:
@@ -69,10 +72,10 @@ class RemoteNode(GCloudNode):
             self.account_key_nonce = self.get_nonce_for_pk(self.signer_key.account_id, self.signer_key.pk)
         self.account_key_nonce += 1
         tx = sign_staking_tx(nodes[index].signer_key, nodes[index].validator_key, stake, self.account_key_nonce, base58.b58decode(hash_.encode('utf8')))
-        print(f'{self.signer_key.account_id} stakes {stake}')
+        logger.info(f'{self.signer_key.account_id} stakes {stake}')
         res = self.send_tx_and_wait(tx, timeout=15)
         if 'error' in res or 'Failure' in res['result']['status']:
-            print(res)
+            logger.info(res)
 
     def send_unstaking_tx(self):
         self.send_staking_tx(0)
@@ -114,7 +117,9 @@ class RemoteNode(GCloudNode):
 
 num_nodes = 100
 collect_gcloud_config(num_nodes)
-nodes = [RemoteNode(f'pytest-node-{user_name()}-{i}', f'/tmp/near/node{i}') for i in range(num_nodes)]
+nodes = [RemoteNode(f'pytest-node-{user_name()}-{i}',
+                    pathlib.Path(tempfile.gettempdir()) / 'near' / f'node{i}')
+         for i in range(num_nodes)]
 
 while True:
     # find a node that is not syncing and get validator information
@@ -129,22 +134,17 @@ while True:
     assert 'error' not in validator_info, validator_info
     cur_validators = dict(map(lambda x: (x['account_id'], x['stake']), validator_info['result']['current_validators']))
     prev_epoch_kickout = validator_info['result']['prev_epoch_kickout']
-    print(f'validators kicked out in the previous epoch: {prev_epoch_kickout}')
+    logger.info(f'validators kicked out in the previous epoch: {prev_epoch_kickout}')
     for validator_kickout in prev_epoch_kickout:
         assert validator_kickout['reason'] != 'Unstaked' or validator_kickout['reason'] != 'DidNotGetASeat' or not validator_kickout.startswith('NotEnoughStake'), validator_kickout
-    print(f'current validators: {cur_validators}')
+    logger.info(f'current validators: {cur_validators}')
 
     # choose 5 nodes and change their state
     node_indices = random.sample(range(100), 5)
     for index in node_indices:
         cur_state = nodes[index].state
         nodes[index].change_state(cur_validators)
-        print(f'node {index} changed its state from {cur_state} to {nodes[index].state}')
+        logger.info(f'node {index} changed its state from {cur_state} to {nodes[index].state}')
 
-    print(dict(enumerate(map(lambda x: x.state, nodes))))
+    logger.info(dict(enumerate(map(lambda x: x.state, nodes))))
     time.sleep(600)
-
-
-
-
-

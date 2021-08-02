@@ -6,19 +6,20 @@ sys.path.append('lib')
 
 
 from cluster import GCloudNode, RpcNode
+from configured_logger import new_logger
 from utils import chain_query
 
-def print_chain_data(block, file=sys.stdout):
+def print_chain_data(block, logger):
     chunks = []
     for c in block['chunks']:
         chunks.append(f'{c["chunk_hash"]} {c["shard_id"]} {c["height_created"]} {c["height_included"]}')
-    print(block['header']['height'], block['header']['hash'], ','.join(chunks), file=file)
+    logger.info(f"{block['header']['height']} {block['header']['hash']} {','.join(chunks)}")
 
 subprocess.run('mkdir -p /tmp/100_node/', shell=True)
 
 f = []
 for node in range(100):
-    f.append(open(f'/tmp/100_node/pytest-node-{node}.txt', 'w'))
+    f.append(new_logger(outfile=f'/tmp/100_node/pytest-node-{node}.txt'))
 
 def query_node(i):
     node = GCloudNode(f'pytest-node-{i}')

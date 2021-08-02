@@ -92,9 +92,6 @@ pub struct ViewApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
-    /// EVM chain ID
-    #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {
@@ -297,6 +294,9 @@ pub struct StatusSyncInfo {
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
+    pub earliest_block_hash: Option<CryptoHash>,
+    pub earliest_block_height: Option<BlockHeight>,
+    pub earliest_block_time: Option<DateTime<Utc>>,
 }
 
 // TODO: add more information to ValidatorInfo

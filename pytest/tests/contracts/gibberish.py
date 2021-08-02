@@ -7,6 +7,7 @@ import base58
 
 sys.path.append('lib')
 from cluster import start_cluster
+from configured_logger import logger
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
@@ -21,7 +22,7 @@ hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
 
 for iter_ in range(10):
-    print("Deploying garbage contract #%s" % iter_)
+    logger.info("Deploying garbage contract #%s" % iter_)
     wasm_blob = bytes(
         [random.randint(0, 255) for _ in range(random.randint(200, 500))])
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 10 + iter_,
@@ -29,7 +30,7 @@ for iter_ in range(10):
     nodes[0].send_tx_and_wait(tx, 20)
 
 for iter_ in range(10):
-    print("Deploying perturbed contract #%s" % iter_)
+    logger.info("Deploying perturbed contract #%s" % iter_)
 
     new_name = '%s_mething' % iter_
     new_output = '%s_llo' % iter_
@@ -46,9 +47,9 @@ for iter_ in range(10):
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 20 + iter_ * 2,
                                  hash_)
     res = nodes[0].send_tx_and_wait(tx, 20)
-    print(res)
+    logger.info(res)
 
-    print("Invoking perturbed contract #%s" % iter_)
+    logger.info("Invoking perturbed contract #%s" % iter_)
 
     tx2 = sign_function_call_tx(nodes[0].signer_key,
                                 nodes[0].signer_key.account_id, new_name, [],
@@ -61,7 +62,7 @@ status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
 
-print("Real thing!")
+logger.info("Real thing!")
 tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob_1, 60, hash_)
 nodes[0].send_tx(tx)
 
@@ -74,5 +75,5 @@ tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
                             'log_something', [], 3000000000000, 100000000000, 62,
                             hash_2)
 res = nodes[1].send_tx_and_wait(tx2, 20)
-print(res)
+logger.info(res)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'

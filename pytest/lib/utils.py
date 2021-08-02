@@ -1,14 +1,22 @@
-from transaction import sign_payment_tx
-import random, base58
-from retrying import retry
-from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
-import sys
-from rc import run, gcloud
-import os
-import tempfile
-import json
+import atexit
+import base58
 import hashlib
+import json
+import os
+import pathlib
+import random
+import shutil
+import subprocess
+import sys
+import tempfile
 import time
+
+from retrying import retry
+from rc import gcloud
+
+from cluster import LocalNode, GCloudNode, CONFIG_ENV_VAR
+from configured_logger import logger
+from transaction import sign_payment_tx
 
 
 class TxContext:
@@ -43,7 +51,7 @@ class TxContext:
                 to += 1
             amt = random.randint(0, 500)
             if self.expected_balances[from_] >= amt:
-                print("Sending a tx from %s to %s for %s" % (from_, to, amt))
+                logger.info("Sending a tx from %s to %s for %s" % (from_, to, amt))
                 tx = sign_payment_tx(
                     self.nodes[from_].signer_key, 'test%s' % to, amt,
                     self.next_nonce,
@@ -75,7 +83,7 @@ class LogTracker:
                                  input='''
 with open('/tmp/python-rc.log') as f:
     f.seek(0, 2)
-    print(f.tell())
+    logger.info(f.tell())
 ''').stdout)
         else:
             # the above method should works for other cloud, if it has node.machine but untested
@@ -97,8 +105,8 @@ with open('/tmp/python-rc.log') as f:
 pattern={pattern}
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
-    print(s in f.read())
-    print(f.tell())
+    logger.info(s in f.read())
+    logger.info(f.tell())
 ''').stdout.strip().split('\n'))
             self.offset = int(offset)
             return ret == "True"
@@ -121,8 +129,8 @@ with open('/tmp/python-rc.log') as f:
                                            input=f'''
 with open('/tmp/python-rc.log') as f:
     f.seek({self.offset})
-    print(f.read().count({pattern})
-    print(f.tell())
+    logger.info(f.read().count({pattern})
+    logger.info(f.tell())
 ''').stdout.strip().split('\n')
             ret = int(ret)
             self.offset = int(offset)
@@ -147,7 +155,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
         while True:
             validators = node.validators()
             if validators != initial_validators:
-                print(
+                logger.critical(
                     f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
                 )
                 sys.exit(1)
@@ -161,7 +169,7 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
         for _ in range(max_blocks):
             validators = node.validators()
             if validators != initial_validators:
-                print(
+                logger.critical(
                     f'Fatal: validator set of node {node} changes, from {initial_validators} to {validators}'
                 )
                 sys.exit(1)
@@ -171,6 +179,16 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
             block_height = block['header']['height']
             if block_height == 0:
                 break
+
+
+def get_near_tempdir(subdir=None, *, clean=False):
+    tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
+    if subdir:
+        tempdir = tempdir / subdir
+    if clean and tempdir.exists():
+        shutil.rmtree(node_root)
+    tempdir.mkdir(parents=True, exist_ok=True)
+    return tempdir
 
 
 def load_binary_file(filepath):
@@ -189,24 +207,25 @@ def load_test_contract(filename='test_contract_rs.wasm'):
 
 
 def compile_rust_contract(content):
-    empty_contract_rs = os.path.join(os.path.dirname(__file__),
-                                     '../empty-contract-rs')
-    run('mkdir -p /tmp/near')
-    tmp_contract = tempfile.TemporaryDirectory(dir='/tmp/near').name
-    p = run(f'cp -r {empty_contract_rs} {tmp_contract}')
-    if p.returncode != 0:
-        raise Exception(p.stderr)
-
-    with open(f'{tmp_contract}/src/lib.rs', 'a') as f:
-        f.write(content)
-
-    p = run('bash', input=f'''
-cd {tmp_contract}
-./build.sh
-''')
-    if p.returncode != 0:
-        raise Exception(p.stderr)
-    return f'{tmp_contract}/target/release/empty_contract_rs.wasm'
+    tempdir = get_near_tempdir()
+    with tempfile.TemporaryDirectory(dir=tempdir) as build_dir:
+        build_dir = pathlib.Path(build_dir) / 'empty-contract-rs'
+        shutil.copytree(
+            pathlib.Path(__file__).parent.parent / 'empty-contract-rs',
+            build_dir, symlinks=True)
+        (build_dir / 'src').mkdir(parents=True, exist_ok=True)
+        with open(build_dir / 'src' / 'lib.rs', 'w') as wr:
+            wr.write(content)
+        subprocess.check_call(('cargo', 'build', '--release', '--target',
+                               'wasm32-unknown-unknown'), cwd=build_dir)
+        wasm_src = (build_dir / 'target' / 'wasm32-unknown-unknown' /
+                    'release' / 'empty_contract_rs.wasm')
+        wasm_fno, wasm_path = tempfile.mkstemp(suffix='.wasm')
+        atexit.register(pathlib.Path.unlink, pathlib.Path(wasm_path),
+                        missing_ok=True)
+        with open(wasm_src, mode='rb') as rd, open(wasm_fno, mode='wb') as wr:
+            shutil.copyfileobj(rd, wr)
+    return wasm_path
 
 
 def user_name():
@@ -238,30 +257,23 @@ class Unbuffered(object):
 
 
 def collect_gcloud_config(num_nodes):
-    import pathlib
+    tempdir = get_near_tempdir()
     keys = []
     for i in range(num_nodes):
-        if not os.path.exists(f'/tmp/near/node{i}'):
+        node_dir = tempdir / f'node{i}'
+        if not node_dir.exists():
             # TODO: avoid hardcoding the username
-            print(f'downloading node{i} config from gcloud')
-            pathlib.Path(f'/tmp/near/node{i}').mkdir(parents=True,
-                                                     exist_ok=True)
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/config.json',
-                f'/tmp/near/node{i}/')
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/signer0_key.json',
-                f'/tmp/near/node{i}/')
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/validator_key.json',
-                f'/tmp/near/node{i}/')
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/node_key.json',
-                f'/tmp/near/node{i}/')
-        with open(f'/tmp/near/node{i}/signer0_key.json') as f:
+            logger.info(f'downloading node{i} config from gcloud')
+            node_dir.mkdir(parents=True, exist_ok=True)
+            host = gcloud.get(f'pytest-node-{user_name()}-{i}')
+            for filename in ('config.json', 'signer0_key.json',
+                             'validator_key.json', 'node_key.json'):
+                host.download(f'/home/bowen_nearprotocol_com/.near/{filename}',
+                              str(node_dir))
+        with open(node_dir / 'signer0_key.json') as f:
             key = json.load(f)
         keys.append(key)
-    with open('/tmp/near/node0/config.json') as f:
+    with open(tempdir / 'node0' / 'config.json') as f:
         config = json.load(f)
     ip_addresses = map(lambda x: x.split('@')[-1],
                        config['network']['boot_nodes'].split(','))
@@ -275,10 +287,10 @@ def collect_gcloud_config(num_nodes):
         'accounts':
             keys
     }
-    outfile = '/tmp/near/gcloud_config.json'
-    with open(outfile, 'w+') as f:
+    outfile = tempdir / 'gcloud_config.json'
+    with open(outfile, 'w') as f:
         json.dump(res, f)
-    os.environ[CONFIG_ENV_VAR] = outfile
+    os.environ[CONFIG_ENV_VAR] = str(outfile)
 
 
 def obj_to_string(obj, extra='    ', full=False):
