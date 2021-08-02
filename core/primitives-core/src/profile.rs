@@ -35,7 +35,6 @@ impl ProfileData {
 
     #[inline]
     pub fn merge(&self, other: &ProfileData) {
-        println!("merge");
         for i in 0..ProfileData::LEN {
             let slot = &self.data[i];
             let slot_other = &other.data[i];
