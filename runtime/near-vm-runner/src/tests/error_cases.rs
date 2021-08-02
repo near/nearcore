@@ -156,7 +156,7 @@ fn test_empty_method() {
     });
 }
 
-fn trap_contract() -> Vec<u8> {
+pub fn trap_contract() -> Vec<u8> {
     wat::parse_str(
         r#"
             (module

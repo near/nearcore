@@ -44,16 +44,8 @@ base64 = "0.13"
 
 [features]
 # all vms enabled for tests, but only one default vm, specified by runtime crate
-<<<<<<< HEAD
 default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
-wasmer0_vm = [ "wasmer-runtime", "once_cell" ]
-||||||| merged common ancestors
-default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
-wasmer0_vm = [ "wasmer-runtime" ]
-=======
-default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
->>>>>>> master
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-compiler-cranelift", "wasmer-engine-dylib", ]
 

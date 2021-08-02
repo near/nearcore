@@ -52,7 +52,7 @@ fn main() {
     };
     let vm_kind = match cli_args.vm_kind.as_str() {
         "wasmer" => VMKind::Wasmer0,
-        "wasmer1" => VMKind::Wasmer1,
+        "wasmer2" => VMKind::Wasmer2,
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
