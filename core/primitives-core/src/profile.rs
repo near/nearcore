@@ -35,12 +35,9 @@ impl ProfileData {
 
     #[inline]
     pub fn merge(&self, other: &ProfileData) {
-        for i in 0..ProfileData::LEN {
-            let slot = &self.data[i];
-            let slot_other = &other.data[i];
-            let value = slot.get();
-            let value_other = slot_other.get();
-            slot.set(value.saturating_add(value_other));
+        for (dst, src) in self.data.iter().zip(other.data.iter()) {
+            let updated = dst.get().saturating_add(src.get());
+            dst.set(updated);
         }
     }
 
