@@ -140,7 +140,6 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             is_new_chunk: true,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         }
