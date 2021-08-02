@@ -8,7 +8,7 @@ use primitive_types::U256;
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
-use near_primitives::epoch_manager::{EpochConfig, SlashState, AGGREGATOR_KEY};
+use near_primitives::epoch_manager::{AllEpochConfig, SlashState, AGGREGATOR_KEY};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -29,6 +29,7 @@ pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 use near_chain::types::{BlockHeaderInfo, ValidatorInfoIdentifier};
+use near_primitives::shard_layout::ShardLayout;
 use near_store::db::DBCol::ColEpochValidatorInfo;
 
 mod proposals;
@@ -45,8 +46,7 @@ const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 pub struct EpochManager {
     store: Arc<Store>,
     /// Current epoch config.
-    /// TODO: must be dynamically changing over time, so there should be a way to change it.
-    config: EpochConfig,
+    config: AllEpochConfig,
     reward_calculator: RewardCalculator,
     /// Genesis protocol version. Useful when there are protocol upgrades.
     genesis_protocol_version: ProtocolVersion,
@@ -70,7 +70,7 @@ pub struct EpochManager {
 impl EpochManager {
     pub fn new(
         store: Arc<Store>,
-        config: EpochConfig,
+        config: AllEpochConfig,
         genesis_protocol_version: ProtocolVersion,
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
@@ -94,8 +94,10 @@ impl EpochManager {
         let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
             // Missing genesis epoch, means that there is no validator initialize yet.
+            let genesis_epoch_config =
+                epoch_manager.config.for_protocol_version(genesis_protocol_version);
             let epoch_info = proposals_to_epoch_info(
-                &epoch_manager.config,
+                genesis_epoch_config,
                 [0; 32],
                 &EpochInfo::default(),
                 validators,
@@ -170,8 +172,9 @@ impl EpochManager {
         let mut all_kicked_out = true;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
-        let block_producer_kickout_threshold = self.config.block_producer_kickout_threshold;
-        let chunk_producer_kickout_threshold = self.config.chunk_producer_kickout_threshold;
+        let config = self.config.for_protocol_version(epoch_info.protocol_version);
+        let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
+        let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
         let mut validator_kickout = HashMap::new();
 
@@ -282,13 +285,14 @@ impl EpochManager {
                 epoch_info.protocol_version()
             };
 
+        let config = self.config.for_protocol_version(protocol_version);
         let next_version = if let Some((&version, stake)) =
             versions.into_iter().max_by(|left, right| left.1.cmp(&right.1))
         {
             if stake
                 > (total_block_producer_stake
-                    * *self.config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *self.config.protocol_upgrade_stake_threshold.denom() as u128
+                    * *config.protocol_upgrade_stake_threshold.numer() as u128)
+                    / *config.protocol_upgrade_stake_threshold.denom() as u128
             {
                 version
             } else {
@@ -384,8 +388,9 @@ impl EpochManager {
                 epoch_duration,
             )
         };
+        let next_next_epoch_config = self.config.for_protocol_version(next_version);
         let next_next_epoch_info = match proposals_to_epoch_info(
-            &self.config,
+            &next_next_epoch_config,
             rng_seed,
             &next_epoch_info,
             all_proposals,
@@ -1069,8 +1074,13 @@ impl EpochManager {
     /// rejected.
     pub fn minimum_stake(&mut self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_block_hash)?;
-        let stake_divisor = self.config.minimum_stake_divisor as Balance;
-        Ok(self.get_epoch_info(&next_epoch_id)?.seat_price() / stake_divisor)
+        let (protocol_version, seat_price) = {
+            let epoch_info = self.get_epoch_info(&next_epoch_id)?;
+            (epoch_info.protocol_version(), epoch_info.seat_price())
+        };
+        let config = self.config.for_protocol_version(protocol_version);
+        let stake_divisor = { config.minimum_stake_divisor as Balance };
+        Ok(seat_price / stake_divisor)
     }
 
     // Note: this function should only be used in 18 -> 19 migration and should be removed in the
@@ -1134,11 +1144,12 @@ impl EpochManager {
         if block_info.prev_hash() == &CryptoHash::default() {
             return Ok(true);
         }
+        let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+        let epoch_length = self.config.for_protocol_version(protocol_version).epoch_length;
         let estimated_next_epoch_start =
-            *self.get_block_info(block_info.epoch_first_block())?.height()
-                + self.config.epoch_length;
+            *self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
 
-        if self.config.epoch_length <= 3 {
+        if epoch_length <= 3 {
             // This is here to make epoch_manager tests pass. Needs to be removed, tracked in
             // https://github.com/nearprotocol/nearcore/issues/2522
             return Ok(*block_info.height() + 1 >= estimated_next_epoch_start);
@@ -1156,9 +1167,14 @@ impl EpochManager {
         if self.is_next_block_in_next_epoch(block_info)? {
             return Ok(false);
         }
+        let epoch_length = {
+            let protocol_version =
+                self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
+            let config = self.config.for_protocol_version(protocol_version);
+            config.epoch_length
+        };
         let estimated_next_epoch_start =
-            *self.get_block_info(block_info.epoch_first_block())?.height()
-                + self.config.epoch_length;
+            *self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
         Ok(*block_info.last_finalized_height() + 3 < estimated_next_epoch_start
             && *block_info.height() + 3 >= estimated_next_epoch_start)
     }
@@ -1170,6 +1186,12 @@ impl EpochManager {
     ) -> Result<EpochId, EpochError> {
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
         Ok(EpochId(*first_block_info.prev_hash()))
+    }
+
+    pub fn get_shard_layout(&mut self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        let shard_layout = &self.config.for_protocol_version(protocol_version).shard_layout;
+        Ok(shard_layout.clone())
     }
 
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
@@ -1385,6 +1407,8 @@ mod tests {
 
     use super::*;
     use crate::reward_calculator::NUM_NS_IN_SECOND;
+    use near_primitives::epoch_manager::EpochConfig;
+    use near_primitives::shard_layout::ShardLayout;
 
     impl EpochManager {
         /// Returns number of produced and expected blocks by given validator.
@@ -1480,8 +1504,17 @@ mod tests {
         let amount_staked = 1_000_000;
         let fishermen_threshold = 100;
         let validators = vec![("test1", amount_staked), ("test2", amount_staked)];
-        let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90, 60);
-        epoch_manager.config.fishermen_threshold = fishermen_threshold;
+        let mut epoch_manager = setup_epoch_manager(
+            validators,
+            2,
+            1,
+            2,
+            0,
+            90,
+            60,
+            fishermen_threshold,
+            default_reward_calculator(),
+        );
 
         let h = hash_range(4);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
@@ -1508,7 +1541,7 @@ mod tests {
                     }
                 )],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -1627,7 +1660,7 @@ mod tests {
                 change_stake(vec![("test1", amount_staked)]),
                 vec![],
                 reward(vec![("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -1672,7 +1705,7 @@ mod tests {
                 change_stake(vec![("test1", amount_staked)]),
                 vec![],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -1711,7 +1744,7 @@ mod tests {
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 vec![("test1", ValidatorKickoutReason::Unstaked)],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
@@ -1729,7 +1762,7 @@ mod tests {
                 change_stake(vec![("test2", amount_staked)]),
                 vec![],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
         record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
@@ -1747,7 +1780,7 @@ mod tests {
                 change_stake(vec![("test2", amount_staked)]),
                 vec![],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -1813,7 +1846,7 @@ mod tests {
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 vec![("test1", ValidatorKickoutReason::Slashed)],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
 
@@ -1892,7 +1925,7 @@ mod tests {
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 vec![("test1", ValidatorKickoutReason::Slashed)],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
 
@@ -2262,7 +2295,7 @@ mod tests {
                     ValidatorKickoutReason::NotEnoughChunks { produced: 1, expected: 2 }
                 )],
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
-                inflation
+                inflation,
             )
         );
     }
@@ -2292,7 +2325,7 @@ mod tests {
                 change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
                 vec![],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -2410,7 +2443,7 @@ mod tests {
                     ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected: 1 }
                 )],
                 reward(vec![("test2", 0), ("test3", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -2699,7 +2732,7 @@ mod tests {
                     ValidatorKickoutReason::NotEnoughChunks { produced: 2, expected: 4 }
                 )],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -2769,6 +2802,7 @@ mod tests {
         match &mut epoch_info {
             EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
             EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
+            EpochInfo::V3(info) => info.validator_kickout = HashMap::default(),
         }
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         {
@@ -2817,7 +2851,7 @@ mod tests {
                     ("test3", ValidatorKickoutReason::NotEnoughStake { stake: 1, threshold: 1000 })
                 ],
                 reward(vec![("test1", 0), ("near", 0)]),
-                0
+                0,
             )
         );
     }
@@ -3235,8 +3269,23 @@ mod tests {
     #[test]
     fn test_protocol_version_switch_with_many_seats() {
         let store = create_test_store();
-        let mut config = epoch_config(10, 1, 4, 0, 90, 60, 0);
-        config.num_block_producer_seats_per_shard = vec![10];
+        let num_block_producer_seats_per_shard = vec![10];
+        let epoch_config = EpochConfig {
+            epoch_length: 10,
+            num_block_producer_seats: 4,
+            num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: Vec::from([0]),
+            block_producer_kickout_threshold: 90,
+            chunk_producer_kickout_threshold: 60,
+            fishermen_threshold: 0,
+            online_min_threshold: Rational::new(90, 100),
+            online_max_threshold: Rational::new(99, 100),
+            protocol_upgrade_stake_threshold: Rational::new(80, 100),
+            protocol_upgrade_num_epochs: 2,
+            minimum_stake_divisor: 1,
+            shard_layout: ShardLayout::default(1),
+        };
+        let config = AllEpochConfig::new(epoch_config, None);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked / 5)];
         let mut epoch_manager = EpochManager::new(

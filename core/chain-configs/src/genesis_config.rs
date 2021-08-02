@@ -16,8 +16,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use smart_default::SmartDefault;
 
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -139,6 +141,7 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
+    pub simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -158,6 +161,9 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
+            shard_layout: ShardLayout::default(
+                config.num_block_producer_seats_per_shard.len() as NumShards
+            ),
         }
     }
 }

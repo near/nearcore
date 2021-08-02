@@ -97,6 +97,7 @@ pub enum ProtocolFeature {
     CountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
     MathExtension,
+    SimpleNightshade,
 
     // nightly features
     #[cfg(feature = "protocol_feature_evm")]
@@ -135,6 +136,7 @@ impl ProtocolFeature {
             ProtocolFeature::CapMaxGasPrice => 46,
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
             ProtocolFeature::MathExtension => 46,
+            ProtocolFeature::SimpleNightshade => 50,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_evm")]

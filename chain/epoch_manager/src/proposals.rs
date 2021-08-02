@@ -229,6 +229,7 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::shard_layout::ShardLayout;
 
     #[test]
     fn test_find_threshold() {
@@ -243,7 +244,7 @@ mod tests {
     fn test_proposals_to_assignments() {
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 1, 90, 60, 0),
+                &epoch_config(2, 2, 1, 1, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
@@ -264,7 +265,7 @@ mod tests {
                 vec![],
                 HashMap::default(),
                 0,
-                3
+                3,
             )
         );
         assert_eq!(
@@ -282,6 +283,7 @@ mod tests {
                     minimum_stake_divisor: 1,
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
+                    shard_layout: ShardLayout::default(5),
                 },
                 [0; 32],
                 &EpochInfo::default(),
@@ -294,7 +296,7 @@ mod tests {
                 HashMap::default(),
                 HashMap::default(),
                 0,
-                PROTOCOL_VERSION
+                PROTOCOL_VERSION,
             )
             .unwrap(),
             epoch_info_with_num_seats(
@@ -320,7 +322,7 @@ mod tests {
                 vec![],
                 HashMap::default(),
                 0,
-                20
+                20,
             )
         );
     }
@@ -330,7 +332,7 @@ mod tests {
         // 4 proposals of stake 10, fishermen threshold 10 --> 1 validator and 3 fishermen
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 0, 90, 60, 10),
+                &epoch_config(2, 2, 1, 0, 90, 60, 10).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![
@@ -342,7 +344,7 @@ mod tests {
                 HashMap::default(),
                 HashMap::default(),
                 0,
-                PROTOCOL_VERSION
+                PROTOCOL_VERSION,
             )
             .unwrap(),
             epoch_info(
@@ -355,7 +357,7 @@ mod tests {
                 change_stake(vec![("test1", 10), ("test2", 10), ("test3", 10), ("test4", 10)]),
                 vec![],
                 HashMap::default(),
-                0
+                0,
             )
         );
 
@@ -376,6 +378,7 @@ mod tests {
         match &mut epoch_info {
             EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
             EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
+            EpochInfo::V3(info) => info.validator_kickout = HashMap::default(),
         }
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         {
@@ -383,14 +386,14 @@ mod tests {
         }
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 0, 90, 60, 10),
+                &epoch_config(2, 2, 1, 0, 90, 60, 10).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 9), stake("test2", 9), stake("test3", 9), stake("test4", 9)],
                 HashMap::default(),
                 HashMap::default(),
                 0,
-                PROTOCOL_VERSION
+                PROTOCOL_VERSION,
             )
             .unwrap(),
             epoch_info
