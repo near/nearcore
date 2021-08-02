@@ -360,7 +360,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: get_account_id(0),
+                    receiver_id: get_account_id(0).into(),
                     method_names: vec!["method1".to_string()],
                 }),
             },
@@ -386,7 +386,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: get_account_id(0),
+                    receiver_id: get_account_id(0).into(),
                     method_names: many_methods,
                 }),
             },

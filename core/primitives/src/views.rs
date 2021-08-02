@@ -141,7 +141,7 @@ pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "option_u128_dec_format")]
         allowance: Option<Balance>,
-        receiver_id: AccountId,
+        receiver_id: String,
         method_names: Vec<String>,
     },
     FullAccess,
