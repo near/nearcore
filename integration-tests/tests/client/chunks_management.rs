@@ -19,7 +19,6 @@ use near_network::types::AccountIdOrPeerTrackingShard;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::CryptoHash;
 #[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::transaction::SignedTransaction;
 use testlib::test_helpers::heavy_test;
 
