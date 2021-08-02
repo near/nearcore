@@ -6,11 +6,11 @@ use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
 
 use crate::node::Node;
+use crate::user::runtime_user::MockClient;
+use crate::user::{RuntimeUser, User};
 use testlib::runtime_utils::{
     add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
 };
-use testlib::user::runtime_user::MockClient;
-use testlib::user::{RuntimeUser, User};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,

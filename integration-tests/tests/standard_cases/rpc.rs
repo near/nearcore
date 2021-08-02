@@ -8,8 +8,8 @@ mod test {
     use crate::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
     use crate::test_helpers::heavy_test;
     use crate::*;
+    use integration_tests::runtime_utils::alice_account;
     use near_logger_utils::init_test_module_logger;
-    use testlib::runtime_utils::alice_account;
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");

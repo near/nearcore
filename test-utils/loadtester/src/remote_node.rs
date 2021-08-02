@@ -10,6 +10,8 @@ use log::{debug, info};
 use reqwest::blocking::Client as SyncClient;
 use reqwest::Client as AsyncClient;
 
+use integration_tests::user::rpc_user::RpcUser;
+use integration_tests::user::User;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::message::Message;
 use near_primitives::hash::CryptoHash;
@@ -17,8 +19,6 @@ use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
-use testlib::user::rpc_user::RpcUser;
-use testlib::user::User;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.

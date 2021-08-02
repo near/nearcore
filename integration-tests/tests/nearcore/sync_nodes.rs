@@ -5,6 +5,7 @@ use std::time::Duration;
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 
+use integration_tests::genesis_helpers::genesis_block;
 use integration_tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain::{Block, Chain};
@@ -24,7 +25,6 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig};
-use testlib::genesis_block;
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(

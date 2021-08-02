@@ -2517,6 +2517,7 @@ dependencies = [
  "env_logger",
  "futures",
  "git-version",
+ "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc",
@@ -4309,12 +4310,12 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "env_logger",
+ "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
  "nearcore",
- "testlib",
 ]
 
 [[package]]
@@ -5055,7 +5056,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "nearcore",
  "node-runtime",
  "num-rational",
  "rand 0.7.3",
