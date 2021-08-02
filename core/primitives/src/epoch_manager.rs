@@ -501,7 +501,7 @@ pub mod epoch_info {
 
     impl Default for EpochInfo {
         fn default() -> Self {
-            Self::V3(EpochInfoV3::default())
+            Self::V2(EpochInfoV2::default())
         }
     }
 
@@ -580,7 +580,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &mut v1.epoch_height,
                 Self::V2(v2) => &mut v2.epoch_height,
-                Self::V3(v3) => &mut v3.epoch_height,
             }
         }
 
@@ -589,7 +588,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.epoch_height,
                 Self::V2(v2) => v2.epoch_height,
-                Self::V3(v3) => v3.epoch_height,
             }
         }
 
@@ -598,7 +596,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.seat_price,
                 Self::V2(v2) => v2.seat_price,
-                Self::V3(v3) => v3.seat_price,
             }
         }
 
@@ -607,7 +604,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.minted_amount,
                 Self::V2(v2) => v2.minted_amount,
-                Self::V3(v3) => v3.minted_amount,
             }
         }
 
@@ -616,7 +612,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.block_producers_settlement,
                 Self::V2(v2) => &v2.block_producers_settlement,
-                Self::V3(v3) => &v3.block_producers_settlement,
             }
         }
 
@@ -625,7 +620,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.chunk_producers_settlement,
                 Self::V2(v2) => &v2.chunk_producers_settlement,
-                Self::V3(v3) => &v3.chunk_producers_settlement,
             }
         }
 
@@ -634,7 +628,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.validator_kickout,
                 Self::V2(v2) => &v2.validator_kickout,
-                Self::V3(v3) => &v3.validator_kickout,
             }
         }
 
@@ -643,7 +636,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.protocol_version,
                 Self::V2(v2) => v2.protocol_version,
-                Self::V3(v3) => v3.protocol_version,
             }
         }
 
@@ -652,7 +644,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.stake_change,
                 Self::V2(v2) => &v2.stake_change,
-                Self::V3(v3) => &v3.stake_change,
             }
         }
 
@@ -661,7 +652,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.validator_reward,
                 Self::V2(v2) => &v2.validator_reward,
-                Self::V3(v3) => &v3.validator_reward,
             }
         }
 
@@ -670,7 +660,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.validators),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.validators),
-                Self::V3(v3) => ValidatorStakeIter::new(&v3.validators),
             }
         }
 
@@ -679,7 +668,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStakeIter::v1(&v1.fishermen),
                 Self::V2(v2) => ValidatorStakeIter::new(&v2.fishermen),
-                Self::V3(v3) => ValidatorStakeIter::new(&v3.fishermen),
             }
         }
 
@@ -688,7 +676,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validators[validator_id as usize].stake,
                 Self::V2(v2) => v2.validators[validator_id as usize].stake(),
-                Self::V3(v3) => v3.validators[validator_id as usize].stake(),
             }
         }
 
@@ -697,7 +684,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => &v1.validators[validator_id as usize].account_id,
                 Self::V2(v2) => v2.validators[validator_id as usize].account_id(),
-                Self::V3(v3) => v3.validators[validator_id as usize].account_id(),
             }
         }
 
@@ -706,7 +692,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
-                Self::V3(v3) => v3.validator_to_index.contains_key(account_id),
             }
         }
 
@@ -714,7 +699,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validator_to_index.get(account_id),
                 Self::V2(v2) => v2.validator_to_index.get(account_id),
-                Self::V3(v3) => v3.validator_to_index.get(account_id),
             }
         }
 
@@ -727,10 +711,6 @@ pub mod epoch_info {
                     .validator_to_index
                     .get(account_id)
                     .map(|validator_id| v2.validators[*validator_id as usize].clone()),
-                Self::V3(v3) => v3
-                    .validator_to_index
-                    .get(account_id)
-                    .map(|validator_id| v2.validators[*validator_id as usize].clone()),
             }
         }
 
@@ -739,7 +719,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStake::V1(v1.validators[validator_id as usize].clone()),
                 Self::V2(v2) => v2.validators[validator_id as usize].clone(),
-                Self::V3(v3) => v3.validators[validator_id as usize].clone(),
             }
         }
 
@@ -748,7 +727,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.fishermen_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.fishermen_to_index.contains_key(account_id),
-                Self::V3(v3) => v3.fishermen_to_index.contains_key(account_id),
             }
         }
 
@@ -761,10 +739,6 @@ pub mod epoch_info {
                     .fishermen_to_index
                     .get(account_id)
                     .map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
-                Self::V3(v2) => v3
-                    .fishermen_to_index
-                    .get(account_id)
-                    .map(|validator_id| v2.fishermen[*validator_id as usize].clone()),
             }
         }
 
@@ -773,7 +747,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => ValidatorStake::V1(v1.fishermen[fisherman_id as usize].clone()),
                 Self::V2(v2) => v2.fishermen[fisherman_id as usize].clone(),
-                Self::V3(v3) => v3.fishermen[fisherman_id as usize].clone(),
             }
         }
 
@@ -782,15 +755,6 @@ pub mod epoch_info {
             match self {
                 Self::V1(v1) => v1.validators.len(),
                 Self::V2(v2) => v2.validators.len(),
-                Self::V3(v3) => v3.validators.len(),
-            }
-        }
-
-        #[inline]
-        pub fn get_shards_info(&self) -> Option<&ShardsInfo> {
-            match self {
-                Self::V3(v3) => Some(&v3.shards_info),
-                _ => None,
             }
         }
     }
