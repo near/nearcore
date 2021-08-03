@@ -1,7 +1,6 @@
 use crate::cases::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -63,7 +62,6 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
         &promise_results,
         PROTOCOL_VERSION,
         None,
-        &Default::default(),
     )
 }
 
@@ -375,7 +373,6 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
             vm_kind,
             ProtocolVersion::MAX,
             cache,
-            ProfileData::new(),
         );
         assert!(result.1.is_none());
     }

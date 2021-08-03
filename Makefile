@@ -21,6 +21,7 @@ release:
 	cargo build -p store-validator --release
 	cargo build -p runtime-params-estimator --release
 	cargo build -p genesis-populate --release
+	make sandbox-release
 
 neard:
 	cargo build -p neard --release --bin neard
@@ -33,6 +34,7 @@ debug:
 	cargo build -p store-validator
 	cargo build -p runtime-params-estimator
 	cargo build -p genesis-populate
+	make sandbox
 
 perf-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats,memory_stats
@@ -63,12 +65,12 @@ nightly-debug:
 	cargo build -p genesis-populate --features nearcore/nightly_protocol,nearcore/nightly_protocol_features,nearcore/performance_stats,nearcore/memory_stats
 
 sandbox:
-	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --features sandbox
-	mv target/debug/neard target/debug/near-sandbox
+	CARGO_TARGET_DIR=sandbox cargo build -p neard --features sandbox
+	mv sandbox/debug/neard target/debug/near-sandbox
 
 sandbox-release:
-	cargo build -p neard --features sandbox --release
-	mv target/release/neard target/release/near-sandbox
+	CARGO_TARGET_DIR=sandbox cargo build -p neard --features sandbox --release
+	mv sandbox/release/neard target/release/near-sandbox
 
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug

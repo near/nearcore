@@ -370,10 +370,9 @@ class RainbowBridge:
 
     def git_clone_install(self):
         logger.info('No rainbow-bridge repo found, cloning...')
-        args = ('git clone --recurse-submodules %s %s' %
-                (self.config['bridge_repo'], self.bridge_dir)).split()
-        assert subprocess.check_output(args).decode('ascii').strip(
-        ) == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
+        args = ('git', 'clone', '--recurse-submodules',
+                str(self.config['bridge_repo']), str(self.bridge_dir))
+        subprocess.check_call(args)
         assert_success(subprocess.check_output(['yarn'], cwd=self.bridge_dir))
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
         assert_success(subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir))

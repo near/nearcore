@@ -180,7 +180,7 @@ fn main() {
     println!(
         "{}",
         serde_json::to_string(&StandaloneOutput {
-            outcome,
+            outcome: outcome.clone(),
             err,
             receipts: results.state.get_receipt_create_calls().clone(),
             state: State(results.state.fake_trie),
@@ -188,6 +188,11 @@ fn main() {
         .unwrap()
     );
 
-    assert_eq!(all_gas, results.profile.all_gas());
-    println!("{:#?}", results.profile);
+    match &outcome {
+        Some(outcome) => {
+            assert_eq!(all_gas, outcome.profile.all_gas());
+            println!("{:#?}", outcome.profile);
+        }
+        _ => {}
+    }
 }
