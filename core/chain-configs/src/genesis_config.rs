@@ -141,6 +141,8 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
+    #[default(None)]
+    // TODO: add config for simple nightshade shards
     pub simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
