@@ -1,5 +1,5 @@
 mod contract_preload;
-mod error_cases;
+pub mod error_cases;
 mod invalid_contracts;
 mod rs_contract;
 mod ts_contract;
