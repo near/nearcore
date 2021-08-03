@@ -286,6 +286,7 @@ mod tests {
     use near_primitives::shard_layout::account_id_to_shard_id;
     use near_primitives::shard_layout::ShardLayout;
 
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::utils::get_num_seats_per_shard;
     #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
