@@ -4,7 +4,7 @@ use near_primitives::version::ProtocolVersion;
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::profile::ProfileData;
-use near_vm_logic::VMConfig;
+use near_vm_logic::{ReturnData, VMConfig};
 use near_vm_logic::{VMContext, VMOutcome};
 use near_vm_runner::{run_vm, VMError, VMKind};
 
@@ -85,6 +85,17 @@ fn make_simple_contract_call_vm(
     make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
 }
 
+fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
+    VMOutcome {
+        balance: 4,
+        storage_usage: 12,
+        return_data: ReturnData::None,
+        burnt_gas: gas,
+        used_gas: gas,
+        logs: vec![],
+    }
+}
+
 pub fn trap_contract() -> Vec<u8> {
     wat::parse_str(
         r#"
@@ -105,7 +116,15 @@ fn test_trap_contract() {
             // Restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind);
+        assert_eq!(
+            make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(47105334)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::Unreachable
+                )))
+            )
+        )
     });
     println!("done call test_trap_contract");
 }
@@ -135,7 +154,15 @@ fn test_div_by_zero_contract() {
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind);
+        assert_eq!(
+            make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind),
+            (
+                Some(vm_outcome_with_gas(59758197)),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::IllegalArithmetic
+                )))
+            )
+        );
     });
     println!("done call test_div_by_zero_contract");
 }
