@@ -97,7 +97,6 @@ pub enum ProtocolFeature {
     CountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
     MathExtension,
-    SimpleNightshade,
 
     // nightly features
     #[cfg(feature = "protocol_feature_evm")]
@@ -108,6 +107,8 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     RestoreReceiptsAfterFix,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
 }
 
 /// Current latest stable version of the protocol.
@@ -136,7 +137,6 @@ impl ProtocolFeature {
             ProtocolFeature::CapMaxGasPrice => 46,
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
             ProtocolFeature::MathExtension => 46,
-            ProtocolFeature::SimpleNightshade => 50,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_evm")]
@@ -147,6 +147,9 @@ impl ProtocolFeature {
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            // do not enable it yet
+            ProtocolFeature::SimpleNightshade => 200,
         }
     }
 }

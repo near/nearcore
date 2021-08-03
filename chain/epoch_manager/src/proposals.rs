@@ -244,7 +244,7 @@ mod tests {
     fn test_proposals_to_assignments() {
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 1, 90, 60, 0).for_protocol_version(PROTOCOL_VERSION),
+                &epoch_config(2, 2, 1, 1, 90, 60, 0, None).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
@@ -332,7 +332,7 @@ mod tests {
         // 4 proposals of stake 10, fishermen threshold 10 --> 1 validator and 3 fishermen
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 0, 90, 60, 10).for_protocol_version(PROTOCOL_VERSION),
+                &epoch_config(2, 2, 1, 0, 90, 60, 10, None).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![
@@ -386,7 +386,7 @@ mod tests {
         }
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 0, 90, 60, 10).for_protocol_version(PROTOCOL_VERSION),
+                &epoch_config(2, 2, 1, 0, 90, 60, 10, None).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 9), stake("test2", 9), stake("test3", 9), stake("test4", 9)],

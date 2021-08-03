@@ -7,7 +7,7 @@ use near_primitives::challenge::SlashedValidator;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::epoch_manager::block_info::BlockInfoV2;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorWeight};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig, ValidatorWeight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -133,6 +133,7 @@ pub fn epoch_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
+    simple_nightshade_shard_config: Option<&ShardConfig>,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
         epoch_length,
@@ -154,7 +155,7 @@ pub fn epoch_config(
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::default(num_shards),
     };
-    AllEpochConfig::new(epoch_config, None)
+    AllEpochConfig::new(epoch_config, simple_nightshade_shard_config)
 }
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
@@ -180,6 +181,39 @@ pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
     info.into_iter().map(|(account_id, r)| (account_id.to_string(), r)).collect()
 }
 
+pub fn setup_epoch_manager_with_simple_nightshade_config(
+    validators: Vec<(&str, Balance)>,
+    epoch_length: BlockHeightDelta,
+    num_shards: NumShards,
+    num_block_producer_seats: NumSeats,
+    num_hidden_validator_seats: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    fishermen_threshold: Balance,
+    reward_calculator: RewardCalculator,
+    simple_nightshade_config: Option<&ShardConfig>,
+) -> EpochManager {
+    let store = create_test_store();
+    let config = epoch_config(
+        epoch_length,
+        num_shards,
+        num_block_producer_seats,
+        num_hidden_validator_seats,
+        block_producer_kickout_threshold,
+        chunk_producer_kickout_threshold,
+        fishermen_threshold,
+        simple_nightshade_config,
+    );
+    EpochManager::new(
+        store,
+        config,
+        PROTOCOL_VERSION,
+        reward_calculator,
+        validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
+    )
+    .unwrap()
+}
+
 pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockHeightDelta,
@@ -191,8 +225,8 @@ pub fn setup_epoch_manager(
     fishermen_threshold: Balance,
     reward_calculator: RewardCalculator,
 ) -> EpochManager {
-    let store = create_test_store();
-    let config = epoch_config(
+    setup_epoch_manager_with_simple_nightshade_config(
+        validators,
         epoch_length,
         num_shards,
         num_block_producer_seats,
@@ -200,15 +234,9 @@ pub fn setup_epoch_manager(
         block_producer_kickout_threshold,
         chunk_producer_kickout_threshold,
         fishermen_threshold,
-    );
-    EpochManager::new(
-        store,
-        config,
-        PROTOCOL_VERSION,
         reward_calculator,
-        validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
+        None,
     )
-    .unwrap()
 }
 
 pub fn setup_default_epoch_manager(

@@ -1407,8 +1407,10 @@ mod tests {
 
     use super::*;
     use crate::reward_calculator::NUM_NS_IN_SECOND;
-    use near_primitives::epoch_manager::EpochConfig;
+    use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
     use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::utils::get_num_seats_per_shard;
+    use near_primitives::version::ProtocolFeature::SimpleNightshade;
 
     impl EpochManager {
         /// Returns number of produced and expected blocks by given validator.
@@ -1713,7 +1715,7 @@ mod tests {
     #[test]
     fn test_validator_unstake() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1788,7 +1790,7 @@ mod tests {
     #[test]
     fn test_slashing() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -1865,7 +1867,7 @@ mod tests {
     #[test]
     fn test_double_sign_slashing1() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -3239,7 +3241,7 @@ mod tests {
     #[test]
     fn test_protocol_version_switch() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
@@ -3264,6 +3266,56 @@ mod tests {
             epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
             PROTOCOL_VERSION
         );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    fn test_protocol_version_switch_with_shard_layout_change() {
+        let store = create_test_store();
+        let shard_layout = ShardLayout::v1(
+            vec![AccountId::from("aurora")],
+            vec!["h", "o"].iter().map(|x| AccountId::from(x)).collect(),
+            Some(vec![0, 0, 0, 0]),
+        );
+        let shard_config = ShardConfig {
+            num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),
+            avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
+            shard_layout: shard_layout.clone(),
+        };
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, Some(&shard_config));
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let new_protocol_version = SimpleNightshade.protocol_version();
+        let mut epoch_manager = EpochManager::new(
+            store.clone(),
+            config.clone(),
+            new_protocol_version - 1,
+            default_reward_calculator(),
+            validators.clone(),
+        )
+        .unwrap();
+        let h = hash_range(8);
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        let mut block_info1 =
+            block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
+        set_block_info_protocol_version(&mut block_info1, new_protocol_version);
+        epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
+        for i in 2..6 {
+            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        }
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(),
+            new_protocol_version - 1
+        );
+        assert_eq!(
+            epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(),
+            ShardLayout::default(1),
+        );
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
+            new_protocol_version
+        );
+        assert_eq!(epoch_manager.get_shard_layout(&EpochId(h[4])).unwrap(), shard_layout);
     }
 
     #[test]
@@ -3318,7 +3370,7 @@ mod tests {
     #[test]
     fn test_protocol_version_switch_after_switch() {
         let store = create_test_store();
-        let config = epoch_config(2, 1, 2, 0, 90, 60, 0);
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, None);
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut epoch_manager = EpochManager::new(
