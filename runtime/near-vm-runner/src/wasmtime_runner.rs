@@ -8,8 +8,7 @@ pub mod wasmtime_runner {
     use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
     use near_primitives::{
-        config::VMConfig, profile::ProfileData, types::CompiledContractCache,
-        version::ProtocolVersion,
+        config::VMConfig, types::CompiledContractCache, version::ProtocolVersion,
     };
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap};
     use near_vm_logic::{
@@ -83,7 +82,6 @@ pub mod wasmtime_runner {
                 Some(VMLogicError::InconsistentStateError(e)) => {
                     VMError::InconsistentStateError(e.clone())
                 }
-                Some(VMLogicError::EvmError(_)) => unreachable!("Wasm can't return EVM error"),
                 None => panic!("Error is not properly set"),
             }
         } else {
@@ -151,7 +149,6 @@ pub mod wasmtime_runner {
         wasm_config: &VMConfig,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
     ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -182,7 +179,6 @@ pub mod wasmtime_runner {
             fees_config,
             promise_results,
             &mut memory,
-            profile,
             current_protocol_version,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.

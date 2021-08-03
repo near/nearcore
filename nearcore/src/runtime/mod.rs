@@ -14,8 +14,6 @@ use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
-#[cfg(feature = "protocol_feature_evm")]
-use near_chain_configs::{BETANET_EVM_CHAIN_ID, MAINNET_EVM_CHAIN_ID, TESTNET_EVM_CHAIN_ID};
 use near_crypto::{PublicKey, Signature};
 use near_epoch_manager::{EpochManager, RewardCalculator};
 use near_pool::types::PoolIterator;
@@ -437,9 +435,6 @@ impl NightshadeRuntime {
             config: self.runtime_config.for_protocol_version(current_protocol_version).clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: self.evm_chain_id(),
-            profile: Default::default(),
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
                 is_first_block_of_version,
@@ -1313,8 +1308,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &mut logs,
                         &self.epoch_manager,
                         current_protocol_version,
-                        #[cfg(feature = "protocol_feature_evm")]
-                        self.evm_chain_id(),
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
@@ -1527,16 +1520,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             && chunk_epoch_id != head_next_epoch_id)
     }
 
-    #[cfg(feature = "protocol_feature_evm")]
-    /// ID of the EVM chain: https://github.com/ethereum-lists/chains
-    fn evm_chain_id(&self) -> u64 {
-        match self.genesis_config.chain_id.as_str() {
-            "mainnet" => MAINNET_EVM_CHAIN_ID,
-            "testnet" => TESTNET_EVM_CHAIN_ID,
-            _ => BETANET_EVM_CHAIN_ID,
-        }
-    }
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
@@ -1603,7 +1586,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
-        #[cfg(feature = "protocol_feature_evm")] evm_chain_id: u64,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
         let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
         let view_state = ViewApplyState {
@@ -1615,8 +1597,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             block_timestamp,
             current_protocol_version,
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id,
         };
         self.trie_viewer.call_function(
             state_update,

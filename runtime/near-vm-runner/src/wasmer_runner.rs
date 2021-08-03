@@ -3,9 +3,7 @@ use crate::memory::WasmerMemory;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{
-    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
-};
+use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
@@ -14,7 +12,7 @@ use wasmer_runtime::{ImportObject, Module};
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
-    if let Some(Func(index)) = info.exports.get(method_name) {
+    if let Some(Func(index)) = info.exports.map.get(method_name) {
         let func = info.func_assoc.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
@@ -218,7 +216,6 @@ pub fn run_wasmer<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -264,7 +261,6 @@ pub fn run_wasmer<'a>(
         fees_config,
         promise_results,
         &mut memory,
-        profile,
         current_protocol_version,
     );
 
@@ -318,7 +314,6 @@ pub(crate) fn run_wasmer0_module<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if method_name.is_empty() {
@@ -339,7 +334,6 @@ pub(crate) fn run_wasmer0_module<'a>(
         fees_config,
         promise_results,
         memory,
-        profile,
         current_protocol_version,
     );
 

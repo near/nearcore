@@ -307,6 +307,12 @@ class RainbowBridge:
         self.cli_dir = os.path.join(self.bridge_dir, 'cli')
         if not os.path.exists(self.bridge_dir):
             self.git_clone_install()
+        # TODO(aurora-is-near/rainbow-bridge#150): Rainbow Bridge has some tools
+        # written in Go [yuck] and the tests assemble and run all the things
+        # related to the bridge which means that it requires Go compiler.  See
+        # <https://github.com/aurora-is-near/rainbow-bridge/tree/master/eth2near/ethashproof/ethash>
+        # for an example.  Delete this check once the dependency on Go is no
+        # longer there.
         if not os.path.exists(os.path.expanduser("~/go")):
             logger.error('Go must be installed')
             assert False
@@ -364,10 +370,9 @@ class RainbowBridge:
 
     def git_clone_install(self):
         logger.info('No rainbow-bridge repo found, cloning...')
-        args = ('git clone --recurse-submodules %s %s' %
-                (self.config['bridge_repo'], self.bridge_dir)).split()
-        assert subprocess.check_output(args).decode('ascii').strip(
-        ) == "Submodule path 'eth2near/ethashproof': checked out 'b7e7e22979a9b25043b649c22e41cb149267fbeb'"
+        args = ('git', 'clone', '--recurse-submodules',
+                str(self.config['bridge_repo']), str(self.bridge_dir))
+        subprocess.check_call(args)
         assert_success(subprocess.check_output(['yarn'], cwd=self.bridge_dir))
         ethash_dir = os.path.join(self.bridge_dir, 'eth2near/ethashproof')
         assert_success(subprocess.check_output(['/bin/sh', 'build.sh'], cwd=ethash_dir))

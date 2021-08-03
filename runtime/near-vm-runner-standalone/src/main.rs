@@ -10,16 +10,16 @@ mod script;
 mod tracing_timings;
 
 use crate::script::Script;
-use clap::{App, Arg};
-use near_vm_logic::mocks::mock_external::Receipt;
+use clap::Clap;
 use near_vm_logic::VMOutcome;
+use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
 use near_vm_runner::{VMError, VMKind};
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
     {Deserialize, Deserializer, Serialize, Serializer},
 };
-use std::path::Path;
+use std::path::PathBuf;
 use std::{collections::HashMap, fmt, fs};
 
 #[derive(Debug, Clone)]
@@ -64,6 +64,51 @@ impl<'de> Deserialize<'de> for State {
     }
 }
 
+#[derive(Clap)]
+struct CliArgs {
+    /// Specifies the execution context in JSON format, see `VMContext`.
+    #[clap(long)]
+    context: Option<String>,
+    /// Reads the context from the file.
+    #[clap(long)]
+    context_file: Option<PathBuf>,
+    /// Overrides input field of the context with the given string.
+    #[clap(long)]
+    input: Option<String>,
+    /// The name of the method to call on the smart contract.
+    #[clap(long)]
+    method_name: String,
+    /// Key-value state in JSON base64 format for the smart contract as HashMap.
+    #[clap(long)]
+    state: Option<String>,
+    /// Reads the state from the file
+    #[clap(long)]
+    state_file: Option<PathBuf>,
+    /// If the contract should be called by a callback or several callbacks you
+    /// can pass result of executing functions that trigger the callback. For
+    /// non-callback calls it can be omitted.
+    #[clap(long)]
+    promise_results: Vec<String>,
+    /// Specifies the economics and Wasm config in JSON format, see `Config`.
+    #[clap(long)]
+    config: Option<String>,
+    /// Reads the config from the file.
+    #[clap(long)]
+    config_file: Option<PathBuf>,
+    /// File path that contains the Wasm code to run.
+    #[clap(long)]
+    wasm_file: PathBuf,
+    /// Select VM kind to run.
+    #[clap(long, possible_values = &["wasmer", "wasmer1", "wasmtime"])]
+    vm_kind: Option<String>,
+    /// Prints execution times of various components.
+    #[clap(long)]
+    timings: bool,
+    /// Protocol version.
+    #[clap(long)]
+    protocol_version: Option<ProtocolVersion>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
@@ -73,157 +118,56 @@ struct StandaloneOutput {
 }
 
 fn main() {
-    let matches = App::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .author(env!("CARGO_PKG_AUTHORS"))
-        .about(env!("CARGO_PKG_DESCRIPTION"))
-        .arg(
-            Arg::with_name("context")
-                .long("context")
-                .value_name("CONTEXT")
-                .help("Specifies the execution context in JSON format, see `VMContext`.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("context-file")
-                .long("context-file")
-                .value_name("CONTEXT_FILE")
-                .help("Reads the context from the file.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("input")
-                .long("input")
-                .value_name("INPUT")
-                .help("Overrides input field of the context with the given string.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("method-name")
-                .long("method-name")
-                .value_name("METHOD_NAME")
-                .help("The name of the method to call on the smart contract.")
-                .takes_value(true)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("state")
-                .long("state")
-                .value_name("STATE")
-                .help("Key-value state in JSON base64 format for the smart contract \
-                as HashMap.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("state-file")
-                .long("state-file")
-                .value_name("STATE_FILE")
-                .help("Reads the state from the file")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("promise-results")
-                .long("promise-results")
-                .value_name("PROMISE-RESULTS")
-                .help("If the contract should be called by a callback or several callbacks you can pass \
-                result of executing functions that trigger the callback. For non-callback calls it can be omitted.")
-                .multiple(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("config")
-                .long("config")
-                .value_name("CONFIG")
-                .help("Specifies the economics and Wasm config in JSON format, see `Config`.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("config-file")
-                .long("config-file")
-                .value_name("CONFIG_FILE")
-                .help("Reads the config from the file.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("wasm-file")
-                .long("wasm-file")
-                .value_name("WASM_FILE")
-                .help("File path that contains the Wasm code to run.")
-                .takes_value(true)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("vm-kind")
-                .long("vm-kind")
-                .value_name("VM_KIND")
-                .help("Select VM kind to run.")
-                .takes_value(true)
-                .possible_values(&["wasmer", "wasmer1", "wasmtime"]),
-        )
-        .arg(
-            Arg::with_name("timings")
-                .long("timings")
-                .help("Prints execution times of various components.")
-        )
-        .arg(
-            Arg::with_name("protocol-version")
-                .long("protocol-version")
-                .help("Protocol version")
-                .takes_value(true),
-        )
-        .get_matches();
+    let cli_args = CliArgs::parse();
 
-    if matches.is_present("timings") {
+    if cli_args.timings {
         tracing_timings::enable();
     }
 
     let mut script = Script::default();
 
-    match matches.value_of("vm-kind") {
+    match cli_args.vm_kind.as_deref() {
         Some("wasmtime") => script.vm_kind(VMKind::Wasmtime),
         Some("wasmer") => script.vm_kind(VMKind::Wasmer0),
         Some("wasmer1") => script.vm_kind(VMKind::Wasmer1),
         _ => (),
     };
-    if let Some(config) = matches.value_of("config") {
+    if let Some(config) = &cli_args.config {
         script.vm_config(serde_json::from_str(config).unwrap());
     }
-    if let Some(path) = matches.value_of("config-file") {
-        script.vm_config_from_file(Path::new(path));
+    if let Some(path) = &cli_args.config_file {
+        script.vm_config_from_file(path);
     }
-    if let Some(version) = matches.value_of("protocol-version") {
-        script.protocol_version(version.parse().unwrap())
+    if let Some(version) = cli_args.protocol_version {
+        script.protocol_version(version)
     }
 
-    if let Some(state_str) = matches.value_of("state") {
+    if let Some(state_str) = &cli_args.state {
         script.initial_state(serde_json::from_str(state_str).unwrap());
     }
-    if let Some(path) = matches.value_of("state-file") {
-        script.initial_state_from_file(Path::new(path));
+    if let Some(path) = &cli_args.state_file {
+        script.initial_state_from_file(path);
     }
 
-    let code = fs::read(matches.value_of("wasm-file").unwrap()).unwrap();
+    let code = fs::read(&cli_args.wasm_file).unwrap();
     let contract = script.contract(code);
 
-    let method = matches.value_of("method-name").unwrap();
-    let step = script.step(contract, method);
+    let step = script.step(contract, &cli_args.method_name);
 
-    if let Some(value) = matches.value_of("context") {
+    if let Some(value) = &cli_args.context {
         step.context(serde_json::from_str(value).unwrap());
     }
-    if let Some(path) = matches.value_of("context-file") {
-        step.context_from_file(Path::new(path));
+    if let Some(path) = &cli_args.context_file {
+        step.context_from_file(path);
     }
 
-    if let Some(value) = matches.value_of("input") {
+    if let Some(value) = cli_args.input {
         step.input(value.as_bytes().to_vec());
     }
 
-    if let Some(values) = matches.values_of("promise-results") {
-        let promise_results =
-            values.map(serde_json::from_str).collect::<Result<Vec<_>, _>>().unwrap();
-        step.promise_results(promise_results);
-    }
+    let promise_results =
+        cli_args.promise_results.iter().map(|it| serde_json::from_str(it).unwrap()).collect();
+    step.promise_results(promise_results);
 
     let mut results = script.run();
     let (outcome, err) = results.outcomes.pop().unwrap();
@@ -236,7 +180,7 @@ fn main() {
     println!(
         "{}",
         serde_json::to_string(&StandaloneOutput {
-            outcome,
+            outcome: outcome.clone(),
             err,
             receipts: results.state.get_receipt_create_calls().clone(),
             state: State(results.state.fake_trie),
@@ -244,6 +188,11 @@ fn main() {
         .unwrap()
     );
 
-    assert_eq!(all_gas, results.profile.all_gas());
-    println!("{:#?}", results.profile);
+    match &outcome {
+        Some(outcome) => {
+            assert_eq!(all_gas, outcome.profile.all_gas());
+            println!("{:#?}", outcome.profile);
+        }
+        _ => {}
+    }
 }

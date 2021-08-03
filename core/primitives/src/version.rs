@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 25;
+pub const DB_VERSION: DbVersion = 26;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -99,8 +99,6 @@ pub enum ProtocolFeature {
     MathExtension,
 
     // nightly features
-    #[cfg(feature = "protocol_feature_evm")]
-    EVM,
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -139,8 +137,6 @@ impl ProtocolFeature {
             ProtocolFeature::MathExtension => 46,
 
             // Nightly features
-            #[cfg(feature = "protocol_feature_evm")]
-            ProtocolFeature::EVM => 103,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]

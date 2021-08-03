@@ -9,7 +9,6 @@ import logging
 import os
 import sys
 import time
-import shutil
 import subprocess
 import base58
 
@@ -17,7 +16,7 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout, load_test_contract
+from utils import wait_for_blocks_or_timeout, load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx
 
 logging.basicConfig(level=logging.INFO)
@@ -56,10 +55,7 @@ def send_some_tx(node):
 def main():
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test("master")
-    node_root = "/tmp/near/db_migration"
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
+    node_root = get_near_tempdir('db_migration', clean=True)
 
     logging.info(f"The near root is {near_root}...")
     logging.info(f"The node root is {node_root}...")
@@ -83,8 +79,8 @@ def main():
 
     logging.info("Starting the stable node...")
 
-    node = cluster.spin_up_node(config, near_root, node_root , 0, None,
-                                       None)
+    node = cluster.spin_up_node(config, near_root, str(node_root) , 0, None,
+                                None)
 
     logging.info("Running the stable node...")
     wait_for_blocks_or_timeout(node, 20, 100)
