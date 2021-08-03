@@ -7,7 +7,7 @@ use actix::{Addr, System};
 use futures::{future, FutureExt};
 use log::info;
 
-use crate::test_helpers::heavy_test;
+use integration_tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chunks::{
     CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
