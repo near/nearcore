@@ -1,4 +1,4 @@
-use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
+use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
@@ -7,7 +7,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
@@ -43,7 +43,12 @@ impl StandaloneRuntime {
         self.signer.account_id.clone()
     }
 
-    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], tries: ShardTries) -> Self {
+    pub fn new(
+        signer: InMemorySigner,
+        state_records: &[StateRecord],
+        tries: ShardTries,
+        validators: Vec<AccountInfo>,
+    ) -> Self {
         let mut runtime_config = random_config();
         // Bumping costs to avoid inflation overflows.
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
@@ -53,8 +58,14 @@ impl StandaloneRuntime {
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
-        let genesis =
-            Genesis::new(GenesisConfig::default(), GenesisRecords(state_records.to_vec()));
+        let genesis = Genesis::new(
+            GenesisConfig {
+                validators,
+                total_supply: get_initial_supply(state_records),
+                ..Default::default()
+            },
+            GenesisRecords(state_records.to_vec()),
+        );
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
         genesis.for_each_record(|record: &StateRecord| {
@@ -143,6 +154,7 @@ pub struct RuntimeGroup {
     pub mailboxes: (Mutex<HashMap<String, RuntimeMailbox>>, Condvar),
     pub state_records: Arc<Vec<StateRecord>>,
     pub signers: Vec<InMemorySigner>,
+    pub validators: Vec<AccountInfo>,
 
     /// Account id of the runtime on which the transaction was executed mapped to the transactions.
     pub executed_transactions: Mutex<HashMap<String, Vec<SignedTransaction>>>,
@@ -160,7 +172,7 @@ impl RuntimeGroup {
     ) -> Arc<Self> {
         let mut res = Self::default();
         assert!(num_existing_accounts <= account_ids.len() as u64);
-        let (state_records, signers) =
+        let (state_records, signers, validators) =
             Self::state_records_signers(account_ids, num_existing_accounts, contract_code);
         Arc::make_mut(&mut res.state_records).extend(state_records);
 
@@ -168,6 +180,7 @@ impl RuntimeGroup {
             res.signers.push(signer.clone());
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
         }
+        res.validators = validators;
         Arc::new(res)
     }
 
@@ -181,10 +194,11 @@ impl RuntimeGroup {
         account_ids: Vec<AccountId>,
         num_existing_accounts: u64,
         contract_code: &[u8],
-    ) -> (Vec<StateRecord>, Vec<InMemorySigner>) {
+    ) -> (Vec<StateRecord>, Vec<InMemorySigner>, Vec<AccountInfo>) {
         let code_hash = hash(contract_code);
         let mut state_records = vec![];
         let mut signers = vec![];
+        let mut validators = vec![];
         for (i, account_id) in account_ids.into_iter().enumerate() {
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
             if (i as u64) < num_existing_accounts {
@@ -199,10 +213,15 @@ impl RuntimeGroup {
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
+                validators.push(AccountInfo {
+                    account_id: signer.account_id.clone(),
+                    public_key: signer.public_key.clone(),
+                    amount: if (i as u64) < num_existing_accounts { TESTING_INIT_STAKE } else { 0 },
+                });
             }
             signers.push(signer);
         }
-        (state_records, signers)
+        (state_records, signers, validators)
     }
 
     pub fn start_runtimes(
@@ -225,8 +244,9 @@ impl RuntimeGroup {
         for signer in &group.signers {
             let signer = signer.clone();
             let state_records = Arc::clone(&group.state_records);
+            let validators = group.validators.clone();
             let runtime_factory =
-                move || StandaloneRuntime::new(signer, &state_records, create_tries());
+                move || StandaloneRuntime::new(signer, &state_records, create_tries(), validators);
             handles.push(Self::start_runtime_in_thread(group.clone(), runtime_factory));
         }
         handles

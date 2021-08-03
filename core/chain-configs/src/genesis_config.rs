@@ -528,3 +528,13 @@ impl From<ProtocolConfig> for ProtocolConfigView {
         }
     }
 }
+
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
+    let mut total_supply = 0;
+    for record in records {
+        if let StateRecord::Account { account, .. } = record {
+            total_supply += account.amount() + account.locked();
+        }
+    }
+    total_supply
+}

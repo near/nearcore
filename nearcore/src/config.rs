@@ -12,7 +12,9 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
+use near_chain_configs::{
+    get_initial_supply, ClientConfig, Genesis, GenesisConfig, LogSummaryStyle,
+};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -1157,14 +1159,4 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
-}
-
-fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
-    for record in records {
-        if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
-        }
-    }
-    total_supply
 }
