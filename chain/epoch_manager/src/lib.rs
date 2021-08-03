@@ -1407,9 +1407,13 @@ mod tests {
 
     use super::*;
     use crate::reward_calculator::NUM_NS_IN_SECOND;
-    use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+    use near_primitives::epoch_manager::EpochConfig;
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    use near_primitives::epoch_manager::ShardConfig;
     use near_primitives::shard_layout::ShardLayout;
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::utils::get_num_seats_per_shard;
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
 
     impl EpochManager {
