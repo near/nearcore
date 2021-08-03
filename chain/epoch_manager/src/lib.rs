@@ -1543,7 +1543,7 @@ mod tests {
                     }
                 )],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
     }
@@ -1662,7 +1662,7 @@ mod tests {
                 change_stake(vec![("test1", amount_staked)]),
                 vec![],
                 reward(vec![("near", 0)]),
-                0,
+                0
             )
         );
     }
@@ -1707,7 +1707,7 @@ mod tests {
                 change_stake(vec![("test1", amount_staked)]),
                 vec![],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
     }
@@ -1746,7 +1746,7 @@ mod tests {
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 vec![("test1", ValidatorKickoutReason::Unstaked)],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
@@ -1764,7 +1764,7 @@ mod tests {
                 change_stake(vec![("test2", amount_staked)]),
                 vec![],
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
         record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
@@ -1782,7 +1782,7 @@ mod tests {
                 change_stake(vec![("test2", amount_staked)]),
                 vec![],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
     }
@@ -1848,7 +1848,7 @@ mod tests {
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 vec![("test1", ValidatorKickoutReason::Slashed)],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
 
@@ -1927,7 +1927,7 @@ mod tests {
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 vec![("test1", ValidatorKickoutReason::Slashed)],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
 
@@ -2297,7 +2297,7 @@ mod tests {
                     ValidatorKickoutReason::NotEnoughChunks { produced: 1, expected: 2 }
                 )],
                 reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
-                inflation,
+                inflation
             )
         );
     }
@@ -2445,7 +2445,7 @@ mod tests {
                     ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected: 1 }
                 )],
                 reward(vec![("test2", 0), ("test3", 0), ("near", 0)]),
-                0,
+                0
             )
         );
     }
@@ -2734,7 +2734,7 @@ mod tests {
                     ValidatorKickoutReason::NotEnoughChunks { produced: 2, expected: 4 }
                 )],
                 reward(vec![("test2", 0), ("near", 0)]),
-                0,
+                0
             )
         );
     }
@@ -2852,7 +2852,7 @@ mod tests {
                     ("test3", ValidatorKickoutReason::NotEnoughStake { stake: 1, threshold: 1000 })
                 ],
                 reward(vec![("test1", 0), ("near", 0)]),
-                0,
+                0
             )
         );
     }

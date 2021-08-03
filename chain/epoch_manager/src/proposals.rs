@@ -265,7 +265,7 @@ mod tests {
                 vec![],
                 HashMap::default(),
                 0,
-                3,
+                3
             )
         );
         assert_eq!(
@@ -296,7 +296,7 @@ mod tests {
                 HashMap::default(),
                 HashMap::default(),
                 0,
-                PROTOCOL_VERSION,
+                PROTOCOL_VERSION
             )
             .unwrap(),
             epoch_info_with_num_seats(
@@ -322,7 +322,7 @@ mod tests {
                 vec![],
                 HashMap::default(),
                 0,
-                20,
+                20
             )
         );
     }
@@ -357,7 +357,7 @@ mod tests {
                 change_stake(vec![("test1", 10), ("test2", 10), ("test3", 10), ("test4", 10)]),
                 vec![],
                 HashMap::default(),
-                0,
+                0
             )
         );
 
@@ -392,7 +392,7 @@ mod tests {
                 HashMap::default(),
                 HashMap::default(),
                 0,
-                PROTOCOL_VERSION,
+                PROTOCOL_VERSION
             )
             .unwrap(),
             epoch_info
