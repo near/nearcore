@@ -172,7 +172,7 @@ impl EpochManager {
         let mut all_kicked_out = true;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
-        let config = self.config.for_protocol_version(epoch_info.protocol_version);
+        let config = self.config.for_protocol_version(epoch_info.protocol_version());
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
@@ -2804,7 +2804,6 @@ mod tests {
         match &mut epoch_info {
             EpochInfo::V1(info) => info.validator_kickout = HashMap::default(),
             EpochInfo::V2(info) => info.validator_kickout = HashMap::default(),
-            EpochInfo::V3(info) => info.validator_kickout = HashMap::default(),
         }
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
         {
@@ -3274,7 +3273,7 @@ mod tests {
         let store = create_test_store();
         let shard_layout = ShardLayout::v1(
             vec![AccountId::from("aurora")],
-            vec!["h", "o"].iter().map(|x| AccountId::from(x)).collect(),
+            vec!["h", "o"].into_iter().map(|x| AccountId::from(x)).collect(),
             Some(vec![0, 0, 0, 0]),
         );
         let shard_config = ShardConfig {
@@ -3296,12 +3295,23 @@ mod tests {
         .unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        let mut block_info1 =
-            block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
-        set_block_info_protocol_version(&mut block_info1, new_protocol_version);
-        epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
-        for i in 2..6 {
-            record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
+        for i in 1..6 {
+            let mut block_info = block_info(
+                h[i],
+                i as u64,
+                i as u64 - 1,
+                h[i - 1],
+                h[i - 1],
+                h[0],
+                vec![],
+                DEFAULT_TOTAL_SUPPLY,
+            );
+            if i == 1 {
+                set_block_info_protocol_version(&mut block_info, new_protocol_version - 1);
+            } else {
+                set_block_info_protocol_version(&mut block_info, new_protocol_version);
+            }
+            epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(),

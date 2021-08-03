@@ -483,7 +483,7 @@ pub struct ValidatorWeight(ValidatorId, u64);
 pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-    use crate::types::{BlockChunkValidatorStats, NumShards, ValidatorKickoutReason};
+    use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -494,7 +494,6 @@ pub mod epoch_info {
     use std::collections::{BTreeMap, HashMap};
 
     pub use super::EpochInfoV1;
-    use crate::shard_layout::ShardLayout;
 
     /// Information per epoch.
     #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
