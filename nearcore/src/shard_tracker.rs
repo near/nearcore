@@ -105,11 +105,32 @@ impl ShardTracker {
         }
     }
 
-    fn flush_pending(&mut self) {
+    fn flush_pending(&mut self, new_shard_layout: &ShardLayout) {
         let mut shards_to_remove = HashSet::new();
-        let shard_layout = self.current_shard_layout.clone();
+        let current_shard_layout = self.current_shard_layout.clone();
+        // update tracked_accounts and tracked_shards if shard layout will change
+        if &current_shard_layout != new_shard_layout {
+            self.tracked_shards = (0..new_shard_layout.num_shards())
+                .filter(|x| {
+                    let parent_shards = new_shard_layout.parent_shards().as_ref().unwrap();
+                    self.tracked_shards.contains(&parent_shards[*x as usize])
+                })
+                .collect();
+            self.tracked_accounts =
+                self.tracked_accounts.iter().fold(HashMap::new(), |mut acc, (_, accounts)| {
+                    accounts.iter().for_each(|account_id| {
+                        let shard_id = account_id_to_shard_id(account_id, new_shard_layout);
+                        acc.entry(shard_id).or_insert_with(HashSet::new).insert(account_id.clone());
+                    });
+                    acc
+                });
+            self.actual_tracked_shards = self.tracked_shards.clone();
+            for (shard_id, _) in self.tracked_accounts.iter() {
+                self.actual_tracked_shards.insert(*shard_id);
+            }
+        }
         for account_id in self.pending_untracked_accounts.drain() {
-            let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+            let shard_id = account_id_to_shard_id(&account_id, new_shard_layout);
             self.tracked_accounts.entry(shard_id).and_modify(|e| {
                 e.remove(&account_id);
             });
@@ -144,13 +165,12 @@ impl ShardTracker {
         if self.current_epoch_id != epoch_id {
             // if epoch id has changed, we need to flush the pending removals
             // and update the shards to track
-            self.flush_pending();
-            self.current_epoch_id = epoch_id;
-            {
+            let new_shard_layout = {
                 let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-                self.current_shard_layout =
-                    epoch_manager.get_shard_layout(&self.current_epoch_id)?;
-            }
+                epoch_manager.get_shard_layout(&self.current_epoch_id)?
+            };
+            self.flush_pending(&new_shard_layout);
+            self.current_epoch_id = epoch_id;
         }
         Ok(())
     }
@@ -170,6 +190,10 @@ impl ShardTracker {
     }
 
     /// Stop tracking a list of shards in the next epoch.
+    /// If ShardLayout will change in the next epoch, the shard_id specified in this function
+    /// corresponds to the new ShardLayout. For example, say the current epoch has one shard,
+    /// and the next epoch has 8 shards. Then untrack_shards(_, [0]) untracks only shard 0 in the
+    /// next epoch, instead of untracking all shards.
     #[allow(unused)]
     pub fn untrack_shards(
         &mut self,
@@ -206,6 +230,8 @@ impl ShardTracker {
         }
     }
 
+    // If ShardLayout will change in the next epoch, `shard_id` refers to shard in the new
+    // ShardLayout
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -227,7 +253,13 @@ impl ShardTracker {
             }
         }
         let mut tracker = self.clone();
-        tracker.flush_pending();
+        let new_shard_layout = {
+            let mut epoch_manager = tracker.epoch_manager.write().expect(POISONED_LOCK_ERR);
+            let next_epoch_id =
+                epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).unwrap();
+            epoch_manager.get_shard_layout(&next_epoch_id).unwrap()
+        };
+        tracker.flush_pending(&new_shard_layout);
         tracker.actual_tracked_shards.contains(&shard_id)
     }
 }
@@ -240,7 +272,7 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{EpochManager, RewardCalculator};
     use near_primitives::epoch_manager::block_info::BlockInfo;
-    use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+    use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{BlockHeight, EpochId, NumShards};
@@ -253,7 +285,10 @@ mod tests {
 
     const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
-    fn get_epoch_manager(num_shards: NumShards) -> Arc<RwLock<EpochManager>> {
+    fn get_epoch_manager(
+        num_shards: NumShards,
+        simple_nightshade_shard_config: Option<ShardConfig>,
+    ) -> Arc<RwLock<EpochManager>> {
         let store = create_test_store();
         let initial_epoch_config = EpochConfig {
             epoch_length: 1,
@@ -283,7 +318,7 @@ mod tests {
         Arc::new(RwLock::new(
             EpochManager::new(
                 store,
-                AllEpochConfig::new(initial_epoch_config, None),
+                AllEpochConfig::new(initial_epoch_config, simple_nightshade_shard_config.as_ref()),
                 PROTOCOL_VERSION,
                 reward_calculator,
                 vec![ValidatorStake::new(
@@ -327,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_track_new_accounts_and_shards() {
-        let epoch_manager = get_epoch_manager(4);
+        let epoch_manager = get_epoch_manager(4, None);
         let mut tracker = ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager);
         tracker.track_accounts(&["test1".to_string(), "test2".to_string()]);
         tracker.track_shards(&[2, 3]);
@@ -341,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_untrack_accounts() {
-        let epoch_manager = get_epoch_manager(4);
+        let epoch_manager = get_epoch_manager(4, None);
         let mut tracker =
             ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager.clone());
         tracker.track_accounts(&["test1".to_string(), "test2".to_string(), "test3".to_string()]);
@@ -367,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_untrack_shards() {
-        let epoch_manager = get_epoch_manager(4);
+        let epoch_manager = get_epoch_manager(4, None);
         let mut tracker =
             ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager.clone());
         tracker.track_accounts(&["test1".to_string(), "test2".to_string(), "test3".to_string()]);
