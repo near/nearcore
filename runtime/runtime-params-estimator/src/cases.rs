@@ -615,7 +615,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
-pub(crate) fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> Gas {
+fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> Gas {
     let divisor = match gas_metric {
         // We use factor of 8 to approximately match the price of SHA256 operation between
         // time-based and icount-based metric as measured on 3.2Ghz Core i5.
@@ -694,7 +694,8 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
 
     let measured = ExtCostsGenerator::new(measurement).compute();
     let get = |cost: ExtCosts| -> Gas {
-        *measured.get(&cost).unwrap_or_else(|| panic!("cost {} not found", cost))
+        let ratio = *measured.get(&cost).unwrap_or_else(|| panic!("cost {} not found", cost));
+        ratio_to_gas(measurement.gas_metric, ratio)
     };
 
     let (contract_compile_base_, contract_compile_bytes_) =

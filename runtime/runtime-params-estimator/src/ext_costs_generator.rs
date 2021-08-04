@@ -1,30 +1,25 @@
-use crate::cases::{ratio_to_gas, Metric};
+use crate::cases::Metric;
 use crate::stats::{DataStats, Measurements};
-use crate::testbed_runners::GasMetric;
-use near_primitives::types::Gas;
 use near_vm_logic::ExtCosts;
 use num_rational::Ratio;
 use std::collections::BTreeMap;
 
 pub struct ExtCostsGenerator {
-    gas_metric: GasMetric,
     agg: BTreeMap<Metric, DataStats>,
-    result: BTreeMap<ExtCosts, Gas>,
+    result: BTreeMap<ExtCosts, Ratio<u64>>,
 }
 
 impl ExtCostsGenerator {
     pub fn new(measurement: &Measurements) -> Self {
         let agg = measurement.aggregate();
-        let gas_metric = measurement.gas_metric;
-        Self { gas_metric, agg, result: Default::default() }
+        Self { agg, result: Default::default() }
     }
 
-    fn extract_value(&mut self, metric: Metric, ext_cost: ExtCosts) -> Gas {
+    fn extract_value(&mut self, metric: Metric, ext_cost: ExtCosts) -> Ratio<u64> {
         let base = &self.agg[&Metric::noop];
         let agg = &self.agg[&metric];
         let multiplier = agg.ext_costs[&ext_cost];
-        let ratio = Ratio::new(agg.upper_with_base(base), multiplier);
-        ratio_to_gas(self.gas_metric, ratio)
+        Ratio::new(agg.upper_with_base(base), multiplier)
     }
 
     fn extract(&mut self, metric: Metric, ext_cost: ExtCosts) {
@@ -32,7 +27,7 @@ impl ExtCostsGenerator {
         self.result.insert(ext_cost, gas);
     }
 
-    pub fn compute(mut self) -> BTreeMap<ExtCosts, Gas> {
+    pub fn compute(mut self) -> BTreeMap<ExtCosts, Ratio<u64>> {
         use ExtCosts::*;
         use Metric::*;
 
