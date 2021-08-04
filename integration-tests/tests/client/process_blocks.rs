@@ -3255,7 +3255,6 @@ mod storage_usage_fix_tests {
     use near_primitives::version::ProtocolFeature;
     use near_store::TrieUpdate;
     use std::rc::Rc;
-    use testlib::test_helpers::wait;
 
     fn process_blocks_with_storage_usage_fix(
         chain_id: String,
