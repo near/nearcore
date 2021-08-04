@@ -51,10 +51,6 @@ expensive --timeout=3000 near-chain doomslug tests::test_fuzzy_doomslug_liveness
 expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches
 expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches --features nightly_protocol,nightly_protocol_features
 
-# state sync tests
-expensive neard sync_state_nodes sync_state_nodes_multishard
-expensive neard sync_state_nodes sync_state_nodes_multishard --features nightly_protocol,nightly_protocol_features
-
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
 expensive nearcore test_tps_regression test::test_highload --features nightly_protocol,nightly_protocol_features
