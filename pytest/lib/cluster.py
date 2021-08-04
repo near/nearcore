@@ -3,6 +3,7 @@ import threading
 import subprocess
 import json
 import os
+import pathlib
 import sys
 import signal
 import atexit
@@ -836,28 +837,29 @@ def start_cluster(num_nodes,
     if not config:
         config = load_config()
 
-    if not os.path.exists(os.path.expanduser("~/.near/test0")):
+    dot_near = pathlib.Path.home() / '.near'
+    if (dot_near / 'test0').exists():
+        near_root = config['near_root']
+        node_dirs = [
+            str(dot_near / name)
+            for name in os.listdir(dot_near)
+            if name.starts_with('test') and not name.endswith('_finished')
+        ]
+    else:
         near_root, node_dirs = init_cluster(num_nodes, num_observers,
                                             num_shards, config,
                                             genesis_config_changes,
                                             client_config_changes)
-    else:
-        near_root = config['near_root']
-        node_dirs = subprocess.check_output(
-            "find ~/.near/test* -maxdepth 0",
-            shell=True).decode('utf-8').strip().split('\n')
-        node_dirs = list(
-            filter(lambda n: not n.endswith('_finished'), node_dirs))
-    ret = []
 
     proxy = NodesProxy(message_handler) if message_handler is not None else None
+    ret = []
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
+        single_node = (num_nodes == 1) and (num_observers == 0)
         node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr, [], proxy, skip_starting_proxy=True, single_node = (num_nodes == 1) and (num_observers == 0))
-        while len(ret) < i:
-            time.sleep(0.01)
-        ret.append(node)
+                            boot_addr, [], proxy, skip_starting_proxy=True,
+                            single_node=single_node)
+        ret.append((i, node))
         return node
 
     boot_node = spin_up_node_and_push(0, None, None)
@@ -873,10 +875,11 @@ def start_cluster(num_nodes,
     for handle in handles:
         handle.join()
 
-    for node in ret:
+    nodes = [node for _, node in sorted(ret)]
+    for node in nodes:
         node.start_proxy_if_needed()
 
-    return ret
+    return nodes
 
 def start_bridge(nodes, start_local_ethereum=True, handle_contracts=True, handle_relays=True, config=None):
     if not config:
