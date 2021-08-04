@@ -529,8 +529,10 @@ impl Genesis {
                 if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
                 CryptoHash::default(),
             );
+            println!("records !0: {:#?}",records);
         }
         add_protocol_account(&mut records);
+        println!("records !1: {:#?}",records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
@@ -557,6 +559,7 @@ impl Genesis {
             min_gas_price: MIN_GAS_PRICE,
             ..Default::default()
         };
+        println!("records !2: {:#?}",records);
         Genesis::new(config, records.into())
     }
 

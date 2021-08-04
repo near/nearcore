@@ -3255,13 +3255,14 @@ mod storage_usage_fix_tests {
     use near_primitives::version::ProtocolFeature;
     use near_store::TrieUpdate;
     use std::rc::Rc;
+    use testlib::test_helpers::wait;
 
     fn process_blocks_with_storage_usage_fix(
         chain_id: String,
         check_storage_usage: fn(AccountId, u64, u64),
     ) {
         let epoch_length = 5;
-        let mut genesis = Genesis::test(vec!["test0", "near"], 1);
+        let mut genesis = Genesis::test(vec!["test0", "near1"], 1);
         genesis.config.chain_id = chain_id;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
@@ -3287,7 +3288,7 @@ mod storage_usage_fix_tests {
             let state_update = TrieUpdate::new(trie.clone(), root);
             use near_primitives::account::Account;
             let mut account_near_raw = state_update
-                .get(&TrieKey::Account { account_id: "near".to_string() })
+                .get(&TrieKey::Account { account_id: "near1".to_string() })
                 .unwrap()
                 .unwrap()
                 .clone();
@@ -3298,7 +3299,7 @@ mod storage_usage_fix_tests {
                 .unwrap()
                 .clone();
             let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
-            check_storage_usage("near".to_string(), i, account_near.storage_usage());
+            check_storage_usage("near1".to_string(), i, account_near.storage_usage());
             check_storage_usage("test0".to_string(), i, account_test0.storage_usage());
         }
     }
@@ -3309,7 +3310,8 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "mainnet".to_string(),
             |account_id: AccountId, block_height: u64, storage_usage: u64| {
-                if account_id == "test0" {
+                println!("account_id: {:?} block_height: {} storage_usage: {}",account_id,block_height,storage_usage);
+                if account_id == "test0" || account_id == "near1" {
                     assert_eq!(storage_usage, 182);
                 } else if block_height >= 11 {
                     assert_eq!(storage_usage, 4560);
@@ -3321,7 +3323,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "testnet".to_string(),
             |account_id: AccountId, _: u64, storage_usage: u64| {
-                if account_id == "test0" {
+                if account_id == "test0" || account_id == "near1" {
                     assert_eq!(storage_usage, 182);
                 } else {
                     assert_eq!(storage_usage, 364);
