@@ -3310,7 +3310,10 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "mainnet".to_string(),
             |account_id: AccountId, block_height: u64, storage_usage: u64| {
-                println!("account_id: {:?} block_height: {} storage_usage: {}",account_id,block_height,storage_usage);
+                println!(
+                    "account_id: {:?} block_height: {} storage_usage: {}",
+                    account_id, block_height, storage_usage
+                );
                 if account_id == "test0" || account_id == "near1" {
                     assert_eq!(storage_usage, 182);
                 } else if block_height >= 11 {
