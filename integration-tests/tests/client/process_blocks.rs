@@ -3369,7 +3369,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "mainnet".to_string(),
             |account_id: AccountId, block_height: u64, storage_usage: u64| {
-                if account_id == "test0" || account_id == "test1" {
+                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
                     assert_eq!(storage_usage, 182);
                 } else if block_height >= 11 {
                     assert_eq!(storage_usage, 4560);
@@ -3381,7 +3381,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "testnet".to_string(),
             |account_id: AccountId, _: u64, storage_usage: u64| {
-                if account_id == "test0" || account_id == "test1" {
+                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
                     assert_eq!(storage_usage, 182);
                 } else {
                     assert_eq!(storage_usage, 364);
