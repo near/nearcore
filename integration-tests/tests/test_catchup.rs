@@ -4,8 +4,8 @@
 fn test_catchup() {
     use std::time::Duration;
 
-    use crate::node::{create_nodes, Node};
-    use crate::test_helpers::{heavy_test, wait};
+    use integration_tests::node::{create_nodes, Node};
+    use integration_tests::test_helpers::{heavy_test, wait};
     use std::sync::{Arc, RwLock};
 
     /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`. After

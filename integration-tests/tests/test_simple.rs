@@ -2,8 +2,8 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod test {
-    use crate::node::{create_nodes, sample_two_nodes, Node};
-    use crate::test_helpers::{heavy_test, wait};
+    use integration_tests::node::{create_nodes, sample_two_nodes, Node};
+    use integration_tests::test_helpers::{heavy_test, wait};
     use near_logger_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};

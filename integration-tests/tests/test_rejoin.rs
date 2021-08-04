@@ -7,8 +7,10 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
-    use crate::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
-    use crate::test_helpers::{heavy_test, wait, wait_for_catchup};
+    use integration_tests::node::{
+        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
+    };
+    use integration_tests::test_helpers::{heavy_test, wait, wait_for_catchup};
     use near_chain_configs::Genesis;
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::SignedTransaction;

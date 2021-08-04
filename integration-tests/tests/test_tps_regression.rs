@@ -10,8 +10,8 @@ mod test {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
-    use crate::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
-    use crate::test_helpers::heavy_test;
+    use integration_tests::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
+    use integration_tests::test_helpers::heavy_test;
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};
 
