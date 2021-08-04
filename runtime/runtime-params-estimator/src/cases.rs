@@ -660,12 +660,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     let generator = RuntimeFeesGenerator::new(measurement);
     let measured = generator.compute();
     let metric = measurement.gas_metric;
-    let function_call_total_cost = ratio_to_gas(metric, measured[&ActionFunctionCallBase]);
-    let function_call_cost = Fee {
-        send_sir: function_call_total_cost / 2,
-        send_not_sir: function_call_total_cost / 2,
-        execution: function_call_total_cost / 2,
-    };
+
     RuntimeFeesConfig {
         action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
         data_receipt_creation_config: DataReceiptCreationConfig {
@@ -679,7 +674,7 @@ fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
                 metric,
                 measured[&ActionDeployContractPerByte],
             ),
-            function_call_cost,
+            function_call_cost: measured_to_fee(metric, measured[&ActionFunctionCallBase]),
             function_call_cost_per_byte: measured_to_fee(
                 metric,
                 measured[&ActionFunctionCallPerByte],
