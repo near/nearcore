@@ -16,7 +16,7 @@ use near_primitives::transaction::{
 };
 
 use crate::ext_costs_generator::ExtCostsGenerator;
-use crate::runtime_fees_generator::RuntimeFeesGenerator;
+use crate::runtime_fees_generator::{ReceiptFees, RuntimeFeesGenerator};
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
@@ -649,51 +649,41 @@ pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> 
     .unwrap()
 }
 
-/// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
-fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
-    let value = ratio_to_gas(gas_metric, value);
-    Fee { send_sir: value / 2, send_not_sir: value / 2, execution: value / 2 }
-}
-
 fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     use crate::runtime_fees_generator::ReceiptFees::*;
-    let generator = RuntimeFeesGenerator::new(measurement);
-    let measured = generator.compute();
-    let metric = measurement.gas_metric;
+
+    let measured = RuntimeFeesGenerator::new(measurement).compute();
+    let get = |receipt_fee: ReceiptFees| -> Fee {
+        let ratio = *measured
+            .get(&receipt_fee)
+            .unwrap_or_else(|| panic!("receipt fee {:?} not found", receipt_fee));
+
+        // Split the total cost evenly between send and execution fee.
+        let total_gas = ratio_to_gas(measurement.gas_metric, ratio);
+        Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 }
+    };
 
     RuntimeFeesConfig {
-        action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
+        action_receipt_creation_config: get(ActionReceiptCreation),
         data_receipt_creation_config: DataReceiptCreationConfig {
-            base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase]),
-            cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte]),
+            base_cost: get(DataReceiptCreationBase),
+            cost_per_byte: get(DataReceiptCreationPerByte),
         },
         action_creation_config: ActionCreationConfig {
-            create_account_cost: measured_to_fee(metric, measured[&ActionCreateAccount]),
-            deploy_contract_cost: measured_to_fee(metric, measured[&ActionDeployContractBase]),
-            deploy_contract_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionDeployContractPerByte],
-            ),
-            function_call_cost: measured_to_fee(metric, measured[&ActionFunctionCallBase]),
-            function_call_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionFunctionCallPerByte],
-            ),
-            transfer_cost: measured_to_fee(metric, measured[&ActionTransfer]),
-            stake_cost: measured_to_fee(metric, measured[&ActionStake]),
+            create_account_cost: get(ActionCreateAccount),
+            deploy_contract_cost: get(ActionDeployContractBase),
+            deploy_contract_cost_per_byte: get(ActionDeployContractPerByte),
+            function_call_cost: get(ActionFunctionCallBase),
+            function_call_cost_per_byte: get(ActionFunctionCallPerByte),
+            transfer_cost: get(ActionTransfer),
+            stake_cost: get(ActionStake),
             add_key_cost: AccessKeyCreationConfig {
-                full_access_cost: measured_to_fee(metric, measured[&ActionAddFullAccessKey]),
-                function_call_cost: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyBase],
-                ),
-                function_call_cost_per_byte: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyPerByte],
-                ),
+                full_access_cost: get(ActionAddFullAccessKey),
+                function_call_cost: get(ActionAddFunctionAccessKeyBase),
+                function_call_cost_per_byte: get(ActionAddFunctionAccessKeyPerByte),
             },
-            delete_key_cost: measured_to_fee(metric, measured[&ActionDeleteKey]),
-            delete_account_cost: measured_to_fee(metric, measured[&ActionDeleteAccount]),
+            delete_key_cost: get(ActionDeleteKey),
+            delete_account_cost: get(ActionDeleteAccount),
         },
         ..Default::default()
     }
