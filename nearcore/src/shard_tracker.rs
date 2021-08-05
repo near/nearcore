@@ -111,7 +111,7 @@ impl ShardTracker {
         if &self.current_shard_layout != new_shard_layout {
             self.tracked_shards = (0..new_shard_layout.num_shards())
                 .filter(|x| {
-                    let parent_shards = new_shard_layout.parent_shards().as_ref().unwrap();
+                    let parent_shards = new_shard_layout.parent_shards().unwrap();
                     self.tracked_shards.contains(&parent_shards[*x as usize])
                 })
                 .collect();
@@ -313,7 +313,7 @@ mod tests {
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
-            shard_layout: ShardLayout::default(num_shards),
+            shard_layout: ShardLayout::v0(num_shards),
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::from_integer(0),

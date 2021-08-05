@@ -1,6 +1,5 @@
 use crate::borsh::maybestd::io::Cursor;
 use crate::types::{AccountId, NumShards};
-use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::ShardId;
@@ -17,9 +16,6 @@ pub enum ShardLayout {
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
-    /// Parent shards for the shards, useful for constructing states for the shards.
-    /// None for the genesis shard layout
-    parent_shards: Option<Vec<ShardId>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -35,8 +31,8 @@ pub struct ShardLayoutV1 {
 }
 
 impl ShardLayout {
-    pub fn default(num_shards: NumShards) -> Self {
-        Self::V0(ShardLayoutV0 { num_shards, parent_shards: None })
+    pub fn v0(num_shards: NumShards) -> Self {
+        Self::V0(ShardLayoutV0 { num_shards })
     }
 
     pub fn v1(
@@ -46,11 +42,12 @@ impl ShardLayout {
     ) -> Self {
         Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, parent_shards })
     }
+
     #[inline]
-    pub fn parent_shards(&self) -> &Option<Vec<ShardId>> {
+    pub fn parent_shards(&self) -> Option<&Vec<ShardId>> {
         match self {
-            Self::V0(v0) => &v0.parent_shards,
-            Self::V1(v1) => &v1.parent_shards,
+            Self::V0(_) => None,
+            Self::V1(v1) => v1.parent_shards.as_ref(),
         }
     }
 
@@ -102,7 +99,7 @@ mod tests {
     #[test]
     fn test_account_id_to_shard_id_v0() {
         let num_shards = 4;
-        let shard_layout = ShardLayout::default(num_shards);
+        let shard_layout = ShardLayout::v0(num_shards);
         let mut shard_id_distribution: HashMap<_, _> =
             (0..num_shards).map(|x| (x, 0)).into_iter().collect();
         for i in 1..=1000 {

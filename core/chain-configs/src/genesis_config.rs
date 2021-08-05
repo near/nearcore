@@ -151,7 +151,7 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
-            shard_layout: ShardLayout::default(
+            shard_layout: ShardLayout::v0(
                 config.num_block_producer_seats_per_shard.len() as NumShards
             ),
         }

@@ -3321,10 +3321,7 @@ mod tests {
             epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(),
             new_protocol_version - 1
         );
-        assert_eq!(
-            epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(),
-            ShardLayout::default(1),
-        );
+        assert_eq!(epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(), ShardLayout::v0(1),);
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
             new_protocol_version
@@ -3349,7 +3346,7 @@ mod tests {
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
             minimum_stake_divisor: 1,
-            shard_layout: ShardLayout::default(1),
+            shard_layout: ShardLayout::v0(1),
         };
         let config = AllEpochConfig::new(epoch_config, None);
         let amount_staked = 1_000_000;
