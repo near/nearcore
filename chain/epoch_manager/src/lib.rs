@@ -3285,7 +3285,7 @@ mod tests {
             avg_hidden_validator_seats_per_shard: get_num_seats_per_shard(4, 0),
             shard_layout: shard_layout.clone(),
         };
-        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, Some(&shard_config));
+        let config = epoch_config(2, 1, 2, 0, 90, 60, 0, Some(shard_config));
         let amount_staked = 1_000_000;
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let new_protocol_version = SimpleNightshade.protocol_version();

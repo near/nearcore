@@ -133,7 +133,7 @@ pub fn epoch_config(
     block_producer_kickout_threshold: u8,
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
-    simple_nightshade_shard_config: Option<&ShardConfig>,
+    simple_nightshade_shard_config: Option<ShardConfig>,
 ) -> AllEpochConfig {
     let epoch_config = EpochConfig {
         epoch_length,
@@ -191,7 +191,7 @@ pub fn setup_epoch_manager_with_simple_nightshade_config(
     chunk_producer_kickout_threshold: u8,
     fishermen_threshold: Balance,
     reward_calculator: RewardCalculator,
-    simple_nightshade_config: Option<&ShardConfig>,
+    simple_nightshade_config: Option<ShardConfig>,
 ) -> EpochManager {
     let store = create_test_store();
     let config = epoch_config(

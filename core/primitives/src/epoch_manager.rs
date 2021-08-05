@@ -69,7 +69,7 @@ pub struct AllEpochConfig {
 impl AllEpochConfig {
     pub fn new(
         genesis_epoch_config: EpochConfig,
-        simple_nightshade_shard_config: Option<&ShardConfig>,
+        simple_nightshade_shard_config: Option<ShardConfig>,
     ) -> Self {
         let mut config = genesis_epoch_config.clone();
         match simple_nightshade_shard_config {
@@ -78,20 +78,18 @@ impl AllEpochConfig {
                 avg_hidden_validator_seats_per_shard,
                 shard_layout,
             }) => {
-                config.num_block_producer_seats_per_shard =
-                    num_block_producer_seats_per_shard.clone();
-                config.avg_hidden_validator_seats_per_shard =
-                    avg_hidden_validator_seats_per_shard.clone();
-                config.shard_layout = shard_layout.clone();
+                config.num_block_producer_seats_per_shard = num_block_producer_seats_per_shard;
+                config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
+                config.shard_layout = shard_layout;
             }
             None => (),
         }
-        let genesis_epoch_config = Arc::new(genesis_epoch_config.clone());
+        let genesis_epoch_config = Arc::new(genesis_epoch_config);
         let simple_nightshade_epoch_config = Arc::new(config);
         Self { genesis_epoch_config, simple_nightshade_epoch_config }
     }
 
-    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &Arc<EpochConfig> {
+    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
         if checked_feature!(
             "protocol_feature_simple_nightshade",
             SimpleNightshade,

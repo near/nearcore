@@ -7,13 +7,13 @@ use near_primitives_core::types::ShardId;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering::Greater;
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ShardLayout {
     V0(ShardLayoutV0),
     V1(ShardLayoutV1),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
@@ -22,7 +22,7 @@ pub struct ShardLayoutV0 {
     parent_shards: Option<Vec<ShardId>>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
     /// Each account and all subaccounts map to the shard of position in this array.

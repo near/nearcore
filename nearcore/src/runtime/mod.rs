@@ -158,7 +158,7 @@ impl NightshadeRuntime {
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let all_epoch_config = AllEpochConfig::new(
             initial_epoch_config,
-            genesis.config.simple_nightshade_shard_config.as_ref(),
+            genesis.config.simple_nightshade_shard_config.clone(),
         );
         let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =

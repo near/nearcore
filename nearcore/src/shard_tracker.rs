@@ -162,7 +162,6 @@ impl ShardTracker {
             (epoch_manager.get_prev_epoch_id(block_hash)?, epoch_manager.get_epoch_id(block_hash)?)
         };
         if self.current_epoch_id != epoch_id {
-            //assert_eq!(self.current_epoch_id, prev_epoch_id);
             // if epoch id has changed, we need to flush the pending removals
             // and update the shards to track
             let new_shard_layout = {
@@ -329,7 +328,7 @@ mod tests {
         Arc::new(RwLock::new(
             EpochManager::new(
                 store,
-                AllEpochConfig::new(initial_epoch_config, simple_nightshade_shard_config.as_ref()),
+                AllEpochConfig::new(initial_epoch_config, simple_nightshade_shard_config),
                 genesis_protocol_version,
                 reward_calculator,
                 vec![ValidatorStake::new(
