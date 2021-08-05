@@ -2770,6 +2770,7 @@ dependencies = [
  "futures",
  "log",
  "near-chain",
+ "near-chunks-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-network",
@@ -2779,6 +2780,13 @@ dependencies = [
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde",
+]
+
+[[package]]
+name = "near-chunks-primitives"
+version = "0.1.0"
+dependencies = [
+ "near-chain-primitives",
 ]
 
 [[package]]
@@ -2832,7 +2840,7 @@ dependencies = [
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",
- "near-chunks",
+ "near-chunks-primitives",
  "near-crypto",
  "near-network",
  "near-primitives",

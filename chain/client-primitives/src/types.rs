@@ -33,7 +33,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain_primitives::Error),
-    Chunk(near_chunks::Error),
+    Chunk(near_chunks_primitives::Error),
     BlockProducer(String),
     ChunkProducer(String),
     Other(String),
@@ -66,8 +66,8 @@ impl From<near_chain_primitives::ErrorKind> for Error {
     }
 }
 
-impl From<near_chunks::Error> for Error {
-    fn from(err: near_chunks::Error) -> Self {
+impl From<near_chunks_primitives::Error> for Error {
+    fn from(err: near_chunks_primitives::Error) -> Self {
         Error::Chunk(err)
     }
 }
