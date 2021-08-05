@@ -159,7 +159,7 @@ impl RuntimeTestbed {
         }
     }
 
-    pub fn dump_state(self) -> &Path {
+    pub fn dump_state(self) -> Result<&Path, Box<dyn std::error::Error>> {
         let mut dump_path = self.workdir.path();
         dump_path.push("state_dump");
         let store = self.tries.get_store();
@@ -172,7 +172,7 @@ impl RuntimeTestbed {
             let data = roots.try_to_vec()?;
             file.write_all(&data)?;
         }
-        self.workdir.path()
+        Ok(self.workdir.path())
     }
 }
 

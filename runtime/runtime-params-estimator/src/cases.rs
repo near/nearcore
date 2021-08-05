@@ -592,7 +592,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     };
 
     let testbed_inner = testbed.lock().unwrap();
-    let dump_dir = testbed_inner.dump_state();
+    let dump_dir = testbed_inner.dump_state().unwrap();
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
         // let testbed_inner = testbed.lock().unwrap();
