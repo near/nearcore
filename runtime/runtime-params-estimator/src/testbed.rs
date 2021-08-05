@@ -163,7 +163,7 @@ impl Clone for RuntimeTestbed {
     fn clone(&self) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().display());
-        copy(self.workdir.path(), workdir.path(), &CopyOptions::default())?;
+        copy(self.workdir.path(), workdir.path(), &CopyOptions::default()).unwrap();
         let store = create_store(&get_store_path(workdir.path()));
         let tries = ShardTries::new(store.clone(), 1);
 
