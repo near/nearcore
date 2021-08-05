@@ -200,3 +200,7 @@ def test_outcome_proof():
 
     check_transaction_outcome_proof(nodes, True, 20)
     check_transaction_outcome_proof(nodes, False, 30)
+
+
+if __name__ == '__main__':
+    test_outcome_proof()
