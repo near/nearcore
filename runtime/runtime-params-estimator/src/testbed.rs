@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use fs_extra::dir::{copy, CopyOptions};
 
 use borsh::BorshDeserialize;
 
@@ -10,9 +11,9 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot};
+use near_primitives::types::{Gas, MerkleHash, StateRoot, BlockHeight};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
+use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache, Store};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
@@ -77,9 +78,24 @@ impl RuntimeTestbed {
         let runtime = Runtime::new();
         let prev_receipts = vec![];
 
-        let apply_state = ApplyState {
+        let apply_state = RuntimeTestbed::create_apply_state(1, runtime_config,store.clone());
+
+        Self {
+            workdir,
+            tries,
+            root,
+            runtime,
+            prev_receipts,
+            apply_state,
+            epoch_info_provider: MockEpochInfoProvider::default(),
+            genesis,
+        }
+    }
+
+    fn create_apply_state(block_index: BlockHeight, runtime_config: RuntimeConfig, store: Arc<Store>) -> ApplyState {
+        ApplyState {
             // Put each runtime into a separate shard.
-            block_index: 1,
+            block_index,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -91,20 +107,10 @@ impl RuntimeTestbed {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Arc::new(StoreCompiledContractCache { store })),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
-        };
-        Self {
-            workdir,
-            tries,
-            root,
-            runtime,
-            prev_receipts,
-            apply_state,
-            epoch_info_provider: MockEpochInfoProvider::default(),
-            genesis,
         }
     }
 
@@ -149,6 +155,27 @@ impl RuntimeTestbed {
     pub fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) {
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
+        }
+    }
+}
+
+impl Clone for RuntimeTestbed {
+    fn clone(&self) -> Self {
+        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
+        println!("workdir {}", workdir.path().display());
+        copy(self.workdir.path(), workdir.path(), &CopyOptions::default())?;
+        let store = create_store(&get_store_path(workdir.path()));
+        let tries = ShardTries::new(store.clone(), 1);
+
+        RuntimeTestbed {
+            workdir,
+            tries,
+            root: self.root.clone(),
+            runtime: Runtime::new(),
+            genesis: self.genesis.clone(),
+            prev_receipts: self.prev_receipts.clone(),
+            apply_state: RuntimeTestbed::create_apply_state(self.apply_state.block_index, *self.apply_state.config, store.clone()),
+            epoch_info_provider: MockEpochInfoProvider::default(),
         }
     }
 }
