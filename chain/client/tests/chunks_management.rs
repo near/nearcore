@@ -100,7 +100,8 @@ fn update_chunk_height_created(
 fn store_partial_encoded_chunk_sanity() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    let signer = InMemoryValidatorSigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signer =
+        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut partial_encoded_chunk = PartialEncodedChunkV2 {
         header: ShardChunkHeader::V2(ShardChunkHeaderV2::new(
             CryptoHash::default(),

@@ -16,7 +16,6 @@ use near_primitives_core::runtime::fees::{
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
-use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
@@ -517,7 +516,7 @@ impl<'a> VMLogic<'a> {
 
         self.internal_write_register(
             register_id,
-            self.context.current_account_id.as_bytes().to_vec(),
+            self.context.current_account_id.as_ref().as_bytes().to_vec(),
         )
     }
 
@@ -545,7 +544,7 @@ impl<'a> VMLogic<'a> {
         }
         self.internal_write_register(
             register_id,
-            self.context.signer_account_id.as_bytes().to_vec(),
+            self.context.signer_account_id.as_ref().as_bytes().to_vec(),
         )
     }
 
@@ -596,7 +595,7 @@ impl<'a> VMLogic<'a> {
         }
         self.internal_write_register(
             register_id,
-            self.context.predecessor_account_id.as_bytes().to_vec(),
+            self.context.predecessor_account_id.as_ref().as_bytes().to_vec(),
         )
     }
 
@@ -1606,7 +1605,7 @@ impl<'a> VMLogic<'a> {
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
         let is_receiver_implicit =
             is_implicit_account_creation_enabled(self.current_protocol_version)
-                && is_account_id_64_len_hex(receiver_id);
+                && AccountId::is_implicit(receiver_id.as_ref());
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
@@ -2148,6 +2147,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If account is not UTF-8 encoded then returns `BadUtf8`;
+    /// * If account is not valid then returns `InvalidAccountId`.
     ///
     /// # Cost
     ///
@@ -2158,7 +2158,17 @@ impl<'a> VMLogic<'a> {
         let buf = self.get_vec_from_memory_or_register(ptr, len)?;
         self.gas_counter.pay_base(utf8_decoding_base)?;
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
-        let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
+
+        // We return an illegally constructed AccountId here for the sake of ensuring
+        // backwards compatibility. For paths previously involving validation, like receipts
+        // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
+        // mimicing previous behaviour.
+        let account_id = String::from_utf8(buf)
+            .map(
+                #[allow(deprecated)]
+                AccountId::new_unvalidated,
+            )
+            .map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
     }
 
