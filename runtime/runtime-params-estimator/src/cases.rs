@@ -591,10 +591,12 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
 
+    let testbed_inner = testbed.lock().unwrap();
+    let dump_dir = testbed_inner.dump_state();
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        let testbed_inner = testbed.lock().unwrap();
-        let local_testbed = Arc::new(Mutex::new(testbed_inner.clone()));
+        // let testbed_inner = testbed.lock().unwrap();
+        let local_testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(dump_dir)));
         measure_function(
             metric,
             method_name,
