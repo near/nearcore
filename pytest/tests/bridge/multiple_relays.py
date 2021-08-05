@@ -5,6 +5,7 @@
 # Wait at the end for 60 seconds more to make sure balances are not chaning.
 
 import sys, time
+sys.path.append('lib')
 from configured_logger import logger
 
 add_relay_while_tx = False

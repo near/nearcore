@@ -79,8 +79,6 @@ pytest --timeout=300 sanity/large_messages.py
 pytest --timeout=300 sanity/large_messages.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=120 sanity/handshake_tie_resolution.py
 pytest --timeout=120 sanity/handshake_tie_resolution.py --features nightly_protocol,nightly_protocol_features
-pytest sanity/controlled_edge_nonce.py
-pytest sanity/controlled_edge_nonce.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/repro_2916.py
 pytest sanity/repro_2916.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/switch_node_key.py
