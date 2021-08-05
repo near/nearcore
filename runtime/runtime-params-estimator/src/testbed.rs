@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use fs_extra::dir::{copy, CopyOptions};
 
 use borsh::BorshDeserialize;
@@ -159,7 +159,7 @@ impl RuntimeTestbed {
         }
     }
 
-    pub fn dump_state(self) -> Result<&'static Path, Box<dyn std::error::Error>> {
+    pub fn dump_state(self) -> Result<PathBuf, Box<dyn std::error::Error>> {
         let mut dump_path = self.workdir.path().to_path_buf();
         dump_path.push("state_dump");
         let store = self.tries.get_store();
@@ -172,7 +172,7 @@ impl RuntimeTestbed {
             let data = roots.try_to_vec()?;
             file.write_all(&data)?;
         }
-        Ok(self.workdir.path())
+        Ok(self.workdir.path().to_path_buf())
     }
 }
 
