@@ -600,18 +600,20 @@ pub fn run(mut config: Config, only_compile: bool) -> CostTable {
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        let local_testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(dump_path)));
-        measure_function(
-            metric,
-            method_name,
-            &mut m,
-            local_testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
+        if !config.should_skip(metric) {
+            let local_testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(dump_path)));
+            measure_function(
+                metric,
+                method_name,
+                &mut m,
+                local_testbed,
+                &ad,
+                &mut nonces,
+                &config,
+                false,
+                vec![],
+            );
+        }
     }
 
     let contract_compile_costs = compute_compile_cost_vm(config.metric, config.vm_kind, false);
