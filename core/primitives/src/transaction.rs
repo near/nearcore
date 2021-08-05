@@ -384,7 +384,7 @@ impl fmt::Debug for ExecutionOutcome {
             .field("burnt_gas", &self.gas_burnt)
             .field("tokens_burnt", &self.tokens_burnt)
             .field("status", &self.status)
-            .field("meatdata", &self.metadata)
+            .field("metadata", &self.metadata)
             .finish()
     }
 }
