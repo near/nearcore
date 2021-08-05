@@ -73,8 +73,6 @@ expensive integration-tests standard_cases rpc::test::test_add_key_testnet
 expensive integration-tests standard_cases rpc::test::test_add_key_testnet --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases rpc::test::test_create_account_again_testnet
 expensive integration-tests standard_cases rpc::test::test_create_account_again_testnet --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases rpc::test::test_create_account_failure_invalid_name_testnet
-expensive integration-tests standard_cases rpc::test::test_create_account_failure_invalid_name_testnet --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases rpc::test::test_create_account_failure_already_exists_testnet
 expensive integration-tests standard_cases rpc::test::test_create_account_failure_already_exists_testnet --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases rpc::test::test_create_account_testnet
@@ -139,8 +137,6 @@ expensive integration-tests standard_cases runtime::test::test_create_account_ag
 expensive integration-tests standard_cases runtime::test::test_create_account_again_runtime --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases runtime::test::test_create_account_failure_already_exists_runtime
 expensive integration-tests standard_cases runtime::test::test_create_account_failure_already_exists_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_create_account_failure_invalid_name_runtime
-expensive integration-tests standard_cases runtime::test::test_create_account_failure_invalid_name_runtime --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases runtime::test::test_create_account_failure_no_funds_runtime
 expensive integration-tests standard_cases runtime::test::test_create_account_failure_no_funds_runtime --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases runtime::test::test_create_account_runtime

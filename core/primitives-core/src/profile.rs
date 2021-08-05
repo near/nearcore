@@ -1,16 +1,15 @@
-use std::rc::Rc;
-use std::{cell::Cell, fmt};
+use std::fmt;
 
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
 
 /// Data for total gas burnt (index 0), and then each external cost and action
-type DataArray = [Cell<u64>; ProfileData::LEN];
+type DataArray = [u64; ProfileData::LEN];
 
 /// Profile of gas consumption.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ProfileData {
-    data: Rc<DataArray>,
+    data: DataArray,
 }
 
 impl Default for ProfileData {
@@ -26,39 +25,32 @@ impl ProfileData {
 
     #[inline]
     pub fn new() -> Self {
-        // We must manually promote to a constant for array literal to work.
-        const ZERO: Cell<u64> = Cell::new(0);
-
-        let data = Rc::new([ZERO; ProfileData::LEN]);
+        let data = [0; ProfileData::LEN];
         ProfileData { data }
     }
 
     #[inline]
-    pub fn merge(&self, other: &ProfileData) {
-        for (dst, src) in self.data.iter().zip(other.data.iter()) {
-            let updated = dst.get().saturating_add(src.get());
-            dst.set(updated);
+    pub fn merge(&mut self, other: &ProfileData) {
+        for i in 0..ProfileData::LEN {
+            self.data[i] = self.data[i].saturating_add(other.data[i]);
         }
     }
 
     #[inline]
-    pub fn add_action_cost(&self, action: ActionCosts, value: u64) {
+    pub fn add_action_cost(&mut self, action: ActionCosts, value: u64) {
         self.add_val(ProfileData::ACTION_START + action as usize, value);
     }
     #[inline]
-    pub fn add_ext_cost(&self, ext: ExtCosts, value: u64) {
+    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
         self.add_val(ProfileData::EXT_START + ext as usize, value);
     }
     #[inline]
-    fn add_val(&self, index: usize, value: u64) {
-        let slot = &self.data[index];
-        let old = slot.get();
-        slot.set(old.saturating_add(value));
+    fn add_val(&mut self, index: usize, value: u64) {
+        self.data[index] = self.data[index].saturating_add(value);
     }
 
     fn read(&self, index: usize) -> u64 {
-        let slot = &self.data[index];
-        slot.get()
+        self.data[index]
     }
 
     pub fn all_gas(&self) -> Gas {
@@ -92,9 +84,8 @@ impl ProfileData {
         self.all_gas() - self.host_gas() - self.action_gas()
     }
 
-    pub fn set_burnt_gas(&self, burnt_gas: u64) {
-        let slot = &self.data[0];
-        slot.set(burnt_gas)
+    pub fn set_burnt_gas(&mut self, burnt_gas: u64) {
+        self.data[0] = burnt_gas;
     }
 }
 
@@ -167,14 +158,14 @@ mod test {
     use super::*;
     #[test]
     fn test_profile_all_gas() {
-        let profile_data = ProfileData::new();
+        let mut profile_data = ProfileData::new();
         profile_data.set_burnt_gas(42);
         assert_eq!(profile_data.all_gas(), 42);
     }
 
     #[test]
     fn test_profile_data_debug() {
-        let profile_data = ProfileData::new();
+        let mut profile_data = ProfileData::new();
         profile_data.set_burnt_gas(42);
         println!("{:#?}", &profile_data);
     }
@@ -187,7 +178,7 @@ mod test {
 
     #[test]
     fn test_no_panic_on_overflow() {
-        let profile_data = ProfileData::new();
+        let mut profile_data = ProfileData::new();
         profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
         profile_data.add_action_cost(ActionCosts::function_call, u64::MAX);
 
@@ -197,12 +188,12 @@ mod test {
 
     #[test]
     fn test_merge() {
-        let profile_data = ProfileData::new();
+        let mut profile_data = ProfileData::new();
         profile_data.add_action_cost(ActionCosts::function_call, 111);
         profile_data.add_ext_cost(ExtCosts::storage_read_base, 11);
         profile_data.set_burnt_gas(1111);
 
-        let profile_data2 = ProfileData::new();
+        let mut profile_data2 = ProfileData::new();
         profile_data2.add_action_cost(ActionCosts::function_call, 222);
         profile_data2.add_ext_cost(ExtCosts::storage_read_base, 22);
         profile_data2.set_burnt_gas(2222);

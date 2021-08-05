@@ -43,7 +43,7 @@ mod tests {
         let stakes = account_ids
             .iter()
             .map(|account_id| ApprovalStake {
-                account_id: account_id.to_string(),
+                account_id: account_id.parse().unwrap(),
                 stake_this_epoch: 1,
                 stake_next_epoch: 1,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
@@ -54,7 +54,7 @@ mod tests {
             .iter()
             .map(|account_id| {
                 Arc::new(InMemoryValidatorSigner::from_seed(
-                    account_id,
+                    account_id.parse().unwrap(),
                     KeyType::ED25519,
                     account_id,
                 ))
@@ -110,7 +110,7 @@ mod tests {
                     let me = (approval.0.target_height % 8) as usize;
 
                     // Make test1 and test2 be offline and never send approvals
-                    if approval.0.account_id == "test1" || approval.0.account_id == "test2" {
+                    if matches!(approval.0.account_id.as_ref(), "test1" | "test2") {
                         continue;
                     }
 
