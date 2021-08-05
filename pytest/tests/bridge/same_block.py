@@ -3,9 +3,10 @@
 # Guarantee that all txs will be in same block.
 
 import base58
-from configured_logger import logger
 from retrying import retry
 import sys, time
+sys.path.append('lib')
+from configured_logger import logger
 
 if len(sys.argv) < 3:
     logger.info("python same_block.py <eth2near_tx_number> <near2eth_tx_number> [...]")
