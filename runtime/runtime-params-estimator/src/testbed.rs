@@ -160,6 +160,9 @@ impl RuntimeTestbed {
     }
 
     pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let mut genesis_path = self.workdir.path().to_path_buf();
+        genesis_path.push("genesis.json");
+        self.genesis.to_file(genesis_path.as_path());
         let mut dump_path = self.workdir.path().to_path_buf();
         dump_path.push("state_dump");
         let store = self.tries.get_store();
