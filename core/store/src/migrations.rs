@@ -158,7 +158,8 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         let num_data_parts = (num_total_parts - 1) / 3;
         let num_parity_parts = num_total_parts - num_data_parts;
         let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
-        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let signer =
+            InMemoryValidatorSigner::from_seed(AccountId::test_account(), KeyType::ED25519, "test");
         let mut store_update = store.store_update();
         let batch_size_limit = 10_000_000;
         let mut batch_size = 0;
