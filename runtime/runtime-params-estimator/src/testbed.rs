@@ -79,24 +79,9 @@ impl RuntimeTestbed {
         let runtime = Runtime::new();
         let prev_receipts = vec![];
 
-        let apply_state = RuntimeTestbed::create_apply_state(1, Arc::new(runtime_config),store.clone());
-
-        Self {
-            workdir,
-            tries,
-            root,
-            runtime,
-            prev_receipts,
-            apply_state,
-            epoch_info_provider: MockEpochInfoProvider::default(),
-            genesis,
-        }
-    }
-
-    fn create_apply_state(block_index: BlockHeight, runtime_config: Arc<RuntimeConfig>, store: Arc<Store>) -> ApplyState {
-        ApplyState {
+        let apply_state = ApplyState {
             // Put each runtime into a separate shard.
-            block_index,
+            block_index: 1,
             // Epoch length is long enough to avoid corner cases.
             prev_block_hash: Default::default(),
             block_hash: Default::default(),
@@ -107,11 +92,22 @@ impl RuntimeTestbed {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: runtime_config,
-            cache: Some(Arc::new(StoreCompiledContractCache { store })),
+            config: Arc::new(runtime_config),
+            cache: Some(Arc::new(StoreCompiledContractCache { tries.get_store() })),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
+        };
+
+        Self {
+            workdir,
+            tries,
+            root,
+            runtime,
+            prev_receipts,
+            apply_state,
+            epoch_info_provider: MockEpochInfoProvider::default(),
+            genesis,
         }
     }
 
@@ -179,23 +175,3 @@ impl RuntimeTestbed {
     }
 }
 
-impl Clone for RuntimeTestbed {
-    fn clone(&self) -> Self {
-        let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
-        println!("workdir {}", workdir.path().display());
-        copy(self.workdir.path(), workdir.path(), &CopyOptions::default()).unwrap();
-        let store = create_store(&get_store_path(workdir.path()));
-        let tries = ShardTries::new(store.clone(), 1);
-
-        RuntimeTestbed {
-            workdir,
-            tries,
-            root: self.root.clone(),
-            runtime: Runtime::new(),
-            genesis: self.genesis.clone(),
-            prev_receipts: self.prev_receipts.clone(),
-            apply_state: RuntimeTestbed::create_apply_state(self.apply_state.block_index, self.apply_state.config.clone(), store.clone()),
-            epoch_info_provider: MockEpochInfoProvider::default(),
-        }
-    }
-}
