@@ -205,7 +205,11 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> ExtResult<u64> {
+    fn create_receipt(
+        &mut self,
+        receipt_indices: Vec<u64>,
+        receiver_id: AccountId,
+    ) -> ExtResult<u64> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
             let data_id = self.new_data_id();
@@ -323,7 +327,7 @@ impl<'a> External for RuntimeExt<'a> {
                     nonce,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance,
-                        receiver_id,
+                        receiver_id: receiver_id.into(),
                         method_names: method_names
                             .into_iter()
                             .map(|method_name| {

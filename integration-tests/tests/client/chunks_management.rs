@@ -19,6 +19,7 @@ use near_network::types::AccountIdOrPeerTrackingShard;
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 use testlib::test_helpers::heavy_test;
 
 /// Runs block producing client and stops after network mock received seven blocks
@@ -49,8 +50,20 @@ fn chunks_produced_and_distributed_common(
             }
         };
 
-    let validators =
-        vec![vec!["test1", "test2", "test3", "test4"], vec!["test5", "test6", "test7", "test8"]];
+    let validators = vec![
+        vec![
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
+            "test3".parse().unwrap(),
+            "test4".parse().unwrap(),
+        ],
+        vec![
+            "test5".parse().unwrap(),
+            "test6".parse().unwrap(),
+            "test7".parse().unwrap(),
+            "test8".parse().unwrap(),
+        ],
+    ];
     let key_pairs = (0..8).map(|_| PeerInfo::random()).collect::<Vec<_>>();
 
     let mut partial_chunk_msgs = 0;
@@ -69,7 +82,7 @@ fn chunks_produced_and_distributed_common(
         vec![false; validators.iter().map(|x| x.len()).sum()],
         vec![true; validators.iter().map(|x| x.len()).sum()],
         false,
-        Arc::new(RwLock::new(Box::new(move |from_whom: String, msg: &NetworkRequests| {
+        Arc::new(RwLock::new(Box::new(move |from_whom: AccountId, msg: &NetworkRequests| {
             match msg {
                 NetworkRequests::Block { block } => {
                     check_height(*block.hash(), block.header().height());
@@ -148,13 +161,19 @@ fn chunks_produced_and_distributed_common(
                     partial_encoded_chunk: _,
                 } => {
                     partial_chunk_msgs += 1;
-                    if drop_from_1_to_4 && from_whom == "test1" && to_whom == "test4" {
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test1"
+                        && to_whom.as_ref() == "test4"
+                    {
                         println!("Dropping Partial Encoded Chunk Message from test1 to test4");
                         return (NetworkResponses::NoResponse, false);
                     }
                 }
                 NetworkRequests::PartialEncodedChunkForward { account_id: to_whom, .. } => {
-                    if drop_from_1_to_4 && from_whom == "test1" && to_whom == "test4" {
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test1"
+                        && to_whom.as_ref() == "test4"
+                    {
                         println!(
                             "Dropping Partial Encoded Chunk Forward Message from test1 to test4"
                         );
@@ -168,11 +187,17 @@ fn chunks_produced_and_distributed_common(
                     target: AccountIdOrPeerTrackingShard { account_id: Some(to_whom), .. },
                     request: _,
                 } => {
-                    if drop_from_1_to_4 && from_whom == "test4" && to_whom == "test1" {
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test4"
+                        && to_whom.as_ref() == "test1"
+                    {
                         info!("Dropping Partial Encoded Chunk Request from test4 to test1");
                         return (NetworkResponses::NoResponse, false);
                     }
-                    if drop_from_1_to_4 && from_whom == "test4" && to_whom == "test2" {
+                    if drop_from_1_to_4
+                        && from_whom.as_ref() == "test4"
+                        && to_whom.as_ref() == "test2"
+                    {
                         info!("Observed Partial Encoded Chunk Request from test4 to test2");
                     }
                     partial_chunk_request_msgs += 1;

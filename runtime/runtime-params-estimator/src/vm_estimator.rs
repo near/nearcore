@@ -24,10 +24,10 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
 pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
-        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
-        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
+        current_account_id: CURRENT_ACCOUNT_ID.parse().unwrap(),
+        signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
-        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
+        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         input,
         block_index: 10,
         block_timestamp: 42,
@@ -406,17 +406,9 @@ fn test_many_contracts_call_icount() {
 
 fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {
     let m = &mut Module::from_buffer(wasm_bin)?;
-    for id in get_ids(m.data.iter().map(|t| t.id())) {
+    for id in m.data.iter().map(|t| t.id()).collect::<Vec<_>>() {
         m.data.delete(id);
     }
     *wasm_bin = m.emit_wasm();
     Ok(wasm_bin)
-}
-
-fn get_ids<T>(all: impl Iterator<Item = T>) -> Vec<T> {
-    let mut ids = Vec::new();
-    for id in all {
-        ids.push(id);
-    }
-    ids
 }

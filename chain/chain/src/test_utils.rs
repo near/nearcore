@@ -87,24 +87,29 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    u64::from((hash(&account_id.clone().into_bytes()).0)[0]) % num_shards
+    u64::from((hash(account_id.as_ref().as_bytes()).0)[0]) % num_shards
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
 struct ReceiptNonce {
-    from: String,
-    to: String,
+    from: AccountId,
+    to: AccountId,
     amount: Balance,
     nonce: Nonce,
 }
 
-fn create_receipt_nonce(from: String, to: String, amount: Balance, nonce: Nonce) -> CryptoHash {
+fn create_receipt_nonce(
+    from: AccountId,
+    to: AccountId,
+    amount: Balance,
+    nonce: Nonce,
+) -> CryptoHash {
     hash(&ReceiptNonce { from, to, amount, nonce }.try_to_vec().unwrap())
 }
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1, 5)
+        Self::new_with_validators(store, vec![vec![AccountId::test_account()]], 1, 1, 5)
     }
 
     pub fn new_with_validators(
@@ -169,7 +174,8 @@ impl KeyValueRuntime {
                         .map(|account_id| {
                             ValidatorStake::new(
                                 account_id.clone(),
-                                SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+                                SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
+                                    .public_key(),
                                 1_000_000,
                             )
                         })
@@ -471,7 +477,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         account_id_to_shard_id(account_id, self.num_shards())
     }
 
-    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
+    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
@@ -1062,7 +1068,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        _account_id: &String,
+        _account_id: &AccountId,
         _data: &[u8],
         _signature: &Signature,
     ) -> Result<bool, Error> {
@@ -1073,7 +1079,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        account_id: &String,
+        account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         for validator_stake in validators.iter() {
@@ -1088,7 +1094,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-        _account_id: &String,
+        _account_id: &AccountId,
     ) -> Result<(ValidatorStake, bool), Error> {
         Err(ErrorKind::NotAValidator.into())
     }
@@ -1140,7 +1146,12 @@ pub fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
     )
     .unwrap();
-    let signer = Arc::new(InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test"));
+    let test_account = AccountId::test_account();
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        test_account.clone(),
+        KeyType::ED25519,
+        test_account.as_ref(),
+    ));
     (chain, runtime, signer)
 }
 
@@ -1154,7 +1165,9 @@ pub fn setup_with_validators(
     let store = create_test_store();
     let signers = validators
         .iter()
-        .map(|x| Arc::new(InMemoryValidatorSigner::from_seed(x.as_str(), KeyType::ED25519, x)))
+        .map(|x| {
+            Arc::new(InMemoryValidatorSigner::from_seed(x.clone(), KeyType::ED25519, x.as_ref()))
+        })
         .collect();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store,
@@ -1301,6 +1314,7 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
+    use std::convert::TryFrom;
     use std::time::Instant;
 
     use borsh::BorshSerialize;
@@ -1309,7 +1323,7 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::NumShards;
+    use near_primitives::types::{AccountId, NumShards};
     use near_store::test_utils::create_test_store;
 
     use crate::RuntimeAdapter;
@@ -1338,7 +1352,9 @@ mod test {
         let store = create_test_store();
         let runtime_adapter = KeyValueRuntime::new_with_validators(
             store,
-            vec![(0..num_shards).map(|i| format!("test{}", i)).collect()],
+            vec![(0..num_shards)
+                .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
+                .collect()],
             1,
             num_shards,
             10,
@@ -1349,7 +1365,9 @@ mod test {
         let receipts = (0..3000)
             .map(|_| {
                 let random_number = rng.gen_range(0, 1000);
-                create_receipt_from_receiver_id(format!("test{}", random_number))
+                create_receipt_from_receiver_id(
+                    AccountId::try_from(format!("test{}", random_number)).unwrap(),
+                )
             })
             .collect::<Vec<_>>();
         let start = Instant::now();

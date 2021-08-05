@@ -9,7 +9,7 @@ use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{BlockHeight, Nonce};
+use near_primitives::types::{AccountId, BlockHeight, Nonce};
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
@@ -21,8 +21,10 @@ impl Scenario {
     }
 
     pub fn run(&self) -> Result<RuntimeStats, Error> {
-        let genesis =
-            Genesis::test(self.network_config.seeds.iter().map(|x| x.as_ref()).collect(), 1);
+        let genesis = Genesis::test(
+            self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect(),
+            1,
+        );
 
         let mut env = TestEnv::new_with_runtime(
             ChainGenesis::from(&genesis),
@@ -86,8 +88,8 @@ pub struct BlockConfig {
 #[derive(Serialize, Deserialize)]
 pub struct TransactionConfig {
     pub nonce: Nonce,
-    pub signer_id: String,
-    pub receiver_id: String,
+    pub signer_id: AccountId,
+    pub receiver_id: AccountId,
     pub signer: InMemorySigner,
     pub actions: Vec<Action>,
 }
