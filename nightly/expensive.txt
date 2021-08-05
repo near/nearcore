@@ -51,10 +51,6 @@ expensive --timeout=3000 near-chain doomslug tests::test_fuzzy_doomslug_liveness
 expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches
 expensive --timeout=500 near-client consensus tests::test_consensus_with_epoch_switches --features nightly_protocol,nightly_protocol_features
 
-# state sync tests
-expensive neard sync_state_nodes sync_state_nodes_multishard
-expensive neard sync_state_nodes sync_state_nodes_multishard --features nightly_protocol,nightly_protocol_features
-
 # testnet rpc
 expensive nearcore test_tps_regression test::test_highload
 expensive nearcore test_tps_regression test::test_highload --features nightly_protocol,nightly_protocol_features
@@ -115,96 +111,6 @@ expensive integration-tests standard_cases rpc::test::test_swap_key_testnet
 expensive integration-tests standard_cases rpc::test::test_swap_key_testnet --features nightly_protocol,nightly_protocol_features
 expensive integration-tests standard_cases rpc::test::test_upload_contract_testnet
 expensive integration-tests standard_cases rpc::test::test_upload_contract_testnet --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_access_key_reject_non_function_call_runtime
-expensive integration-tests standard_cases runtime::test::test_access_key_reject_non_function_call_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_access_key_smart_contract_reject_contract_id_runtime
-expensive integration-tests standard_cases runtime::test::test_access_key_smart_contract_reject_contract_id_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_access_key_smart_contract_reject_method_name_runtime
-expensive integration-tests standard_cases runtime::test::test_access_key_smart_contract_reject_method_name_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_access_key_smart_contract_runtime
-expensive integration-tests standard_cases runtime::test::test_access_key_smart_contract_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_add_access_key_function_call_runtime
-expensive integration-tests standard_cases runtime::test::test_add_access_key_function_call_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_add_access_key_with_allowance_runtime
-expensive integration-tests standard_cases runtime::test::test_add_access_key_with_allowance_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_add_existing_key_runtime
-expensive integration-tests standard_cases runtime::test::test_add_existing_key_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_add_key_runtime
-expensive integration-tests standard_cases runtime::test::test_add_key_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_async_call_with_logs_runtime
-expensive integration-tests standard_cases runtime::test::test_async_call_with_logs_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_create_account_again_runtime
-expensive integration-tests standard_cases runtime::test::test_create_account_again_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_create_account_failure_already_exists_runtime
-expensive integration-tests standard_cases runtime::test::test_create_account_failure_already_exists_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_create_account_failure_no_funds_runtime
-expensive integration-tests standard_cases runtime::test::test_create_account_failure_no_funds_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_create_account_runtime
-expensive integration-tests standard_cases runtime::test::test_create_account_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_decrease_stake_runtime
-expensive integration-tests standard_cases runtime::test::test_decrease_stake_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_access_key_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_access_key_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_access_key_with_allowance_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_access_key_with_allowance_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_account_has_enough_money_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_account_has_enough_money_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_account_no_account_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_account_no_account_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_account_signer_is_receiver
-expensive integration-tests standard_cases runtime::test::test_delete_account_signer_is_receiver --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_account_while_staking_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_account_while_staking_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_key_last_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_key_last_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_key_not_owned_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_key_not_owned_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_delete_key_runtime
-expensive integration-tests standard_cases runtime::test::test_delete_key_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_fail_not_enough_balance_for_storage_runtime
-expensive integration-tests standard_cases runtime::test::test_fail_not_enough_balance_for_storage_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_increase_stake_runtime
-expensive integration-tests standard_cases runtime::test::test_increase_stake_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_nonce_update_when_deploying_contract_runtime
-expensive integration-tests standard_cases runtime::test::test_nonce_update_when_deploying_contract_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_nonce_updated_when_tx_failed_runtime
-expensive integration-tests standard_cases runtime::test::test_nonce_updated_when_tx_failed_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_redeploy_contract_runtime
-expensive integration-tests standard_cases runtime::test::test_redeploy_contract_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_refund_on_send_money_to_non_existent_account_runtime
-expensive integration-tests standard_cases runtime::test::test_refund_on_send_money_to_non_existent_account_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_send_money_over_balance_runtime
-expensive integration-tests standard_cases runtime::test::test_send_money_over_balance_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_send_money_runtime
-expensive integration-tests standard_cases runtime::test::test_send_money_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_bad_method_name_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_bad_method_name_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_empty_method_name_with_no_tokens_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_empty_method_name_with_no_tokens_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_empty_method_name_with_tokens_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_empty_method_name_with_tokens_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_free_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_free_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_panic_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_panic_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_reward_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_reward_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_self_call_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_self_call_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_simple_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_simple_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_smart_contract_with_args_runtime
-expensive integration-tests standard_cases runtime::test::test_smart_contract_with_args_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_swap_key_runtime
-expensive integration-tests standard_cases runtime::test::test_swap_key_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_transfer_tokens_implicit_account_runtime
-expensive integration-tests standard_cases runtime::test::test_transfer_tokens_implicit_account_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_trying_to_create_implicit_account_runtime
-expensive integration-tests standard_cases runtime::test::test_trying_to_create_implicit_account_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_unstake_while_not_staked_runtime
-expensive integration-tests standard_cases runtime::test::test_unstake_while_not_staked_runtime --features nightly_protocol,nightly_protocol_features
-expensive integration-tests standard_cases runtime::test::test_upload_contract_runtime
-expensive integration-tests standard_cases runtime::test::test_upload_contract_runtime --features nightly_protocol,nightly_protocol_features
 
 # GC tests
 expensive --timeout=900 near-chain gc tests::test_gc_remove_fork_large
