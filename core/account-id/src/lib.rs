@@ -242,7 +242,7 @@ mod tests {
     fn test_is_valid_account_id() {
         for account_id in OK_ACCOUNT_IDS.iter().cloned() {
             if let Err(err) = AccountId::validate(account_id) {
-                panic!("Valid account id {:?} marked invalid: {}", account_id, err);
+                panic!("Valid account id {:?} marked invalid: {}", account_id, err.kind());
             }
         }
 

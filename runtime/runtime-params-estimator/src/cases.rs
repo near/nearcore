@@ -1,7 +1,8 @@
+use near_primitives::types::Gas;
 use num_rational::Ratio;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -15,7 +16,7 @@ use near_primitives::transaction::{
 };
 
 use crate::ext_costs_generator::ExtCostsGenerator;
-use crate::runtime_fees_generator::RuntimeFeesGenerator;
+use crate::runtime_fees_generator::{ReceiptFees, RuntimeFeesGenerator};
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
@@ -624,7 +625,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
 }
 
-fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
+fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> Gas {
     let divisor = match gas_metric {
         // We use factor of 8 to approximately match the price of SHA256 operation between
         // time-based and icount-based metric as measured on 3.2Ghz Core i5.
@@ -658,122 +659,97 @@ pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> 
     .unwrap()
 }
 
-/// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
-fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
-    let value = ratio_to_gas(gas_metric, value);
-    Fee { send_sir: value / 2, send_not_sir: value / 2, execution: value / 2 }
-}
-
-fn measured_to_gas(
-    gas_metric: GasMetric,
-    measured: &BTreeMap<ExtCosts, Ratio<u64>>,
-    cost: ExtCosts,
-) -> u64 {
-    match measured.get(&cost) {
-        Some(value) => ratio_to_gas(gas_metric, *value),
-        None => panic!("cost {} not found", cost as u32),
-    }
-}
-
 fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
     use crate::runtime_fees_generator::ReceiptFees::*;
-    let generator = RuntimeFeesGenerator::new(measurement);
-    let measured = generator.compute();
-    let metric = measurement.gas_metric;
-    let function_call_total_cost = ratio_to_gas(metric, measured[&ActionFunctionCallBase]);
-    let function_call_cost = Fee {
-        send_sir: function_call_total_cost / 2,
-        send_not_sir: function_call_total_cost / 2,
-        execution: function_call_total_cost / 2,
+
+    let measured = RuntimeFeesGenerator::new(measurement).compute();
+    let get = |receipt_fee: ReceiptFees| -> Fee {
+        let ratio = *measured
+            .get(&receipt_fee)
+            .unwrap_or_else(|| panic!("receipt fee {:?} not found", receipt_fee));
+
+        // Split the total cost evenly between send and execution fee.
+        let total_gas = ratio_to_gas(measurement.gas_metric, ratio);
+        Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 }
     };
+
     RuntimeFeesConfig {
-        action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
+        action_receipt_creation_config: get(ActionReceiptCreation),
         data_receipt_creation_config: DataReceiptCreationConfig {
-            base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase]),
-            cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte]),
+            base_cost: get(DataReceiptCreationBase),
+            cost_per_byte: get(DataReceiptCreationPerByte),
         },
         action_creation_config: ActionCreationConfig {
-            create_account_cost: measured_to_fee(metric, measured[&ActionCreateAccount]),
-            deploy_contract_cost: measured_to_fee(metric, measured[&ActionDeployContractBase]),
-            deploy_contract_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionDeployContractPerByte],
-            ),
-            function_call_cost,
-            function_call_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionFunctionCallPerByte],
-            ),
-            transfer_cost: measured_to_fee(metric, measured[&ActionTransfer]),
-            stake_cost: measured_to_fee(metric, measured[&ActionStake]),
+            create_account_cost: get(ActionCreateAccount),
+            deploy_contract_cost: get(ActionDeployContractBase),
+            deploy_contract_cost_per_byte: get(ActionDeployContractPerByte),
+            function_call_cost: get(ActionFunctionCallBase),
+            function_call_cost_per_byte: get(ActionFunctionCallPerByte),
+            transfer_cost: get(ActionTransfer),
+            stake_cost: get(ActionStake),
             add_key_cost: AccessKeyCreationConfig {
-                full_access_cost: measured_to_fee(metric, measured[&ActionAddFullAccessKey]),
-                function_call_cost: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyBase],
-                ),
-                function_call_cost_per_byte: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyPerByte],
-                ),
+                full_access_cost: get(ActionAddFullAccessKey),
+                function_call_cost: get(ActionAddFunctionAccessKeyBase),
+                function_call_cost_per_byte: get(ActionAddFunctionAccessKeyPerByte),
             },
-            delete_key_cost: measured_to_fee(metric, measured[&ActionDeleteKey]),
-            delete_account_cost: measured_to_fee(metric, measured[&ActionDeleteAccount]),
+            delete_key_cost: get(ActionDeleteKey),
+            delete_account_cost: get(ActionDeleteAccount),
         },
         ..Default::default()
     }
 }
 
 fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCostsConfig {
-    let mut generator = ExtCostsGenerator::new(measurement);
-    let measured = generator.compute();
-    let metric = measurement.gas_metric;
     use ExtCosts::*;
+
+    let measured = ExtCostsGenerator::new(measurement).compute();
+    let get = |cost: ExtCosts| -> Gas {
+        let ratio = *measured.get(&cost).unwrap_or_else(|| panic!("cost {} not found", cost));
+        ratio_to_gas(measurement.gas_metric, ratio)
+    };
+
     let (contract_compile_base_, contract_compile_bytes_) =
         compute_compile_cost_vm(config.metric, config.vm_kind, false);
+
     ExtCostsConfig {
-        base: measured_to_gas(metric, &measured, base),
+        base: get(base),
         contract_compile_base: contract_compile_base_,
         contract_compile_bytes: contract_compile_bytes_,
-        read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
-        read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
-        write_memory_base: measured_to_gas(metric, &measured, write_memory_base),
-        write_memory_byte: measured_to_gas(metric, &measured, write_memory_byte),
-        read_register_base: measured_to_gas(metric, &measured, read_register_base),
-        read_register_byte: measured_to_gas(metric, &measured, read_register_byte),
-        write_register_base: measured_to_gas(metric, &measured, write_register_base),
-        write_register_byte: measured_to_gas(metric, &measured, write_register_byte),
-        utf8_decoding_base: measured_to_gas(metric, &measured, utf8_decoding_base),
-        utf8_decoding_byte: measured_to_gas(metric, &measured, utf8_decoding_byte),
-        utf16_decoding_base: measured_to_gas(metric, &measured, utf16_decoding_base),
-        utf16_decoding_byte: measured_to_gas(metric, &measured, utf16_decoding_byte),
-        sha256_base: measured_to_gas(metric, &measured, sha256_base),
-        sha256_byte: measured_to_gas(metric, &measured, sha256_byte),
-        keccak256_base: measured_to_gas(metric, &measured, keccak256_base),
-        keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
-        keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
-        keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
-        ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
-        ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
-        log_base: measured_to_gas(metric, &measured, log_base),
-        log_byte: measured_to_gas(metric, &measured, log_byte),
-        storage_write_base: measured_to_gas(metric, &measured, storage_write_base),
-        storage_write_key_byte: measured_to_gas(metric, &measured, storage_write_key_byte),
-        storage_write_value_byte: measured_to_gas(metric, &measured, storage_write_value_byte),
-        storage_write_evicted_byte: measured_to_gas(metric, &measured, storage_write_evicted_byte),
-        storage_read_base: measured_to_gas(metric, &measured, storage_read_base),
-        storage_read_key_byte: measured_to_gas(metric, &measured, storage_read_key_byte),
-        storage_read_value_byte: measured_to_gas(metric, &measured, storage_read_value_byte),
-        storage_remove_base: measured_to_gas(metric, &measured, storage_remove_base),
-        storage_remove_key_byte: measured_to_gas(metric, &measured, storage_remove_key_byte),
-        storage_remove_ret_value_byte: measured_to_gas(
-            metric,
-            &measured,
-            storage_remove_ret_value_byte,
-        ),
-        storage_has_key_base: measured_to_gas(metric, &measured, storage_has_key_base),
-        storage_has_key_byte: measured_to_gas(metric, &measured, storage_has_key_byte),
+        read_memory_base: get(read_memory_base),
+        read_memory_byte: get(read_memory_byte),
+        write_memory_base: get(write_memory_base),
+        write_memory_byte: get(write_memory_byte),
+        read_register_base: get(read_register_base),
+        read_register_byte: get(read_register_byte),
+        write_register_base: get(write_register_base),
+        write_register_byte: get(write_register_byte),
+        utf8_decoding_base: get(utf8_decoding_base),
+        utf8_decoding_byte: get(utf8_decoding_byte),
+        utf16_decoding_base: get(utf16_decoding_base),
+        utf16_decoding_byte: get(utf16_decoding_byte),
+        sha256_base: get(sha256_base),
+        sha256_byte: get(sha256_byte),
+        keccak256_base: get(keccak256_base),
+        keccak256_byte: get(keccak256_byte),
+        keccak512_base: get(keccak512_base),
+        keccak512_byte: get(keccak512_byte),
+        ripemd160_base: get(ripemd160_base),
+        ripemd160_block: get(ripemd160_block),
+        ecrecover_base: get(ecrecover_base),
+        log_base: get(log_base),
+        log_byte: get(log_byte),
+        storage_write_base: get(storage_write_base),
+        storage_write_key_byte: get(storage_write_key_byte),
+        storage_write_value_byte: get(storage_write_value_byte),
+        storage_write_evicted_byte: get(storage_write_evicted_byte),
+        storage_read_base: get(storage_read_base),
+        storage_read_key_byte: get(storage_read_key_byte),
+        storage_read_value_byte: get(storage_read_value_byte),
+        storage_remove_base: get(storage_remove_base),
+        storage_remove_key_byte: get(storage_remove_key_byte),
+        storage_remove_ret_value_byte: get(storage_remove_ret_value_byte),
+        storage_has_key_base: get(storage_has_key_base),
+        storage_has_key_byte: get(storage_has_key_byte),
         // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
         // and remove those operations ASAP.
         storage_iter_create_prefix_base: 0,
@@ -786,39 +762,27 @@ fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCosts
         storage_iter_next_value_byte: 0,
         // TODO: Actually compute it once our storage is complete.
         // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
-        touching_trie_node: measured_to_gas(metric, &measured, storage_read_base) * 2 / 7,
-        promise_and_base: measured_to_gas(metric, &measured, promise_and_base),
-        promise_and_per_promise: measured_to_gas(metric, &measured, promise_and_per_promise),
-        promise_return: measured_to_gas(metric, &measured, promise_return),
+        touching_trie_node: get(storage_read_base) * 2 / 7,
+        promise_and_base: get(promise_and_base),
+        promise_and_per_promise: get(promise_and_per_promise),
+        promise_return: get(promise_return),
         // TODO: accurately price host functions that expose validator information.
         validator_stake_base: 303944908800,
         validator_total_stake_base: 303944908800,
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_sum_base: measured_to_gas(metric, &measured, alt_bn128_g1_sum_base),
+        alt_bn128_g1_sum_base: get(alt_bn128_g1_sum_base),
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_sum_byte: measured_to_gas(metric, &measured, alt_bn128_g1_sum_byte),
+        alt_bn128_g1_sum_byte: get(alt_bn128_g1_sum_byte),
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_base: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_base),
+        alt_bn128_g1_multiexp_base: get(alt_bn128_g1_multiexp_base),
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_byte: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_byte),
+        alt_bn128_g1_multiexp_byte: get(alt_bn128_g1_multiexp_byte),
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_sublinear: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_g1_multiexp_sublinear,
-        ),
+        alt_bn128_g1_multiexp_sublinear: get(alt_bn128_g1_multiexp_sublinear),
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_pairing_check_base: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_pairing_check_base,
-        ),
+        alt_bn128_pairing_check_base: get(alt_bn128_pairing_check_base),
         #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_pairing_check_byte: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_pairing_check_byte,
-        ),
+        alt_bn128_pairing_check_byte: get(alt_bn128_pairing_check_byte),
     }
 }
 
