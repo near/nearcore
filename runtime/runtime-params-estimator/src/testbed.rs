@@ -78,7 +78,7 @@ impl RuntimeTestbed {
         let runtime = Runtime::new();
         let prev_receipts = vec![];
 
-        let apply_state = RuntimeTestbed::create_apply_state(1, runtime_config,store.clone());
+        let apply_state = RuntimeTestbed::create_apply_state(1, Arc::new(runtime_config),store.clone());
 
         Self {
             workdir,
@@ -92,7 +92,7 @@ impl RuntimeTestbed {
         }
     }
 
-    fn create_apply_state(block_index: BlockHeight, runtime_config: RuntimeConfig, store: Arc<Store>) -> ApplyState {
+    fn create_apply_state(block_index: BlockHeight, runtime_config: Arc<RuntimeConfig>, store: Arc<Store>) -> ApplyState {
         ApplyState {
             // Put each runtime into a separate shard.
             block_index,
@@ -106,7 +106,7 @@ impl RuntimeTestbed {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::new(runtime_config),
+            config: runtime_config,
             cache: Some(Arc::new(StoreCompiledContractCache { store })),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
@@ -174,7 +174,7 @@ impl Clone for RuntimeTestbed {
             runtime: Runtime::new(),
             genesis: self.genesis.clone(),
             prev_receipts: self.prev_receipts.clone(),
-            apply_state: RuntimeTestbed::create_apply_state(self.apply_state.block_index, *self.apply_state.config, store.clone()),
+            apply_state: RuntimeTestbed::create_apply_state(self.apply_state.block_index, self.apply_state.config.clone(), store.clone()),
             epoch_info_provider: MockEpochInfoProvider::default(),
         }
     }
