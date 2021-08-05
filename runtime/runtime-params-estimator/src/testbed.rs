@@ -159,7 +159,7 @@ impl RuntimeTestbed {
         }
     }
 
-    pub fn dump_state(self) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
         let mut dump_path = self.workdir.path().to_path_buf();
         dump_path.push("state_dump");
         let store = self.tries.get_store();
