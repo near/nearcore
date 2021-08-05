@@ -159,20 +159,20 @@ impl RuntimeTestbed {
         }
     }
 
-    pub fn dump_state(self) -> Result<&Path, Box<dyn std::error::Error>> {
-        let mut dump_path = self.workdir.path().into_path_buf();
+    pub fn dump_state(self) -> Result<Path, Box<dyn std::error::Error>> {
+        let mut dump_path = self.workdir.path().to_path_buf();
         dump_path.push("state_dump");
         let store = self.tries.get_store();
         store.save_to_file(ColState, dump_path.as_path())?;
         {
-            let mut roots_files = self.workdir.path().into_path_buf();
+            let mut roots_files = self.workdir.path().to_path_buf();
             roots_files.push("genesis_roots");
             let mut file = File::create(roots_files)?;
             let roots = vec![self.root]; // : Vec<_> = self.roots.values().cloned().collect();
             let data = roots.try_to_vec()?;
             file.write_all(&data)?;
         }
-        Ok(self.workdir.path())
+        Ok(self.workdir.path().clone())
     }
 }
 

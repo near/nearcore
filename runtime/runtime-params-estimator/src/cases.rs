@@ -596,7 +596,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
         // let testbed_inner = testbed.lock().unwrap();
-        let local_testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(dump_dir)));
+        let local_testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&dump_dir)));
         measure_function(
             metric,
             method_name,
