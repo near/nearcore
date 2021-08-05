@@ -1,7 +1,7 @@
+use fs_extra::dir::{copy, CopyOptions};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use fs_extra::dir::{copy, CopyOptions};
 
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
@@ -12,9 +12,9 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot, BlockHeight};
+use near_primitives::types::{Gas, MerkleHash, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache, Store};
+use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
@@ -93,7 +93,7 @@ impl RuntimeTestbed {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: Some(Arc::new(StoreCompiledContractCache { tries.get_store() })),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -174,4 +174,3 @@ impl RuntimeTestbed {
         Ok(self.workdir.path().to_path_buf())
     }
 }
-
