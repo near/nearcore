@@ -87,7 +87,7 @@ impl Default for VMConfig {
         VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
-            regular_op_cost: 3856371,
+            regular_op_cost: (SAFETY_MULTIPLIER as u32) * 1285457,
             limit_config: VMLimitConfig::default(),
         }
     }
