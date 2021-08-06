@@ -372,7 +372,7 @@ class RainbowBridge:
             logger.info('No rainbow-bridge repo found, cloning...')
             subprocess.check_call(
                 ('git', 'clone', '--recurse-submodules',
-                 str(self.config['bridge_repo']), str(self.bridge_dir))
+                 str(self.config['bridge_repo']), str(self.bridge_dir)))
         else:
             logger.info('rainbow-bridge repo found, updating...')
             subprocess.check_call(('git', 'remote', 'update', '-p', 'origin'),
