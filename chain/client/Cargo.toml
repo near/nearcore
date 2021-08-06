@@ -56,7 +56,7 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
-metric_recorder = ["near-client-primitives/metric_recorder"]
+metric_recorder = ["near-network/metric_recorder", "near-client-primitives/metric_recorder"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 protocol_feature_restore_receipts_after_fix = []

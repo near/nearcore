@@ -9,6 +9,8 @@ pub use near_network_primitives::metrics;
 #[cfg(feature = "metric_recorder")]
 pub use near_network_primitives::recorder;
 
+mod cache;
+mod codec;
 mod peer;
 mod peer_manager;
 pub mod peer_store;

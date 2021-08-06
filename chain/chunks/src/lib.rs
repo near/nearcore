@@ -40,7 +40,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-pub use near_chunks_primitives::error::Error;
+pub use near_chunks_primitives::Error;
 use rand::Rng;
 
 mod chunk_cache;

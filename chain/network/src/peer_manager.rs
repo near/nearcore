@@ -18,8 +18,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::codec::Codec;
 use crate::peer::Peer;
-use near_network_primitives::codec::Codec;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;

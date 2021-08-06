@@ -7,8 +7,8 @@ use cached::{Cached, SizedCache};
 use chrono;
 use tracing::{trace, warn};
 
+use crate::cache::RouteBackCache;
 use near_metrics;
-use near_network_primitives::cache::RouteBackCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
@@ -278,7 +278,7 @@ impl RoutingTable {
     }
 
     fn add_edge(&mut self, edge: Edge) -> bool {
-        let key = edge.get_pair();
+        let key = (edge.peer0.clone(), edge.peer1.clone());
 
         if self.find_nonce(&key) >= edge.nonce {
             // We already have a newer information about this edge. Discard this information.
@@ -305,7 +305,7 @@ impl RoutingTable {
         let total = edges.len();
 
         for edge in edges {
-            let key = edge.get_pair();
+            let key = (&edge.peer0, &edge.peer1);
 
             self.touch(&key.0);
             self.touch(&key.1);

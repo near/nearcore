@@ -26,6 +26,7 @@ use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
 
+use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 #[cfg(feature = "metric_recorder")]
 use crate::recorder::{PeerMessageMetadata, Status};
@@ -43,7 +44,6 @@ use crate::PeerManagerActor;
 use crate::{metrics::NetworkMetrics, NetworkResponses};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_network_primitives::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use near_network_primitives::metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;

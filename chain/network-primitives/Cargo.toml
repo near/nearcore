@@ -15,22 +15,14 @@ serde_json = "1"
 strum = { version = "0.20", features = ["derive"] }
 tracing = "0.1.13"
 conqueue = "0.4.0"
-bytes = "1"
-bytesize = "1.0.1"
-tokio-util = { version = "0.6", features = ["codec"] }
 byteorder = "1.2"
 lazy_static = "1.4"
-near-rust-allocator-proxy = "0.2.9"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-metrics = { path = "../../core/metrics" }
 
 [features]
 adversarial = []
 metric_recorder = []
 sandbox = []
-performance_stats = ["near-performance-metrics/performance_stats"]
-# --
-__internal_primitives = []

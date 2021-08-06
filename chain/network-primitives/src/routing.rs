@@ -8,9 +8,6 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
 use near_primitives::types::AccountId;
 
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
-
 /// Routing table will clean edges if there is at least one node that is not reachable
 /// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
 /// seconds will be removed from cache and persisted in disk.
@@ -182,11 +179,6 @@ impl Edge {
         let (peer0, peer1) = Edge::key(peer0, peer1);
         let data = Edge::build_hash(&peer0, &peer1, edge_info.nonce);
         edge_info.signature.verify(data.as_ref(), &pk)
-    }
-
-    #[cfg(feature = "__internal_primitives")]
-    pub fn get_pair(&self) -> (PeerId, PeerId) {
-        (self.peer0.clone(), self.peer1.clone())
     }
 
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the

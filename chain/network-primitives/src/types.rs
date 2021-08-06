@@ -1744,23 +1744,23 @@ impl NetworkAdapter for NetworkRecipient {
     }
 }
 
-#[cfg_attr(feature = "__internal_primitives", macro_export)]
-macro_rules! assert_size {
-    ($type:ident) => {{
-        const ALLOWED_SIZE: usize = 1 << 20;
-        const NOTIFY_SIZE: usize = 1024;
-
-        let struct_size = std::mem::size_of::<$type>();
-        if struct_size >= NOTIFY_SIZE {
-            println!("The size of {} is {}", stringify!($type), struct_size);
-        }
-        assert!(struct_size <= ALLOWED_SIZE);
-    }};
-}
-
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
+
+    // NOTE: this has it's counterpart in `near-network::types::tests`
+    const ALLOWED_SIZE: usize = 1 << 20;
+    const NOTIFY_SIZE: usize = 1024;
+
+    macro_rules! assert_size {
+        ($type:ident) => {
+            let struct_size = std::mem::size_of::<$type>();
+            if struct_size >= NOTIFY_SIZE {
+                println!("The size of {} is {}", stringify!($type), struct_size);
+            }
+            assert!(struct_size <= ALLOWED_SIZE);
+        };
+    }
 
     #[test]
     fn test_enum_size() {
