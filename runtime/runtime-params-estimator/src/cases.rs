@@ -591,7 +591,8 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         data_receipt_100kib_1000 => data_receipt_100kib_1000
     };
 
-    let dump_path = testbed.lock().unwrap().dump_state().unwrap().clone().as_path();
+    let dump_path_buf = testbed.lock().unwrap().dump_state().unwrap();
+    let dump_path = dump_path_buf.clone().as_path();
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {

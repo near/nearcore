@@ -1,10 +1,3 @@
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-
-use borsh::BorshDeserialize;
-use borsh::BorshSerialize;
-
 use genesis_populate::state_dump::StateDump;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
@@ -12,12 +5,13 @@ use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot};
+use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
+use near_store::{ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct RuntimeTestbed {
