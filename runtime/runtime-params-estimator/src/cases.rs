@@ -602,7 +602,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     };
 
     let dump_path_buf = testbed.lock().unwrap().dump_state().unwrap();
-    let dump_path = dump_path_buf.clone().as_path();
+    let dump_path = dump_path_buf.as_path();
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
