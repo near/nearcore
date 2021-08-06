@@ -11,7 +11,7 @@ use near_store::{ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub struct RuntimeTestbed {
