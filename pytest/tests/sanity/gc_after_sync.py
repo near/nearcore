@@ -32,7 +32,7 @@ consensus_config = {
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats_per_shard", [5]],
+    [["epoch_length", 15], ["num_block_producer_seats_per_shard", [5]],
      ["validators", 0, "amount", "60000000000000000000000000000000"],
      ["block_producer_kickout_threshold", 50],
      ["chunk_producer_kickout_threshold", 50],
@@ -42,7 +42,8 @@ nodes = start_cluster(
      ], ["total_supply", "5010000000000000000000000000000000"]], {
          0: consensus_config,
          1: consensus_config,
-         2: consensus_config
+         2: consensus_config,
+         3: consensus_config
      })
 
 node0_height = 0

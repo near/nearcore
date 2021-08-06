@@ -18,7 +18,7 @@ from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHea
 from transaction import sign_staking_tx
 from proxy import ProxyHandler, NodesProxy
 
-TIMEOUT = 150
+TIMEOUT = 200
 EPOCH_LENGTH = 10
 HEIGHTS_BEFORE_ROTATE = 35
 HEIGHTS_BEFORE_CHECK = 25
@@ -104,7 +104,7 @@ near_root, node_dirs = init_cluster(
      ],
      ["total_supply", "6120000000000000000000000000000000"]], {4: {
          "tracked_shards": [0, 1], "archive": True
-         }, 3: {"archive": True, "tracked_shards": [1]}, 2: {"archive": True, "tracked_shards": [0]}})
+         }, 3: {"archive": True, "tracked_shards": [1], "network": {"ttl_account_id_router": {"secs": 1, "nanos": 0}}}, 2: {"archive": True, "tracked_shards": [0], "network": {"ttl_account_id_router": {"secs": 1, "nanos": 0}}}})
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [], proxy)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
@@ -185,7 +185,7 @@ while True:
         break
     time.sleep(1)
 
-logging.info("Checking the messages sent and received");
+logging.info("Checking the messages sent and received")
 
 # The first two blocks are certainly more than two epochs in the
 # past compared to head, and thus should be requested from
