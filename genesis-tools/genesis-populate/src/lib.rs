@@ -1,5 +1,7 @@
 //! Tools for creating a genesis block.
 
+pub mod state_dump;
+
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;

@@ -21,6 +21,7 @@ borsh = "0.8.1"
 num-rational = "0.3"
 fs_extra = "1.2.0"
 
+genesis-populate = { path = "../../genesis-tools/genesis-populate"}
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-vm-logic = {path = "../../runtime/near-vm-logic"  }

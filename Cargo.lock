@@ -4380,6 +4380,7 @@ dependencies = [
  "clap 3.0.0-beta.2",
  "csv",
  "fs_extra",
+ "genesis-populate",
  "glob",
  "gnuplot",
  "hex",
