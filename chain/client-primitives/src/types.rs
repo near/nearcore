@@ -1,5 +1,5 @@
 #[cfg(feature = "metric_recorder")]
-use near_network::recorder::MetricRecorder;
+use near_network_primitives::recorder::MetricRecorder;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,8 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use near_chain_configs::ProtocolConfigView;
-use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
-use near_network::PeerInfo;
+use near_network_primitives::types::{AccountOrPeerIdOrHash, KnownProducer, PeerInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};

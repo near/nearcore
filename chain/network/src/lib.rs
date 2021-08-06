@@ -1,22 +1,18 @@
-#[macro_use]
-extern crate lazy_static;
-
-pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
-pub use peer_manager::PeerManagerActor;
-pub use types::{
+pub use near_network_primitives::types::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,
 };
+pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
+pub use peer_manager::PeerManagerActor;
 
-mod cache;
-mod codec;
-pub mod metrics;
+pub use near_network_primitives::metrics;
+#[cfg(feature = "metric_recorder")]
+pub use near_network_primitives::recorder;
+
 mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
-#[cfg(feature = "metric_recorder")]
-pub mod recorder;
 pub mod routing;
 pub mod types;
 pub mod utils;
