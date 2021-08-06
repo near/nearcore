@@ -38,8 +38,7 @@ impl StateDump {
             let mut roots_files = dir.clone();
             roots_files.push(GENESIS_ROOTS_FILE);
             let mut file = File::create(roots_files)?;
-            let roots: Vec<_> = self.roots.values().cloned().collect();
-            let data = roots.try_to_vec()?;
+            let data = self.roots.try_to_vec()?;
             file.write_all(&data)?;
         }
         Ok(())
