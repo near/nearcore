@@ -1,4 +1,3 @@
-use fs_extra::dir::{copy, CopyOptions};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -6,6 +5,7 @@ use std::path::{Path, PathBuf};
 use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 
+use genesis_populate::state_dump::StateDump;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
@@ -19,7 +19,6 @@ use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
 use std::sync::Arc;
-use genesis_populate::state_dump::StateDump;
 
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
@@ -40,7 +39,7 @@ impl RuntimeTestbed {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().display());
         let store_path = get_store_path(workdir.path());
-        let StateDump {store, roots} = StateDump::from_dir(dump_dir, &store_path);
+        let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
         let tries = ShardTries::new(store.clone(), 1);
 
         let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
@@ -150,18 +149,9 @@ impl RuntimeTestbed {
         let mut genesis_path = self.workdir.path().to_path_buf();
         genesis_path.push("genesis.json");
         self.genesis.to_file(genesis_path.as_path());
-        let mut dump_path = self.workdir.path().to_path_buf();
-        dump_path.push("state_dump");
-        let store = self.tries.get_store();
-        store.save_to_file(ColState, dump_path.as_path())?;
-        {
-            let mut roots_files = self.workdir.path().to_path_buf();
-            roots_files.push("genesis_roots");
-            let mut file = File::create(roots_files)?;
-            let roots = vec![self.root]; // : Vec<_> = self.roots.values().cloned().collect();
-            let data = roots.try_to_vec()?;
-            file.write_all(&data)?;
-        }
+
+        let state_dump = StateDump { store: self.tries.get_store(), roots: vec![self.root] };
+        state_dump.save_to_dir(self.workdir.path().to_path_buf())?;
         Ok(self.workdir.path().to_path_buf())
     }
 }

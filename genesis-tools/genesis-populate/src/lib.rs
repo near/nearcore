@@ -11,6 +11,7 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::state_dump::StateDump;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -143,17 +144,9 @@ impl GenesisBuilder {
     }
 
     pub fn dump_state(self) -> Result<Self> {
-        let mut dump_path = self.home_dir.clone();
-        dump_path.push("state_dump");
-        self.store.save_to_file(ColState, dump_path.as_path())?;
-        {
-            let mut roots_files = self.home_dir.clone();
-            roots_files.push("genesis_roots");
-            let mut file = File::create(roots_files)?;
-            let roots: Vec<_> = self.roots.values().cloned().collect();
-            let data = roots.try_to_vec()?;
-            file.write_all(&data)?;
-        }
+        let state_dump =
+            StateDump { store: self.store.clone(), roots: self.roots.values().cloned().collect() };
+        state_dump.save_to_dir(self.home_dir.clone())?;
         Ok(self)
     }
 

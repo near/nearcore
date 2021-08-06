@@ -1,11 +1,11 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use borsh::{BorshSerialize, BorshDeserialize};
 
 use near_primitives::types::StateRoot;
-use near_store::{Store, create_store};
 use near_store::db::DBCol::ColState;
+use near_store::{create_store, Store};
 use std::sync::Arc;
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -27,13 +27,10 @@ impl StateDump {
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
         let roots: Vec<StateRoot> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        Self {
-            store,
-            roots,
-        }
+        Self { store, roots }
     }
 
-    pub fn save_to_dir(self, dir: PathBuf) {
+    pub fn save_to_dir(self, dir: PathBuf) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut dump_path = dir.clone();
         dump_path.push(STATE_DUMP_FILE);
         self.store.save_to_file(ColState, dump_path.as_path())?;
@@ -45,5 +42,6 @@ impl StateDump {
             let data = roots.try_to_vec()?;
             file.write_all(&data)?;
         }
+        Ok(())
     }
 }
