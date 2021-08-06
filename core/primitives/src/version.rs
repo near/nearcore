@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 23;
+pub const DB_VERSION: DbVersion = 26;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -90,8 +90,6 @@ pub enum ProtocolFeature {
     /// Add versions to `Account` data structure
     AccountVersions,
     TransactionSizeLimit,
-    /// Delete account can create implicit accounts
-    AllowCreateAccountOnDelete,
     /// Fix a bug in `storage_usage` for account caused by #3824
     FixStorageUsage,
     /// Cap maximum gas price to 2,000,000,000 yoctoNEAR
@@ -101,8 +99,6 @@ pub enum ProtocolFeature {
     MathExtension,
 
     // nightly features
-    #[cfg(feature = "protocol_feature_evm")]
-    EVM,
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -133,15 +129,12 @@ impl ProtocolFeature {
             ProtocolFeature::AccessKeyNonceRange => 45,
             ProtocolFeature::AccountVersions => 46,
             ProtocolFeature::TransactionSizeLimit => 46,
-            ProtocolFeature::AllowCreateAccountOnDelete => 46,
             ProtocolFeature::FixStorageUsage => 46,
             ProtocolFeature::CapMaxGasPrice => 46,
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
             ProtocolFeature::MathExtension => 46,
 
             // Nightly features
-            #[cfg(feature = "protocol_feature_evm")]
-            ProtocolFeature::EVM => 103,
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]

@@ -35,6 +35,7 @@ use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncRespo
 use near_primitives::trie_key::TrieKey;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
@@ -157,7 +158,8 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         let num_data_parts = (num_total_parts - 1) / 3;
         let num_parity_parts = num_total_parts - num_data_parts;
         let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
-        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let signer =
+            InMemoryValidatorSigner::from_seed(AccountId::test_account(), KeyType::ED25519, "test");
         let mut store_update = store.store_update();
         let batch_size_limit = 10_000_000;
         let mut batch_size = 0;
@@ -289,7 +291,7 @@ pub fn migrate_11_to_12(path: &String) {
     set_store_version(&store, 12);
 }
 
-struct BatchedStoreUpdate<'a> {
+pub struct BatchedStoreUpdate<'a> {
     batch_size_limit: usize,
     batch_size: usize,
     store: &'a Store,
@@ -565,7 +567,7 @@ pub fn migrate_17_to_18(path: &String) {
 
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
-    use near_primitives::types::{Balance, BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
 
     // Migrate from OldBlockInfo to NewBlockInfo - add hash
@@ -645,7 +647,7 @@ pub fn migrate_21_to_22(path: &String) {
     use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
-    use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId};
     use near_primitives::version::ProtocolVersion;
     #[derive(BorshDeserialize)]
     struct OldBlockInfo {
@@ -706,6 +708,15 @@ pub fn migrate_21_to_22(path: &String) {
     set_store_version(&store, 22);
 }
 
+pub fn migrate_25_to_26(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::ColCachedContractCode);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 26);
+}
+
 #[cfg(feature = "protocol_feature_block_header_v3")]
 pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::epoch_manager::block_info::{BlockInfo, BlockInfoV1};
@@ -714,7 +725,7 @@ pub fn migrate_18_to_new_validator_stake(store: &Store) {
     use near_primitives::types::chunk_extra::{ChunkExtra, ChunkExtraV1};
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{
-        AccountId, BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
+        BlockChunkValidatorStats, EpochId, ProtocolVersion, ShardId, ValidatorId,
         ValidatorKickoutReason, ValidatorStats,
     };
     use std::collections::BTreeMap;

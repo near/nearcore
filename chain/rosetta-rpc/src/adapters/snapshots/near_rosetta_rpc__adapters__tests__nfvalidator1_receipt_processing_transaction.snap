@@ -1,6 +1,7 @@
 ---
 source: chain/rosetta-rpc/src/adapters/mod.rs
 expression: nfvalidator1_receipt_processing_transaction
+
 ---
 Transaction {
     transaction_identifier: TransactionIdentifier {
@@ -18,7 +19,9 @@ Transaction {
                 Success,
             ),
             account: AccountIdentifier {
-                address: "nfvalidator1.near",
+                address: AccountId(
+                    "nfvalidator1.near",
+                ),
                 sub_account: None,
             },
             amount: Some(

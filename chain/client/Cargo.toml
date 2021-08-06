@@ -49,8 +49,6 @@ delay-detector = { path = "../../tools/delay_detector", optional = true }
 [dev-dependencies]
 near-logger-utils = { path = "../../test-utils/logger" }
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
-testlib = { path = "../../test-utils/testlib" }
-nearcore = { path = "../../nearcore" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]
@@ -60,13 +58,8 @@ expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
 metric_recorder = ["near-client-primitives/metric_recorder"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
-protocol_feature_evm = ["near-primitives/protocol_feature_evm", "near-chain/protocol_feature_evm", "node-runtime/protocol_feature_evm"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 protocol_feature_restore_receipts_after_fix = []
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_restore_receipts_after_fix"]
 sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox"]
-
-[[test]]
-name = "sandbox"
-required-features = ["sandbox"]

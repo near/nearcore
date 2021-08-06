@@ -6,7 +6,6 @@ use crate::utils::split_method_names;
 use crate::ValuePtr;
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
-use near_primitives::checked_feature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
 use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
@@ -17,7 +16,6 @@ use near_primitives_core::runtime::fees::{
 use near_primitives_core::types::{
     AccountId, Balance, EpochHeight, Gas, ProtocolVersion, StorageUsage,
 };
-use near_runtime_utils::is_account_id_64_len_hex;
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
 use serde::{Deserialize, Serialize};
@@ -111,7 +109,6 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: ProfileData,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         ext.reset_touched_nodes_counter();
@@ -129,7 +126,6 @@ impl<'a> VMLogic<'a> {
             max_gas_burnt,
             context.prepaid_gas,
             context.is_view,
-            profile,
         );
         Self {
             ext,
@@ -161,7 +157,6 @@ impl<'a> VMLogic<'a> {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        profile: ProfileData,
     ) -> Self {
         Self::new_with_protocol_version(
             ext,
@@ -170,7 +165,6 @@ impl<'a> VMLogic<'a> {
             fees_config,
             promise_results,
             memory,
-            profile,
             LEGACY_DEFAULT_PROTOCOL_VERSION,
         )
     }
@@ -522,7 +516,7 @@ impl<'a> VMLogic<'a> {
 
         self.internal_write_register(
             register_id,
-            self.context.current_account_id.as_bytes().to_vec(),
+            self.context.current_account_id.as_ref().as_bytes().to_vec(),
         )
     }
 
@@ -550,7 +544,7 @@ impl<'a> VMLogic<'a> {
         }
         self.internal_write_register(
             register_id,
-            self.context.signer_account_id.as_bytes().to_vec(),
+            self.context.signer_account_id.as_ref().as_bytes().to_vec(),
         )
     }
 
@@ -601,7 +595,7 @@ impl<'a> VMLogic<'a> {
         }
         self.internal_write_register(
             register_id,
-            self.context.predecessor_account_id.as_bytes().to_vec(),
+            self.context.predecessor_account_id.as_ref().as_bytes().to_vec(),
         )
     }
 
@@ -1611,7 +1605,7 @@ impl<'a> VMLogic<'a> {
         let receiver_id = self.get_account_by_receipt(&receipt_idx);
         let is_receiver_implicit =
             is_implicit_account_creation_enabled(self.current_protocol_version)
-                && is_account_id_64_len_hex(receiver_id);
+                && AccountId::is_implicit(receiver_id.as_ref());
 
         let send_fee =
             transfer_send_fee(&self.fees_config.action_creation_config, sir, is_receiver_implicit);
@@ -1873,34 +1867,6 @@ impl<'a> VMLogic<'a> {
             sir,
             ActionCosts::delete_account,
         )?;
-
-        if checked_feature!("stable", AllowCreateAccountOnDelete, self.current_protocol_version) {
-            let receiver_id = self.get_account_by_receipt(&receipt_idx);
-            let sir = receiver_id == &beneficiary_id;
-            let is_receiver_implicit =
-                is_implicit_account_creation_enabled(self.current_protocol_version)
-                    && is_account_id_64_len_hex(receiver_id);
-
-            let transfer_to_beneficiary_send_fee = transfer_send_fee(
-                &self.fees_config.action_creation_config,
-                sir,
-                is_receiver_implicit,
-            );
-            let transfer_to_beneficiary_exec_fee =
-                transfer_exec_fee(&self.fees_config.action_creation_config, is_receiver_implicit);
-            let use_gas = self
-                .fees_config
-                .action_receipt_creation_config
-                .send_fee(sir)
-                .checked_add(self.fees_config.action_receipt_creation_config.exec_fee())
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(transfer_to_beneficiary_send_fee)
-                .ok_or(HostError::IntegerOverflow)?
-                .checked_add(transfer_to_beneficiary_exec_fee)
-                .ok_or(HostError::IntegerOverflow)?;
-
-            self.gas_counter.pay_action_accumulated(0, use_gas, ActionCosts::transfer)?;
-        }
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
@@ -2181,6 +2147,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If account is not UTF-8 encoded then returns `BadUtf8`;
+    /// * If account is not valid then returns `InvalidAccountId`.
     ///
     /// # Cost
     ///
@@ -2191,7 +2158,17 @@ impl<'a> VMLogic<'a> {
         let buf = self.get_vec_from_memory_or_register(ptr, len)?;
         self.gas_counter.pay_base(utf8_decoding_base)?;
         self.gas_counter.pay_per(utf8_decoding_byte, buf.len() as u64)?;
-        let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
+
+        // We return an illegally constructed AccountId here for the sake of ensuring
+        // backwards compatibility. For paths previously involving validation, like receipts
+        // we retain validation further down the line in node-runtime/verifier.rs#fn(validate_receipt)
+        // mimicing previous behaviour.
+        let account_id = String::from_utf8(buf)
+            .map(
+                #[allow(deprecated)]
+                AccountId::new_unvalidated,
+            )
+            .map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
     }
 
@@ -2538,6 +2515,7 @@ impl<'a> VMLogic<'a> {
             burnt_gas: self.gas_counter.burnt_gas(),
             used_gas: self.gas_counter.used_gas(),
             logs: self.logs,
+            profile: self.gas_counter.profile_data(),
         }
     }
 
@@ -2552,6 +2530,7 @@ impl<'a> VMLogic<'a> {
             burnt_gas: self.gas_counter.burnt_gas(),
             used_gas: self.gas_counter.used_gas(),
             logs,
+            profile: self.gas_counter.profile_data(),
         }
     }
 
@@ -2562,7 +2541,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct VMOutcome {
     #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
@@ -2571,6 +2550,22 @@ pub struct VMOutcome {
     pub burnt_gas: Gas,
     pub used_gas: Gas,
     pub logs: Vec<String>,
+    #[serde(skip)]
+    /// Data collected from making a contract call
+    pub profile: ProfileData,
+}
+
+// Compare VMOutcome skip profile data. Practically it's not possible to have burnt_gas and used_gas
+// same while profile doesn't match and this simplifies tests that compare VMOutcomes.
+impl PartialEq for VMOutcome {
+    fn eq(&self, other: &VMOutcome) -> bool {
+        self.balance == other.balance
+            && self.storage_usage == other.storage_usage
+            && self.return_data == other.return_data
+            && self.burnt_gas == other.burnt_gas
+            && self.used_gas == other.used_gas
+            && self.logs == other.logs
+    }
 }
 
 impl std::fmt::Debug for VMOutcome {

@@ -1,0 +1,26 @@
+[package]
+name = "near-account-id"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/near/nearcore"
+homepage = "https://github.com/near/nearcore"
+description = "This crate contains the account ID primitive and its validation facilities"
+
+[features]
+default = ["borsh", "serde"]
+internal_unstable = []
+
+[dependencies]
+borsh = { version = "0.8.1", optional = true }
+serde = { version = "1", optional = true }
+
+[dependencies.paperclip]
+git = "https://github.com/near/paperclip"
+branch = "actix-web-4-beta.6"
+optional = true
+features = ["actix"]
+
+[dev-dependencies]
+serde_json = "1"

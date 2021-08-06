@@ -56,6 +56,8 @@ pub(crate) struct InitConfigArgs {
     /// Specify a custom download URL for the config file.
     #[clap(long)]
     pub download_config_url: Option<String>,
+    /// Specify the boot nodes to bootstrap the network
+    pub boot_nodes: Option<String>,
     /// Specify a custom max_gas_burnt_view limit.
     #[clap(long)]
     pub max_gas_burnt_view: Option<Gas>,
@@ -84,6 +86,7 @@ impl From<InitConfigArgs> for near_indexer::InitConfigArgs {
             download_genesis_url: config_args.download_genesis_url,
             download_config: config_args.download_config,
             download_config_url: config_args.download_config_url,
+            boot_nodes: config_args.boot_nodes,
             max_gas_burnt_view: config_args.max_gas_burnt_view,
         }
     }

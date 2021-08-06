@@ -54,7 +54,7 @@ impl NetworkConfig {
         NetworkConfig {
             public_key,
             secret_key,
-            account_id: Some(seed.to_string()),
+            account_id: Some(seed.parse().unwrap()),
             addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
             boot_nodes: vec![],
             handshake_timeout: Duration::from_secs(60),
@@ -123,7 +123,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// use near_network::test_utils::WaitOrTimeout;
 /// use std::time::{Instant, Duration};
 ///
-/// near_actix_test_utils::run_actix_until_stop(async {
+/// near_actix_test_utils::run_actix(async {
 ///     let start = Instant::now();
 ///     WaitOrTimeout::new(
 ///         Box::new(move |ctx| {

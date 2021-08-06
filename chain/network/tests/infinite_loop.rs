@@ -6,7 +6,7 @@ use actix::actors::mocker::Mocker;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
@@ -72,7 +72,7 @@ type ViewClientMock = Mocker<ClientActor>;
 #[test]
 fn test_infinite_loop() {
     init_integration_logger();
-    run_actix_until_stop(async {
+    run_actix(async {
         let (port1, port2) = (open_port(), open_port());
         let (pm1, peer_id1, counter1) = make_peer_manager("test1", port1, vec![], 10);
         let (pm2, peer_id2, counter2) =
@@ -82,7 +82,7 @@ fn test_infinite_loop() {
         let request1 = NetworkRequests::Sync {
             peer_id: peer_id1.clone(),
             sync_data: SyncData::account(AnnounceAccount {
-                account_id: "near".to_string(),
+                account_id: "near".parse().unwrap(),
                 peer_id: peer_id1.clone(),
                 epoch_id: Default::default(),
                 signature: Default::default(),
@@ -91,7 +91,7 @@ fn test_infinite_loop() {
         let request2 = NetworkRequests::Sync {
             peer_id: peer_id1.clone(),
             sync_data: SyncData::account(AnnounceAccount {
-                account_id: "near".to_string(),
+                account_id: "near".parse().unwrap(),
                 peer_id: peer_id2.clone(),
                 epoch_id: Default::default(),
                 signature: Default::default(),

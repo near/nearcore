@@ -39,8 +39,8 @@ use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderI
 use crate::sharding::{ShardChunkHeaderInnerV2, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -92,9 +92,6 @@ pub struct ViewApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
-    /// EVM chain ID
-    #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {
@@ -144,7 +141,7 @@ pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "option_u128_dec_format")]
         allowance: Option<Balance>,
-        receiver_id: AccountId,
+        receiver_id: String,
         method_names: Vec<String>,
     },
     FullAccess,
@@ -297,6 +294,9 @@ pub struct StatusSyncInfo {
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
+    pub earliest_block_hash: Option<CryptoHash>,
+    pub earliest_block_height: Option<BlockHeight>,
+    pub earliest_block_time: Option<DateTime<Utc>>,
 }
 
 // TODO: add more information to ValidatorInfo
@@ -445,7 +445,7 @@ impl From<BlockHeaderView> for BlockHeader {
             block_merkle_root: view.block_merkle_root,
         };
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let last_header_v2_version = None;
+        let last_header_v2_version: Option<u32> = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
         let last_header_v2_version =
             Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
@@ -1018,6 +1018,9 @@ pub struct ExecutionOutcomeView {
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
+    /// Execution metadata, versioned
+    #[serde(skip)]
+    pub metadata: ExecutionMetadata,
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
@@ -1029,6 +1032,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
+            metadata: outcome.metadata,
         }
     }
 }

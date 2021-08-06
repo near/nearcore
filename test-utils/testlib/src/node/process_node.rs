@@ -53,7 +53,7 @@ impl Node for ProcessNode {
                 self.state = ProcessNodeState::Running(child);
                 let client_addr = format!("http://{}", self.config.rpc_addr().unwrap());
                 thread::sleep(Duration::from_secs(3));
-                near_actix_test_utils::run_actix_until_stop(async move {
+                near_actix_test_utils::run_actix(async move {
                     WaitOrTimeout::new(
                         Box::new(move |_| {
                             actix::spawn(
@@ -119,9 +119,9 @@ impl ProcessNode {
             rng.gen::<u64>()
         );
         let signer = Arc::new(InMemorySigner::from_seed(
-            &config.validator_signer.as_ref().unwrap().validator_id(),
+            config.validator_signer.as_ref().unwrap().validator_id().clone(),
             KeyType::ED25519,
-            &config.validator_signer.as_ref().unwrap().validator_id(),
+            config.validator_signer.as_ref().unwrap().validator_id().as_ref(),
         ));
         let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer };
         result.reset_storage();

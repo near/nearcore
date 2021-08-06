@@ -6,7 +6,7 @@ use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
 use num_rational::Rational;
 
-use near_actix_test_utils::run_actix_until_stop;
+use near_actix_test_utils::run_actix;
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock};
@@ -76,7 +76,7 @@ fn add_blocks(
             vec![],
             signer,
             Chain::compute_collection_hash(vec![ValidatorStake::new(
-                "other".to_string(),
+                "other".parse().unwrap(),
                 signer.public_key(),
                 TESTING_INIT_STAKE,
             )])
@@ -96,7 +96,7 @@ fn add_blocks(
 }
 
 fn setup_configs() -> (Genesis, Block, NearConfig, NearConfig) {
-    let mut genesis = Genesis::test(vec!["other"], 1);
+    let mut genesis = Genesis::test(vec!["other".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
     let genesis_block = genesis_block(&genesis);
 
@@ -120,11 +120,15 @@ fn sync_nodes() {
 
         let (genesis, genesis_block, near1, near2) = setup_configs();
 
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let (client1, _, _) = start_with_config(dir1.path(), near1);
 
-            let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
+            let signer = InMemoryValidatorSigner::from_seed(
+                "other".parse().unwrap(),
+                KeyType::ED25519,
+                "other",
+            );
             let _ =
                 add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
@@ -158,14 +162,18 @@ fn sync_after_sync_nodes() {
 
         let (genesis, genesis_block, near1, near2) = setup_configs();
 
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let (client1, _, _) = start_with_config(dir1.path(), near1);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
             let (_, view_client2, _) = start_with_config(dir2.path(), near2);
 
-            let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
+            let signer = InMemoryValidatorSigner::from_seed(
+                "other".parse().unwrap(),
+                KeyType::ED25519,
+                "other",
+            );
             let blocks = add_blocks(
                 vec![genesis_block],
                 client1.clone(),
@@ -213,7 +221,7 @@ fn sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test(vec!["test1"], 1);
+        let mut genesis = Genesis::test(vec!["test1".parse().unwrap()], 1);
         genesis.config.epoch_length = 5;
         genesis.config.block_producer_kickout_threshold = 80;
 
@@ -230,7 +238,7 @@ fn sync_state_stake_change() {
         near2.client_config.skip_sync_wait = false;
         near2.client_config.epoch_sync_enabled = false;
 
-        run_actix_until_stop(async move {
+        run_actix(async move {
             let dir1 =
                 tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
             let dir2 =
@@ -238,10 +246,14 @@ fn sync_state_stake_change() {
             let (client1, view_client1, _) = start_with_config(dir1.path(), near1.clone());
 
             let genesis_hash = *genesis_block(&genesis).hash();
-            let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+            let signer = Arc::new(InMemorySigner::from_seed(
+                "test1".parse().unwrap(),
+                KeyType::ED25519,
+                "test1",
+            ));
             let unstake_transaction = SignedTransaction::stake(
                 1,
-                "test1".to_string(),
+                "test1".parse().unwrap(),
                 &*signer,
                 TESTING_INIT_STAKE / 2,
                 near1.validator_signer.as_ref().unwrap().public_key(),

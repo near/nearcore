@@ -31,8 +31,12 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, String) {
     let (client_addr, view_client_addr) = setup_no_network_with_validity_period_and_no_epoch_sync(
-        vec!["test1", "test2"],
-        if let NodeType::Validator = node_type { "test1" } else { "other" },
+        vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+        if let NodeType::Validator = node_type {
+            "test1".parse().unwrap()
+        } else {
+            "other".parse().unwrap()
+        },
         true,
         transaction_validity_period,
         enable_doomslug,
@@ -54,7 +58,7 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        near_actix_test_utils::run_actix_until_stop(async {
+        near_actix_test_utils::run_actix(async {
             let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
             let $client = new_client(&format!("http://{}", addr));
