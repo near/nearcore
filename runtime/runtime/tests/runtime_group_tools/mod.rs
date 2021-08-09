@@ -222,7 +222,7 @@ impl RuntimeGroup {
                 validators.push(AccountInfo {
                     account_id: signer.account_id.clone(),
                     public_key: signer.public_key.clone(),
-                    amount: if (i as u64) < num_existing_accounts { TESTING_INIT_STAKE } else { 0 },
+                    amount: TESTING_INIT_STAKE,
                 });
             }
             signers.push(signer);
