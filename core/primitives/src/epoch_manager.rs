@@ -72,17 +72,15 @@ impl AllEpochConfig {
         simple_nightshade_shard_config: Option<ShardConfig>,
     ) -> Self {
         let mut config = genesis_epoch_config.clone();
-        match simple_nightshade_shard_config {
-            Some(ShardConfig {
-                num_block_producer_seats_per_shard,
-                avg_hidden_validator_seats_per_shard,
-                shard_layout,
-            }) => {
-                config.num_block_producer_seats_per_shard = num_block_producer_seats_per_shard;
-                config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
-                config.shard_layout = shard_layout;
-            }
-            None => (),
+        if let Some(ShardConfig {
+            num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard,
+            shard_layout,
+        }) = simple_nightshade_shard_config
+        {
+            config.num_block_producer_seats_per_shard = num_block_producer_seats_per_shard;
+            config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
+            config.shard_layout = shard_layout;
         }
         let genesis_epoch_config = Arc::new(genesis_epoch_config);
         let simple_nightshade_epoch_config = Arc::new(config);

@@ -60,6 +60,14 @@ impl ShardLayout {
     }
 }
 
+/// Maps account_id to shard_id given a shard_layout
+/// For V0, maps according to hash of account id
+/// For V1, accounts are divided to ranges, each range of account is mapped to a shard.
+/// There are also some fixed shards, each of which is mapped to an account and all subaccounts.
+///     For example, for ShardLayoutV1{ fixed_shards: ["aurora"], boundary_accounts: ["near"]}
+///     Account "aurora" and all its subaccounts will be mapped to shard_id 0.
+///     For the rest of accounts, accounts <= "near" will be mapped to shard_id 1 and
+///     accounts > "near" will be mapped shard_id 2.
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
