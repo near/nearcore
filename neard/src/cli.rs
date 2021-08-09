@@ -215,7 +215,6 @@ impl RunCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
-        nearcore::genesis_validate::validate_genesis(&near_config.genesis);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.

@@ -75,6 +75,7 @@ mod test {
     use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+    use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
@@ -84,7 +85,6 @@ mod test {
     use near_store::Store;
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
-    use nearcore::genesis_validate::validate_genesis;
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
