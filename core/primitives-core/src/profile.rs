@@ -1,23 +1,22 @@
+use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Index;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Serialize, Serializer};
 
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
 
-/// Data for total gas burnt (index 0), and then each external cost and action
-type DataArray = [u64; ProfileData::LEN];
-
 /// Profile of gas consumption.
-#[derive(Clone, PartialEq, Eq)]
+/// Vecs are used for forward compatible. should only append new costs and never remove old costs
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ProfileData {
-    data: DataArray,
+    all_gas: u64,
+    ext_costs: Vec<u64>,
+    action_costs: Vec<u64>,
 }
-
-/// Result of a ProfileData stat
-#[derive(Clone, BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct ProfileDataResult(pub Vec<u64>);
 
 impl Default for ProfileData {
     fn default() -> ProfileData {
@@ -26,50 +25,46 @@ impl Default for ProfileData {
 }
 
 impl ProfileData {
-    const EXT_START: usize = 1;
-    const ACTION_START: usize = ProfileData::EXT_START + ExtCosts::count();
-    const LEN: usize = 1 + ActionCosts::count() + ExtCosts::count();
-
     #[inline]
     pub fn new() -> Self {
-        let data = [0; ProfileData::LEN];
-        ProfileData { data }
+        let all_gas = 0;
+        let ext_costs = vec![0; ExtCosts::count()];
+        let action_costs = vec![0; ActionCosts::count()];
+        ProfileData { all_gas, ext_costs, action_costs }
     }
 
     #[inline]
     pub fn merge(&mut self, other: &ProfileData) {
-        for i in 0..ProfileData::LEN {
-            self.data[i] = self.data[i].saturating_add(other.data[i]);
+        self.all_gas = self.all_gas.saturating_add(other.all_gas);
+        for i in 0..ExtCosts::count() {
+            self.ext_costs[i] = self.ext_costs[i].saturating_add(other.ext_costs[i]);
+        }
+        for i in 0..ActionCosts::count() {
+            self.action_costs[i] = self.action_costs[i].saturating_add(other.action_costs[i]);
         }
     }
 
     #[inline]
     pub fn add_action_cost(&mut self, action: ActionCosts, value: u64) {
-        self.add_val(ProfileData::ACTION_START + action as usize, value);
-    }
-    #[inline]
-    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
-        self.add_val(ProfileData::EXT_START + ext as usize, value);
-    }
-    #[inline]
-    fn add_val(&mut self, index: usize, value: u64) {
-        self.data[index] = self.data[index].saturating_add(value);
+        self.action_costs[action as usize] =
+            self.action_costs[action as usize].saturating_add(value);
     }
 
-    fn read(&self, index: usize) -> u64 {
-        self.data[index]
+    #[inline]
+    pub fn add_ext_cost(&mut self, ext: ExtCosts, value: u64) {
+        self.ext_costs[ext as usize] = self.ext_costs[ext as usize].saturating_add(value);
     }
 
     pub fn all_gas(&self) -> Gas {
-        self.read(0)
+        self.all_gas
     }
 
     pub fn get_action_cost(&self, action: usize) -> u64 {
-        self.read(ProfileData::ACTION_START + action)
+        self.action_costs[action]
     }
 
     pub fn get_ext_cost(&self, ext: usize) -> u64 {
-        self.read(ProfileData::EXT_START + ext)
+        self.ext_costs[ext]
     }
 
     pub fn host_gas(&self) -> u64 {
@@ -79,6 +74,7 @@ impl ProfileData {
         }
         host_gas
     }
+
     pub fn action_gas(&self) -> u64 {
         let mut action_gas = 0u64;
         for e in 0..ActionCosts::count() {
@@ -92,20 +88,7 @@ impl ProfileData {
     }
 
     pub fn set_burnt_gas(&mut self, burnt_gas: u64) {
-        self.data[0] = burnt_gas;
-    }
-
-    /// Cut up counter values up to now
-    /// get and reset all counter to zero
-    pub fn cut(&self) -> ProfileDataResult {
-        let mut ret = vec![];
-        for i in 0..ProfileData::LEN {
-            let slot = &self.data[i];
-            let old = slot.get();
-            ret.push(old);
-            slot.set(0);
-        }
-        ProfileDataResult(ret)
+        self.all_gas = burnt_gas;
     }
 }
 
@@ -170,6 +153,147 @@ impl fmt::Debug for ProfileData {
         }
         writeln!(f, "------------------------------")?;
         Ok(())
+    }
+}
+
+#[derive(PartialOrd, Ord, PartialEq, Eq)]
+pub enum Cost {
+    ExtCost(usize),    // need to be usize to iterate, it's actually a ExtCosts variant
+    ActionCost(usize), // ActionCosts variant
+}
+
+impl Cost {
+    const ALL: &'static [Cost] = &[
+        Cost::ExtCost(ExtCosts::base as usize),
+        Cost::ExtCost(ExtCosts::contract_compile_base as usize),
+        Cost::ExtCost(ExtCosts::contract_compile_bytes as usize),
+        Cost::ExtCost(ExtCosts::read_memory_base as usize),
+        Cost::ExtCost(ExtCosts::read_memory_byte as usize),
+        Cost::ExtCost(ExtCosts::write_memory_base as usize),
+        Cost::ExtCost(ExtCosts::write_memory_byte as usize),
+        Cost::ExtCost(ExtCosts::read_register_base as usize),
+        Cost::ExtCost(ExtCosts::read_register_byte as usize),
+        Cost::ExtCost(ExtCosts::write_register_base as usize),
+        Cost::ExtCost(ExtCosts::write_register_byte as usize),
+        Cost::ExtCost(ExtCosts::utf8_decoding_base as usize),
+        Cost::ExtCost(ExtCosts::utf8_decoding_byte as usize),
+        Cost::ExtCost(ExtCosts::utf16_decoding_base as usize),
+        Cost::ExtCost(ExtCosts::utf16_decoding_byte as usize),
+        Cost::ExtCost(ExtCosts::sha256_base as usize),
+        Cost::ExtCost(ExtCosts::sha256_byte as usize),
+        Cost::ExtCost(ExtCosts::keccak256_base as usize),
+        Cost::ExtCost(ExtCosts::keccak256_byte as usize),
+        Cost::ExtCost(ExtCosts::keccak512_base as usize),
+        Cost::ExtCost(ExtCosts::keccak512_byte as usize),
+        Cost::ExtCost(ExtCosts::ripemd160_base as usize),
+        Cost::ExtCost(ExtCosts::ripemd160_block as usize),
+        Cost::ExtCost(ExtCosts::ecrecover_base as usize),
+        Cost::ExtCost(ExtCosts::log_base as usize),
+        Cost::ExtCost(ExtCosts::log_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_write_base as usize),
+        Cost::ExtCost(ExtCosts::storage_write_key_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_write_value_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_write_evicted_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_read_base as usize),
+        Cost::ExtCost(ExtCosts::storage_read_key_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_read_value_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_remove_base as usize),
+        Cost::ExtCost(ExtCosts::storage_remove_key_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_remove_ret_value_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_has_key_base as usize),
+        Cost::ExtCost(ExtCosts::storage_has_key_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_create_prefix_base as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_create_prefix_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_create_range_base as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_create_from_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_create_to_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_next_base as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_next_key_byte as usize),
+        Cost::ExtCost(ExtCosts::storage_iter_next_value_byte as usize),
+        Cost::ExtCost(ExtCosts::touching_trie_node as usize),
+        Cost::ExtCost(ExtCosts::promise_and_base as usize),
+        Cost::ExtCost(ExtCosts::promise_and_per_promise as usize),
+        Cost::ExtCost(ExtCosts::promise_return as usize),
+        Cost::ExtCost(ExtCosts::validator_stake_base as usize),
+        Cost::ExtCost(ExtCosts::validator_total_stake_base as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_multiexp_base as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_multiexp_byte as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_multiexp_sublinear as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_pairing_check_base as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_pairing_check_byte as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_sum_base as usize),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_sum_byte as usize),
+        Cost::ActionCost(ActionCosts::create_account as usize),
+        Cost::ActionCost(ActionCosts::delete_account as usize),
+        Cost::ActionCost(ActionCosts::deploy_contract as usize),
+        Cost::ActionCost(ActionCosts::function_call as usize),
+        Cost::ActionCost(ActionCosts::transfer as usize),
+        Cost::ActionCost(ActionCosts::stake as usize),
+        Cost::ActionCost(ActionCosts::add_key as usize),
+        Cost::ActionCost(ActionCosts::delete_key as usize),
+        Cost::ActionCost(ActionCosts::value_return as usize),
+        Cost::ActionCost(ActionCosts::new_receipt as usize),
+    ];
+}
+
+impl Index<Cost> for ProfileData {
+    type Output = u64;
+
+    fn index(&self, index: Cost) -> &Self::Output {
+        match index {
+            Cost::ExtCost(ext) => &self.ext_costs[ext as usize],
+            Cost::ActionCost(action) => &self.action_costs[action as usize],
+        }
+    }
+}
+
+impl ProfileData {
+    pub fn nonzero_costs(&self) -> BTreeMap<Cost, u64> {
+        let mut data = BTreeMap::new();
+        for i in 0..ExtCosts::count() {
+            if self.ext_costs[i] > 0 {
+                data.insert(Cost::ExtCost(i), self.ext_costs[i]);
+            }
+        }
+        for i in 0..ActionCosts::count() {
+            if self.action_costs[i] > 0 {
+                data.insert(Cost::ActionCost(i), self.action_costs[i]);
+            }
+        }
+        data
+    }
+}
+
+impl Serialize for Cost {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Cost::ExtCost(ext) => serializer.serialize_str(ExtCosts::name_of(*ext)),
+            Cost::ActionCost(action) => serializer.serialize_str(ActionCosts::name_of(*action)),
+        }
+    }
+}
+
+impl Serialize for ProfileData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let cost_data = self.nonzero_costs();
+        let mut map = serializer.serialize_map(Some(cost_data.len()))?;
+        for (k, v) in cost_data {
+            map.serialize_entry(&k, &v)?;
+        }
+        map.end()
     }
 }
 
