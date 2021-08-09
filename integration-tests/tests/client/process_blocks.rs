@@ -3270,10 +3270,10 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             );
         } else {
             assert_eq!(
-                receipt_hashes_to_restore,
-                get_restored_receipt_hashes(&migration_data),
-                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
-            );
+            receipt_hashes_to_restore,
+            get_restored_receipt_hashes(&migration_data),
+            "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+        );
         }
     }
 
