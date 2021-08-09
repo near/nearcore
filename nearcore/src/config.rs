@@ -1201,13 +1201,3 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
 }
-
-fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
-    for record in records {
-        if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
-        }
-    }
-    total_supply
-}
