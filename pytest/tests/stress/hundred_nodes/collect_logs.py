@@ -1,27 +1,35 @@
-from rc import gcloud, pmap, run
+from rc import gcloud, pmap
 from distutils.util import strtobool
 import sys
 import datetime
+import pathlib
+import tempfile
 
 sys.path.append('lib')
 from configured_logger import logger
 from utils import user_name
 
-machines = gcloud.list()
-node_prefix = sys.argv[1] if len(sys.argv) >= 2 else f"pytest-node-{user_name()}"
-nodes = list(filter(lambda m: m.name.startswith(node_prefix), machines))
+if len(sys.argv) >= 2:
+    node_prefix = sys.argv[1]
+else:
+    node_prefix = f'pytest-node-{user_name()}'
+nodes = [machine
+         for machine in gcloud.list()
+         if machine.name.startswith(node_prefix)]
 
-log_file = sys.argv[2] if len(sys.argv) >= 3 else "/tmp/python-rc.log"
+if len(sys.argv) >= 3:
+    log_file = sys.argv[2]
+else:
+    log_file = pathlib.Path(tempfile.gettempdir()) / 'python-rc.log'
 
-collected_place = f'/tmp/near/collected_logs_{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}'
-
-run(['mkdir', '-p', collected_place])
+collected_place = (pathlib.Path(tempfile.gettempdir()) / 'near' /
+                   f'collected_logs_{datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d")}')
+collected_place.mkdir(parents=True, exist_ok=True)
 
 def collect_file(node):
     logger.info(f'Download file from {node.name}')
-    node.download(f'{log_file}', f'{collected_place}/{node.name}.txt')
+    node.download(str(log_file), str(collected_place / f'{node.name}.txt'))
     logger.info(f'Download file from {node.name} finished')
-
 
 pmap(collect_file, nodes)
 logger.info(f'All download finish, log collected at {collected_place}')

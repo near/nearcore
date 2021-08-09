@@ -20,8 +20,6 @@ use near_primitives::views::{
 };
 use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::MIN_GAS_PRICE;
-#[cfg(feature = "protocol_feature_evm")]
-use nearcore::config::TESTNET_EVM_CHAIN_ID;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -57,12 +55,16 @@ pub struct RuntimeUser {
 }
 
 impl RuntimeUser {
-    pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
+    pub fn new(
+        account_id: AccountId,
+        signer: Arc<dyn Signer>,
+        client: Arc<RwLock<MockClient>>,
+    ) -> Self {
         let runtime_config = Arc::new(client.read().unwrap().runtime_config.clone());
         RuntimeUser {
             signer,
             trie_viewer: TrieViewer::default(),
-            account_id: account_id.to_string(),
+            account_id,
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),
@@ -142,9 +144,6 @@ impl RuntimeUser {
             config: self.runtime_config.clone(),
             cache: None,
             is_new_chunk: true,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         }
@@ -252,8 +251,6 @@ impl User for RuntimeUser {
             block_timestamp: apply_state.block_timestamp,
             current_protocol_version: PROTOCOL_VERSION,
             cache: apply_state.cache,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
         };
         result.result = self
             .trie_viewer

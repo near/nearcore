@@ -663,9 +663,6 @@ pub trait RuntimeAdapter: Send + Sync {
         header_head: &CryptoHash,
     ) -> Result<bool, Error>;
 
-    #[cfg(feature = "protocol_feature_evm")]
-    fn evm_chain_id(&self) -> u64;
-
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
     /// Get previous epoch id by hash of previous block.
@@ -749,10 +746,15 @@ mod tests {
             1_000_000_000,
             Chain::compute_collection_hash(genesis_bps).unwrap(),
         );
-        let signer = InMemoryValidatorSigner::from_seed("other", KeyType::ED25519, "other");
+        let signer =
+            InMemoryValidatorSigner::from_seed("other".parse().unwrap(), KeyType::ED25519, "other");
         let b1 = Block::empty(&genesis, &signer);
         assert!(b1.header().verify_block_producer(&signer.public_key()));
-        let other_signer = InMemoryValidatorSigner::from_seed("other2", KeyType::ED25519, "other2");
+        let other_signer = InMemoryValidatorSigner::from_seed(
+            "other2".parse().unwrap(),
+            KeyType::ED25519,
+            "other2",
+        );
         let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
         let b2 = Block::empty_with_approvals(
             &b1,
@@ -777,7 +779,7 @@ mod tests {
                 receipt_ids: vec![hash(&[1])],
                 gas_burnt: 100,
                 tokens_burnt: 10000,
-                executor_id: "alice".to_string(),
+                executor_id: "alice".parse().unwrap(),
                 metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
@@ -789,7 +791,7 @@ mod tests {
                 receipt_ids: vec![],
                 gas_burnt: 0,
                 tokens_burnt: 0,
-                executor_id: "bob".to_string(),
+                executor_id: "bob".parse().unwrap(),
                 metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         };
