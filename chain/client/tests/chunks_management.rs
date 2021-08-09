@@ -1,31 +1,17 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::collections::HashSet;
 
-use actix::{Addr, System};
-use futures::{future, FutureExt};
-use log::info;
-
-use near_actix_test_utils::run_actix;
 use near_chain::ChainGenesis;
-use near_chunks::{
-    CHUNK_REQUEST_RETRY_MS, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH_MS,
-    CHUNK_REQUEST_SWITCH_TO_OTHERS_MS,
-};
-use near_client::test_utils::{setup_mock_all_validators, TestEnv};
-use near_client::{ClientActor, GetBlock, ViewClientActor};
+use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::types::{AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg};
-use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_network::types::PartialEncodedChunkRequestMsg;
+use near_network::NetworkRequests;
 use near_primitives::hash::{hash, CryptoHash};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkV2, ShardChunkHeader, ShardChunkHeaderV2,
 };
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockHeight;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 
