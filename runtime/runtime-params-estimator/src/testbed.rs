@@ -7,7 +7,7 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{ShardTries, StoreCompiledContractCache};
+use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
@@ -34,7 +34,7 @@ impl RuntimeTestbed {
         println!("workdir {}", workdir.path().display());
         let store_path = get_store_path(workdir.path());
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
-        let tries = ShardTries::new(store.clone(), 1);
+        let tries = ShardTries::new(store.clone(), 0, 1);
 
         let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
@@ -103,7 +103,7 @@ impl RuntimeTestbed {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(0),
+                self.tries.get_trie_for_shard(ShardUId::default()),
                 self.root,
                 &None,
                 &self.apply_state,
@@ -114,7 +114,8 @@ impl RuntimeTestbed {
             )
             .unwrap();
 
-        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root) =
+            self.tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

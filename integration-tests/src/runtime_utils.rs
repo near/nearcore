@@ -1,4 +1,5 @@
 use near_chain_configs::Genesis;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::StateRoot;
 use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::GenesisExt;
@@ -8,8 +9,11 @@ use testlib::runtime_utils::{
 };
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis =
-        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
+    let mut genesis = Genesis::test_sharded_version(
+        vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
+        3,
+        vec![3],
+    );
     add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
     get_runtime_and_trie_from_genesis(&genesis)
 }
@@ -17,6 +21,6 @@ pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, tries, root) = get_runtime_and_trie();
     let trie_viewer = TrieViewer::default();
-    let state_update = tries.new_trie_update(0, root);
+    let state_update = tries.new_trie_update(ShardUId { version: 1, shard_id: 0 }, root);
     (trie_viewer, state_update)
 }

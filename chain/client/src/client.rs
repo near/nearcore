@@ -633,6 +633,7 @@ impl Client {
             runtime_adapter.prepare_transactions(
                 prev_block_header.gas_price(),
                 chunk_extra.gas_limit(),
+                &next_epoch_id,
                 shard_id,
                 *chunk_extra.state_root(),
                 // while the height of the next block that includes the chunk might not be prev_height + 1,

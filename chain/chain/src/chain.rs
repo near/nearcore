@@ -1453,8 +1453,11 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        let state_root_node =
-            self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.prev_state_root())?;
+        let state_root_node = self.runtime_adapter.get_state_root_node(
+            shard_id,
+            &sync_hash,
+            &chunk_header.prev_state_root(),
+        )?;
 
         let shard_state_header = match chunk {
             ShardChunk::V1(chunk) => {
@@ -1527,19 +1530,21 @@ impl Chain {
         if shard_id as usize >= sync_prev_block.chunks().len() {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
+        // TODO: why is this prev_state_root here?
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let state_root_node = self
             .runtime_adapter
-            .get_state_root_node(shard_id, &state_root)
+            .get_state_root_node(shard_id, &sync_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
+        // TODO: this part of logic may change when shards may change?
         let state_part = self
             .runtime_adapter
-            .obtain_state_part(shard_id, &state_root, part_id, num_parts)
+            .obtain_state_part(shard_id, &sync_hash, &state_root, part_id, num_parts)
             .log_storage_error("obtain_state_part fail")?;
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header

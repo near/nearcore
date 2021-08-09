@@ -1,4 +1,5 @@
 use integration_tests::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::{
     account::Account,
     hash::CryptoHash,
@@ -14,6 +15,8 @@ use near_store::set_account;
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::{alice_account, encode_int};
+
+const TEST_SHARD_UID: ShardUId = ShardUId { version: 1, shard_id: 0 };
 
 #[test]
 fn test_view_call() {
@@ -105,7 +108,8 @@ fn test_view_call_with_args() {
 #[test]
 fn test_view_state() {
     let (_, tries, root) = get_runtime_and_trie();
-    let mut state_update = tries.new_trie_update(0, root);
+    let shard_uid = TEST_SHARD_UID;
+    let mut state_update = tries.new_trie_update(shard_uid, root);
     state_update.set(
         TrieKey::ContractData { account_id: alice_account(), key: b"test123".to_vec() },
         b"123".to_vec(),
@@ -124,10 +128,10 @@ fn test_view_state() {
     );
     state_update.commit(StateChangeCause::InitialState);
     let trie_changes = state_update.finalize().unwrap().0;
-    let (db_changes, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
+    let (db_changes, new_root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
     db_changes.commit().unwrap();
 
-    let state_update = tries.new_trie_update(0, new_root);
+    let state_update = tries.new_trie_update(shard_uid, new_root);
     let trie_viewer = TrieViewer::default();
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
     assert_eq!(result.proof, Vec::<String>::new());
@@ -150,7 +154,7 @@ fn test_view_state() {
 #[test]
 fn test_view_state_too_large() {
     let (_, tries, root) = get_runtime_and_trie();
-    let mut state_update = tries.new_trie_update(0, root);
+    let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
     set_account(
         &mut state_update,
         alice_account(),
@@ -164,7 +168,7 @@ fn test_view_state_too_large() {
 #[test]
 fn test_view_state_with_large_contract() {
     let (_, tries, root) = get_runtime_and_trie();
-    let mut state_update = tries.new_trie_update(0, root);
+    let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
     set_account(
         &mut state_update,
         alice_account(),

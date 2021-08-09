@@ -434,6 +434,7 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     use super::*;
+    use crate::near_primitives::shard_layout::ShardUId;
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -462,7 +463,7 @@ mod tests {
             account_id.as_ref(),
         ));
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.set_locked(initial_locked);
@@ -478,10 +479,10 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(0, root), 100)
+        (signer, tries.new_trie_update(ShardUId::default(), root), 100)
     }
 
     fn assert_err_both_validations(
