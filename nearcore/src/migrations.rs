@@ -467,7 +467,7 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
                 let r: Balance = BorshDeserialize::deserialize(&mut v3).unwrap();
                 println!("{} {:?}", v3.len(), r);
                 let r: AccountId = BorshDeserialize::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
+                println!("{} {:?} {:?}", v3.len(), &v3, r);
                 let r: ExecutionStatus = BorshDeserialize::deserialize(&mut v3).unwrap();
                 println!("{} {:?}", v3.len(), r);
 
