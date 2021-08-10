@@ -377,7 +377,7 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 24);
 }
 
-pub fn migrate_24_to_25(path: &String) {
+pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
     use smart_default::SmartDefault;
 
     let store = create_store(&path);
@@ -441,14 +441,37 @@ pub fn migrate_24_to_25(path: &String) {
             // has success in previous attempt of this migration
             continue;
         }
+        println!("{}", bs58::encode(key.as_ref()).into_string());
+        let filename = bs58::encode(key.as_ref()).into_string();
+        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
 
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
         let old_outcomes = match old_outcomes {
             Ok(old_outcomes) => old_outcomes,
             _ => {
                 // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
-                let old_outcome =
-                    OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                let old_outcome = match OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
+                    Ok(old_outcome) => old_outcome,
+                    Err(e) => {
+                        let genesis_height = near_config.genesis.config.genesis_height;
+                        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+                        println!("{:?}", e);
+                        use std::convert::TryFrom;
+                        let id = CryptoHash::try_from(key.as_ref()).unwrap();
+                        if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
+                            println!("is a txn outcome");
+                            unimplemented!();
+                        } else if let Ok(Some(receipt)) = chain_store.get_receipt(&id) {
+                            println!("is a receipt outcome");
+                            unimplemented!();
+                        } else {
+                            panic!(
+                                "Outcome not from tx or a receipt {}",
+                                bs58::encode(key.as_ref()).into_string()
+                            )
+                        }
+                    }
+                };
                 vec![old_outcome]
             }
         };
