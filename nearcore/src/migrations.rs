@@ -441,60 +441,28 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
             // has success in previous attempt of this migration
             continue;
         }
-        println!("{}", bs58::encode(key.as_ref()).into_string());
-        let filename = bs58::encode(key.as_ref()).into_string();
-        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
 
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
         let old_outcomes = match old_outcomes {
             Ok(old_outcomes) => old_outcomes,
-            Err(e1) => {
-                println!("try as vec failed: {:?}", e1);
-                let v2: Vec<u8> = value.clone().into();
-                let mut v3 = &v2[4..];
-                let r = MerklePath::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r = CryptoHash::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r = CryptoHash::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r = <Vec<LogEntry>>::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r = <Vec<CryptoHash>>::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r: Gas = BorshDeserialize::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r: Balance = BorshDeserialize::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-                let r: AccountId = BorshDeserialize::deserialize(&mut v3).unwrap();
-                println!("{} {:?} {:?}", v3.len(), &v3, r);
-                let r: ExecutionStatus = BorshDeserialize::deserialize(&mut v3).unwrap();
-                println!("{} {:?}", v3.len(), r);
-
-                // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
-                let old_outcome = match OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
-                    Ok(old_outcome) => old_outcome,
-                    Err(e) => {
-                        let genesis_height = near_config.genesis.config.genesis_height;
-                        let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-                        println!("{:?}", e);
-                        use std::convert::TryFrom;
-                        let id = CryptoHash::try_from(key.as_ref()).unwrap();
-                        if let Ok(Some(tx)) = chain_store.get_transaction(&id) {
-                            println!("is a txn outcome");
-                            unimplemented!();
-                        } else if let Ok(Some(receipt)) = chain_store.get_receipt(&id) {
-                            println!("is a receipt outcome");
-                            unimplemented!();
-                        } else {
-                            panic!(
-                                "Outcome not from tx or a receipt {}",
-                                bs58::encode(key.as_ref()).into_string()
-                            )
-                        }
+            _ => {
+                let mut v2: Vec<u8> = value.clone().into();
+                if v2[0..3] == [1, 0, 0, 0] {
+                    // ensure there's one execution outcome
+                    if v2[v2.len() - 3..] == [12, 2, 3] {
+                        // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
+                        let last = v2.len() - 1;
+                        v2[last] = 2; // MethodInvalidSignature error is now at index 2.
+                        Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2).unwrap()
+                    } else {
+                        unimplemented!();
                     }
-                };
-                vec![old_outcome]
+                } else {
+                    // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
+                    let old_outcome =
+                        OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                    vec![old_outcome]
+                }
             }
         };
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
