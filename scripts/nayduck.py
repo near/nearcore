@@ -67,6 +67,12 @@ def read_tests_from_file(path: pathlib.Path, *,
     as if they were directly in the source file.  The `./<path>` directives are
     handled recursively up to three levels deep.
 
+    If include_comments is True, `#./<path>` lines are handled as well with all
+    included line commented out.  This is useful to comment out a include a with
+    TODO comment included and have check_nightly.py and check_pytest.py scripts
+    still recognise those includes.  Note that the line must start with `#./`,
+    i.e. there must be no space between hash and the dot.
+
     Args:
         path: Path to the file to read.
         include_comments: By default empty lines and lines whose first non-space
@@ -78,16 +84,23 @@ def read_tests_from_file(path: pathlib.Path, *,
         An iterable over lines in the given file.  All lines are stripped of
         leading and trailing white space.
     """
-    def impl(path: pathlib.Path, depth: int):
+
+    def impl(path: pathlib.Path, depth: int, comment: bool = False):
         for lineno, line in enumerate(reader(path).splitlines()):
-            line = line.strip()
-            if line.startswith('./'):
+            line = line.rstrip()
+            if line.startswith('./') or (include_comments and
+                                         line.startswith('#./')):
                 if depth == 3:
                     print(f'{path}:{lineno+1}: ignoring {line}; '
                           f'would exceed depth limit of {depth}')
                 else:
-                    yield from impl(path.parent / line, depth + 1)
+                    incpath = line[1:] if line.startswith('#') else line
+                    yield from impl(path.parent / incpath,
+                                    depth + 1,
+                                    comment or line.startswith('#'))
             elif include_comments or (line and line[0] != '#'):
+                if comment and not line.startswith('#'):
+                    line = '#' + line
                 yield line
 
     return impl(path, 1)
