@@ -21,7 +21,6 @@ use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, Pee
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use testlib::test_helpers::heavy_test;
 
 /// Runs block producing client and stops after network mock received seven blocks
 /// Confirms that the blocks form a chain (which implies the chunks are distributed).
