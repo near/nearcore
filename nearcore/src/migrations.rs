@@ -452,9 +452,12 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
                 println!("try as vec failed: {:?}", e1);
                 let v2: Vec<u8> = value.clone().into();
                 let mut v3 = &v2[4..];
-                MerklePath::deserialize(&mut v3).unwrap();
-                CryptoHash::deserialize(&mut v3).unwrap();
-                <Vec<LogEntry>>::deserialize(&mut v3).unwrap();
+                let r = MerklePath::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
+                let r = CryptoHash::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
+                let r = <Vec<LogEntry>>::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
                 <Vec<CryptoHash>>::deserialize(&mut v3).unwrap();
                 let _: Gas = BorshDeserialize::deserialize(&mut v3).unwrap();
                 let _: Balance = BorshDeserialize::deserialize(&mut v3).unwrap();
