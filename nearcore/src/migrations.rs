@@ -450,8 +450,17 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
             Ok(old_outcomes) => old_outcomes,
             Err(e1) => {
                 println!("try as vec failed: {:?}", e1);
-                let mut v2: Vec<u8> = value.clone().into();
-                MerklePath::deserialize(&mut v2[4..].as_ref()).unwrap();
+                let v2: Vec<u8> = value.clone().into();
+                let mut v3 = &v2[4..];
+                MerklePath::deserialize(&mut v3).unwrap();
+                CryptoHash::deserialize(&mut v3).unwrap();
+                <Vec<LogEntry>>::deserialize(&mut v3).unwrap();
+                <Vec<CryptoHash>>::deserialize(&mut v3).unwrap();
+                let _: Gas = BorshDeserialize::deserialize(&mut v3).unwrap();
+                let _: Balance = BorshDeserialize::deserialize(&mut v3).unwrap();
+                let _: AccountId = BorshDeserialize::deserialize(&mut v3).unwrap();
+                let _: ExecutionStatus = BorshDeserialize::deserialize(&mut v3).unwrap();
+
                 // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
                 let old_outcome = match OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
                     Ok(old_outcome) => old_outcome,
