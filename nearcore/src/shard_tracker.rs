@@ -23,12 +23,6 @@ pub struct ShardTracker {
     tracked_shards: HashSet<ShardId>,
     /// Combination of shards that correspond to tracked accounts and tracked shards.
     actual_tracked_shards: HashSet<ShardId>,
-    /// Accounts that we stop tracking in the next epoch.
-    pending_untracked_accounts: HashSet<AccountId>,
-    /// Shards that we stop tracking in the next epoch.
-    pending_untracked_shards: HashSet<ShardId>,
-    /// Current epoch id. Used to determine whether we need to flush pending requests.
-    current_epoch_id: EpochId,
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: Arc<RwLock<EpochManager>>,
     /// Current ShardLayout
@@ -39,7 +33,6 @@ impl ShardTracker {
     pub fn new(
         accounts: Vec<AccountId>,
         shards: Vec<ShardId>,
-        epoch_id: EpochId,
         epoch_manager: Arc<RwLock<EpochManager>>,
     ) -> Self {
         let shard_layout = {
@@ -61,9 +54,6 @@ impl ShardTracker {
             tracked_accounts,
             tracked_shards,
             actual_tracked_shards,
-            pending_untracked_accounts: HashSet::default(),
-            pending_untracked_shards: HashSet::default(),
-            current_epoch_id: epoch_id,
             epoch_manager,
             current_shard_layout: shard_layout,
         }
@@ -103,108 +93,6 @@ impl ShardTracker {
         for shard_id in shard_ids.iter() {
             self.track_shard(*shard_id);
         }
-    }
-
-    fn flush_pending(&mut self, new_shard_layout: &ShardLayout) {
-        let mut shards_to_remove = HashSet::new();
-        // update tracked_accounts and tracked_shards if shard layout will change
-        if &self.current_shard_layout != new_shard_layout {
-            self.tracked_shards = (0..new_shard_layout.num_shards())
-                .filter(|x| {
-                    let parent_shards = new_shard_layout.parent_shards().unwrap();
-                    self.tracked_shards.contains(&parent_shards[*x as usize])
-                })
-                .collect();
-            self.tracked_accounts =
-                self.tracked_accounts.iter().fold(HashMap::new(), |mut acc, (_, accounts)| {
-                    accounts.iter().for_each(|account_id| {
-                        let shard_id = account_id_to_shard_id(account_id, new_shard_layout);
-                        acc.entry(shard_id).or_insert_with(HashSet::new).insert(account_id.clone());
-                    });
-                    acc
-                });
-            self.actual_tracked_shards = self.tracked_shards.clone();
-            for (shard_id, _) in self.tracked_accounts.iter() {
-                self.actual_tracked_shards.insert(*shard_id);
-            }
-        }
-        for account_id in self.pending_untracked_accounts.drain() {
-            let shard_id = account_id_to_shard_id(&account_id, new_shard_layout);
-            self.tracked_accounts.entry(shard_id).and_modify(|e| {
-                e.remove(&account_id);
-            });
-            let to_remove = if let Some(accounts) = self.tracked_accounts.get(&shard_id) {
-                accounts.is_empty()
-            } else {
-                false
-            };
-            if to_remove {
-                self.tracked_accounts.remove(&shard_id);
-                shards_to_remove.insert(shard_id);
-            }
-        }
-        for shard_id in self.pending_untracked_shards.drain() {
-            self.tracked_shards.remove(&shard_id);
-            shards_to_remove.insert(shard_id);
-        }
-        for shard_id in shards_to_remove.drain() {
-            if !self.tracked_accounts.contains_key(&shard_id)
-                && !self.tracked_shards.contains(&shard_id)
-            {
-                self.actual_tracked_shards.remove(&shard_id);
-            }
-        }
-    }
-
-    fn update_epoch(&mut self, block_hash: &CryptoHash) -> Result<(), EpochError> {
-        let (_, epoch_id) = {
-            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            (epoch_manager.get_prev_epoch_id(block_hash)?, epoch_manager.get_epoch_id(block_hash)?)
-        };
-        if self.current_epoch_id != epoch_id {
-            // if epoch id has changed, we need to flush the pending removals
-            // and update the shards to track
-            let new_shard_layout = {
-                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-                epoch_manager.get_shard_layout(&epoch_id)?
-            };
-            self.flush_pending(&new_shard_layout);
-            self.current_epoch_id = epoch_id;
-            self.current_shard_layout = new_shard_layout;
-        }
-        Ok(())
-    }
-
-    /// Stop tracking a list of accounts in the next epoch.
-    #[allow(unused)]
-    pub fn untrack_accounts(
-        &mut self,
-        block_hash: &CryptoHash,
-        account_ids: Vec<AccountId>,
-    ) -> Result<(), EpochError> {
-        self.update_epoch(block_hash)?;
-        for account_id in account_ids {
-            self.pending_untracked_accounts.insert(account_id);
-        }
-        Ok(())
-    }
-
-    /// Stop tracking a list of shards in the next epoch.
-    /// If ShardLayout will change in the next epoch, the shard_id specified in this function
-    /// corresponds to the new ShardLayout. For example, say the current epoch has one shard,
-    /// and the next epoch has 8 shards. Then untrack_shards(_, [0]) untracks only shard 0 in the
-    /// next epoch, instead of untracking all shards.
-    #[allow(unused)]
-    pub fn untrack_shards(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<(), EpochError> {
-        self.update_epoch(block_hash)?;
-        for shard_id in shard_ids {
-            self.pending_untracked_shards.insert(shard_id);
-        }
-        Ok(())
     }
 
     pub fn care_about_shard(
@@ -252,15 +140,7 @@ impl ShardTracker {
                 return true;
             }
         }
-        let mut tracker = self.clone();
-        let new_shard_layout = {
-            let mut epoch_manager = tracker.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            let next_epoch_id =
-                epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).unwrap();
-            epoch_manager.get_shard_layout(&next_epoch_id).unwrap()
-        };
-        tracker.flush_pending(&new_shard_layout);
-        tracker.actual_tracked_shards.contains(&shard_id)
+        self.actual_tracked_shards.contains(&shard_id)
     }
 }
 
@@ -275,19 +155,14 @@ mod tests {
     use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{BlockHeight, EpochId, NumShards, ProtocolVersion};
+    use near_primitives::types::{AccountId, BlockHeight, EpochId, NumShards, ProtocolVersion};
     use near_store::test_utils::create_test_store;
 
-    use super::{ShardTracker, POISONED_LOCK_ERR};
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    use super::{account_id_to_shard_id, ShardTracker};
+    use crate::shard_tracker::POISONED_LOCK_ERR;
     use near_epoch_manager::test_utils::hash_range;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
-    use near_primitives::shard_layout::account_id_to_shard_id;
     use near_primitives::shard_layout::ShardLayout;
-
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::utils::get_num_seats_per_shard;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Rational;
@@ -320,7 +195,7 @@ mod tests {
             num_blocks_per_year: 1000000,
             epoch_length: 1,
             protocol_reward_rate: Rational::from_integer(0),
-            protocol_treasury_account: "".to_string(),
+            protocol_treasury_account: AccountId::test_account(),
             online_max_threshold: initial_epoch_config.online_max_threshold,
             online_min_threshold: initial_epoch_config.online_min_threshold,
             num_seconds_per_year: 1000000,
@@ -332,7 +207,7 @@ mod tests {
                 genesis_protocol_version,
                 reward_calculator,
                 vec![ValidatorStake::new(
-                    "test".to_string(),
+                    AccountId::test_account(),
                     PublicKey::empty(KeyType::ED25519),
                     100,
                 )],
@@ -341,6 +216,7 @@ mod tests {
         ))
     }
 
+    #[allow(unused)]
     pub fn record_block(
         epoch_manager: &mut EpochManager,
         prev_h: CryptoHash,
@@ -374,78 +250,14 @@ mod tests {
     #[test]
     fn test_track_new_accounts_and_shards() {
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, 4, None);
-        let mut tracker = ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager);
-        tracker.track_accounts(&["test1".to_string(), "test2".to_string()]);
+        let mut tracker = ShardTracker::new(vec![], vec![], epoch_manager);
+        tracker.track_accounts(&["test1".parse().unwrap(), "test2".parse().unwrap()]);
         tracker.track_shards(&[2, 3]);
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(tracker.account_id_to_shard_id(&"test1".to_string()));
-        total_tracked_shards.insert(tracker.account_id_to_shard_id(&"test2".to_string()));
+        total_tracked_shards.insert(tracker.account_id_to_shard_id(&"test1".parse().unwrap()));
+        total_tracked_shards.insert(tracker.account_id_to_shard_id(&"test2".parse().unwrap()));
         total_tracked_shards.insert(2);
         total_tracked_shards.insert(3);
-        assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);
-    }
-
-    #[test]
-    fn test_untrack_accounts() {
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, 4, None);
-        let mut tracker =
-            ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager.clone());
-        tracker.track_accounts(&["test1".to_string(), "test2".to_string(), "test3".to_string()]);
-        tracker.track_shards(&[2, 3]);
-        {
-            let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
-            record_block(
-                &mut epoch_manager,
-                CryptoHash::default(),
-                hash(&[0]),
-                0,
-                vec![],
-                PROTOCOL_VERSION,
-            );
-            record_block(&mut epoch_manager, hash(&[0]), hash(&[1]), 1, vec![], PROTOCOL_VERSION);
-            record_block(&mut epoch_manager, hash(&[1]), hash(&[2]), 2, vec![], PROTOCOL_VERSION);
-        }
-        tracker
-            .untrack_accounts(&hash(&[1]), vec!["test2".to_string(), "test3".to_string()])
-            .unwrap();
-        tracker.update_epoch(&hash(&[2])).unwrap();
-
-        let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards.insert(tracker.account_id_to_shard_id(&"test1".to_string()));
-        total_tracked_shards.insert(2);
-        total_tracked_shards.insert(3);
-
-        assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);
-    }
-
-    #[test]
-    fn test_untrack_shards() {
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, 4, None);
-        let mut tracker =
-            ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager.clone());
-        tracker.track_accounts(&["test1".to_string(), "test2".to_string(), "test3".to_string()]);
-        tracker.track_shards(&[2, 3]);
-        {
-            let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
-            record_block(
-                &mut epoch_manager,
-                CryptoHash::default(),
-                hash(&[0]),
-                0,
-                vec![],
-                PROTOCOL_VERSION,
-            );
-            record_block(&mut epoch_manager, hash(&[0]), hash(&[1]), 1, vec![], PROTOCOL_VERSION);
-            record_block(&mut epoch_manager, hash(&[1]), hash(&[2]), 2, vec![], PROTOCOL_VERSION);
-        }
-        tracker.untrack_shards(&hash(&[1]), vec![1, 2, 3]).unwrap();
-        tracker.update_epoch(&hash(&[2])).unwrap();
-
-        let mut total_tracked_shards = HashSet::new();
-        for account_id in vec!["test1", "test2", "test3"] {
-            total_tracked_shards.insert(tracker.account_id_to_shard_id(&account_id.to_string()));
-        }
-
         assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);
     }
 
@@ -454,8 +266,8 @@ mod tests {
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
         let shard_layout = ShardLayout::v1(
-            vec![String::from("aurora")],
-            vec!["h", "o"].into_iter().map(|x| String::from(x)).collect(),
+            vec!["aurora".parse().unwrap()],
+            vec!["h", "o"].into_iter().map(|x| x.parse().unwrap()).collect(),
             Some(vec![0, 0, 0, 0]),
         );
         let shard_config = ShardConfig {
@@ -464,9 +276,8 @@ mod tests {
             shard_layout: shard_layout.clone(),
         };
         let epoch_manager = get_epoch_manager(simple_nightshade_version - 1, 1, Some(shard_config));
-        let mut tracker =
-            ShardTracker::new(vec![], vec![], EpochId::default(), epoch_manager.clone());
-        tracker.track_accounts(&["near".to_string(), "zoo".to_string()]);
+        let mut tracker = ShardTracker::new(vec![], vec![], epoch_manager.clone());
+        tracker.track_accounts(&["near".parse().unwrap(), "zoo".parse().unwrap()]);
         tracker.track_shards(&[0]);
 
         let h = hash_range(8);
@@ -502,15 +313,15 @@ mod tests {
 
         // before resharding
         tracker.update_epoch(&h[2]).unwrap();
-        assert_eq!(tracker.account_id_to_shard_id(&String::from("zoo")), 0);
+        assert_eq!(tracker.account_id_to_shard_id("zoo".parse().unwrap()), 0);
         // untrack future shard 0 after resharding
         tracker.untrack_shards(&h[2], vec![0]).unwrap();
         assert_eq!(tracker.actual_tracked_shards, (0..1).collect());
         // after resharding
         tracker.update_epoch(&h[3]).unwrap();
         assert_eq!(tracker.actual_tracked_shards, vec![1, 2, 3].into_iter().collect());
-        for account in ["near", "zoo"].iter() {
-            let account = String::from(*account);
+        for account in ["near", "zoo"].into_iter() {
+            let account = account.parse().unwrap();
             assert_eq!(
                 tracker.account_id_to_shard_id(&account),
                 account_id_to_shard_id(&account, &shard_layout)

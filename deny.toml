@@ -26,9 +26,6 @@ skip = [
     { name = "socket2", version = "=0.3.19" },
     { name = "textwrap", version = "=0.12.1" },
 
-    # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
-    { name = "subtle", version = "=1.0.0" },
-
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
@@ -40,11 +37,6 @@ skip = [
     { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "sha2", version = "=0.8.2" },
-    { name = "crypto-mac", version = "=0.7.0" },
-    { name = "block-padding", version = "=0.1.5" },
-    { name = "block-buffer", version = "=0.7.3" },
-    { name = "opaque-debug", version = "=0.2.3" },
     { name = "generic-array", version = "=0.12.3" },
 
     # `sha2` uses it
@@ -89,7 +81,6 @@ skip = [
     { name = "getrandom", version = "=0.1.16" },
 
     # criterion and criterion-plot use conflicting versions
-    { name = "itertools", version = "=0.9.0" },
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 

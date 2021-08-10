@@ -68,7 +68,7 @@ pub fn run_vm(
     #[cfg(feature = "wasmer1_vm")]
     use crate::wasmer1_runner::run_wasmer1;
 
-    let (outcome, error) = match vm_kind {
+    let (mut outcome, error) = match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
         VMKind::Wasmer0 => run_wasmer(
             code,
@@ -114,8 +114,8 @@ pub fn run_vm(
         #[cfg(not(feature = "wasmer1_vm"))]
         VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
     };
-    if let Some(outcome) = &outcome {
-        outcome.profile.set_burnt_gas(outcome.burnt_gas)
+    if let Some(ref mut outcome) = outcome {
+        (*outcome).profile.set_burnt_gas(outcome.burnt_gas)
     }
     (outcome, error)
 }

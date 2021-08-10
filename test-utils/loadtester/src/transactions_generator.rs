@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives::types::AccountId;
 
 use byteorder::ByteOrder;
 use byteorder::LittleEndian;
@@ -41,7 +42,7 @@ impl Generator {
     pub fn send_money(
         node: &Arc<RwLock<RemoteNode>>,
         signer_ind: usize,
-        all_accounts: &Vec<String>,
+        all_accounts: &Vec<AccountId>,
     ) -> SignedTransaction {
         let (signer_from, nonce, block_hash) = {
             let mut node = node.write().unwrap();
