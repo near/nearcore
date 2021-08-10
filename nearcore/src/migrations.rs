@@ -441,6 +441,9 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
             // has success in previous attempt of this migration
             continue;
         }
+        println!("{}", bs58::encode(key.as_ref()).into_string());
+        let filename = bs58::encode(key.as_ref()).into_string();
+        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
 
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
         let old_outcomes = match old_outcomes {
