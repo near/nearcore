@@ -30,15 +30,10 @@ impl Scenario {
             ChainGenesis::from(&genesis),
             1,
             1,
-            vec![Arc::new(NightshadeRuntime::new(
-                Path::new("."),
-                create_test_store(),
-                &genesis,
-                vec![],
-                vec![],
-                None,
-                None,
-            )) as Arc<dyn RuntimeAdapter>],
+            vec![
+                Arc::new(NightshadeRuntime::default(Path::new("."), create_test_store(), &genesis))
+                    as Arc<dyn RuntimeAdapter>,
+            ],
         );
 
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();

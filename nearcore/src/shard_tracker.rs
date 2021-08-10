@@ -3,7 +3,6 @@ use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::info;
 
 use near_epoch_manager::EpochManager;
 use near_primitives::hash::{hash, CryptoHash};
@@ -24,10 +23,8 @@ pub struct ShardTracker {
     /// Tracked accounts by shard id. For each shard id, the corresponding set of accounts should be
     /// non empty (otherwise the entry should not exist).
     tracked_accounts: HashMap<ShardId, HashSet<AccountId>>,
-    /// Tracked shards.
-    tracked_shards: HashSet<ShardId>,
-    /// Combination of shards that correspond to tracked accounts and tracked shards.
-    actual_tracked_shards: HashSet<ShardId>,
+    /// Whether to track all shards
+    track_all_shards: bool,
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: Arc<RwLock<EpochManager>>,
     /// Number of shards in the system.
@@ -37,7 +34,7 @@ pub struct ShardTracker {
 impl ShardTracker {
     pub fn new(
         accounts: Vec<AccountId>,
-        shards: Vec<ShardId>,
+        track_all_shards: bool,
         epoch_manager: Arc<RwLock<EpochManager>>,
         num_shards: NumShards,
     ) -> Self {
@@ -46,51 +43,7 @@ impl ShardTracker {
             acc.entry(shard_id).or_insert_with(HashSet::new).insert(x);
             acc
         });
-        let tracked_shards: HashSet<_> = shards.into_iter().collect();
-        let mut actual_tracked_shards = tracked_shards.clone();
-        for (shard_id, _) in tracked_accounts.iter() {
-            actual_tracked_shards.insert(*shard_id);
-        }
-        info!(target: "runtime", "Tracking shards: {:?}", actual_tracked_shards);
-        ShardTracker {
-            tracked_accounts,
-            tracked_shards,
-            actual_tracked_shards,
-            epoch_manager,
-            num_shards,
-        }
-    }
-
-    fn track_account(&mut self, account_id: &AccountId) {
-        let shard_id = account_id_to_shard_id(account_id, self.num_shards);
-        self.tracked_accounts
-            .entry(shard_id)
-            .or_insert_with(HashSet::new)
-            .insert(account_id.clone());
-        self.actual_tracked_shards.insert(shard_id);
-    }
-
-    /// Track a list of accounts. The tracking will take effect immediately because
-    /// even if we want to start tracking the accounts in the next epoch, it cannot harm
-    /// us to start tracking them earlier.
-    #[allow(unused)]
-    pub fn track_accounts(&mut self, account_ids: &[AccountId]) {
-        for account_id in account_ids.iter() {
-            self.track_account(account_id);
-        }
-    }
-
-    fn track_shard(&mut self, shard_id: ShardId) {
-        self.tracked_shards.insert(shard_id);
-        self.actual_tracked_shards.insert(shard_id);
-    }
-
-    /// Track a list of shards. Similar to tracking accounts, the tracking starts immediately.
-    #[allow(unused)]
-    pub fn track_shards(&mut self, shard_ids: &[ShardId]) {
-        for shard_id in shard_ids.iter() {
-            self.track_shard(*shard_id);
-        }
+        ShardTracker { tracked_accounts, track_all_shards, epoch_manager, num_shards }
     }
 
     pub fn care_about_shard(
@@ -109,11 +62,11 @@ impl ShardTracker {
             };
             if !is_me {
                 return account_cares_about_shard;
+            } else if account_cares_about_shard {
+                return true;
             }
-            account_cares_about_shard || self.actual_tracked_shards.contains(&shard_id)
-        } else {
-            self.actual_tracked_shards.contains(&shard_id)
         }
+        self.track_all_shards || self.tracked_accounts.contains_key(&shard_id)
     }
 
     pub fn will_care_about_shard(
@@ -136,7 +89,7 @@ impl ShardTracker {
                 return true;
             }
         }
-        self.actual_tracked_shards.contains(&shard_id)
+        self.track_all_shards || self.tracked_accounts.contains_key(&shard_id)
     }
 }
 
@@ -151,7 +104,7 @@ mod tests {
     use near_primitives::epoch_manager::EpochConfig;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::{AccountId, BlockHeight};
+    use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId};
     use near_store::test_utils::create_test_store;
 
     use super::{account_id_to_shard_id, ShardTracker};
@@ -232,18 +185,50 @@ mod tests {
             .unwrap();
     }
 
+    fn get_all_shards_care_about(
+        tracker: &ShardTracker,
+        num_shards: NumShards,
+    ) -> HashSet<ShardId> {
+        (0..num_shards)
+            .filter(|shard_id| {
+                tracker.care_about_shard(None, &CryptoHash::default(), *shard_id, true)
+            })
+            .collect()
+    }
+
+    fn get_all_shards_will_care_about(
+        tracker: &ShardTracker,
+        num_shards: NumShards,
+    ) -> HashSet<ShardId> {
+        (0..num_shards)
+            .filter(|shard_id| {
+                tracker.will_care_about_shard(None, &CryptoHash::default(), *shard_id, true)
+            })
+            .collect()
+    }
+
     #[test]
-    fn test_track_new_accounts_and_shards() {
+    fn test_track_accounts() {
         let num_shards = 4;
         let epoch_manager = get_epoch_manager();
-        let mut tracker = ShardTracker::new(vec![], vec![], epoch_manager, num_shards);
-        tracker.track_accounts(&["test1".parse().unwrap(), "test2".parse().unwrap()]);
-        tracker.track_shards(&[2, 3]);
+        let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
+        let tracker = ShardTracker::new(tracked_accounts, false, epoch_manager, num_shards);
         let mut total_tracked_shards = HashSet::new();
         total_tracked_shards.insert(account_id_to_shard_id(&"test1".parse().unwrap(), num_shards));
         total_tracked_shards.insert(account_id_to_shard_id(&"test2".parse().unwrap(), num_shards));
-        total_tracked_shards.insert(2);
-        total_tracked_shards.insert(3);
-        assert_eq!(tracker.actual_tracked_shards, total_tracked_shards);
+
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards), total_tracked_shards);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards), total_tracked_shards);
+    }
+
+    #[test]
+    fn test_track_all_shards() {
+        let num_shards = 4;
+        let epoch_manager = get_epoch_manager();
+        let tracker = ShardTracker::new(vec![], true, epoch_manager, num_shards);
+        let total_tracked_shards: HashSet<_> = (0..num_shards).collect();
+
+        assert_eq!(get_all_shards_care_about(&tracker, num_shards), total_tracked_shards);
+        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards), total_tracked_shards);
     }
 }

@@ -25,15 +25,8 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         genesis.config.runtime_config.transaction_costs.clone(),
         genesis.config.min_gas_price,
     );
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
-        Path::new("."),
-        store1,
-        &genesis,
-        vec![],
-        vec![],
-        None,
-        None,
-    ))];
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+        vec![Arc::new(nearcore::NightshadeRuntime::default(Path::new("."), store1, &genesis))];
     let env = TestEnv::new_with_runtime(ChainGenesis::from(&genesis), 1, 1, runtimes);
     (env, fee_helper)
 }

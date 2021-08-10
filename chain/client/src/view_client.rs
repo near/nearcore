@@ -1074,7 +1074,11 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                             hash: *self.chain.genesis().hash(),
                         },
                         height,
-                        tracked_shards: self.config.tracked_shards.clone(),
+                        tracked_shards: if self.config.track_all_shards {
+                            (0..self.runtime_adapter.num_shards() - 1).collect()
+                        } else {
+                            vec![]
+                        },
                         archival: self.config.archive,
                     }
                 }

@@ -114,7 +114,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
+            near_config.client_config.track_all_shards,
             None,
             None,
         );
@@ -224,7 +224,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
+            near_config.client_config.track_all_shards,
             None,
             None,
         );
@@ -291,7 +291,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
+            near_config.client_config.track_all_shards,
             None,
             None,
         );

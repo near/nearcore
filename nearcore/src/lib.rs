@@ -272,7 +272,7 @@ pub fn start_with_config(
         Arc::clone(&store),
         &config.genesis,
         config.client_config.tracked_accounts.clone(),
-        config.client_config.tracked_shards.clone(),
+        config.client_config.track_all_shards,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
     ));

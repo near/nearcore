@@ -59,17 +59,7 @@ impl GenesisBuilder {
         store: Arc<Store>,
     ) -> Self {
         let tmpdir = tempfile::Builder::new().prefix("storage").tempdir().unwrap();
-        let runtime = NightshadeRuntime::new(
-            tmpdir.path(),
-            store.clone(),
-            &genesis,
-            // Since we are not using runtime as an actor
-            // there is no reason to track accounts or shards.
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::default(tmpdir.path(), store.clone(), &genesis);
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,

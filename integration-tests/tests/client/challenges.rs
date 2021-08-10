@@ -271,15 +271,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let transaction_validity_period = genesis.config.transaction_validity_period;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
-        Path::new("."),
-        store1,
-        &genesis,
-        vec![],
-        vec![],
-        None,
-        None,
-    ))];
+    let runtimes: Vec<Arc<dyn RuntimeAdapter>> =
+        vec![Arc::new(nearcore::NightshadeRuntime::default(Path::new("."), store1, &genesis))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer =
@@ -569,14 +562,10 @@ fn test_fishermen_challenge() {
     );
     genesis.config.epoch_length = 5;
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(nearcore::NightshadeRuntime::new(
+        Arc::new(nearcore::NightshadeRuntime::default(
             Path::new("."),
             create_test_store(),
             &genesis.clone(),
-            vec![],
-            vec![],
-            None,
-            None,
         ))
     };
     let runtime1 = create_runtime();
@@ -632,23 +621,15 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 2;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(nearcore::NightshadeRuntime::new(
+    let runtime1 = Arc::new(nearcore::NightshadeRuntime::default(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),
-        vec![],
-        vec![],
-        None,
-        None,
     ));
-    let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
+    let runtime2 = Arc::new(nearcore::NightshadeRuntime::default(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),
-        vec![],
-        vec![],
-        None,
-        None,
     ));
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
     let networks = vec![network_adapter.clone(), network_adapter.clone()];

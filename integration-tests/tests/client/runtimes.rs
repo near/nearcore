@@ -32,14 +32,10 @@ use nearcore::config::GenesisExt;
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::new(
+            Arc::new(nearcore::NightshadeRuntime::default(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
-                vec![],
-                vec![],
-                None,
-                None,
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()

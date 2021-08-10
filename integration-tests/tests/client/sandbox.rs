@@ -23,14 +23,10 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
         ChainGenesis::test(),
         1,
         1,
-        vec![Arc::new(nearcore::NightshadeRuntime::new(
+        vec![Arc::new(nearcore::NightshadeRuntime::default(
             Path::new("."),
             create_test_store(),
             &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
         )) as Arc<dyn RuntimeAdapter>],
     );
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
