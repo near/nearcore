@@ -456,6 +456,8 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
                 println!("{} {:?}", v3.len(), r);
                 let r = CryptoHash::deserialize(&mut v3).unwrap();
                 println!("{} {:?}", v3.len(), r);
+                let r = CryptoHash::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
                 let r = <Vec<LogEntry>>::deserialize(&mut v3).unwrap();
                 println!("{} {:?}", v3.len(), r);
                 <Vec<CryptoHash>>::deserialize(&mut v3).unwrap();
