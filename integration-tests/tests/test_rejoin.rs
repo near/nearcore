@@ -18,6 +18,7 @@ mod test {
 
     fn warmup() {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+            #[allow(unused_mut)]
             let mut args = vec!["build", "-p", "neard"];
             #[cfg(feature = "nightly_protocol")]
             {
@@ -92,7 +93,7 @@ mod test {
             })
             .collect();
 
-        let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+        let nodes: Vec<_> = nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
         let account_names: Vec<_> =
             nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
 
@@ -176,7 +177,7 @@ mod test {
             })
             .collect();
         let nodes: Vec<Arc<RwLock<dyn Node>>> =
-            nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+            nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
         let account_names: Vec<_> =
             nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
 

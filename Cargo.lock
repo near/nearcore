@@ -1855,7 +1855,6 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
- "near-runtime-utils",
  "nearcore",
  "node-runtime",
  "serde",
@@ -2276,7 +2275,6 @@ dependencies = [
  "funty",
  "futures",
  "hex",
- "lazy_static",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2285,8 +2283,6 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
- "near-jsonrpc",
- "near-jsonrpc-client",
  "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-metrics",
@@ -2298,11 +2294,9 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "node-runtime",
- "primitive-types",
  "rand 0.7.3",
  "serde",
  "serde_json",
- "tempfile",
  "testlib",
 ]
 
@@ -2517,7 +2511,6 @@ dependencies = [
  "env_logger",
  "futures",
  "git-version",
- "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc",
@@ -2702,6 +2695,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id"
+version = "0.1.0"
+dependencies = [
+ "borsh 0.8.1",
+ "paperclip",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.1.0"
 dependencies = [
@@ -2750,6 +2753,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smart-default",
+ "tracing",
 ]
 
 [[package]]
@@ -2863,6 +2867,7 @@ dependencies = [
  "hex-literal",
  "lazy_static",
  "libc",
+ "near-account-id",
  "parity-secp256k1",
  "rand 0.7.3",
  "rand_core 0.5.1",
@@ -2976,7 +2981,6 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
- "near-runtime-utils",
  "serde",
  "serde_json",
  "thiserror",
@@ -3130,6 +3134,7 @@ dependencies = [
  "derive_more",
  "hex",
  "lazy_static",
+ "near-account-id",
  "num-rational",
  "serde",
  "serde_json",
@@ -3150,6 +3155,7 @@ dependencies = [
  "hex",
  "insta",
  "lazy_static",
+ "near-account-id",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -3188,14 +3194,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-utils"
-version = "3.0.0"
-dependencies = [
- "lazy_static",
- "regex",
-]
-
-[[package]]
 name = "near-rust-allocator-proxy"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3231,6 +3229,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "smart-default",
  "strum",
  "tempfile",
  "thiserror",
@@ -3266,6 +3265,7 @@ version = "3.0.0"
 dependencies = [
  "borsh 0.8.1",
  "hex",
+ "near-account-id",
  "near-rpc-error-macro",
  "serde",
 ]
@@ -3278,10 +3278,10 @@ dependencies = [
  "borsh 0.8.1",
  "bs58",
  "byteorder",
+ "near-account-id",
  "near-crypto",
  "near-primitives",
  "near-primitives-core",
- "near-runtime-utils",
  "near-vm-errors",
  "ripemd160",
  "serde",
@@ -3385,6 +3385,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "smart-default",
  "tempfile",
  "testlib",
  "thiserror",
@@ -3440,7 +3441,6 @@ dependencies = [
  "near-crypto",
  "near-metrics",
  "near-primitives",
- "near-runtime-utils",
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
@@ -4310,12 +4310,12 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "env_logger",
- "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
  "nearcore",
+ "testlib",
 ]
 
 [[package]]
@@ -4375,15 +4375,6 @@ checksum = "c749134fda8bfc90d0de643d59bfc841dcb3ac8a1062e12b6754bd60235c48b3"
 dependencies = [
  "libc",
  "librocksdb-sys",
-]
-
-[[package]]
-name = "run-nodes"
-version = "0.1.0"
-dependencies = [
- "clap 2.33.3",
- "integration-tests",
- "near-logger-utils",
 ]
 
 [[package]]
@@ -5056,6 +5047,7 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
+ "nearcore",
  "node-runtime",
  "num-rational",
  "rand 0.7.3",

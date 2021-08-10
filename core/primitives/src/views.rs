@@ -141,7 +141,7 @@ pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "option_u128_dec_format")]
         allowance: Option<Balance>,
-        receiver_id: AccountId,
+        receiver_id: String,
         method_names: Vec<String>,
     },
     FullAccess,
@@ -445,7 +445,7 @@ impl From<BlockHeaderView> for BlockHeader {
             block_merkle_root: view.block_merkle_root,
         };
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let last_header_v2_version = None;
+        let last_header_v2_version: Option<u32> = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
         let last_header_v2_version =
             Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);

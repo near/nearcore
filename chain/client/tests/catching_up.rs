@@ -23,17 +23,26 @@ mod tests {
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ChunkHash;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, BlockReference};
+    use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference};
     use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
 
-    fn get_validators_and_key_pairs() -> (Vec<Vec<&'static str>>, Vec<PeerInfo>) {
-        let validators = vec![
-            vec!["test1.1", "test1.2", "test1.3", "test1.4"],
-            vec!["test2.1", "test2.2", "test2.3", "test2.4"],
-            vec![
+    fn get_validators_and_key_pairs() -> (Vec<Vec<AccountId>>, Vec<PeerInfo>) {
+        let validators: Vec<Vec<AccountId>> = vec![
+            ["test1.1", "test1.2", "test1.3", "test1.4"]
+                .iter()
+                .map(|account_id| account_id.parse().unwrap())
+                .collect(),
+            ["test2.1", "test2.2", "test2.3", "test2.4"]
+                .iter()
+                .map(|account_id| account_id.parse().unwrap())
+                .collect(),
+            [
                 "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6", "test3.7",
                 "test3.8",
-            ],
+            ]
+            .iter()
+            .map(|account_id| account_id.parse().unwrap())
+            .collect(),
         ];
         let key_pairs = vec![
             PeerInfo::random(),
@@ -58,13 +67,13 @@ mod tests {
 
     fn send_tx(
         connector: &Addr<ClientActor>,
-        from: String,
-        to: String,
+        from: AccountId,
+        to: AccountId,
         amount: u128,
         nonce: u64,
         block_hash: CryptoHash,
     ) {
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         connector.do_send(NetworkClientMessages::Transaction {
             transaction: SignedTransaction::send_money(
                 nonce, from, to, &signer, amount, block_hash,
@@ -149,202 +158,199 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, msg: &NetworkRequests| {
-                        let account_from = "test3.3".to_string();
-                        let account_to = "test1.1".to_string();
-                        let source_shard_id = account_id_to_shard_id(&account_from, 4);
-                        let destination_shard_id = account_id_to_shard_id(&account_to, 4);
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
+                    let account_from = "test3.3".parse().unwrap();
+                    let account_to = "test1.1".parse().unwrap();
+                    let source_shard_id = account_id_to_shard_id(&account_from, 4);
+                    let destination_shard_id = account_id_to_shard_id(&account_to, 4);
 
-                        let mut phase = phase.write().unwrap();
-                        let mut seen_heights_with_receipts =
-                            seen_heights_with_receipts.write().unwrap();
-                        let mut seen_hashes_with_state = seen_hashes_with_state.write().unwrap();
-                        match *phase {
-                            ReceiptsSyncPhases::WaitingForFirstBlock => {
-                                if let NetworkRequests::Block { block } = msg {
-                                    assert!(block.header().height() <= send);
-                                    // This tx is rather fragile, specifically it's important that
-                                    //   1. the `from` and `to` account are not in the same shard;
-                                    //   2. ideally the producer of the chunk at height 3 for the shard
-                                    //      in which `from` resides should not also be a block producer
-                                    //      at height 3
-                                    //   3. The `from` shard should also not match the block producer
-                                    //      for height 1, because such block producer will produce
-                                    //      the chunk for height 2 right away, before we manage to send
-                                    //      the transaction.
-                                    if block.header().height() == send {
-                                        println!(
-                                            "From shard: {}, to shard: {}",
-                                            source_shard_id, destination_shard_id,
-                                        );
-                                        for i in 0..16 {
-                                            send_tx(
-                                                &connectors1.write().unwrap()[i].0,
-                                                account_from.clone(),
-                                                account_to.clone(),
-                                                111,
-                                                1,
-                                                *block.header().prev_hash(),
-                                            );
-                                        }
-                                        *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
-                                    }
-                                }
-                            }
-                            ReceiptsSyncPhases::WaitingForSecondBlock => {
-                                // This block now contains a chunk with the transaction sent above.
-                                if let NetworkRequests::Block { block } = msg {
-                                    assert!(block.header().height() <= send + 1);
-                                    if block.header().height() == send + 1 {
-                                        *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
-                                    }
-                                }
-                            }
-                            ReceiptsSyncPhases::WaitingForDistantEpoch => {
-                                // This block now contains a chunk with the transaction sent above.
-                                if let NetworkRequests::Block { block } = msg {
-                                    assert!(block.header().height() >= send + 1);
-                                    assert!(block.header().height() <= wait_till);
-                                    if block.header().height() == wait_till {
-                                        *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
-                                    }
-                                }
-                                if let NetworkRequests::PartialEncodedChunkMessage {
-                                    partial_encoded_chunk,
-                                    ..
-                                } = msg
-                                {
-                                    // The chunk producers in all epochs before `distant` need to be trying to
-                                    //     include the receipt. The `distant` epoch is the first one that
-                                    //     will get the receipt through the state sync.
-                                    let receipts: Vec<Receipt> = partial_encoded_chunk
-                                        .receipts
-                                        .iter()
-                                        .map(|x| x.0.clone())
-                                        .flatten()
-                                        .collect();
-                                    if receipts.len() > 0 {
-                                        assert_eq!(
-                                            partial_encoded_chunk.header.shard_id(),
-                                            source_shard_id
-                                        );
-                                        seen_heights_with_receipts
-                                            .insert(partial_encoded_chunk.header.height_created());
-                                    } else {
-                                        assert_ne!(
-                                            partial_encoded_chunk.header.shard_id(),
-                                            source_shard_id
-                                        );
-                                    }
-                                    // Do not propagate any one parts, this will prevent any chunk from
-                                    //    being included in the block
-                                    return (NetworkResponses::NoResponse, false);
-                                }
-                                if let NetworkRequests::StateRequestHeader {
-                                    shard_id,
-                                    sync_hash,
-                                    target,
-                                } = msg
-                                {
-                                    if sync_hold {
-                                        let srs = StateRequestStruct {
-                                            shard_id: *shard_id,
-                                            sync_hash: *sync_hash,
-                                            part_id: None,
-                                            target: target.clone(),
-                                        };
-                                        if !seen_hashes_with_state
-                                            .contains(&hash_func(&srs.try_to_vec().unwrap()))
-                                        {
-                                            seen_hashes_with_state
-                                                .insert(hash_func(&srs.try_to_vec().unwrap()));
-                                            return (NetworkResponses::NoResponse, false);
-                                        }
-                                    }
-                                }
-                                if let NetworkRequests::StateRequestPart {
-                                    shard_id,
-                                    sync_hash,
-                                    part_id,
-                                    target,
-                                } = msg
-                                {
-                                    if sync_hold {
-                                        let srs = StateRequestStruct {
-                                            shard_id: *shard_id,
-                                            sync_hash: *sync_hash,
-                                            part_id: Some(*part_id),
-                                            target: target.clone(),
-                                        };
-                                        if !seen_hashes_with_state
-                                            .contains(&hash_func(&srs.try_to_vec().unwrap()))
-                                        {
-                                            seen_hashes_with_state
-                                                .insert(hash_func(&srs.try_to_vec().unwrap()));
-                                            return (NetworkResponses::NoResponse, false);
-                                        }
-                                    }
-                                }
-                            }
-                            ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
-                                for height in send + 2..=wait_till {
+                    let mut phase = phase.write().unwrap();
+                    let mut seen_heights_with_receipts =
+                        seen_heights_with_receipts.write().unwrap();
+                    let mut seen_hashes_with_state = seen_hashes_with_state.write().unwrap();
+                    match *phase {
+                        ReceiptsSyncPhases::WaitingForFirstBlock => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header().height() <= send);
+                                // This tx is rather fragile, specifically it's important that
+                                //   1. the `from` and `to` account are not in the same shard;
+                                //   2. ideally the producer of the chunk at height 3 for the shard
+                                //      in which `from` resides should not also be a block producer
+                                //      at height 3
+                                //   3. The `from` shard should also not match the block producer
+                                //      for height 1, because such block producer will produce
+                                //      the chunk for height 2 right away, before we manage to send
+                                //      the transaction.
+                                if block.header().height() == send {
                                     println!(
-                                        "checking height {:?} out of {:?}, result = {:?}",
-                                        height,
-                                        wait_till,
-                                        seen_heights_with_receipts.contains(&height)
+                                        "From shard: {}, to shard: {}",
+                                        source_shard_id, destination_shard_id,
                                     );
-                                    if !sync_hold {
-                                        // If we don't delay the state, all heights should contain the same receipts
-                                        assert!(seen_heights_with_receipts.contains(&height));
+                                    for i in 0..16 {
+                                        send_tx(
+                                            &connectors1.write().unwrap()[i].0,
+                                            account_from.clone(),
+                                            account_to.clone(),
+                                            111,
+                                            1,
+                                            *block.header().prev_hash(),
+                                        );
+                                    }
+                                    *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
+                                }
+                            }
+                        }
+                        ReceiptsSyncPhases::WaitingForSecondBlock => {
+                            // This block now contains a chunk with the transaction sent above.
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header().height() <= send + 1);
+                                if block.header().height() == send + 1 {
+                                    *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
+                                }
+                            }
+                        }
+                        ReceiptsSyncPhases::WaitingForDistantEpoch => {
+                            // This block now contains a chunk with the transaction sent above.
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header().height() >= send + 1);
+                                assert!(block.header().height() <= wait_till);
+                                if block.header().height() == wait_till {
+                                    *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
+                                }
+                            }
+                            if let NetworkRequests::PartialEncodedChunkMessage {
+                                partial_encoded_chunk,
+                                ..
+                            } = msg
+                            {
+                                // The chunk producers in all epochs before `distant` need to be trying to
+                                //     include the receipt. The `distant` epoch is the first one that
+                                //     will get the receipt through the state sync.
+                                let receipts: Vec<Receipt> = partial_encoded_chunk
+                                    .receipts
+                                    .iter()
+                                    .map(|x| x.0.clone())
+                                    .flatten()
+                                    .collect();
+                                if receipts.len() > 0 {
+                                    assert_eq!(
+                                        partial_encoded_chunk.header.shard_id(),
+                                        source_shard_id
+                                    );
+                                    seen_heights_with_receipts
+                                        .insert(partial_encoded_chunk.header.height_created());
+                                } else {
+                                    assert_ne!(
+                                        partial_encoded_chunk.header.shard_id(),
+                                        source_shard_id
+                                    );
+                                }
+                                // Do not propagate any one parts, this will prevent any chunk from
+                                //    being included in the block
+                                return (NetworkResponses::NoResponse, false);
+                            }
+                            if let NetworkRequests::StateRequestHeader {
+                                shard_id,
+                                sync_hash,
+                                target,
+                            } = msg
+                            {
+                                if sync_hold {
+                                    let srs = StateRequestStruct {
+                                        shard_id: *shard_id,
+                                        sync_hash: *sync_hash,
+                                        part_id: None,
+                                        target: target.clone(),
+                                    };
+                                    if !seen_hashes_with_state
+                                        .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    {
+                                        seen_hashes_with_state
+                                            .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        return (NetworkResponses::NoResponse, false);
                                     }
                                 }
-                                *phase = ReceiptsSyncPhases::WaitingForValidate;
                             }
-                            ReceiptsSyncPhases::WaitingForValidate => {
-                                // This block now contains a chunk with the transaction sent above.
-                                if let NetworkRequests::Block { block } = msg {
-                                    assert!(block.header().height() >= wait_till);
-                                    assert!(block.header().height() <= wait_till + 20);
-                                    if block.header().height() == wait_till + 20 {
-                                        System::current().stop();
+                            if let NetworkRequests::StateRequestPart {
+                                shard_id,
+                                sync_hash,
+                                part_id,
+                                target,
+                            } = msg
+                            {
+                                if sync_hold {
+                                    let srs = StateRequestStruct {
+                                        shard_id: *shard_id,
+                                        sync_hash: *sync_hash,
+                                        part_id: Some(*part_id),
+                                        target: target.clone(),
+                                    };
+                                    if !seen_hashes_with_state
+                                        .contains(&hash_func(&srs.try_to_vec().unwrap()))
+                                    {
+                                        seen_hashes_with_state
+                                            .insert(hash_func(&srs.try_to_vec().unwrap()));
+                                        return (NetworkResponses::NoResponse, false);
                                     }
-                                    if block.header().height() == wait_till + 10 {
-                                        for i in 0..16 {
-                                            actix::spawn(
-                                                connectors1.write().unwrap()[i]
-                                                    .1
-                                                    .send(Query::new(
-                                                        BlockReference::latest(),
-                                                        QueryRequest::ViewAccount {
-                                                            account_id: account_to.clone(),
-                                                        },
-                                                    ))
-                                                    .then(move |res| {
-                                                        let res_inner = res.unwrap();
-                                                        if let Ok(query_response) = res_inner {
-                                                            if let ViewAccount(
-                                                                view_account_result,
-                                                            ) = query_response.kind
-                                                            {
-                                                                assert_eq!(
-                                                                    view_account_result.amount,
-                                                                    1111
-                                                                );
-                                                            }
+                                }
+                            }
+                        }
+                        ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
+                            for height in send + 2..=wait_till {
+                                println!(
+                                    "checking height {:?} out of {:?}, result = {:?}",
+                                    height,
+                                    wait_till,
+                                    seen_heights_with_receipts.contains(&height)
+                                );
+                                if !sync_hold {
+                                    // If we don't delay the state, all heights should contain the same receipts
+                                    assert!(seen_heights_with_receipts.contains(&height));
+                                }
+                            }
+                            *phase = ReceiptsSyncPhases::WaitingForValidate;
+                        }
+                        ReceiptsSyncPhases::WaitingForValidate => {
+                            // This block now contains a chunk with the transaction sent above.
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header().height() >= wait_till);
+                                assert!(block.header().height() <= wait_till + 20);
+                                if block.header().height() == wait_till + 20 {
+                                    System::current().stop();
+                                }
+                                if block.header().height() == wait_till + 10 {
+                                    for i in 0..16 {
+                                        actix::spawn(
+                                            connectors1.write().unwrap()[i]
+                                                .1
+                                                .send(Query::new(
+                                                    BlockReference::latest(),
+                                                    QueryRequest::ViewAccount {
+                                                        account_id: account_to.clone(),
+                                                    },
+                                                ))
+                                                .then(move |res| {
+                                                    let res_inner = res.unwrap();
+                                                    if let Ok(query_response) = res_inner {
+                                                        if let ViewAccount(view_account_result) =
+                                                            query_response.kind
+                                                        {
+                                                            assert_eq!(
+                                                                view_account_result.amount,
+                                                                1111
+                                                            );
                                                         }
-                                                        future::ready(())
-                                                    }),
-                                            );
-                                        }
+                                                    }
+                                                    future::ready(())
+                                                }),
+                                        );
                                     }
                                 }
                             }
-                        };
-                        (NetworkResponses::NoResponse, true)
-                    },
-                ))),
+                        }
+                    };
+                    (NetworkResponses::NoResponse, true)
+                }))),
             );
             *connectors.write().unwrap() = conn;
             let mut max_wait_ms = 240000;
@@ -405,31 +411,32 @@ mod tests {
                 Arc::new(RwLock::new(vec![]));
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
-            let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
+            let flat_validators = validators.iter().flatten().cloned().collect::<Vec<_>>();
 
             let phase = Arc::new(RwLock::new(RandomSinglePartPhases::WaitingForFirstBlock));
             let seen_heights_same_block = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
 
             let amounts = Arc::new(RwLock::new(HashMap::new()));
 
-            let check_amount =
-                move |amounts: Arc<RwLock<HashMap<_, _, _>>>, account_id: String, amount: u128| {
-                    match amounts.write().unwrap().entry(account_id.clone()) {
-                        Entry::Occupied(entry) => {
-                            println!("OCCUPIED {:?}", entry);
-                            assert_eq!(*entry.get(), amount);
-                        }
-                        Entry::Vacant(entry) => {
-                            println!("VACANT {:?}", entry);
-                            if non_zero {
-                                assert_ne!(amount % 100, 0);
-                            } else {
-                                assert_eq!(amount % 100, 0);
-                            }
-                            entry.insert(amount);
-                        }
+            let check_amount = move |amounts: Arc<RwLock<HashMap<_, _, _>>>,
+                                     account_id: AccountId,
+                                     amount: u128| {
+                match amounts.write().unwrap().entry(account_id.clone()) {
+                    Entry::Occupied(entry) => {
+                        println!("OCCUPIED {:?}", entry);
+                        assert_eq!(*entry.get(), amount);
                     }
-                };
+                    Entry::Vacant(entry) => {
+                        println!("VACANT {:?}", entry);
+                        if non_zero {
+                            assert_ne!(amount % 100, 0);
+                        } else {
+                            assert_eq!(amount % 100, 0);
+                        }
+                        entry.insert(amount);
+                    }
+                }
+            };
 
             let connectors1 = connectors.clone();
             let (_, conn, _) = setup_mock_all_validators(
@@ -445,156 +452,150 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, msg: &NetworkRequests| {
-                        let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
-                        let mut phase = phase.write().unwrap();
-                        match *phase {
-                            RandomSinglePartPhases::WaitingForFirstBlock => {
-                                if let NetworkRequests::Block { block } = msg {
-                                    assert_eq!(block.header().height(), 1);
-                                    *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
+                    let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
+                    let mut phase = phase.write().unwrap();
+                    match *phase {
+                        RandomSinglePartPhases::WaitingForFirstBlock => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert_eq!(block.header().height(), 1);
+                                *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
+                            }
+                        }
+                        RandomSinglePartPhases::WaitingForThirdEpoch => {
+                            if let NetworkRequests::Block { block } = msg {
+                                if block.header().height() == 1 {
+                                    return (NetworkResponses::NoResponse, false);
+                                }
+                                assert!(block.header().height() >= 2);
+                                assert!(block.header().height() <= height);
+                                let mut tx_count = 0;
+                                if block.header().height() == height && block.header().height() >= 2
+                                {
+                                    for (i, validator1) in flat_validators.iter().enumerate() {
+                                        for (j, validator2) in flat_validators.iter().enumerate() {
+                                            let mut amount =
+                                                (((i + j + 17) * 701) % 42 + 1) as u128;
+                                            if non_zero {
+                                                if i > j {
+                                                    amount = 2;
+                                                } else {
+                                                    amount = 1;
+                                                }
+                                            }
+                                            println!(
+                                                "VALUES {:?} {:?} {:?}",
+                                                validator1.to_string(),
+                                                validator2.to_string(),
+                                                amount
+                                            );
+                                            for conn in 0..flat_validators.len() {
+                                                send_tx(
+                                                    &connectors1.write().unwrap()[conn].0,
+                                                    validator1.clone(),
+                                                    validator2.clone(),
+                                                    amount,
+                                                    (12345 + tx_count) as u64,
+                                                    *block.header().prev_hash(),
+                                                );
+                                            }
+                                            tx_count += 1;
+                                        }
+                                    }
+                                    *phase = RandomSinglePartPhases::WaitingForSixEpoch;
+                                    assert_eq!(tx_count, 16 * 16);
                                 }
                             }
-                            RandomSinglePartPhases::WaitingForThirdEpoch => {
-                                if let NetworkRequests::Block { block } = msg {
-                                    if block.header().height() == 1 {
+                        }
+                        RandomSinglePartPhases::WaitingForSixEpoch => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header().height() >= height);
+                                assert!(block.header().height() <= 32);
+                                let check_height = if skip_15 { 28 } else { 26 };
+                                if block.header().height() >= check_height {
+                                    println!("BLOCK HEIGHT {:?}", block.header().height());
+                                    for i in 0..16 {
+                                        for j in 0..16 {
+                                            let amounts1 = amounts.clone();
+                                            let validator = flat_validators[j].clone();
+                                            actix::spawn(
+                                                connectors1.write().unwrap()[i]
+                                                    .1
+                                                    .send(Query::new(
+                                                        BlockReference::latest(),
+                                                        QueryRequest::ViewAccount {
+                                                            account_id: flat_validators[j].clone(),
+                                                        },
+                                                    ))
+                                                    .then(move |res| {
+                                                        let res_inner = res.unwrap();
+                                                        if let Ok(query_response) = res_inner {
+                                                            if let ViewAccount(
+                                                                view_account_result,
+                                                            ) = query_response.kind
+                                                            {
+                                                                check_amount(
+                                                                    amounts1,
+                                                                    validator,
+                                                                    view_account_result.amount,
+                                                                );
+                                                            }
+                                                        }
+                                                        future::ready(())
+                                                    }),
+                                            );
+                                        }
+                                    }
+                                }
+                                if block.header().height() == 32 {
+                                    println!(
+                                        "SEEN HEIGHTS SAME BLOCK {:?}",
+                                        seen_heights_same_block.len()
+                                    );
+                                    assert_eq!(seen_heights_same_block.len(), 1);
+                                    let amounts1 = amounts.clone();
+                                    for flat_validator in &flat_validators {
+                                        match amounts1
+                                            .write()
+                                            .unwrap()
+                                            .entry(flat_validator.clone())
+                                        {
+                                            Entry::Occupied(_) => {
+                                                continue;
+                                            }
+                                            Entry::Vacant(entry) => {
+                                                println!(
+                                                    "VALIDATOR = {:?}, ENTRY = {:?}",
+                                                    flat_validator, entry
+                                                );
+                                                assert!(false);
+                                            }
+                                        };
+                                    }
+                                    System::current().stop();
+                                }
+                            }
+                            if let NetworkRequests::PartialEncodedChunkMessage {
+                                partial_encoded_chunk,
+                                ..
+                            } = msg
+                            {
+                                if partial_encoded_chunk.header.height_created() == 22 {
+                                    seen_heights_same_block
+                                        .insert(partial_encoded_chunk.header.prev_block_hash());
+                                }
+                                if skip_15 {
+                                    if partial_encoded_chunk.header.height_created() == 14
+                                        || partial_encoded_chunk.header.height_created() == 15
+                                    {
                                         return (NetworkResponses::NoResponse, false);
                                     }
-                                    assert!(block.header().height() >= 2);
-                                    assert!(block.header().height() <= height);
-                                    let mut tx_count = 0;
-                                    if block.header().height() == height
-                                        && block.header().height() >= 2
-                                    {
-                                        for (i, validator1) in flat_validators.iter().enumerate() {
-                                            for (j, validator2) in
-                                                flat_validators.iter().enumerate()
-                                            {
-                                                let mut amount =
-                                                    (((i + j + 17) * 701) % 42 + 1) as u128;
-                                                if non_zero {
-                                                    if i > j {
-                                                        amount = 2;
-                                                    } else {
-                                                        amount = 1;
-                                                    }
-                                                }
-                                                println!(
-                                                    "VALUES {:?} {:?} {:?}",
-                                                    validator1.to_string(),
-                                                    validator2.to_string(),
-                                                    amount
-                                                );
-                                                for conn in 0..flat_validators.len() {
-                                                    send_tx(
-                                                        &connectors1.write().unwrap()[conn].0,
-                                                        validator1.to_string(),
-                                                        validator2.to_string(),
-                                                        amount,
-                                                        (12345 + tx_count) as u64,
-                                                        *block.header().prev_hash(),
-                                                    );
-                                                }
-                                                tx_count += 1;
-                                            }
-                                        }
-                                        *phase = RandomSinglePartPhases::WaitingForSixEpoch;
-                                        assert_eq!(tx_count, 16 * 16);
-                                    }
                                 }
                             }
-                            RandomSinglePartPhases::WaitingForSixEpoch => {
-                                if let NetworkRequests::Block { block } = msg {
-                                    assert!(block.header().height() >= height);
-                                    assert!(block.header().height() <= 32);
-                                    let check_height = if skip_15 { 28 } else { 26 };
-                                    if block.header().height() >= check_height {
-                                        println!("BLOCK HEIGHT {:?}", block.header().height());
-                                        for i in 0..16 {
-                                            for j in 0..16 {
-                                                let amounts1 = amounts.clone();
-                                                let validator = flat_validators[j].to_string();
-                                                actix::spawn(
-                                                    connectors1.write().unwrap()[i]
-                                                        .1
-                                                        .send(Query::new(
-                                                            BlockReference::latest(),
-                                                            QueryRequest::ViewAccount {
-                                                                account_id: flat_validators[j]
-                                                                    .to_string(),
-                                                            },
-                                                        ))
-                                                        .then(move |res| {
-                                                            let res_inner = res.unwrap();
-                                                            if let Ok(query_response) = res_inner {
-                                                                if let ViewAccount(
-                                                                    view_account_result,
-                                                                ) = query_response.kind
-                                                                {
-                                                                    check_amount(
-                                                                        amounts1,
-                                                                        validator,
-                                                                        view_account_result.amount,
-                                                                    );
-                                                                }
-                                                            }
-                                                            future::ready(())
-                                                        }),
-                                                );
-                                            }
-                                        }
-                                    }
-                                    if block.header().height() == 32 {
-                                        println!(
-                                            "SEEN HEIGHTS SAME BLOCK {:?}",
-                                            seen_heights_same_block.len()
-                                        );
-                                        assert_eq!(seen_heights_same_block.len(), 1);
-                                        let amounts1 = amounts.clone();
-                                        for flat_validator in &flat_validators {
-                                            match amounts1
-                                                .write()
-                                                .unwrap()
-                                                .entry(flat_validator.to_string())
-                                            {
-                                                Entry::Occupied(_) => {
-                                                    continue;
-                                                }
-                                                Entry::Vacant(entry) => {
-                                                    println!(
-                                                        "VALIDATOR = {:?}, ENTRY = {:?}",
-                                                        flat_validator, entry
-                                                    );
-                                                    assert!(false);
-                                                }
-                                            };
-                                        }
-                                        System::current().stop();
-                                    }
-                                }
-                                if let NetworkRequests::PartialEncodedChunkMessage {
-                                    partial_encoded_chunk,
-                                    ..
-                                } = msg
-                                {
-                                    if partial_encoded_chunk.header.height_created() == 22 {
-                                        seen_heights_same_block
-                                            .insert(partial_encoded_chunk.header.prev_block_hash());
-                                    }
-                                    if skip_15 {
-                                        if partial_encoded_chunk.header.height_created() == 14
-                                            || partial_encoded_chunk.header.height_created() == 15
-                                        {
-                                            return (NetworkResponses::NoResponse, false);
-                                        }
-                                    }
-                                }
-                            }
-                        };
-                        (NetworkResponses::NoResponse, true)
-                    },
-                ))),
+                        }
+                    };
+                    (NetworkResponses::NoResponse, true)
+                }))),
             );
             *connectors.write().unwrap() = conn;
 
@@ -644,36 +645,28 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
-                Arc::new(RwLock::new(Box::new(
-                    move |_account_id: String, msg: &NetworkRequests| {
-                        let propagate = if let NetworkRequests::Block { block } = msg {
-                            check_height(*block.hash(), block.header().height());
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
+                    let propagate = if let NetworkRequests::Block { block } = msg {
+                        check_height(*block.hash(), block.header().height());
 
-                            if block.header().height() % 10 == 5 {
-                                check_height(
-                                    *block.header().prev_hash(),
-                                    block.header().height() - 2,
-                                );
-                            } else {
-                                check_height(
-                                    *block.header().prev_hash(),
-                                    block.header().height() - 1,
-                                );
-                            }
-
-                            if block.header().height() >= 25 {
-                                System::current().stop();
-                            }
-
-                            // Do not propagate blocks at heights %10=4
-                            block.header().height() % 10 != 4
+                        if block.header().height() % 10 == 5 {
+                            check_height(*block.header().prev_hash(), block.header().height() - 2);
                         } else {
-                            true
-                        };
+                            check_height(*block.header().prev_hash(), block.header().height() - 1);
+                        }
 
-                        (NetworkResponses::NoResponse, propagate)
-                    },
-                ))),
+                        if block.header().height() >= 25 {
+                            System::current().stop();
+                        }
+
+                        // Do not propagate blocks at heights %10=4
+                        block.header().height() % 10 != 4
+                    } else {
+                        true
+                    };
+
+                    (NetworkResponses::NoResponse, propagate)
+                }))),
             );
             *connectors.write().unwrap() = conn;
 
@@ -698,8 +691,8 @@ mod tests {
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
-            let malicious_node = "test3.6".to_string();
-            let victim_node = "test3.5".to_string();
+            let malicious_node = "test3.6".parse().unwrap();
+            let victim_node = "test3.5".parse().unwrap();
             let phase = Arc::new(RwLock::new(ChunkGrievingPhases::FirstAttack));
             let grieving_chunk_hash = Arc::new(RwLock::new(ChunkHash::default()));
             let unaccepted_block_hash = Arc::new(RwLock::new(CryptoHash::default()));
@@ -721,7 +714,7 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
-                    move |sender_account_id: String, msg: &NetworkRequests| {
+                    move |sender_account_id: AccountId, msg: &NetworkRequests| {
                         let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
                         let mut unaccepted_block_hash = unaccepted_block_hash.write().unwrap();
                         let mut phase = phase.write().unwrap();
@@ -743,7 +736,7 @@ mod tests {
                                             partial_encoded_chunk.parts.len(),
                                             partial_encoded_chunk
                                         );
-                                        if *account_id == victim_node {
+                                        if account_id == &victim_node {
                                             // "test3.5" is a block producer of block on height 12, sending to it
                                             *grieving_chunk_hash =
                                                 partial_encoded_chunk.header.chunk_hash();
@@ -871,8 +864,9 @@ mod tests {
 
             let _connectors1 = connectors.clone();
             let seen_chunk_same_sender =
-                Arc::new(RwLock::new(HashSet::<(String, u64, u64)>::new()));
-            let requested = Arc::new(RwLock::new(HashSet::<(String, Vec<u64>, ChunkHash)>::new()));
+                Arc::new(RwLock::new(HashSet::<(AccountId, u64, u64)>::new()));
+            let requested =
+                Arc::new(RwLock::new(HashSet::<(AccountId, Vec<u64>, ChunkHash)>::new()));
             let responded =
                 Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
@@ -890,7 +884,7 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
-                    move |sender_account_id: String, msg: &NetworkRequests| {
+                    move |sender_account_id: AccountId, msg: &NetworkRequests| {
                         let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
                         let mut requested = requested.write().unwrap();
                         let mut responded = responded.write().unwrap();
@@ -926,7 +920,7 @@ mod tests {
                                     println!("=== SAME REQUEST AGAIN!");
                                 };
                                 requested.insert((
-                                    sender_account_id.clone(),
+                                    sender_account_id,
                                     request.part_ords.clone(),
                                     request.chunk_hash.clone(),
                                 ));

@@ -75,6 +75,7 @@ mod test {
     use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+    use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
@@ -84,13 +85,13 @@ mod test {
     use near_store::Store;
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
-    use nearcore::genesis_validate::validate_genesis;
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -118,10 +119,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".to_string(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -140,7 +141,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
@@ -165,10 +166,10 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".to_string(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -200,7 +201,7 @@ mod test {
                 .into_iter()
                 .map(|r| r.account_id)
                 .collect::<Vec<_>>(),
-            vec!["test0".to_string()]
+            vec!["test0".parse().unwrap()]
         );
         validate_genesis(&new_genesis);
     }
@@ -210,7 +211,8 @@ mod test {
     #[should_panic(expected = "Trie node missing")]
     fn test_dump_state_not_track_shard() {
         let epoch_length = 4;
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -228,11 +230,11 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test0".to_string(),
+            "test1".parse().unwrap(),
+            "test0".parse().unwrap(),
             &signer,
             1,
             genesis_hash,
@@ -260,7 +262,8 @@ mod test {
     #[test]
     fn test_dump_state_with_delayed_receipt() {
         let epoch_length = 4;
-        let mut genesis = Genesis::test(vec!["test0", "test1"], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
@@ -279,10 +282,10 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
             1,
-            "test1".to_string(),
+            "test1".parse().unwrap(),
             &signer,
             TESTING_INIT_STAKE,
             signer.public_key.clone(),
@@ -301,7 +304,7 @@ mod test {
             .unwrap();
         assert_eq!(
             block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
-            HashSet::from_iter(vec!["test0".to_string(), "test1".to_string()])
+            HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
