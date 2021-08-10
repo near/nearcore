@@ -448,7 +448,8 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
         let old_outcomes = match old_outcomes {
             Ok(old_outcomes) => old_outcomes,
-            _ => {
+            Err(e1) => {
+                println!("try as vec failed: {:?}", e1);
                 // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
                 let old_outcome = match OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
                     Ok(old_outcome) => old_outcome,
