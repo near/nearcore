@@ -67,6 +67,18 @@ def read_tests_from_file(path: pathlib.Path, *,
     as if they were directly in the source file.  The `./<path>` directives are
     handled recursively up to three levels deep.
 
+    `./<path>` directives may have further arguments after the path.  Those
+    arguments are appended verbatim to each line read from the specified file.
+    For example, `./pytest.txt --features nightly_protocol` will act as if every
+    line in `pytest.txt` had `--features nightly_protocol` at the end.
+
+    Furthermore, if include_comments is True, `#./<path>` is handled as well by
+    reading the file but commenting out every line there.  This is useful to
+    comment out a include a with TODO comment included and have check_nightly.py
+    and check_pytest.py scripts still recognise those includes.  Note that the
+    line must start with `#./`, i.e. there must be no space between hash and the
+    dot.
+
     Args:
         path: Path to the file to read.
         include_comments: By default empty lines and lines whose first non-space
@@ -78,16 +90,38 @@ def read_tests_from_file(path: pathlib.Path, *,
         An iterable over lines in the given file.  All lines are stripped of
         leading and trailing white space.
     """
-    def impl(path: pathlib.Path, depth: int):
+
+    def impl(path: pathlib.Path,
+             depth: int,
+             comment: bool = False,
+             suffix: str = ''):
         for lineno, line in enumerate(reader(path).splitlines()):
-            line = line.strip()
-            if line.startswith('./'):
+            line = line.rstrip()
+            if line.startswith('./') or (include_comments and
+                                         line.startswith('#./')):
                 if depth == 3:
                     print(f'{path}:{lineno+1}: ignoring {line}; '
                           f'would exceed depth limit of {depth}')
-                else:
-                    yield from impl(path.parent / line, depth + 1)
-            elif include_comments or (line and line[0] != '#'):
+                    continue
+
+                words = line.split(None, 1)
+                line_suffix = ''
+                if len(words) == 2:
+                    line_suffix = ' ' + words[1]
+                if words[0][0] == '#':
+                    words[0] = words[0][1:]
+
+                yield from impl(path.parent / words[0],
+                                depth + 1,
+                                comment=comment or line.startswith('#'),
+                                suffix=suffix + line_suffix)
+                continue
+
+            if include_comments or (line and line[0] != '#'):
+                if comment and not line.startswith('#'):
+                    line = '#' + line
+                if suffix:
+                    line = line + suffix
                 yield line
 
     return impl(path, 1)
