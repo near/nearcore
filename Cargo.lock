@@ -3351,7 +3351,6 @@ dependencies = [
  "actix_derive",
  "awc",
  "borsh 0.8.1",
- "bs58",
  "byteorder",
  "chrono",
  "delay-detector",

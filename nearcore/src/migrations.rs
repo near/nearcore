@@ -377,7 +377,7 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 24);
 }
 
-pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
+pub fn migrate_24_to_25(path: &String) {
     use smart_default::SmartDefault;
 
     let store = create_store(&path);
@@ -441,9 +441,6 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
             // has success in previous attempt of this migration
             continue;
         }
-        println!("{}", bs58::encode(key.as_ref()).into_string());
-        let filename = bs58::encode(key.as_ref()).into_string();
-        std::fs::write("/tmp/".to_string() + &filename, &value).unwrap();
 
         let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
         let old_outcomes = match old_outcomes {
@@ -456,14 +453,28 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
                         // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
                         let last = v2.len() - 1;
                         v2[last] = 2; // MethodInvalidSignature error is now at index 2.
-                        Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2).unwrap()
+                        let old_outcomes =
+                            Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2).unwrap();
+                        println!(
+                            "! Byte Changed. Check outcome id, block hash for indexer: {},{}",
+                            old_outcomes[0].outcome_with_id.id, old_outcomes[0].block_hash
+                        );
+                        old_outcomes
                     } else {
-                        unimplemented!();
+                        use std::convert::TryFrom;
+                        unimplemented!(
+                            "Unknown corruption for outcome: {}",
+                            CryptoHash::try_from(key.as_ref()).unwrap()
+                        );
                     }
                 } else {
                     // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
                     let old_outcome =
                         OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                    println!(
+                        "! Format Changed. Check outcome id, block hash for indexer: {},{}",
+                        old_outcome.outcome_with_id.id, old_outcome.block_hash
+                    );
                     vec![old_outcome]
                 }
             }

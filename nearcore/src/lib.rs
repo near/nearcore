@@ -222,7 +222,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
     }
     if db_version <= 24 {
         info!(target: "near", "Migrate DB from version 24 to 25");
-        migrate_24_to_25(&path, &near_config);
+        migrate_24_to_25(&path);
     }
     if db_version <= 25 {
         info!(target: "near", "Migrate DB from version 25 to 26");
