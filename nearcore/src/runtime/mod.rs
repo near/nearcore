@@ -176,7 +176,6 @@ impl NightshadeRuntime {
         let shard_tracker = ShardTracker::new(
             initial_tracking_accounts,
             initial_tracking_shards,
-            EpochId::default(),
             epoch_manager.clone(),
             num_shards,
         );
