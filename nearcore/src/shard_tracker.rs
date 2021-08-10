@@ -7,7 +7,7 @@ use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, ShardId};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -25,8 +25,6 @@ pub struct ShardTracker {
     actual_tracked_shards: HashSet<ShardId>,
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: Arc<RwLock<EpochManager>>,
-    /// Current ShardLayout
-    current_shard_layout: ShardLayout,
 }
 
 impl ShardTracker {
@@ -35,10 +33,6 @@ impl ShardTracker {
         shards: Vec<ShardId>,
         epoch_manager: Arc<RwLock<EpochManager>>,
     ) -> Self {
-        let shard_layout = {
-            let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
-            epoch_manager.get_shard_layout(&epoch_id).unwrap()
-        };
         let tracked_accounts = accounts.into_iter().fold(HashMap::new(), |mut acc, x| {
             let shard_id = account_id_to_shard_id(&x, &shard_layout);
             acc.entry(shard_id).or_insert_with(HashSet::new).insert(x);
@@ -50,13 +44,7 @@ impl ShardTracker {
             actual_tracked_shards.insert(*shard_id);
         }
         info!(target: "runtime", "Tracking shards: {:?}", actual_tracked_shards);
-        ShardTracker {
-            tracked_accounts,
-            tracked_shards,
-            actual_tracked_shards,
-            epoch_manager,
-            current_shard_layout: shard_layout,
-        }
+        ShardTracker { tracked_accounts, tracked_shards, actual_tracked_shards, epoch_manager }
     }
 
     fn track_account(&mut self, account_id: &AccountId) {
@@ -66,10 +54,6 @@ impl ShardTracker {
             .or_insert_with(HashSet::new)
             .insert(account_id.clone());
         self.actual_tracked_shards.insert(shard_id);
-    }
-
-    pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, &self.current_shard_layout)
     }
 
     /// Track a list of accounts. The tracking will take effect immediately because

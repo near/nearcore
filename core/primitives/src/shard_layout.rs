@@ -71,7 +71,7 @@ impl ShardLayout {
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let mut cursor = Cursor::new(hash(&account_id.clone().into_bytes()).0);
+            let mut cursor = Cursor::new(hash(account_id.as_ref().as_bytes()).0);
             cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
         }
         ShardLayout::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, .. }) => {
@@ -93,7 +93,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
 }
 
 fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
-    match account.strip_suffix(top_account) {
+    match account.as_ref().strip_suffix(top_account.as_ref()) {
         None => false,
         Some(rest) => rest.is_empty() || rest.ends_with("."),
     }
@@ -128,21 +128,21 @@ mod tests {
             vec!["abc", "foo", "paz"].into_iter().map(|s| String::from(s)).collect(),
             None,
         );
-        assert_eq!(account_id_to_shard_id(&AccountId::from("aurora"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("foo.aurora"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("bar.foo.aurora"), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("bar"), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("bar.bar"), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("foo"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("baz.foo"), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("foo.baz"), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("a.foo.baz"), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id("aurora".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id("foo.aurora".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id("bar.foo.aurora".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id("bar".parse().unwrap(), &shard_layout), 1);
+        assert_eq!(account_id_to_shard_id("bar.bar".parse().unwrap(), &shard_layout), 1);
+        assert_eq!(account_id_to_shard_id("foo".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id("baz.foo".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id("foo.baz".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id("a.foo.baz".parse().unwrap(), &shard_layout), 3);
 
-        assert_eq!(account_id_to_shard_id(&AccountId::from("a"), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("abc"), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("b"), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("foo.goo"), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("goo"), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id(&AccountId::from("zoo"), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id("a".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id("abc".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id("b".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id("foo.goo".parse().unwrap(), &shard_layout), 6);
+        assert_eq!(account_id_to_shard_id("goo".parse().unwrap(), &shard_layout), 6);
+        assert_eq!(account_id_to_shard_id("zoo".parse().unwrap(), &shard_layout), 7);
     }
 }
