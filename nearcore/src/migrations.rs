@@ -446,36 +446,39 @@ pub fn migrate_24_to_25(path: &String) {
         let old_outcomes = match old_outcomes {
             Ok(old_outcomes) => old_outcomes,
             _ => {
-                let mut v2: Vec<u8> = value.clone().into();
-                if &v2[0..4] == [1, 0, 0, 0] {
-                    // ensure there's one execution outcome
-                    if &v2[v2.len() - 3..] == [12, 2, 3] {
-                        // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
-                        let last = v2.len() - 1;
-                        v2[last] = 2; // MethodInvalidSignature error is now at index 2.
-                        let old_outcomes =
-                            Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2).unwrap();
-                        println!(
-                            "! Byte Changed. Check outcome id, block hash for indexer: {},{}",
-                            old_outcomes[0].outcome_with_id.id, old_outcomes[0].block_hash
-                        );
-                        old_outcomes
-                    } else {
-                        use std::convert::TryFrom;
-                        unimplemented!(
-                            "Unknown corruption for outcome: {}",
-                            CryptoHash::try_from(key.as_ref()).unwrap()
-                        );
-                    }
-                } else {
-                    // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
-                    let old_outcome =
-                        OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
+                // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
+                if let Ok(old_outcome) = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
                     println!(
                         "! Format Changed. Check outcome id, block hash for indexer: {},{}",
                         old_outcome.outcome_with_id.id, old_outcome.block_hash
                     );
                     vec![old_outcome]
+                } else {
+                    let mut v2: Vec<u8> = value.clone().into();
+                    use std::convert::TryFrom;
+                    if &v2[0..4] == [1, 0, 0, 0] {
+                        // ensure there's one execution outcome
+                        if &v2[v2.len() - 3..] == [12, 2, 3] {
+                            // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
+                            let last = v2.len() - 1;
+                            v2[last] = 2; // MethodInvalidSignature error is now at index 2.
+                            let old_outcomes =
+                                Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2)
+                                    .unwrap();
+                            println!(
+                                "! Byte Changed. Check outcome id, block hash for indexer: {},{}",
+                                old_outcomes[0].outcome_with_id.id, old_outcomes[0].block_hash
+                            );
+                            old_outcomes
+                        } else {
+                            unimplemented!(
+                                "Unknown corruption for outcome: {}",
+                                CryptoHash::try_from(key.as_ref()).unwrap()
+                            );
+                        }
+                    } else {
+                        unimplemented!("More than one execution outcome not supported",);
+                    }
                 }
             }
         };
