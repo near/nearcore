@@ -450,9 +450,10 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
             Ok(old_outcomes) => old_outcomes,
             _ => {
                 let mut v2: Vec<u8> = value.clone().into();
-                if v2[0..3] == [1, 0, 0, 0] {
+                println!("{:?}", &v2[0..3]);
+                if &v2[0..3] == [1, 0, 0, 0] {
                     // ensure there's one execution outcome
-                    if v2[v2.len() - 3..] == [12, 2, 3] {
+                    if &v2[v2.len() - 3..] == [12, 2, 3] {
                         // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
                         let last = v2.len() - 1;
                         v2[last] = 2; // MethodInvalidSignature error is now at index 2.
