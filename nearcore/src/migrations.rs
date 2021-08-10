@@ -450,8 +450,7 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
             Ok(old_outcomes) => old_outcomes,
             _ => {
                 let mut v2: Vec<u8> = value.clone().into();
-                println!("{:?}", &v2[0..3]);
-                if &v2[0..3] == [1, 0, 0, 0] {
+                if &v2[0..4] == [1, 0, 0, 0] {
                     // ensure there's one execution outcome
                     if &v2[v2.len() - 3..] == [12, 2, 3] {
                         // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
