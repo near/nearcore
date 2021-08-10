@@ -460,11 +460,16 @@ pub fn migrate_24_to_25(path: &String, near_config: &NearConfig) {
                 println!("{} {:?}", v3.len(), r);
                 let r = <Vec<LogEntry>>::deserialize(&mut v3).unwrap();
                 println!("{} {:?}", v3.len(), r);
-                <Vec<CryptoHash>>::deserialize(&mut v3).unwrap();
-                let _: Gas = BorshDeserialize::deserialize(&mut v3).unwrap();
-                let _: Balance = BorshDeserialize::deserialize(&mut v3).unwrap();
-                let _: AccountId = BorshDeserialize::deserialize(&mut v3).unwrap();
-                let _: ExecutionStatus = BorshDeserialize::deserialize(&mut v3).unwrap();
+                let r = <Vec<CryptoHash>>::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
+                let r: Gas = BorshDeserialize::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
+                let r: Balance = BorshDeserialize::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
+                let r: AccountId = BorshDeserialize::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
+                let r: ExecutionStatus = BorshDeserialize::deserialize(&mut v3).unwrap();
+                println!("{} {:?}", v3.len(), r);
 
                 // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
                 let old_outcome = match OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
