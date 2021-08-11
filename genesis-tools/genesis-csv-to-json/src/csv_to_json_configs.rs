@@ -2,7 +2,7 @@ use std::fs::File;
 use std::path::Path;
 
 use near_chain_configs::{Genesis, GenesisConfig};
-use near_primitives::types::{Balance, NumShards, ShardId};
+use near_primitives::types::{Balance, NumShards};
 use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{
@@ -33,17 +33,13 @@ fn verify_total_supply(total_supply: Balance, chain_id: &String) {
 
 /// Generates `config.json` and `genesis.config` from csv files.
 /// Verifies that `validator_key.json`, and `node_key.json` are present.
-pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<ShardId>) {
+pub fn csv_to_json_configs(home: &Path, chain_id: String, track_all_shards: bool) {
     // Verify that key files exist.
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
 
-    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS) {
-        panic!("Trying to track a shard that does not exist");
-    }
-
     // Construct `config.json`.
     let mut config = Config::default();
-    config.tracked_shards = tracked_shards;
+    config.track_all_shards = track_all_shards;
 
     // Construct genesis config.
     let (records, validators, peer_info, treasury, genesis_time) =
