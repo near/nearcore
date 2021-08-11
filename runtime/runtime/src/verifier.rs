@@ -185,7 +185,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id != function_call_permission.receiver_id {
+            if transaction.receiver_id.as_ref() != &function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -230,10 +230,12 @@ pub(crate) fn validate_receipt(
     // with AccountId validation since we illegally parse an AccountId
     // in near-vm-logic/logic.rs#fn(VMLogic::read_and_parse_account_id)
     AccountId::validate(receipt.predecessor_id.as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidPredecessorId { account_id: receipt.predecessor_id.clone() }
+        ReceiptValidationError::InvalidPredecessorId {
+            account_id: receipt.predecessor_id.to_string(),
+        }
     })?;
     AccountId::validate(receipt.receiver_id.as_ref()).map_err(|_| {
-        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id.clone() }
+        ReceiptValidationError::InvalidReceiverId { account_id: receipt.receiver_id.to_string() }
     })?;
 
     match &receipt.receipt {
@@ -783,7 +785,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: bob_account(),
+                    receiver_id: bob_account().into(),
                     method_names: vec![],
                 }),
             }),
@@ -872,7 +874,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account(),
+                    receiver_id: bob_account().into(),
                     method_names: vec![],
                 }),
             }),
@@ -966,7 +968,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account(),
+                    receiver_id: bob_account().into(),
                     method_names: vec![],
                 }),
             }),
@@ -998,7 +1000,7 @@ mod tests {
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::ReceiverMismatch {
                     tx_receiver: eve_dot_alice_account(),
-                    ak_receiver: bob_account()
+                    ak_receiver: bob_account().into()
                 }
             )),
         );
@@ -1014,7 +1016,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account(),
+                    receiver_id: bob_account().into(),
                     method_names: vec!["not_hello".to_string(), "world".to_string()],
                 }),
             }),
@@ -1059,7 +1061,7 @@ mod tests {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: None,
-                    receiver_id: bob_account(),
+                    receiver_id: bob_account().into(),
                     method_names: vec![],
                 }),
             }),
@@ -1445,7 +1447,7 @@ mod tests {
                     nonce: 0,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance: Some(1000),
-                        receiver_id: alice_account(),
+                        receiver_id: alice_account().into(),
                         method_names: vec!["hello".to_string(), "world".to_string()],
                     }),
                 },

@@ -327,7 +327,7 @@ impl<'a> External for RuntimeExt<'a> {
                     nonce,
                     permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                         allowance,
-                        receiver_id,
+                        receiver_id: receiver_id.into(),
                         method_names: method_names
                             .into_iter()
                             .map(|method_name| {

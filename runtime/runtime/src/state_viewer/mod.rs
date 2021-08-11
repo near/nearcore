@@ -214,7 +214,6 @@ impl TrieViewer {
             config: config.clone(),
             cache: view_state.cache,
             is_new_chunk: false,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };

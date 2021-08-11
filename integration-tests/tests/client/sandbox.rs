@@ -1,24 +1,17 @@
 use std::path::Path;
-
 use std::sync::Arc;
 
 use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
 use near_chain_configs::Genesis;
-
 use near_client::test_utils::TestEnv;
-
 use near_crypto::{InMemorySigner, KeyType};
-
+use near_primitives::account::Account;
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::state_record::StateRecord;
-
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
-
-use near_primitives::account::Account;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 
@@ -91,6 +84,7 @@ fn send_tx(
 }
 
 #[test]
+#[cfg(feature = "sandbox")]
 fn test_patch_state() {
     let (mut env, _signer) = test_setup();
 
@@ -108,6 +102,7 @@ fn test_patch_state() {
 }
 
 #[test]
+#[cfg(feature = "sandbox")]
 fn test_patch_account() {
     let (mut env, _signer) = test_setup();
     let mut test1: Account = env.query_account("test1".parse().unwrap()).into();

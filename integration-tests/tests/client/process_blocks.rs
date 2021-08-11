@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 
 use actix::System;
 use futures::{future, FutureExt};
-use num_rational::Rational;
+use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
@@ -3017,7 +3017,6 @@ fn test_validator_stake_host_function() {
     }
 }
 
-#[cfg(test)]
 mod access_key_nonce_range_tests {
     use super::*;
     use near_client::test_utils::create_chunk_with_transactions;
@@ -3157,7 +3156,6 @@ mod access_key_nonce_range_tests {
 }
 
 #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-#[cfg(test)]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
     use near_primitives::runtime::migration_data::MigrationData;
@@ -3272,10 +3270,10 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             );
         } else {
             assert_eq!(
-                receipt_hashes_to_restore,
-                get_restored_receipt_hashes(&migration_data),
-                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
-            );
+            receipt_hashes_to_restore,
+            get_restored_receipt_hashes(&migration_data),
+            "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+        );
         }
     }
 
@@ -3308,7 +3306,6 @@ mod protocol_feature_restore_receipts_after_fix_tests {
 
 // This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
 // Otherwise `get_mut` for block header will panic.
-#[cfg(test)]
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod storage_usage_fix_tests {
     use super::*;
@@ -3323,7 +3320,8 @@ mod storage_usage_fix_tests {
         check_storage_usage: fn(AccountId, u64, u64),
     ) {
         let epoch_length = 5;
-        let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "near".parse().unwrap()], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.chain_id = chain_id;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
@@ -3348,19 +3346,19 @@ mod storage_usage_fix_tests {
             let trie = Rc::new(env.clients[0].runtime_adapter.get_trie_for_shard(0));
             let state_update = TrieUpdate::new(trie.clone(), root);
             use near_primitives::account::Account;
-            let mut account_near_raw = state_update
-                .get(&TrieKey::Account { account_id: "near".parse().unwrap() })
+            let mut account_test1_raw = state_update
+                .get(&TrieKey::Account { account_id: "test1".parse().unwrap() })
                 .unwrap()
                 .unwrap()
                 .clone();
-            let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
+            let account_test1 = Account::try_from_slice(&mut account_test1_raw).unwrap();
             let mut account_test0_raw = state_update
                 .get(&TrieKey::Account { account_id: "test0".parse().unwrap() })
                 .unwrap()
                 .unwrap()
                 .clone();
             let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
-            check_storage_usage("near".parse().unwrap(), i, account_near.storage_usage());
+            check_storage_usage("test1".parse().unwrap(), i, account_test1.storage_usage());
             check_storage_usage("test0".parse().unwrap(), i, account_test0.storage_usage());
         }
     }
@@ -3371,7 +3369,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "mainnet".to_string(),
             |account_id: AccountId, block_height: u64, storage_usage: u64| {
-                if account_id.as_ref() == "test0" {
+                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
                     assert_eq!(storage_usage, 182);
                 } else if block_height >= 11 {
                     assert_eq!(storage_usage, 4560);
@@ -3383,7 +3381,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "testnet".to_string(),
             |account_id: AccountId, _: u64, storage_usage: u64| {
-                if account_id.as_ref() == "test0" {
+                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
                     assert_eq!(storage_usage, 182);
                 } else {
                     assert_eq!(storage_usage, 364);
@@ -3393,7 +3391,6 @@ mod storage_usage_fix_tests {
     }
 }
 
-#[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
     use near_primitives::version::ProtocolFeature;
@@ -3434,7 +3431,6 @@ mod cap_max_gas_price_tests {
     }
 }
 
-#[cfg(test)]
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::contract::ContractCode;

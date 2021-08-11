@@ -3,7 +3,6 @@ use std::path::Path;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::types::CompiledContractCache;
-use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
@@ -22,7 +21,6 @@ pub struct Script {
     vm_kind: VMKind,
     vm_config: VMConfig,
     protocol_version: ProtocolVersion,
-    profile: ProfileData,
     contract_cache: Option<Box<dyn CompiledContractCache>>,
     initial_state: Option<State>,
     steps: Vec<Step>,
@@ -39,7 +37,6 @@ pub struct Step {
 pub struct ScriptResults {
     pub outcomes: Vec<(Option<VMOutcome>, Option<VMError>)>,
     pub state: MockedExternal,
-    pub profile: ProfileData,
 }
 
 impl Default for Script {
@@ -49,7 +46,6 @@ impl Default for Script {
             vm_kind: VMKind::default(),
             vm_config: VMConfig::default(),
             protocol_version: ProtocolVersion::MAX,
-            profile: ProfileData::new(),
             contract_cache: None,
             initial_state: None,
             steps: Vec::new(),
@@ -129,12 +125,11 @@ impl Script {
                     self.vm_kind,
                     self.protocol_version,
                     self.contract_cache.as_deref(),
-                    self.profile.clone(),
                 );
                 outcomes.push(res);
             }
         }
-        ScriptResults { outcomes, state: external, profile: self.profile }
+        ScriptResults { outcomes, state: external }
     }
 }
 
@@ -218,6 +213,40 @@ fn vm_script_smoke_test() {
 
     let expected = ReturnData::Value(4950u64.to_le_bytes().to_vec());
     assert_eq!(ret, expected);
+}
+
+#[test]
+fn profile_data_is_per_outcome() {
+    let mut script = Script::default();
+    script.contract_cache(true);
+
+    let contract = script.contract(near_test_contracts::rs_contract().to_vec());
+
+    script.step(contract, "sum_n").input(100u64.to_le_bytes().to_vec());
+    script.step(contract, "log_something").repeat(2);
+    script.step(contract, "write_key_value");
+    let res = script.run();
+    assert_eq!(res.outcomes.len(), 4);
+    assert!(
+        res.outcomes[0].0.as_ref().unwrap().profile.all_gas()
+            > res.outcomes[1].0.as_ref().unwrap().profile.all_gas()
+    );
+    assert!(
+        res.outcomes[0].0.as_ref().unwrap().profile.wasm_gas()
+            > res.outcomes[1].0.as_ref().unwrap().profile.wasm_gas()
+    );
+    assert_eq!(
+        res.outcomes[1].0.as_ref().unwrap().profile.all_gas(),
+        res.outcomes[2].0.as_ref().unwrap().profile.all_gas()
+    );
+    assert_eq!(
+        res.outcomes[1].0.as_ref().unwrap().profile.host_gas(),
+        res.outcomes[2].0.as_ref().unwrap().profile.host_gas()
+    );
+    assert!(
+        res.outcomes[1].0.as_ref().unwrap().profile.host_gas()
+            > res.outcomes[3].0.as_ref().unwrap().profile.host_gas()
+    );
 }
 
 #[cfg(feature = "no_cache")]

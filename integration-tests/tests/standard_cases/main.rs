@@ -843,7 +843,7 @@ pub fn test_add_access_key_function_call(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: None,
-            receiver_id: account_id.clone(),
+            receiver_id: account_id.to_string(),
             method_names: vec![],
         }),
     };
@@ -863,7 +863,7 @@ pub fn test_delete_access_key(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: None,
-            receiver_id: account_id.clone(),
+            receiver_id: account_id.to_string(),
             method_names: vec![],
         }),
     };
@@ -891,7 +891,7 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(10),
-            receiver_id: account_id.clone(),
+            receiver_id: account_id.to_string(),
             method_names: vec![],
         }),
     };
@@ -917,7 +917,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(10),
-            receiver_id: account_id.clone(),
+            receiver_id: account_id.to_string(),
             method_names: vec![],
         }),
     };
@@ -953,7 +953,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: bob_account(),
+            receiver_id: bob_account().into(),
             method_names: vec![],
         }),
     };
@@ -993,7 +993,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
             nonce: view_access_key.nonce,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                 allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost + gas_refund),
-                receiver_id: bob_account(),
+                receiver_id: bob_account().into(),
                 method_names: vec![],
             }),
         }
@@ -1006,7 +1006,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: bob_account(),
+            receiver_id: bob_account().into(),
             method_names: vec!["log_something".to_string()],
         }),
     };
@@ -1034,7 +1034,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: bob_account(),
+            receiver_id: bob_account().into(),
             method_names: vec![],
         }),
     };
@@ -1059,7 +1059,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
             InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
                 tx_receiver: eve_dot_alice_account(),
-                ak_receiver: bob_account()
+                ak_receiver: bob_account().into()
             })
         ))
     );
@@ -1071,7 +1071,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
         nonce: 0,
         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
             allowance: Some(FUNCTION_CALL_AMOUNT),
-            receiver_id: account_id.clone(),
+            receiver_id: account_id.to_string(),
             method_names: vec![],
         }),
     };

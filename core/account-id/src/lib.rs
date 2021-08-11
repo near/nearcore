@@ -25,9 +25,9 @@ impl AccountId {
 
     pub fn validate(account_id: &str) -> Result<(), ParseAccountError> {
         if account_id.len() < MIN_ACCOUNT_ID_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooShort))
+            Err(ParseAccountError(ParseErrorKind::TooShort, account_id.to_string()))
         } else if account_id.len() > MAX_ACCOUNT_ID_LEN {
-            Err(ParseAccountError(ParseErrorKind::TooLong))
+            Err(ParseAccountError(ParseErrorKind::TooLong, account_id.to_string()))
         } else {
             // Adapted from https://github.com/near/near-sdk-rs/blob/fd7d4f82d0dfd15f824a1cf110e552e940ea9073/near-sdk/src/environment/env.rs#L819
 
@@ -42,15 +42,22 @@ impl AccountId {
                 let current_char_is_separator = match c {
                     b'a'..=b'z' | b'0'..=b'9' => false,
                     b'-' | b'_' | b'.' => true,
-                    _ => return Err(ParseAccountError(ParseErrorKind::Invalid)),
+                    _ => {
+                        return Err(ParseAccountError(
+                            ParseErrorKind::Invalid,
+                            account_id.to_string(),
+                        ))
+                    }
                 };
                 if current_char_is_separator && last_char_is_separator {
-                    return Err(ParseAccountError(ParseErrorKind::Invalid));
+                    return Err(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()));
                 }
                 last_char_is_separator = current_char_is_separator;
             }
 
-            (!last_char_is_separator).then(|| ()).ok_or(ParseAccountError(ParseErrorKind::Invalid))
+            (!last_char_is_separator)
+                .then(|| ())
+                .ok_or(ParseAccountError(ParseErrorKind::Invalid, account_id.to_string()))
         }
     }
 
@@ -235,7 +242,7 @@ mod tests {
     fn test_is_valid_account_id() {
         for account_id in OK_ACCOUNT_IDS.iter().cloned() {
             if let Err(err) = AccountId::validate(account_id) {
-                panic!("Valid account id {:?} marked invalid: {}", account_id, err);
+                panic!("Valid account id {:?} marked invalid: {}", account_id, err.kind());
             }
         }
 

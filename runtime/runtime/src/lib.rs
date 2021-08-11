@@ -52,6 +52,7 @@ use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
 #[cfg(feature = "sandbox")]
 use near_primitives::contract::ContractCode;
+use near_primitives::profile::ProfileData;
 pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -132,6 +133,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
+    pub profile: ProfileData,
 }
 
 impl ActionResult {
@@ -149,6 +151,7 @@ impl ActionResult {
             next_result.gas_burnt_for_function_call,
         )?;
         self.gas_used = safe_add_gas(self.gas_used, next_result.gas_used)?;
+        self.profile.merge(&next_result.profile);
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
         if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
@@ -176,6 +179,7 @@ impl Default for ActionResult {
             logs: vec![],
             new_receipts: vec![],
             validator_proposals: vec![],
+            profile: Default::default(),
         }
     }
 }
@@ -734,6 +738,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
+                // TODO: in expose profile data in execution outcome, action result's profile data will go in metadata v2 here
                 metadata: ExecutionMetadata::ExecutionMetadataV1,
             },
         })
@@ -1463,7 +1468,6 @@ mod tests {
     use near_primitives::account::AccessKey;
     use near_primitives::contract::ContractCode;
     use near_primitives::hash::hash;
-    use near_primitives::profile::ProfileData;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::DeployContractAction;
     use near_primitives::transaction::{
@@ -1582,7 +1586,6 @@ mod tests {
             config: Arc::new(RuntimeConfig::default()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             is_new_chunk: true,
-            profile: ProfileData::new(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
