@@ -11,12 +11,8 @@ deny = [
     { name = "rand", version = "<0.6" },
 
     # See: https://github.com/near/nearcore/pull/3595
-    { name = "ethabi", version = "<9.0.1" },
-    { name = "ethabi-contract", version = "<9.0.0" },
-    { name = "ethabi-derive", version = "<9.0.1" },
-    { name = "ethereum-types", version = "<0.8.0" },
     { name = "keccak-hash", version = "<0.4.1" },
-    { name = "primitive-types", version = "<0.6.2" },
+    { name = "primitive-types", version = "<0.10.1" },
     { name = "uint", version = "<0.8.2" },
 ]
 
