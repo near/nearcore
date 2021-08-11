@@ -109,4 +109,10 @@ skip = [
     # dependency which conflicts with 0.6.7 that wasmer-engine-native
     # uses.
     { name = "libloading", version = "=0.7.0" },
+
+    # wasmer-runtime-core-near and parity-secp256k1 use an older version
+    { name = "arrayvec", version = "=0.5.2" },
+
+    # borsh uses a very old version of proc-macro-crate
+    { name = "proc-macro-crate", version = "=0.1.5" }
 ]
