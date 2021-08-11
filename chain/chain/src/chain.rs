@@ -1842,7 +1842,9 @@ impl Chain {
         let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?();
+        chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?(
+            &mut chain_update,
+        )?;
         chain_update.commit()?;
 
         affected_blocks.insert(*block.header().hash());
@@ -1866,7 +1868,9 @@ impl Chain {
 
                 let mut chain_update = self.chain_update();
 
-                chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?();
+                chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?(
+                    &mut chain_update,
+                )?;
 
                 chain_update.commit()?;
 
@@ -2770,7 +2774,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         prev_block: &Block,
         mode: ApplyChunksMode,
-    ) -> Result<impl FnOnce() -> Result<(), Error> + 'a, Error> {
+    ) -> Result<impl FnOnce(&mut ChainUpdate) -> Result<(), Error>, Error> {
         let challenges_result = self.verify_challenges(
             block.challenges(),
             block.header().epoch_id(),
@@ -2984,7 +2988,7 @@ impl<'a> ChainUpdate<'a> {
 
         let block_hash = block.hash().clone();
         let prev_block_hash = prev_block.hash().clone();
-        Ok(move || -> Result<(), Error> {
+        Ok(move |chain_update: &mut ChainUpdate| -> Result<(), Error> {
             for result in same_height_handlers {
                 let res = result.join();
                 match res {
@@ -2994,9 +2998,11 @@ impl<'a> ChainUpdate<'a> {
                         let (outcome_root, outcome_paths) =
                             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
-                        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                        chain_update
+                            .chain_store_update
+                            .save_trie_changes(apply_result.trie_changes);
                         // Save state root after applying transactions.
-                        self.chain_store_update.save_chunk_extra(
+                        chain_update.chain_store_update.save_chunk_extra(
                             &block_hash,
                             shard_id,
                             ChunkExtra::new(
@@ -3008,13 +3014,13 @@ impl<'a> ChainUpdate<'a> {
                                 apply_result.total_balance_burnt,
                             ),
                         );
-                        self.chain_store_update.save_outgoing_receipt(
+                        chain_update.chain_store_update.save_outgoing_receipt(
                             &block_hash,
                             shard_id,
                             apply_result.receipt_result,
                         );
                         // Save receipt and transaction results.
-                        self.chain_store_update.save_outcomes_with_proofs(
+                        chain_update.chain_store_update.save_outcomes_with_proofs(
                             &block_hash,
                             shard_id,
                             apply_result.outcomes,
@@ -3041,15 +3047,21 @@ impl<'a> ChainUpdate<'a> {
                         let (shard_id, apply_result) =
                             res.map_err(|e| ErrorKind::Other(e.to_string()))?;
 
-                        let mut new_extra = self
+                        let mut new_extra = chain_update
                             .chain_store_update
                             .get_chunk_extra(&prev_block_hash, shard_id)?
                             .clone();
 
-                        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                        chain_update
+                            .chain_store_update
+                            .save_trie_changes(apply_result.trie_changes);
                         *new_extra.state_root_mut() = apply_result.new_root;
 
-                        self.chain_store_update.save_chunk_extra(&block_hash, shard_id, new_extra);
+                        chain_update.chain_store_update.save_chunk_extra(
+                            &block_hash,
+                            shard_id,
+                            new_extra,
+                        );
                     }
                     Err(err) => {
                         let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
@@ -3235,7 +3247,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         for callback in apply_callbacks {
-            callback()?;
+            callback(self)?;
         }
 
         // Verify that proposals from chunks match block header proposals.
