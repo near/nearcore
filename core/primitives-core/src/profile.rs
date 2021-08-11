@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::Index;
 
@@ -20,7 +19,7 @@ pub struct ProfileData {
 #[derive(Serialize, Deserialize)]
 struct ProfileDataSerHelper {
     all_gas: u64,
-    costs: BTreeMap<Cost, u64>,
+    costs: Vec<(Cost, u64)>,
 }
 
 impl Default for ProfileData {
@@ -260,11 +259,11 @@ impl Index<&Cost> for ProfileData {
 }
 
 impl ProfileData {
-    pub fn nonzero_costs(&self) -> BTreeMap<Cost, u64> {
-        let mut data = BTreeMap::new();
+    pub fn nonzero_costs(&self) -> Vec<(Cost, u64)> {
+        let mut data = Vec::new();
         for i in Cost::ALL {
             if self[i] > 0 {
-                data.insert(i.clone(), self[i]);
+                data.push((i.clone(), self[i]));
             }
         }
         data
