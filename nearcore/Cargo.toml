@@ -1,6 +1,6 @@
 [package]
 name = "nearcore"
-version = "1.2.0"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -22,6 +22,7 @@ dirs = "3"
 borsh = "0.8.1"
 thiserror = "1.0"
 tracing = "0.1.13"
+smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
 near-rust-allocator-proxy = "0.2.8"
 lazy-static-include = "3"
@@ -66,10 +67,9 @@ no_cache = ["node-runtime/no_cache", "near-store/no_cache", "near-chain/no_cache
 delay_detector = ["near-client/delay_detector"]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
-protocol_feature_evm = ["near-primitives/protocol_feature_evm", "node-runtime/protocol_feature_evm", "near-chain-configs/protocol_feature_evm", "near-chain/protocol_feature_evm", "near-client/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_evm", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix"]
 

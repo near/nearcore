@@ -1,6 +1,3 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::Arc;
 use std::time::Duration;
 
 use actix::clock::sleep;
@@ -10,7 +7,7 @@ use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::spawn_interruptible;
-use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo, TxStatus};
+use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
@@ -22,9 +19,7 @@ use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
-use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionStatusView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus,
-};
+use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 use testlib::genesis_block;
 
 mod node_cluster;
@@ -39,392 +34,6 @@ macro_rules! panic_on_rpc_error {
             panic!("{:?}", $e)
         }
     };
-}
-
-/// Starts 2 validators and 2 light clients (not tracking anything).
-/// Sends tx to first light client and checks that a node can return tx status.
-#[test]
-fn test_tx_propagation() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_num_shards(4)
-        .set_num_validator_seats(2)
-        .set_num_lightclients(2)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.1".to_string(),
-            "near.2".to_string(),
-            &signer,
-            10000,
-            genesis_hash,
-        );
-        let tx_hash = transaction.get_hash();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                let transaction_copy = transaction.clone();
-                let transaction_copy1 = transaction.clone();
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn_interruptible(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
-                                    .map(drop),
-                            );
-                        }
-                    }
-                    future::ready(())
-                }));
-
-                spawn_interruptible(
-                    view_client
-                        .send(TxStatus {
-                            tx_hash,
-                            signer_account_id: "near.1".to_string(),
-                            fetch_receipt: false,
-                        })
-                        .then(move |res| {
-                            match &res {
-                                Ok(Ok(Some(
-                                    FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(feo),
-                                ))) if feo.status
-                                    == FinalExecutionStatus::SuccessValue("".to_string())
-                                    && feo.transaction == transaction_copy1.into() =>
-                                {
-                                    System::current().stop();
-                                }
-                                _ => return future::ready(()),
-                            };
-                            future::ready(())
-                        }),
-                );
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
-}
-
-/// Starts 2 validators and 2 light clients (not tracking anything).
-/// Sends tx to first light client through `broadcast_tx_commit` and checks that the transaction succeeds.
-#[test]
-fn test_tx_propagation_through_rpc() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_num_shards(4)
-        .set_num_validator_seats(2)
-        .set_num_lightclients(2)
-        .set_epoch_length(1000)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.1".to_string(),
-            "near.2".to_string(),
-            &signer,
-            10000,
-            genesis_hash,
-        );
-        let has_sent_tx = Arc::new(AtomicBool::new(false));
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                let transaction_copy = transaction.clone();
-                let has_sent_tx1 = has_sent_tx.clone();
-                // We are sending this tx unstop, just to get over the warm up period.
-                // Probably make sense to stop after 1 time though.
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 10 && !has_sent_tx1.load(SeqCst) {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn_interruptible(
-                                client
-                                    .broadcast_tx_commit(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| {
-                                        if result.status
-                                            == FinalExecutionStatus::SuccessValue("".to_string())
-                                        {
-                                            System::current().stop();
-                                        } else {
-                                            panic!("wrong transaction status");
-                                        }
-                                    })
-                                    .map(drop),
-                            );
-                            has_sent_tx1.store(true, SeqCst);
-                        }
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
-}
-
-/// Starts 2 validators and 2 light clients (not tracking anything).
-/// Sends tx to first light client and checks that the light client can get transaction status
-#[test]
-fn test_tx_status_with_light_client() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_num_shards(4)
-        .set_num_validator_seats(2)
-        .set_num_lightclients(2)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.1".to_string(),
-            "near.2".to_string(),
-            &signer,
-            10000,
-            genesis_hash,
-        );
-        let tx_hash = transaction.get_hash();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                let rpc_addrs_copy1 = rpc_addrs.clone();
-                let transaction_copy = transaction.clone();
-                let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn_interruptible(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
-                                    .map(drop),
-                            );
-                        }
-                    }
-                    future::ready(())
-                }));
-                let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
-                spawn_interruptible(
-                    client
-                        .tx(tx_hash.to_string(), signer_account_id)
-                        .map_err(|_| ())
-                        .map_ok(move |result| {
-                            if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
-                                System::current().stop();
-                            }
-                        })
-                        .map(drop),
-                );
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
-}
-
-/// Starts 2 validators and 2 light clients (not tracking anything).
-/// Sends tx to first light client and checks that the light client can get transaction status
-#[test]
-fn test_tx_status_with_light_client1() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_num_shards(4)
-        .set_num_validator_seats(2)
-        .set_num_lightclients(2)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|genesis, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.3", KeyType::ED25519, "near.3");
-        let transaction = SignedTransaction::send_money(
-            1,
-            "near.3".to_string(),
-            "near.0".to_string(),
-            &signer,
-            10000,
-            genesis_hash,
-        );
-        let tx_hash = transaction.get_hash();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                let rpc_addrs_copy1 = rpc_addrs.clone();
-                let transaction_copy = transaction.clone();
-                let signer_account_id = transaction_copy.transaction.signer_id.clone();
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            let bytes = transaction_copy.try_to_vec().unwrap();
-                            spawn_interruptible(
-                                client
-                                    .broadcast_tx_async(to_base64(&bytes))
-                                    .map_err(|err| panic_on_rpc_error!(err))
-                                    .map_ok(move |result| assert_eq!(tx_hash.to_string(), result))
-                                    .map(drop),
-                            );
-                        }
-                    }
-                    future::ready(())
-                }));
-                let client = new_client(&format!("http://{}", rpc_addrs_copy1[2].clone()));
-                spawn_interruptible(
-                    client
-                        .tx(tx_hash.to_string(), signer_account_id)
-                        .map_err(|_| ())
-                        .map_ok(move |result| {
-                            if result.status == FinalExecutionStatus::SuccessValue("".to_string()) {
-                                System::current().stop();
-                            }
-                        })
-                        .map(drop),
-                );
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
-}
-
-#[test]
-fn test_rpc_routing() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_num_shards(4)
-        .set_num_validator_seats(2)
-        .set_num_lightclients(2)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .query_by_path("account/near.2".to_string(), "".to_string())
-                                    .map_err(|err| {
-                                        assert_eq!(
-                                            err.data.unwrap(),
-                                            "The node does not track the shard ID 2"
-                                        );
-                                        System::current().stop();
-                                    })
-                                    .map_ok(|_| panic!("Expected error but received Ok"))
-                                    .map(drop),
-                            );
-                        }
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
-}
-
-/// When we call rpc to view an account that does not exist on shard, an error about not tracking shard should occur immediately.
-#[test]
-fn test_rpc_routing_error() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(4, |index| format!("tx_propagation{}", index))
-        .set_num_shards(4)
-        .set_num_validator_seats(2)
-        .set_num_lightclients(2)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, clients| async move {
-        let view_client = clients[0].1.clone();
-
-        WaitOrTimeout::new(
-            Box::new(move |_ctx| {
-                let rpc_addrs_copy = rpc_addrs.clone();
-                spawn_interruptible(view_client.send(GetBlock::latest()).then(move |res| {
-                    if let Ok(Ok(block)) = res {
-                        if block.header.height > 1 {
-                            let client = new_client(&format!("http://{}", rpc_addrs_copy[2]));
-                            spawn_interruptible(
-                                client
-                                    .query_by_path(
-                                        "account/nonexistent".to_string(),
-                                        "".to_string(),
-                                    )
-                                    .map_err(|err| {
-                                        assert_eq!(
-                                            err.data.unwrap(),
-                                            "The node does not track the shard ID 1"
-                                        );
-                                        System::current().stop();
-                                    })
-                                    .map_ok(|_| panic!("Expected error but got Ok"))
-                                    .map(drop),
-                            );
-                        }
-                    }
-                    future::ready(())
-                }));
-            }),
-            100,
-            40000,
-        )
-        .start();
-    });
 }
 
 #[test]
@@ -456,7 +65,7 @@ fn test_get_validator_info_rpc() {
                         assert!(res
                             .current_validators
                             .iter()
-                            .any(|r| r.account_id == "near.0".to_string()));
+                            .any(|r| r.account_id.as_ref() == "near.0"));
                         System::current().stop();
                     }
                 });
@@ -508,12 +117,13 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(
                 1,
-                "near.0".to_string(),
-                "near.1".to_string(),
+                "near.0".parse().unwrap(),
+                "near.1".parse().unwrap(),
                 &signer,
                 10000,
                 genesis_hash,
@@ -521,8 +131,8 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         } else {
             SignedTransaction::create_account(
                 1,
-                "near.0".to_string(),
-                "near.1".to_string(),
+                "near.0".parse().unwrap(),
+                "near.1".parse().unwrap(),
                 10,
                 signer.public_key.clone(),
                 &signer,
@@ -545,14 +155,14 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                             let mut futures = vec![];
                             for id in vec![TransactionOrReceiptId::Transaction {
                                 transaction_hash: final_transaction_outcome.transaction_outcome.id,
-                                sender_id: "near.0".to_string(),
+                                sender_id: "near.0".parse().unwrap(),
                             }]
                             .into_iter()
                             .chain(
                                 final_transaction_outcome.receipts_outcome.into_iter().map(|r| {
                                     TransactionOrReceiptId::Receipt {
                                         receipt_id: r.id,
-                                        receiver_id: "near.1".to_string(),
+                                        receiver_id: "near.1".parse().unwrap(),
                                     }
                                 }),
                             ) {
@@ -675,7 +285,7 @@ fn test_query_rpc_account_view_must_succeed() {
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
                 request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "near.0".to_string(),
+                    account_id: "near.0".parse().unwrap(),
                 },
             })
             .await
@@ -697,40 +307,6 @@ fn test_query_rpc_account_view_must_succeed() {
 }
 
 #[test]
-fn test_query_rpc_account_view_invalid_account_must_return_error() {
-    init_integration_logger();
-
-    let cluster = NodeCluster::new(1, |index| format!("protocol_config{}", index))
-        .set_num_shards(1)
-        .set_num_validator_seats(1)
-        .set_num_lightclients(0)
-        .set_epoch_length(10)
-        .set_genesis_height(0);
-
-    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
-        let client = new_client(&format!("http://{}", rpc_addrs[0]));
-        let query_response = client
-            .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
-                block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
-                request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "1nval$d*@cc0ount".to_string(),
-                },
-            })
-            .await;
-
-        let error = match query_response {
-            Ok(result) => panic!("expected error but received Ok: {:?}", result.kind),
-            Err(err) => serde_json::to_value(err).unwrap(),
-        };
-
-        assert_eq!(error["data"], serde_json::json!("Account ID 1nval$d*@cc0ount is invalid"),);
-
-        assert_eq!(error["cause"]["name"], serde_json::json!("INVALID_ACCOUNT"),);
-        System::current().stop();
-    });
-}
-
-#[test]
 fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
     init_integration_logger();
 
@@ -747,7 +323,7 @@ fn test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: near_primitives::types::BlockReference::Finality(Finality::Final),
                 request: near_primitives::views::QueryRequest::ViewAccount {
-                    account_id: "accountdoesntexist.0".to_string(),
+                    account_id: "accountdoesntexist.0".parse().unwrap(),
                 },
             })
             .await;
@@ -784,11 +360,12 @@ fn test_tx_not_enough_balance_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.0".to_string(),
-            "near.1".to_string(),
+            "near.0".parse().unwrap(),
+            "near.1".parse().unwrap(),
             &signer,
             1100000000000000000000000000000000,
             genesis_hash,
@@ -845,11 +422,12 @@ fn test_send_tx_sync_returns_transaction_hash() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.0".to_string(),
-            "near.0".to_string(),
+            "near.0".parse().unwrap(),
+            "near.0".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -895,11 +473,12 @@ fn test_send_tx_sync_to_lightclient_must_be_routed() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer =
+            InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.1".to_string(),
+            "near.1".parse().unwrap(),
+            "near.1".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -952,11 +531,12 @@ fn test_check_unknown_tx_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0");
+        let signer =
+            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.0".to_string(),
-            "near.0".to_string(),
+            "near.0".parse().unwrap(),
+            "near.0".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,
@@ -1009,11 +589,11 @@ fn test_check_tx_on_lightclient_must_return_does_not_track_shard() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1", KeyType::ED25519, "near.1");
+        let signer = InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
         let transaction = SignedTransaction::send_money(
             1,
-            "near.1".to_string(),
-            "near.1".to_string(),
+            "near.1".parse().unwrap(),
+            "near.1".parse().unwrap(),
             &signer,
             10000,
             genesis_hash,

@@ -3,8 +3,11 @@ import json
 import datetime
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import pathlib
 import time
+import tempfile
 from tqdm import tqdm
+import shutil
 import sys
 
 sys.path.append('lib')
@@ -158,12 +161,19 @@ pbar.close()
 # machines = pmap(lambda name: gcloud.get(name), [
 #                 f'{machine_name_prefix}{i}' for i in range(num_machines)])
 
+tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
+
+def get_node_dir(i):
+    node_dir = tempdir / f'node{i}'
+    node_dir.mkdir(parents=True, exist_ok=True)
+    return node_dir
+
 for i in range(num_machines):
+    node_dir = get_node_dir(i)
     p = run('bash', input=f'''
-mkdir -p /tmp/near/node{i}
 # deactivate virtualenv doesn't work in non interactive shell, explicitly run with python2
 cd ..
-python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
+python2 scripts/start_stakewars.py --local --home {node_dir} --init --signer-keys --account-id=node{i}
 ''')
     assert p.returncode == 0
 
@@ -175,21 +185,21 @@ def pk_from_file(path):
 
 
 def get_validator_key(i):
-    return pk_from_file(f'/tmp/near/node{i}/validator_key.json')
+    return pk_from_file(get_node_dir(i) / 'validator_key.json')
 
 
 def get_full_pks(i):
     pks = []
     for j in range(3):
-        pks.append(pk_from_file(f'/tmp/near/node{i}/signer{j}_key.json'))
+        pks.append(pk_from_file(get_node_dir(i) / f'signer{j}_key.json'))
     return ','.join(pks)
 
 
 def get_pubkey(i):
-    return pk_from_file(f'/tmp/near/node{i}/node_key.json')
+    return pk_from_file(get_node_dir(i) / 'node_key.json')
 
 
-with open('/tmp/near/accounts.csv', 'w', newline='') as f:
+with open(tempdir / 'accounts.csv', 'w', newline='') as f:
     fieldnames = 'genesis_time,account_id,regular_pks,privileged_pks,foundation_pks,full_pks,amount,is_treasury,validator_stake,validator_key,peer_info,smart_contract,lockup,vesting_start,vesting_end,vesting_cliff'.split(
         ',')
 
@@ -212,13 +222,14 @@ with open('/tmp/near/accounts.csv', 'w', newline='') as f:
 
 # Generate config and genesis locally, apply changes to config/genesis locally
 for i in range(num_machines):
+    node_dir = get_node_dir(i)
+    shutil.copy(tempdir / 'accounts.csv', node_dir / 'accounts.csv')
     p=run('bash', input=f'''
-cp /tmp/near/accounts.csv /tmp/near/node{i}
 cd ..
-target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id pytest
+target/release/genesis-csv-to-json --home {node_dir} --chain-id pytest
 ''')
-    apply_config_changes(f'/tmp/near/node{i}', client_config_changes)
-    apply_genesis_changes(f'/tmp/near/node{i}', genesis_config_changes)
+    apply_config_changes(node_dir, client_config_changes)
+    apply_genesis_changes(node_dir, genesis_config_changes)
 
 pbar = tqdm(total=num_machines, desc=' upload nodedir')
 # Upload json and accounts.csv
@@ -229,7 +240,7 @@ def upload_genesis_files(i):
     machines[i].kill_detach_tmux()
     machines[i].run('rm -rf ~/.near')
     # upload keys, config, genesis
-    machines[i].upload(f'/tmp/near/node{i}', f'/home/{machines[i].username}/.near')
+    machines[i].upload(str(get_node_dir(i)), f'/home/{machines[i].username}/.near')
     pbar.update(1)
 
 pmap(upload_genesis_files, range(num_machines))

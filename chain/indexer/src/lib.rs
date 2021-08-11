@@ -93,7 +93,7 @@ impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
         let near_config = nearcore::load_config(&indexer_config.home_dir);
-        nearcore::genesis_validate::validate_genesis(&near_config.genesis);
+        near_chain_configs::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
             "Indexer should track at least one shard. \n\
@@ -137,7 +137,7 @@ pub fn indexer_init_configs(dir: &std::path::PathBuf, params: InitConfigArgs) {
     init_configs(
         dir,
         params.chain_id.as_deref(),
-        params.account_id.as_deref(),
+        params.account_id.and_then(|account_id| account_id.parse().ok()),
         params.test_seed.as_deref(),
         params.num_shards,
         params.fast,
