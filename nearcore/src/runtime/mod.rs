@@ -157,7 +157,7 @@ impl NightshadeRuntime {
             ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let all_epoch_config = AllEpochConfig::new(
-            initial_epoch_config,
+            initial_epoch_config.clone(),
             genesis.config.simple_nightshade_shard_config.clone(),
         );
         let reward_calculator = RewardCalculator::new(&genesis_config);
@@ -181,6 +181,7 @@ impl NightshadeRuntime {
             initial_tracking_accounts,
             initial_tracking_shards,
             epoch_manager.clone(),
+            &initial_epoch_config.shard_layout,
         );
         NightshadeRuntime {
             genesis_config,
@@ -948,7 +949,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        self.shard_tracker.account_id_to_shard_id(account_id)
+        // TODO: change this function to take the correct shard layout according to epochs
+        account_id_to_shard_id(account_id, &ShardLayout::v0(self.num_shards()))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {

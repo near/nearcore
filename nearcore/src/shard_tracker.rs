@@ -4,7 +4,6 @@ use std::sync::{Arc, RwLock};
 use tracing::info;
 
 use near_epoch_manager::EpochManager;
-use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::types::{AccountId, ShardId};
@@ -25,6 +24,8 @@ pub struct ShardTracker {
     actual_tracked_shards: HashSet<ShardId>,
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: Arc<RwLock<EpochManager>>,
+    /// Current shard layout
+    shard_layout: ShardLayout,
 }
 
 impl ShardTracker {
@@ -32,9 +33,10 @@ impl ShardTracker {
         accounts: Vec<AccountId>,
         shards: Vec<ShardId>,
         epoch_manager: Arc<RwLock<EpochManager>>,
+        shard_layout: &ShardLayout,
     ) -> Self {
         let tracked_accounts = accounts.into_iter().fold(HashMap::new(), |mut acc, x| {
-            let shard_id = account_id_to_shard_id(&x, &shard_layout);
+            let shard_id = account_id_to_shard_id(&x, shard_layout);
             acc.entry(shard_id).or_insert_with(HashSet::new).insert(x);
             acc
         });
@@ -44,11 +46,17 @@ impl ShardTracker {
             actual_tracked_shards.insert(*shard_id);
         }
         info!(target: "runtime", "Tracking shards: {:?}", actual_tracked_shards);
-        ShardTracker { tracked_accounts, tracked_shards, actual_tracked_shards, epoch_manager }
+        ShardTracker {
+            tracked_accounts,
+            tracked_shards,
+            actual_tracked_shards,
+            epoch_manager,
+            shard_layout: shard_layout.clone(),
+        }
     }
 
     fn track_account(&mut self, account_id: &AccountId) {
-        let shard_id = self.account_id_to_shard_id(account_id);
+        let shard_id = account_id_to_shard_id(account_id, &self.shard_layout);
         self.tracked_accounts
             .entry(shard_id)
             .or_insert_with(HashSet::new)
