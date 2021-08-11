@@ -3,6 +3,7 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -13,6 +14,7 @@ use num_rational::Rational;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
+use sha2::digest::Digest;
 use smart_default::SmartDefault;
 
 use crate::genesis_validate::validate_genesis;
@@ -29,8 +31,6 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
-use sha2::digest::Digest;
-use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -164,9 +164,9 @@ impl From<&GenesisConfig> for EpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
-/// `Genesis` has an invariant that we can't enforce due to an optimization for saving memory.
-/// Therefore, all fields are public, but the clients are expected to use the provided methods for
-/// instantiation, serialization and deserialization.
+/// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
+/// However, we can't enfore that invariant. All fields are public, but the clients are expected to
+/// use the provided methods for instantiation, serialization and deserialization.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
