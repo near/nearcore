@@ -5,12 +5,12 @@ pub use near_network_primitives::types::{
 pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
 pub use peer_manager::PeerManagerActor;
 
-pub use near_network_primitives::metrics;
 #[cfg(feature = "metric_recorder")]
 pub use near_network_primitives::recorder;
 
 mod cache;
 mod codec;
+pub mod metrics;
 mod peer;
 mod peer_manager;
 pub mod peer_store;

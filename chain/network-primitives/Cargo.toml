@@ -16,11 +16,9 @@ strum = { version = "0.20", features = ["derive"] }
 tracing = "0.1.13"
 conqueue = "0.4.0"
 byteorder = "1.2"
-lazy_static = "1.4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
-near-metrics = { path = "../../core/metrics" }
 
 [features]
 adversarial = []

@@ -41,10 +41,12 @@ use crate::types::{
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
-use crate::{metrics::NetworkMetrics, NetworkResponses};
+use crate::{
+    metrics::{self, NetworkMetrics},
+    NetworkResponses,
+};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_network_primitives::metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_rust_allocator_proxy::allocator::get_tid;
