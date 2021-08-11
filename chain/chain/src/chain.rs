@@ -1842,7 +1842,7 @@ impl Chain {
         let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
 
         let mut chain_update = self.chain_update();
-        chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
+        chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?();
         chain_update.commit()?;
 
         affected_blocks.insert(*block.header().hash());
@@ -1866,7 +1866,7 @@ impl Chain {
 
                 let mut chain_update = self.chain_update();
 
-                chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
+                chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?();
 
                 chain_update.commit()?;
 
@@ -2762,13 +2762,15 @@ impl<'a> ChainUpdate<'a> {
         })
     }
 
+    // Applies chunks in separate threads. Returns callback that would actually wait till all
+    // chunks are applied
     fn apply_chunks(
         &mut self,
         me: &Option<AccountId>,
         block: &Block,
         prev_block: &Block,
         mode: ApplyChunksMode,
-    ) -> Result<(), Error> {
+    ) -> Result<impl FnOnce() -> Result<(), Error> + 'a, Error> {
         let challenges_result = self.verify_challenges(
             block.challenges(),
             block.header().epoch_id(),
@@ -2980,85 +2982,89 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        for result in same_height_handlers {
-            let res = result.join();
-            match res {
-                Ok(res) => {
-                    let (shard_id, gas_limit, apply_result) =
-                        res.map_err(|e| ErrorKind::Other(e.to_string()))?;
-                    let (outcome_root, outcome_paths) =
-                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+        let block_hash = block.hash().clone();
+        let prev_block_hash = prev_block.hash().clone();
+        Ok(move || -> Result<(), Error> {
+            for result in same_height_handlers {
+                let res = result.join();
+                match res {
+                    Ok(res) => {
+                        let (shard_id, gas_limit, apply_result) =
+                            res.map_err(|e| ErrorKind::Other(e.to_string()))?;
+                        let (outcome_root, outcome_paths) =
+                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
-                    self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                    // Save state root after applying transactions.
-                    self.chain_store_update.save_chunk_extra(
-                        &block.hash(),
-                        shard_id,
-                        ChunkExtra::new(
-                            &apply_result.new_root,
-                            outcome_root,
-                            apply_result.validator_proposals,
-                            apply_result.total_gas_burnt,
-                            gas_limit,
-                            apply_result.total_balance_burnt,
-                        ),
-                    );
-                    self.chain_store_update.save_outgoing_receipt(
-                        &block.hash(),
-                        shard_id,
-                        apply_result.receipt_result,
-                    );
-                    // Save receipt and transaction results.
-                    self.chain_store_update.save_outcomes_with_proofs(
-                        &block.hash(),
-                        shard_id,
-                        apply_result.outcomes,
-                        outcome_paths,
-                    );
-                }
-                Err(err) => {
-                    let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
-                        msg.to_string()
-                    } else if let Some(msg) = err.downcast_ref::<String>() {
-                        msg.clone()
-                    } else {
-                        format!("?{:?}", err)
-                    };
-                    panic!("{}", msg);
-                }
-            }
-        }
-
-        for result in dif_height_handlers {
-            let res = result.join();
-            match res {
-                Ok(res) => {
-                    let (shard_id, apply_result) =
-                        res.map_err(|e| ErrorKind::Other(e.to_string()))?;
-
-                    let mut new_extra = self
-                        .chain_store_update
-                        .get_chunk_extra(&prev_block.hash(), shard_id)?
-                        .clone();
-
-                    self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                    *new_extra.state_root_mut() = apply_result.new_root;
-
-                    self.chain_store_update.save_chunk_extra(&block.hash(), shard_id, new_extra);
-                }
-                Err(err) => {
-                    let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
-                        msg.to_string()
-                    } else if let Some(msg) = err.downcast_ref::<String>() {
-                        msg.clone()
-                    } else {
-                        format!("?{:?}", err)
-                    };
-                    panic!("{}", msg);
+                        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                        // Save state root after applying transactions.
+                        self.chain_store_update.save_chunk_extra(
+                            &block_hash,
+                            shard_id,
+                            ChunkExtra::new(
+                                &apply_result.new_root,
+                                outcome_root,
+                                apply_result.validator_proposals,
+                                apply_result.total_gas_burnt,
+                                gas_limit,
+                                apply_result.total_balance_burnt,
+                            ),
+                        );
+                        self.chain_store_update.save_outgoing_receipt(
+                            &block_hash,
+                            shard_id,
+                            apply_result.receipt_result,
+                        );
+                        // Save receipt and transaction results.
+                        self.chain_store_update.save_outcomes_with_proofs(
+                            &block_hash,
+                            shard_id,
+                            apply_result.outcomes,
+                            outcome_paths,
+                        );
+                    }
+                    Err(err) => {
+                        let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
+                            msg.to_string()
+                        } else if let Some(msg) = err.downcast_ref::<String>() {
+                            msg.clone()
+                        } else {
+                            format!("?{:?}", err)
+                        };
+                        panic!("{}", msg);
+                    }
                 }
             }
-        }
-        Ok(())
+
+            for result in dif_height_handlers {
+                let res = result.join();
+                match res {
+                    Ok(res) => {
+                        let (shard_id, apply_result) =
+                            res.map_err(|e| ErrorKind::Other(e.to_string()))?;
+
+                        let mut new_extra = self
+                            .chain_store_update
+                            .get_chunk_extra(&prev_block_hash, shard_id)?
+                            .clone();
+
+                        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                        *new_extra.state_root_mut() = apply_result.new_root;
+
+                        self.chain_store_update.save_chunk_extra(&block_hash, shard_id, new_extra);
+                    }
+                    Err(err) => {
+                        let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
+                            msg.to_string()
+                        } else if let Some(msg) = err.downcast_ref::<String>() {
+                            msg.clone()
+                        } else {
+                            format!("?{:?}", err)
+                        };
+                        panic!("{}", msg);
+                    }
+                }
+            }
+            Ok(())
+        })
     }
 
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
@@ -3205,15 +3211,31 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
+        let mut apply_callbacks = Vec::new();
+
         // Always apply state transition for shards in the current epoch
-        self.apply_chunks(me, block, &prev_block, ApplyChunksMode::ThisEpoch)?;
+        apply_callbacks.push(self.apply_chunks(
+            me,
+            block,
+            &prev_block,
+            ApplyChunksMode::ThisEpoch,
+        )?);
 
         // If we have the state for the next epoch already downloaded, apply the state transition for the next epoch as well,
         //    otherwise put the block into the permanent storage to have the state transition applied later
         if is_caught_up {
-            self.apply_chunks(me, block, &prev_block, ApplyChunksMode::NextEpoch)?;
+            apply_callbacks.push(self.apply_chunks(
+                me,
+                block,
+                &prev_block,
+                ApplyChunksMode::NextEpoch,
+            )?);
         } else {
             self.chain_store_update.add_block_to_catchup(prev_hash, *block.hash());
+        }
+
+        for callback in apply_callbacks {
+            callback()?;
         }
 
         // Verify that proposals from chunks match block header proposals.
