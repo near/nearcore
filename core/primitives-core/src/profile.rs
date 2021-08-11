@@ -3,8 +3,7 @@ use std::fmt;
 use std::ops::Index;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
@@ -16,6 +15,12 @@ pub struct ProfileData {
     all_gas: u64,
     ext_costs: Vec<u64>,
     action_costs: Vec<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProfileDataSerHelper {
+    all_gas: u64,
+    costs: BTreeMap<Cost, u64>,
 }
 
 impl Default for ProfileData {
@@ -156,19 +161,100 @@ impl fmt::Debug for ProfileData {
     }
 }
 
-#[derive(PartialOrd, Ord, PartialEq, Eq)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub enum Cost {
-    ExtCost(usize),    // need to be usize to iterate, it's actually a ExtCosts variant
-    ActionCost(usize), // ActionCosts variant
+    ExtCost(ExtCosts),
+    ActionCost(ActionCosts),
 }
 
-impl Index<Cost> for ProfileData {
+impl Cost {
+    const ALL: &'static [Cost] = &[
+        Cost::ExtCost(ExtCosts::base),
+        Cost::ExtCost(ExtCosts::contract_compile_base),
+        Cost::ExtCost(ExtCosts::contract_compile_bytes),
+        Cost::ExtCost(ExtCosts::read_memory_base),
+        Cost::ExtCost(ExtCosts::read_memory_byte),
+        Cost::ExtCost(ExtCosts::write_memory_base),
+        Cost::ExtCost(ExtCosts::write_memory_byte),
+        Cost::ExtCost(ExtCosts::read_register_base),
+        Cost::ExtCost(ExtCosts::read_register_byte),
+        Cost::ExtCost(ExtCosts::write_register_base),
+        Cost::ExtCost(ExtCosts::write_register_byte),
+        Cost::ExtCost(ExtCosts::utf8_decoding_base),
+        Cost::ExtCost(ExtCosts::utf8_decoding_byte),
+        Cost::ExtCost(ExtCosts::utf16_decoding_base),
+        Cost::ExtCost(ExtCosts::utf16_decoding_byte),
+        Cost::ExtCost(ExtCosts::sha256_base),
+        Cost::ExtCost(ExtCosts::sha256_byte),
+        Cost::ExtCost(ExtCosts::keccak256_base),
+        Cost::ExtCost(ExtCosts::keccak256_byte),
+        Cost::ExtCost(ExtCosts::keccak512_base),
+        Cost::ExtCost(ExtCosts::keccak512_byte),
+        Cost::ExtCost(ExtCosts::ripemd160_base),
+        Cost::ExtCost(ExtCosts::ripemd160_block),
+        Cost::ExtCost(ExtCosts::ecrecover_base),
+        Cost::ExtCost(ExtCosts::log_base),
+        Cost::ExtCost(ExtCosts::log_byte),
+        Cost::ExtCost(ExtCosts::storage_write_base),
+        Cost::ExtCost(ExtCosts::storage_write_key_byte),
+        Cost::ExtCost(ExtCosts::storage_write_value_byte),
+        Cost::ExtCost(ExtCosts::storage_write_evicted_byte),
+        Cost::ExtCost(ExtCosts::storage_read_base),
+        Cost::ExtCost(ExtCosts::storage_read_key_byte),
+        Cost::ExtCost(ExtCosts::storage_read_value_byte),
+        Cost::ExtCost(ExtCosts::storage_remove_base),
+        Cost::ExtCost(ExtCosts::storage_remove_key_byte),
+        Cost::ExtCost(ExtCosts::storage_remove_ret_value_byte),
+        Cost::ExtCost(ExtCosts::storage_has_key_base),
+        Cost::ExtCost(ExtCosts::storage_has_key_byte),
+        Cost::ExtCost(ExtCosts::storage_iter_create_prefix_base),
+        Cost::ExtCost(ExtCosts::storage_iter_create_prefix_byte),
+        Cost::ExtCost(ExtCosts::storage_iter_create_range_base),
+        Cost::ExtCost(ExtCosts::storage_iter_create_from_byte),
+        Cost::ExtCost(ExtCosts::storage_iter_create_to_byte),
+        Cost::ExtCost(ExtCosts::storage_iter_next_base),
+        Cost::ExtCost(ExtCosts::storage_iter_next_key_byte),
+        Cost::ExtCost(ExtCosts::storage_iter_next_value_byte),
+        Cost::ExtCost(ExtCosts::touching_trie_node),
+        Cost::ExtCost(ExtCosts::promise_and_base),
+        Cost::ExtCost(ExtCosts::promise_and_per_promise),
+        Cost::ExtCost(ExtCosts::promise_return),
+        Cost::ExtCost(ExtCosts::validator_stake_base),
+        Cost::ExtCost(ExtCosts::validator_total_stake_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_multiexp_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_multiexp_byte),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_multiexp_sublinear),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_pairing_check_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_pairing_check_byte),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_sum_base),
+        #[cfg(feature = "protocol_feature_alt_bn128")]
+        Cost::ExtCost(ExtCosts::alt_bn128_g1_sum_byte),
+        Cost::ActionCost(ActionCosts::create_account),
+        Cost::ActionCost(ActionCosts::delete_account),
+        Cost::ActionCost(ActionCosts::deploy_contract),
+        Cost::ActionCost(ActionCosts::function_call),
+        Cost::ActionCost(ActionCosts::transfer),
+        Cost::ActionCost(ActionCosts::stake),
+        Cost::ActionCost(ActionCosts::add_key),
+        Cost::ActionCost(ActionCosts::delete_key),
+        Cost::ActionCost(ActionCosts::value_return),
+        Cost::ActionCost(ActionCosts::new_receipt),
+    ];
+}
+
+impl Index<&Cost> for ProfileData {
     type Output = u64;
 
-    fn index(&self, index: Cost) -> &Self::Output {
+    fn index(&self, index: &Cost) -> &Self::Output {
         match index {
-            Cost::ExtCost(ext) => &self.ext_costs[ext as usize],
-            Cost::ActionCost(action) => &self.action_costs[action as usize],
+            Cost::ExtCost(ext) => &self.ext_costs[*ext as usize],
+            Cost::ActionCost(action) => &self.action_costs[*action as usize],
         }
     }
 }
@@ -176,29 +262,32 @@ impl Index<Cost> for ProfileData {
 impl ProfileData {
     pub fn nonzero_costs(&self) -> BTreeMap<Cost, u64> {
         let mut data = BTreeMap::new();
-        for i in 0..ExtCosts::count() {
-            if self.ext_costs[i] > 0 {
-                data.insert(Cost::ExtCost(i), self.ext_costs[i]);
-            }
-        }
-        for i in 0..ActionCosts::count() {
-            if self.action_costs[i] > 0 {
-                data.insert(Cost::ActionCost(i), self.action_costs[i]);
+        for i in Cost::ALL {
+            if self[i] > 0 {
+                data.insert(i.clone(), self[i]);
             }
         }
         data
     }
 }
 
-impl Serialize for Cost {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            Cost::ExtCost(ext) => serializer.serialize_str(ExtCosts::name_of(*ext)),
-            Cost::ActionCost(action) => serializer.serialize_str(ActionCosts::name_of(*action)),
+impl From<&ProfileData> for ProfileDataSerHelper {
+    fn from(profile: &ProfileData) -> Self {
+        ProfileDataSerHelper { all_gas: profile.all_gas, costs: profile.nonzero_costs() }
+    }
+}
+
+impl Into<ProfileData> for ProfileDataSerHelper {
+    fn into(self) -> ProfileData {
+        let mut profile = ProfileData::default();
+        profile.set_burnt_gas(self.all_gas);
+        for (cost, num) in self.costs {
+            match cost {
+                Cost::ExtCost(ext) => profile.add_ext_cost(ext, num),
+                Cost::ActionCost(action) => profile.add_action_cost(action, num),
+            }
         }
+        profile
     }
 }
 
@@ -207,12 +296,18 @@ impl Serialize for ProfileData {
     where
         S: Serializer,
     {
-        let cost_data = self.nonzero_costs();
-        let mut map = serializer.serialize_map(Some(cost_data.len()))?;
-        for (k, v) in cost_data {
-            map.serialize_entry(&k, &v)?;
-        }
-        map.end()
+        let helper: ProfileDataSerHelper = self.into();
+        helper.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ProfileData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let helper = ProfileDataSerHelper::deserialize(deserializer)?;
+        Ok(helper.into())
     }
 }
 
