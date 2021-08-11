@@ -30,12 +30,6 @@ struct CliArgs {
     /// Only test contract compilation costs.
     #[clap(long)]
     compile_only: bool,
-    /// Disables action creation measurements.
-    #[clap(long("action-creation"))]
-    disable_action_creation: bool,
-    /// Disables transaction measurements.
-    #[clap(long("transaction"))]
-    disable_transactions: bool,
 }
 
 fn main() {
@@ -56,8 +50,6 @@ fn main() {
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
-    let disable_measure_action_creation = cli_args.disable_action_creation;
-    let disable_measure_transaction = cli_args.disable_transactions;
     let runtime_config = run(
         Config {
             warmup_iters_per_block,
@@ -67,8 +59,6 @@ fn main() {
             state_dump_path: state_dump_path.clone(),
             metric,
             vm_kind,
-            disable_measure_action_creation,
-            disable_measure_transaction,
         },
         cli_args.compile_only,
     );
