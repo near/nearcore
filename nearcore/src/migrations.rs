@@ -456,6 +456,11 @@ pub fn migrate_24_to_25(path: &String) {
                 } else {
                     let mut v2: Vec<u8> = value.clone().into();
                     use std::convert::TryFrom;
+                    // We investigate how deserialization went wrong, by manually borsh deserialize struct field-by-field and found
+                    // the problem comes from https://github.com/near/nearcore/commit/6c3c2f7475a5e8c258a39ed94f11f6a8a7b2108e, where
+                    // where MethodUTF8Error was dropped without a migration, which lead to deser index 3 of MethodResolveError
+                    // error. We compare bytes here to try recovery this case and still panic in case we hit other cases. This only
+                    // happened at testnet archival node.
                     if &v2[0..4] == [1, 0, 0, 0] {
                         // ensure there's one execution outcome
                         if &v2[v2.len() - 3..] == [12, 2, 3] {
