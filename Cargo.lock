@@ -2840,7 +2840,7 @@ dependencies = [
  "libc",
  "near-account-id",
  "parity-secp256k1",
- "primitive-types 0.10.1",
+ "primitive-types",
  "rand 0.7.3",
  "rand_core 0.5.1",
  "serde",
@@ -2864,7 +2864,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "num-rational",
- "primitive-types 0.9.0",
+ "primitive-types",
  "rand 0.6.5",
  "rand 0.7.3",
  "serde",
@@ -3085,7 +3085,7 @@ dependencies = [
  "near-rpc-error-macro",
  "near-vm-errors",
  "num-rational",
- "primitive-types 0.9.0",
+ "primitive-types",
  "rand 0.7.3",
  "reed-solomon-erasure",
  "regex",
@@ -3352,7 +3352,7 @@ dependencies = [
  "near-vm-runner",
  "node-runtime",
  "num-rational",
- "primitive-types 0.9.0",
+ "primitive-types",
  "rand 0.7.3",
  "rayon",
  "serde",
@@ -3824,17 +3824,6 @@ name = "ppv-lite86"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
-
-[[package]]
-name = "primitive-types"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2415937401cb030a2a0a4d922483f945fa068f52a7dbb22ce0fe5f2b6f6adace"
-dependencies = [
- "fixed-hash",
- "impl-codec",
- "uint",
-]
 
 [[package]]
 name = "primitive-types"
