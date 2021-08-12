@@ -27,6 +27,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
+use crate::profile::{Cost, ProfileData};
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
@@ -1000,6 +1001,32 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub struct ProfileDataView {
+    costs: Vec<(Cost, u64)>,
+}
+
+impl From<ProfileData> for ProfileDataView {
+    fn from(profile: ProfileData) -> Self {
+        ProfileDataView { costs: profile.nonzero_costs() }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub enum ExecutionMetadataView {
+    V1,
+    V2(ProfileDataView),
+}
+
+impl From<ExecutionMetadata> for ExecutionMetadataView {
+    fn from(metadata: ExecutionMetadata) -> Self {
+        match metadata {
+            ExecutionMetadata::V1 => Self::V1,
+            ExecutionMetadata::V2(profile_data) => Self::V2(profile_data.into()),
+        }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
@@ -1019,7 +1046,7 @@ pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
     /// Execution metadata, versioned
-    pub metadata: ExecutionMetadata,
+    pub metadata: ExecutionMetadataView,
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
@@ -1031,7 +1058,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
-            metadata: outcome.metadata,
+            metadata: outcome.metadata.into(),
         }
     }
 }

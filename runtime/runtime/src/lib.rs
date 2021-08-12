@@ -272,7 +272,7 @@ impl Runtime {
                         executor_id: transaction.signer_id.clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
                         // VerificationResult needs updates to incorporate profile data to support profile data of txns
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::V1,
                     },
                 };
                 Ok((receipt, outcome))
@@ -740,7 +740,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                metadata: ExecutionMetadata::ExecutionMetadataV2(result.profile),
+                metadata: ExecutionMetadata::V2(result.profile),
             },
         })
     }

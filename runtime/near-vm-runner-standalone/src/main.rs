@@ -172,7 +172,7 @@ fn main() {
     let mut results = script.run();
     let (outcome, err) = results.outcomes.pop().unwrap();
 
-    let all_gas = match &outcome {
+    let _all_gas = match &outcome {
         Some(outcome) => outcome.burnt_gas,
         _ => 1,
     };
@@ -190,7 +190,6 @@ fn main() {
 
     match &outcome {
         Some(outcome) => {
-            assert_eq!(all_gas, outcome.profile.all_gas());
             println!("{:#?}", outcome.profile);
         }
         _ => {}
