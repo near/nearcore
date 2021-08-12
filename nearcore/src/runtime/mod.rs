@@ -181,7 +181,6 @@ impl NightshadeRuntime {
             initial_tracking_accounts,
             initial_tracking_shards,
             epoch_manager.clone(),
-            &initial_epoch_config.shard_layout,
         );
         NightshadeRuntime {
             genesis_config,
