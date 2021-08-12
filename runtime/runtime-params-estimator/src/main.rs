@@ -109,16 +109,16 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
         buf.push_str("set -ex;\n");
         buf.push_str(
             "\
-cargo build --manifest-path /nearcore/Cargo.toml \
+cargo build --manifest-path /host/nearcore/Cargo.toml \
   --package runtime-params-estimator --bin runtime-params-estimator \
   --features required --release;
 ",
         );
         buf.push_str(
             "\
-/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
-  -plugin file=/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so \
-  -cpu Westmere-v1 /nearcore/target/release/runtime-params-estimator --home /.near",
+/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
+  -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so \
+  -cpu Westmere-v1 /host/nearcore/target/release/runtime-params-estimator --home /.near",
         );
 
         // Sanitize & forward our arguments to the estimator to be run inside
@@ -148,7 +148,7 @@ cargo build --manifest-path /nearcore/Cargo.toml \
     cmd.args(&["run", "--rm", "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined"])
         .args(&["--mount", &nearcore])
         .args(&["--mount", &nearhome])
-        .args(&["--mount", "source=rust-emu-target-dir,target=/nearcore/target"])
+        .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
         .args(&["--interactive", "--tty"])
         .arg("rust-emu")
