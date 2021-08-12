@@ -14,7 +14,7 @@ Use this tool to measure the running time of elementary runtime operations that 
     ```
 
     With the given parameters above estimator will run relatively fast.
-    Note the `--metric time` flag: it instructs the estimator to use wal-clock time for estimation, which is quick, but highly variable between runs and physical machines.
+    Note the `--metric time` flag: it instructs the estimator to use wall-clock time for estimation, which is quick, but highly variable between runs and physical machines.
     To get more robust estimates, use these arguments:
 
     ```bash

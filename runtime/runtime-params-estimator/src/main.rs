@@ -91,7 +91,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
     let project_root = project_root();
     if exec("docker images -q rust-emu")?.is_empty() {
-        // Build docked image if there isn't one already.
+        // Build a docker image if there isn't one already.
         let status = Command::new("docker")
             .args(&["build", "--tag", "rust-emu"])
             .arg(project_root.join("runtime/runtime-params-estimator/emu-cost"))
