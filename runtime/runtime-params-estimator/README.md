@@ -13,6 +13,17 @@ Use this tool to measure the running time of elementary runtime operations that 
     cargo run --release --package runtime-params-estimator --features required --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
     ```
 
-    With the given parameters above estimator will run relatively fast. We will be using different parameters to do the actual parameter estimation. Also note that the default metric is `icount`, instruction count, but requires using QEMU to emulate the processor. So this example provides a way to get a quick way to test out the estimator based on time, but the instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the real data.
+    With the given parameters above estimator will run relatively fast.
+    Note the `--metric time` flag: it instructs the estimator to use wall-clock time for estimation, which is quick, but highly variable between runs and physical machines.
+    To get more robust estimates, use these arguments:
+
+    ```bash
+    --docker --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric icount
+    ```
+
+    This will run and build the estimator inside a docker container, using QEMU to precisely count the number of executed instructions.
+
+    We will be using different parameters to do the actual parameter estimation.
+    The instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the real data.
 
 Note, if you use the plotting functionality you would need to install [gnuplot](http://gnuplot.info/) to see the graphs.
