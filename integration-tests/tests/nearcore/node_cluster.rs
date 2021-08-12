@@ -64,7 +64,8 @@ pub fn start_nodes(
 
     let mut res = vec![];
     for (i, near_config) in near_configs.into_iter().enumerate() {
-        let (client, view_client, arbiters) = start_with_config(dirs[i].path(), near_config);
+        let nearcore::StartResult { client, view_client, arbiters, .. } =
+            start_with_config(dirs[i].path(), near_config);
         res.push((client, view_client, arbiters))
     }
     (genesis, rpc_addrs, res)
