@@ -63,7 +63,6 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
 
 fn set_block_protocol_version(
@@ -3154,10 +3153,12 @@ mod access_key_nonce_range_tests {
     }
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
     use near_primitives::runtime::migration_data::MigrationData;
     use near_primitives::version::ProtocolFeature;
+    use nearcore::migrations::load_migration_data;
 
     const EPOCH_LENGTH: u64 = 5;
     const HEIGHT_TIMEOUT: u64 = 10;
