@@ -59,11 +59,12 @@ def nightly_tests(repo_dir):
     for test in nayduck.read_tests_from_file(
             repo_dir / nayduck.DEFAULT_TEST_FILE, include_comments=True):
         t = test.split()
-        if ((len(t) >= 1 and t[0] in ('expensive', 'lib')) or
-            (len(t) >= 2 and t[0] == '#' and t[1] in ('expensive', 'lib'))):
-            # It's okay to comment out a test intentionally
-            yield t[-1].split('::')[-1]
-
+        try:
+            # It's okay to comment out a test intentionally.
+            if t[t[0] == '#'] in ('expensive', '#expensive'):
+                yield t[-1].split('::')[-1]
+        except IndexError:
+            pass
 
 def main():
     repo_dir = pathlib.Path(__file__).parent.parent
