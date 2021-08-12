@@ -8,17 +8,11 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-#[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-use near_primitives::receipt::ReceiptResult;
 use near_store::create_store;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
-    #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-    let receipt_result = ReceiptResult::default();
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
     let receipts = receipt_result.get(&0u64).unwrap();
     receipts.into_iter().map(|receipt| receipt.get_hash()).collect()
@@ -143,11 +137,9 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     use super::*;
 
     #[test]
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn test_checking_differences() {
         let receipt_hashes_in_repo = get_receipt_hashes_in_repo();
 
