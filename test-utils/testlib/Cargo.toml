@@ -3,10 +3,6 @@ name = "testlib"
 version = "0.1.0"
 edition = "2018"
 
-[[bin]]
-name = "run-nodes"
-path = "src/run_nodes.rs"
-
 [dependencies]
 actix = "=0.11.0-beta.2"
 actix-rt = "2"
@@ -40,7 +36,6 @@ near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
 near-network = { path = "../../chain/network" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
-nearcore = { path = "../../nearcore" }
 
 [features]
 default = []
@@ -49,5 +44,3 @@ protocol_feature_alt_bn128 = [
     "node-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-nightly_protocol_features = ["nightly_protocol", "nearcore/nightly_protocol_features"]
-nightly_protocol = ["nearcore/nightly_protocol"]

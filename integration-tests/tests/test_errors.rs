@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use integration_tests::node::{Node, ThreadNode};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_integration_logger;
@@ -11,7 +12,6 @@ use near_primitives::transaction::{
 };
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
-use testlib::node::{Node, ThreadNode};
 use testlib::runtime_utils::{alice_account, bob_account};
 
 fn start_node() -> ThreadNode {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use near_chain::RuntimeAdapter;
-use near_chain_configs::{Genesis, GenesisConfig};
+use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig};
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
@@ -64,6 +64,9 @@ pub fn state_dump(
     // dump ignores the fact that the nodes can be running a newer protocol
     // version than the protocol version of the genesis.
     genesis_config.protocol_version = last_block_header.latest_protocol_version();
+    // `total_supply` is expected to change due to the natural processes of burning tokens and
+    // minting tokens every epoch.
+    genesis_config.total_supply = get_initial_supply(&records);
     Genesis::new(genesis_config, records.into())
 }
 
@@ -75,6 +78,7 @@ mod test {
     use std::sync::Arc;
 
     use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+    use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
@@ -84,7 +88,6 @@ mod test {
     use near_store::Store;
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
-    use nearcore::genesis_validate::validate_genesis;
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;

@@ -6,9 +6,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::{AccountId, StateRoot};
 use near_store::test_utils::create_tries;
-use near_store::{ShardTries, TrieUpdate};
-use nearcore::config::GenesisExt;
-use node_runtime::{state_viewer::TrieViewer, Runtime};
+use near_store::ShardTries;
+use node_runtime::Runtime;
 
 use std::collections::HashSet;
 
@@ -75,20 +74,6 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
         account_ids,
     );
     (runtime, tries, genesis_root)
-}
-
-pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis =
-        Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
-    add_test_contract(&mut genesis, &"test.contract".parse().unwrap());
-    get_runtime_and_trie_from_genesis(&genesis)
-}
-
-pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
-    let (_, tries, root) = get_runtime_and_trie();
-    let trie_viewer = TrieViewer::default();
-    let state_update = tries.new_trie_update(0, root);
-    (trie_viewer, state_update)
 }
 
 pub fn encode_int(val: i32) -> [u8; 4] {
