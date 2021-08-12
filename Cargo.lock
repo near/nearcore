@@ -3353,6 +3353,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "actix-web",
  "actix_derive",
  "awc",
  "borsh 0.8.1",

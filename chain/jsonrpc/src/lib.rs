@@ -1207,13 +1207,14 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-) {
+) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
-    HttpServer::new(move || {
+    let mut servers = Vec::new();
+    let server = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
@@ -1242,13 +1243,16 @@ pub fn start_http(
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)
+    .disable_signals()
     .run();
+
+    servers.push(("JSON RPC", server));
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
-        HttpServer::new(move || {
+        let server = HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
                 .wrap(middleware::Logger::default())
@@ -1258,6 +1262,10 @@ pub fn start_http(
         .unwrap()
         .workers(2)
         .shutdown_timeout(5)
+        .disable_signals()
         .run();
+        servers.push(("Prometheus Metrics", server));
     }
+
+    servers
 }
