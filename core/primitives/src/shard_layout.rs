@@ -101,7 +101,9 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout};
-    use crate::types::AccountId;
+    use rand::distributions::Alphanumeric;
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
     use std::collections::HashMap;
 
     #[test]
@@ -110,39 +112,44 @@ mod tests {
         let shard_layout = ShardLayout::v0(num_shards);
         let mut shard_id_distribution: HashMap<_, _> =
             (0..num_shards).map(|x| (x, 0)).into_iter().collect();
-        for i in 1..=1000 {
-            let account_id = String::from_utf8(vec![b'a'; i]).unwrap() as AccountId;
+        let mut rng = StdRng::from_seed([0; 32]);
+        for _i in 0..1000 {
+            let s: String = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();
+            let account_id = s.to_lowercase().parse().unwrap();
             let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
             assert!(shard_id < num_shards);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
         }
         let expected_distribution: HashMap<_, _> =
-            vec![(0, 237), (1, 253), (2, 256), (3, 254)].into_iter().collect();
+            vec![(0, 246), (1, 252), (2, 230), (3, 272)].into_iter().collect();
         assert_eq!(shard_id_distribution, expected_distribution);
     }
 
     #[test]
     fn test_account_id_to_shard_id_v1() {
         let shard_layout = ShardLayout::v1(
-            vec!["aurora", "bar", "foo", "foo.baz"].into_iter().map(|s| String::from(s)).collect(),
-            vec!["abc", "foo", "paz"].into_iter().map(|s| String::from(s)).collect(),
+            vec!["aurora", "bar", "foo", "foo.baz"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
             None,
         );
-        assert_eq!(account_id_to_shard_id("aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id("foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id("bar.foo.aurora".parse().unwrap(), &shard_layout), 0);
-        assert_eq!(account_id_to_shard_id("bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id("bar.bar".parse().unwrap(), &shard_layout), 1);
-        assert_eq!(account_id_to_shard_id("foo".parse().unwrap(), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id("baz.foo".parse().unwrap(), &shard_layout), 2);
-        assert_eq!(account_id_to_shard_id("foo.baz".parse().unwrap(), &shard_layout), 3);
-        assert_eq!(account_id_to_shard_id("a.foo.baz".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 0);
+        assert_eq!(account_id_to_shard_id(&"bar".parse().unwrap(), &shard_layout), 1);
+        assert_eq!(account_id_to_shard_id(&"bar.bar".parse().unwrap(), &shard_layout), 1);
+        assert_eq!(account_id_to_shard_id(&"foo".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"baz.foo".parse().unwrap(), &shard_layout), 2);
+        assert_eq!(account_id_to_shard_id(&"foo.baz".parse().unwrap(), &shard_layout), 3);
+        assert_eq!(account_id_to_shard_id(&"a.foo.baz".parse().unwrap(), &shard_layout), 3);
 
-        assert_eq!(account_id_to_shard_id("a".parse().unwrap(), &shard_layout), 4);
-        assert_eq!(account_id_to_shard_id("abc".parse().unwrap(), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id("b".parse().unwrap(), &shard_layout), 5);
-        assert_eq!(account_id_to_shard_id("foo.goo".parse().unwrap(), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id("goo".parse().unwrap(), &shard_layout), 6);
-        assert_eq!(account_id_to_shard_id("zoo".parse().unwrap(), &shard_layout), 7);
+        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), 4);
+        assert_eq!(account_id_to_shard_id(&"abc".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&"bbb".parse().unwrap(), &shard_layout), 5);
+        assert_eq!(account_id_to_shard_id(&"foo.goo".parse().unwrap(), &shard_layout), 6);
+        assert_eq!(account_id_to_shard_id(&"goo".parse().unwrap(), &shard_layout), 6);
+        assert_eq!(account_id_to_shard_id(&"zoo".parse().unwrap(), &shard_layout), 7);
     }
 }
