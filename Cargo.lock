@@ -2275,6 +2275,7 @@ dependencies = [
  "funty",
  "futures",
  "hex",
+ "lazy_static",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2283,6 +2284,8 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-jsonrpc",
+ "near-jsonrpc-client",
  "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-metrics",
@@ -2294,9 +2297,11 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "node-runtime",
+ "primitive-types",
  "rand 0.7.3",
  "serde",
  "serde_json",
+ "tempfile",
  "testlib",
 ]
 
@@ -2511,6 +2516,7 @@ dependencies = [
  "env_logger",
  "futures",
  "git-version",
+ "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc",
@@ -4309,12 +4315,12 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "env_logger",
+ "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
  "nearcore",
- "testlib",
 ]
 
 [[package]]
@@ -4374,6 +4380,15 @@ checksum = "c749134fda8bfc90d0de643d59bfc841dcb3ac8a1062e12b6754bd60235c48b3"
 dependencies = [
  "libc",
  "librocksdb-sys",
+]
+
+[[package]]
+name = "run-nodes"
+version = "0.1.0"
+dependencies = [
+ "clap 2.33.3",
+ "integration-tests",
+ "near-logger-utils",
 ]
 
 [[package]]
@@ -5046,7 +5061,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "nearcore",
  "node-runtime",
  "num-rational",
  "rand 0.7.3",

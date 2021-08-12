@@ -10,7 +10,7 @@ use near_primitives::views::CurrentEpochValidatorInfo;
 use nearcore::config::{Config, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CONFIG_FILENAME};
 use nearcore::get_default_home;
 // TODO(1905): Move out RPC interface for transacting into separate production crate.
-use testlib::user::{rpc_user::RpcUser, User};
+use integration_tests::user::{rpc_user::RpcUser, User};
 
 const DEFAULT_WAIT_PERIOD_SEC: &str = "60";
 const DEFAULT_RPC_URL: &str = "http://localhost:3030";

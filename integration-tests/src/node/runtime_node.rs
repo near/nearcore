@@ -6,11 +6,11 @@ use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
 
 use crate::node::Node;
-use crate::runtime_utils::{
-    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
-};
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
+use testlib::runtime_utils::{
+    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
+};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
@@ -90,10 +90,10 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::fees_utils::FeeHelper;
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
-    use crate::runtime_utils::{alice_account, bob_account};
+    use testlib::fees_utils::FeeHelper;
+    use testlib::runtime_utils::{alice_account, bob_account};
 
     #[test]
     pub fn test_send_money() {

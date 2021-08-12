@@ -6,10 +6,10 @@ mod test {
     use std::time::Duration;
 
     use crate::*;
+    use integration_tests::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
+    use integration_tests::test_helpers::heavy_test;
     use near_logger_utils::init_test_module_logger;
-    use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
     use testlib::runtime_utils::alice_account;
-    use testlib::test_helpers::heavy_test;
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");
