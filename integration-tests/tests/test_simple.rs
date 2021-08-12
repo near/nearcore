@@ -2,11 +2,11 @@
 #[cfg(test)]
 #[cfg(feature = "expensive_tests")]
 mod test {
+    use integration_tests::node::{create_nodes, sample_two_nodes, Node};
+    use integration_tests::test_helpers::{heavy_test, wait};
     use near_logger_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};
-    use testlib::node::{create_nodes, sample_two_nodes, Node};
-    use testlib::test_helpers::{heavy_test, wait};
 
     fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         init_integration_logger();

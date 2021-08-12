@@ -6,9 +6,11 @@ use std::sync::Arc;
 use actix::{Actor, Addr, System};
 use actix_rt::ArbiterHandle;
 use futures::{future, FutureExt};
-use num_rational::Rational;
+use near_primitives::num_rational::Rational;
 use rand::Rng;
 
+use integration_tests::genesis_helpers::genesis_hash;
+use integration_tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
@@ -22,7 +24,6 @@ use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSea
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
-use testlib::{genesis_hash, test_helpers::heavy_test};
 
 use {near_primitives::types::BlockId, primitive_types::U256};
 

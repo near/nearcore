@@ -9,8 +9,7 @@ use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
 
-mod node_cluster;
-use node_cluster::NodeCluster;
+use crate::node_cluster::NodeCluster;
 
 #[test]
 fn track_shards() {

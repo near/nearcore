@@ -19,6 +19,7 @@ byteorder = "1.2"
 
 borsh = "0.8.1"
 
+integration-tests = { path = "../../integration-tests" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
