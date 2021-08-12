@@ -3614,7 +3614,7 @@ mod tests {
         let store = create_test_store();
         let shard_layout = ShardLayout::v1(
             vec!["aurora".parse().unwrap()],
-            vec!["h", "o"].into_iter().map(|x| x.parse().unwrap()).collect(),
+            vec!["hhhh", "oooo"].into_iter().map(|x| x.parse().unwrap()).collect(),
             Some(vec![0, 0, 0, 0]),
         );
         let shard_config = ShardConfig {
