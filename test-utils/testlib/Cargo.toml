@@ -3,10 +3,6 @@ name = "testlib"
 version = "0.1.0"
 edition = "2018"
 
-[[bin]]
-name = "run-nodes"
-path = "src/run_nodes.rs"
-
 [dependencies]
 actix = "=0.11.0-beta.2"
 actix-rt = "2"

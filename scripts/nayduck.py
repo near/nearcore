@@ -20,11 +20,13 @@
 #    https://github.com/utka/nayduck
 
 import json
+import os
 import pathlib
 import subprocess
 
 
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
+NAYDUCK_BASE_HREF = 'http://nayduck.eastus.cloudapp.azure.com:5005'
 
 
 def _parse_args():
@@ -50,10 +52,6 @@ def get_curent_sha():
 def get_current_branch():
     return subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
                                    text=True)
-
-def get_current_user():
-    return subprocess.check_output(['git', 'config', 'user.name'], text=True)
-
 
 def read_tests_from_file(path: pathlib.Path, *,
                          include_comments: bool=False,
@@ -95,13 +93,12 @@ def read_tests_from_file(path: pathlib.Path, *,
     return impl(path, 1)
 
 
-def github_auth():
-    print("Go to the following link in your browser:")
-    print()
-    print("http://nayduck.eastus.cloudapp.azure.com:3000/local_auth")
-    print()
-    code = input("Enter verification code: ")
-    (pathlib.Path.home() / '.nayduck', 'w').write_text(code)
+def github_auth(code_path: pathlib.Path):
+    print('Go to the following link in your browser:\n\n{}/login/cli\n'.format(
+        NAYDUCK_BASE_HREF))
+    code = input('Enter authorisation code: ')
+    code_path.parent.mkdir(parents=True, exist_ok=True)
+    code_path.write_text(code)
     return code
 
 
@@ -116,26 +113,40 @@ def main():
 
     args = _parse_args()
 
-    path = pathlib.Path.home() / '.nayduck'
-    if path.is_file():
-        token = path.read_text().strip()
+    code_path = pathlib.Path(
+        os.environ.get('XDG_CONFIG_HOME') or
+        pathlib.Path.home() / '.config') / 'nayduck-code'
+    if code_path.is_file():
+        code = code_path.read_text().strip()
     else:
-        token = github_auth()
+        code = github_auth(code_path)
 
     post = {
         'branch': args.branch or get_current_branch().strip(),
         'sha': args.sha or get_curent_sha().strip(),
-        'requester': get_current_user().strip(),
         'tests': list(read_tests_from_file(pathlib.Path(args.test_file))),
-        'token': token
     }
 
-    print('Sending request ...')
-    res = requests.post(
-        'http://nayduck.eastus.cloudapp.azure.com:5005/request_a_run',
-        json=post)
-    json_res = json.loads(res.text)
-    print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
+    while True:
+        print('Sending request ...')
+        res = requests.post(
+            'http://nayduck.eastus.cloudapp.azure.com:5005/api/run/new',
+            json=post, cookies={'nay-code': code})
+        if res.status_code != 401:
+            break
+        print(f'{styles[0]}Unauthorised.{styles[2]}\n')
+        code = github_auth(code_path)
+
+    if res.status_code == 200:
+        json_res = json.loads(res.text)
+        print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
+    else:
+        print(f'{styles[0]}Got status code {res.status_code}:{styles[2]}\n')
+        print(res.text)
+
+    code = res.cookies.get('nay-code')
+    if code:
+        code_path.write_text(code)
 
 
 if __name__ == "__main__":
