@@ -145,7 +145,7 @@ impl ProtocolFeature {
             ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_simple_nightshade")]
             // do not enable it yet
-            ProtocolFeature::SimpleNightshade => 200,
+            ProtocolFeature::SimpleNightshade => 114,
         }
     }
 }
