@@ -14,4 +14,4 @@ near-primitives = { path = "../../core/primitives" }
 near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
 nearcore = { path = "../../nearcore" }
 
-testlib = { path = "../../test-utils/testlib" }
+integration-tests = { path = "../../integration-tests" }

@@ -6,6 +6,7 @@ use borsh::BorshSerialize;
 use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 
+use integration_tests::genesis_helpers::genesis_block;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
 use near_crypto::{InMemorySigner, KeyType};
@@ -20,10 +21,8 @@ use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
-use testlib::genesis_block;
 
-mod node_cluster;
-use node_cluster::NodeCluster;
+use crate::node_cluster::NodeCluster;
 
 macro_rules! panic_on_rpc_error {
     ($e:expr) => {

@@ -2,9 +2,10 @@ use std::str::FromStr;
 
 use actix::{Actor, System};
 use borsh::BorshSerialize;
-
 use futures::{future, FutureExt, TryFutureExt};
 
+use crate::node_cluster::NodeCluster;
+use integration_tests::genesis_helpers::genesis_block;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
@@ -12,15 +13,9 @@ use near_jsonrpc::client::new_client;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
-
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockId;
-
-use testlib::genesis_block;
-
-mod node_cluster;
-use node_cluster::NodeCluster;
 
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data

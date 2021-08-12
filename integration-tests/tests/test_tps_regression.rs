@@ -10,10 +10,10 @@ mod test {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
+    use integration_tests::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
+    use integration_tests::test_helpers::heavy_test;
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};
-    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
-    use testlib::test_helpers::heavy_test;
 
     /// Creates and sends a random transaction.
     /// Args:
