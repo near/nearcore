@@ -2,7 +2,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 
-use crate::borsh::maybestd::sync::Arc;
 use crate::challenge::SlashedValidator;
 use crate::checked_feature;
 use crate::shard_layout::ShardLayout;
@@ -62,8 +61,8 @@ pub struct ShardConfig {
 
 #[derive(Clone)]
 pub struct AllEpochConfig {
-    genesis_epoch_config: Arc<EpochConfig>,
-    simple_nightshade_epoch_config: Arc<EpochConfig>,
+    genesis_epoch_config: EpochConfig,
+    simple_nightshade_epoch_config: EpochConfig,
 }
 
 impl AllEpochConfig {
@@ -82,9 +81,10 @@ impl AllEpochConfig {
             config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
             config.shard_layout = shard_layout;
         }
-        let genesis_epoch_config = Arc::new(genesis_epoch_config);
-        let simple_nightshade_epoch_config = Arc::new(config);
-        Self { genesis_epoch_config, simple_nightshade_epoch_config }
+        Self {
+            genesis_epoch_config: genesis_epoch_config.clone(),
+            simple_nightshade_epoch_config: config,
+        }
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {

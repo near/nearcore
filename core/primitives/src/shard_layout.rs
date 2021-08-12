@@ -21,7 +21,7 @@ pub struct ShardLayoutV0 {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
-    /// Each account and all subaccounts map to the shard of position in this array.
+    /// Each account and all sub-accounts map to the shard of position in this array.
     fixed_shards: Vec<AccountId>,
     /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
     boundary_accounts: Vec<AccountId>,
@@ -63,11 +63,13 @@ impl ShardLayout {
 /// Maps account_id to shard_id given a shard_layout
 /// For V0, maps according to hash of account id
 /// For V1, accounts are divided to ranges, each range of account is mapped to a shard.
-/// There are also some fixed shards, each of which is mapped to an account and all subaccounts.
+/// There are also some fixed shards, each of which is mapped to an account and all sub-accounts.
 ///     For example, for ShardLayoutV1{ fixed_shards: ["aurora"], boundary_accounts: ["near"]}
-///     Account "aurora" and all its subaccounts will be mapped to shard_id 0.
+///     Account "aurora" and all its sub-accounts will be mapped to shard_id 0.
 ///     For the rest of accounts, accounts <= "near" will be mapped to shard_id 1 and
 ///     accounts > "near" will be mapped shard_id 2.
+///  TODO: verify with aurora that whether the aurora shard should include all sub-accounts of
+///        "aurora" as well.
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
@@ -98,6 +100,7 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
         Some(rest) => rest.is_empty() || rest.ends_with("."),
     }
 }
+
 #[cfg(test)]
 mod tests {
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout};
