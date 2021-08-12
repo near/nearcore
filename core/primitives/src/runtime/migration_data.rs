@@ -1,4 +1,3 @@
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use crate::receipt::ReceiptResult;
 use crate::types::AccountId;
 use crate::types::Gas;
@@ -9,7 +8,6 @@ use std::fmt::{Debug, Formatter};
 pub struct MigrationData {
     pub storage_usage_delta: Vec<(AccountId, u64)>,
     pub storage_usage_fix_gas: Gas,
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     pub restored_receipts: ReceiptResult,
 }
 
