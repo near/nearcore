@@ -2247,6 +2247,7 @@ dependencies = [
  "funty",
  "futures",
  "hex",
+ "lazy_static",
  "log",
  "near-actix-test-utils",
  "near-chain",
@@ -2255,6 +2256,8 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-jsonrpc",
+ "near-jsonrpc-client",
  "near-jsonrpc-primitives",
  "near-logger-utils",
  "near-metrics",
@@ -2266,9 +2269,11 @@ dependencies = [
  "near-vm-runner",
  "nearcore",
  "node-runtime",
+ "primitive-types",
  "rand 0.7.3",
  "serde",
  "serde_json",
+ "tempfile",
  "testlib",
 ]
 
@@ -2483,6 +2488,7 @@ dependencies = [
  "env_logger",
  "futures",
  "git-version",
+ "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc",
@@ -4302,12 +4308,12 @@ version = "0.1.0"
 dependencies = [
  "clap 2.33.3",
  "env_logger",
+ "integration-tests",
  "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-primitives",
  "nearcore",
- "testlib",
 ]
 
 [[package]]
@@ -4363,6 +4369,7 @@ dependencies = [
 name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
+ "anyhow",
  "borsh 0.8.1",
  "cfg-if 1.0.0",
  "clap 3.0.0-beta.2",
@@ -5029,7 +5036,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "nearcore",
  "node-runtime",
  "num-rational",
  "rand 0.7.3",
