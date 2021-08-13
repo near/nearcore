@@ -2782,7 +2782,7 @@ impl<'a> ChainUpdate<'a> {
         })
     }
 
-    // Applies chunks in separate threads, awaits finishing and processes results
+    /// Applies chunks in separate threads, awaits finishing and processes results
     fn apply_chunks(
         &mut self,
         me: &Option<AccountId>,
@@ -2790,10 +2790,11 @@ impl<'a> ChainUpdate<'a> {
         prev_block: &Block,
         mode: ApplyChunksMode,
     ) -> Result<(), Error> {
-        let work = self.apply_chunks_non_blocking(me, block, prev_block, mode)?;
+        let work = self.apply_chunks_preprocessing(me, block, prev_block, mode)?;
         self.do_apply_chunks(block, prev_block, work)
     }
 
+    /// Applies chunks and processes results
     fn do_apply_chunks(
         &mut self,
         block: &Block,
@@ -2811,9 +2812,8 @@ impl<'a> ChainUpdate<'a> {
         )
     }
 
-    /// Applies chunks in separate threads. Returns callback that would actually wait till all
-    /// chunks are applied
-    fn apply_chunks_non_blocking(
+    /// Creates jobs that would apply chunks
+    fn apply_chunks_preprocessing(
         &mut self,
         me: &Option<AccountId>,
         block: &Block,
@@ -3245,7 +3245,7 @@ impl<'a> ChainUpdate<'a> {
         let mut apply_chunk_work = Vec::new();
 
         // Always apply state transition for shards in the current epoch
-        apply_chunk_work.extend(self.apply_chunks_non_blocking(
+        apply_chunk_work.extend(self.apply_chunks_preprocessing(
             me,
             block,
             &prev_block,
@@ -3255,7 +3255,7 @@ impl<'a> ChainUpdate<'a> {
         // If we have the state for the next epoch already downloaded, apply the state transition for the next epoch as well,
         //    otherwise put the block into the permanent storage to have the state transition applied later
         if is_caught_up {
-            apply_chunk_work.extend(self.apply_chunks_non_blocking(
+            apply_chunk_work.extend(self.apply_chunks_preprocessing(
                 me,
                 block,
                 &prev_block,
