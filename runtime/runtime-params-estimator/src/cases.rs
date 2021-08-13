@@ -135,7 +135,7 @@ fn measure_function(
 }
 
 macro_rules! calls_helper(
-    { $($(#[$feature_name:tt])* $el:ident => $method_name:ident),* } => {
+    { $($(#[$feature_name:tt])* $el:ident => $method_name:ident),* $(,)?} => {
     {
         let mut v: Vec<(Metric, &str)> = vec![];
         $(
@@ -592,7 +592,7 @@ pub fn run(mut config: Config, only_compile: bool) -> CostTable {
         data_producer_100kib => data_producer_100kib,
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000
+        data_receipt_100kib_1000 => data_receipt_100kib_1000,
     };
 
     let dump_path_buf = testbed.lock().unwrap().dump_state().unwrap();
