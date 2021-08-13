@@ -109,7 +109,10 @@ fn main() -> anyhow::Result<()> {
 
     let output_path = {
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        let file_name = format!("costs-{}.txt", timestamp);
+        let commit =
+            exec("git rev-parse --short HEAD").map(|hash| format!("-{}", hash)).unwrap_or_default();
+        let file_name = format!("costs-{}{}.txt", timestamp, commit);
+
         env::current_dir()?.join(file_name)
     };
     fs::write(&output_path, &cost_table.to_string())?;
