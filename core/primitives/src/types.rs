@@ -744,7 +744,7 @@ pub struct ValidatorStakeV1 {
 }
 
 /// Information after block was processed.
-#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Serialize, Clone, Eq)]
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct BlockExtra {
     pub challenges_result: ChallengesResult,
 }
@@ -984,7 +984,7 @@ impl From<Finality> for BlockReference {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq)]
 pub struct ValidatorStats {
     pub produced: NumBlocks,
     pub expected: NumBlocks,

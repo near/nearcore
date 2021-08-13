@@ -1,5 +1,4 @@
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
@@ -71,7 +70,6 @@ pub fn test_read_write() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new(),
         );
         assert_run_result(result, 0);
 
@@ -87,7 +85,6 @@ pub fn test_read_write() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new(),
         );
         assert_run_result(result, 20);
     });
@@ -129,12 +126,12 @@ fn run_test_ext(
 ) {
     let code = test_contract();
     let mut fake_external = MockedExternal::new();
-    fake_external.validators = validators.into_iter().map(|(s, b)| (s.to_string(), b)).collect();
+    fake_external.validators =
+        validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let config = VMConfig::default();
     let fees = RuntimeFeesConfig::default();
     let context = create_context(input.to_vec());
 
-    let profile = ProfileData::new();
     let (outcome, err) = run_vm(
         &code,
         &method,
@@ -146,10 +143,11 @@ fn run_test_ext(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
-        profile.clone(),
     );
 
-    assert_eq!(profile.action_gas(), 0);
+    if let Some(outcome) = &outcome {
+        assert_eq!(outcome.profile.action_gas(), 0);
+    }
 
     if let Some(_) = err {
         panic!("Failed execution: {:?}", err);
@@ -280,7 +278,6 @@ pub fn test_out_of_memory() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
-            ProfileData::new(),
         );
         assert_eq!(
             result.1,

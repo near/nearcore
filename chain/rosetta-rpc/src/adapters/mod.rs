@@ -912,7 +912,7 @@ mod tests {
             near_primitives::views::StateChangeWithCauseView {
                 cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
                 value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator1.near".into(),
+                    account_id: "nfvalidator1.near".parse().unwrap(),
                     account: near_primitives::views::AccountView {
                         amount: 5000000000000000000,
                         code_hash: near_primitives::hash::CryptoHash::default(),
@@ -927,7 +927,7 @@ mod tests {
                     receipt_hash: nfvalidator1_receipt_processing_hash,
                 },
                 value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator1.near".into(),
+                    account_id: "nfvalidator1.near".parse().unwrap(),
                     account: near_primitives::views::AccountView {
                         amount: 4000000000000000000,
                         code_hash: near_primitives::hash::CryptoHash::default(),
@@ -940,7 +940,7 @@ mod tests {
             near_primitives::views::StateChangeWithCauseView {
                 cause: near_primitives::views::StateChangeCauseView::ValidatorAccountsUpdate,
                 value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator2.near".into(),
+                    account_id: "nfvalidator2.near".parse().unwrap(),
                     account: near_primitives::views::AccountView {
                         amount: 7000000000000000000,
                         code_hash: near_primitives::hash::CryptoHash::default(),
@@ -955,7 +955,7 @@ mod tests {
                     receipt_hash: nfvalidator2_action_receipt_gas_reward_hash,
                 },
                 value: near_primitives::views::StateChangeValueView::AccountUpdate {
-                    account_id: "nfvalidator2.near".into(),
+                    account_id: "nfvalidator2.near".parse().unwrap(),
                     account: near_primitives::views::AccountView {
                         amount: 8000000000000000000,
                         code_hash: near_primitives::hash::CryptoHash::default(),
@@ -968,7 +968,7 @@ mod tests {
         ];
         let mut accounts_previous_state = std::collections::HashMap::new();
         accounts_previous_state.insert(
-            "nfvalidator1.near".into(),
+            "nfvalidator1.near".parse().unwrap(),
             near_primitives::views::AccountView {
                 amount: 4000000000000000000,
                 code_hash: near_primitives::hash::CryptoHash::default(),
@@ -978,7 +978,7 @@ mod tests {
             },
         );
         accounts_previous_state.insert(
-            "nfvalidator2.near".into(),
+            "nfvalidator2.near".parse().unwrap(),
             near_primitives::views::AccountView {
                 amount: 6000000000000000000,
                 code_hash: near_primitives::hash::CryptoHash::default(),
@@ -1026,7 +1026,7 @@ mod tests {
         let create_account_actions =
             vec![near_primitives::transaction::CreateAccountAction {}.into()];
         let delete_account_actions = vec![near_primitives::transaction::DeleteAccountAction {
-            beneficiary_id: "beneficiary.near".into(),
+            beneficiary_id: "beneficiary.near".parse().unwrap(),
         }
         .into()];
         let add_key_actions = vec![near_primitives::transaction::AddKeyAction {
@@ -1056,7 +1056,7 @@ mod tests {
         .into()];
         let function_call_without_balance_actions =
             vec![near_primitives::transaction::FunctionCallAction {
-                method_name: "method-name".into(),
+                method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
                 deposit: 0,
@@ -1064,7 +1064,7 @@ mod tests {
             .into()];
         let function_call_with_balance_actions =
             vec![near_primitives::transaction::FunctionCallAction {
-                method_name: "method-name".into(),
+                method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
                 deposit: near_primitives::types::Balance::MAX,
@@ -1106,8 +1106,8 @@ mod tests {
 
         for actions in non_sir_compatible_actions.clone() {
             let near_actions = NearActions {
-                sender_account_id: "sender.near".into(),
-                receiver_account_id: "receiver.near".into(),
+                sender_account_id: "sender.near".parse().unwrap(),
+                receiver_account_id: "receiver.near".parse().unwrap(),
                 actions,
             };
             println!("NEAR Actions: {:#?}", near_actions);
@@ -1127,8 +1127,8 @@ mod tests {
         let sir_compatible_actions = [non_sir_compatible_actions, vec![stake_actions]].concat();
         for actions in sir_compatible_actions {
             let near_actions = NearActions {
-                sender_account_id: "sender-is-receiver.near".into(),
-                receiver_account_id: "sender-is-receiver.near".into(),
+                sender_account_id: "sender-is-receiver.near".parse().unwrap(),
+                receiver_account_id: "sender-is-receiver.near".parse().unwrap(),
                 actions,
             };
             println!("NEAR Actions: {:#?}", near_actions);
@@ -1150,7 +1150,7 @@ mod tests {
     fn test_near_actions_invalid_transfer_no_amount() {
         let operations = vec![crate::models::Operation {
             type_: crate::models::OperationType::Transfer,
-            account: "sender.near".into(),
+            account: "sender.near".parse().unwrap(),
             amount: None,
             operation_identifier: crate::models::OperationIdentifier::new(&[]),
             related_operations: None,
@@ -1167,7 +1167,7 @@ mod tests {
     fn test_near_actions_invalid_transfer_negative_receiver_amount() {
         let operations = vec![crate::models::Operation {
             type_: crate::models::OperationType::Transfer,
-            account: "sender.near".into(),
+            account: "sender.near".parse().unwrap(),
             amount: Some(-crate::models::Amount::from_yoctonear(1)),
             operation_identifier: crate::models::OperationIdentifier::new(&[]),
             related_operations: None,
@@ -1190,7 +1190,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(-crate::models::Amount::from_yoctonear(2)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
@@ -1199,7 +1199,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "receiver.near".into(),
+                account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: receiver_transfer_operation_id.clone(),
                 related_operations: Some(vec![sender_transfer_operation_id.clone()]),
@@ -1223,7 +1223,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
@@ -1232,7 +1232,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "receiver.near".into(),
+                account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: receiver_transfer_operation_id.clone(),
                 related_operations: Some(vec![sender_transfer_operation_id.clone()]),
@@ -1256,7 +1256,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(0)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
@@ -1265,7 +1265,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "receiver.near".into(),
+                account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: receiver_transfer_operation_id.clone(),
                 related_operations: Some(vec![sender_transfer_operation_id.clone()]),
@@ -1289,7 +1289,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: sender_transfer_operation_id.clone(),
                 related_operations: None,
@@ -1298,7 +1298,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "receiver.near".into(),
+                account: "receiver.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(0)),
                 operation_identifier: receiver_transfer_operation_id.clone(),
                 related_operations: Some(vec![sender_transfer_operation_id.clone()]),
@@ -1325,7 +1325,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: None,
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1334,7 +1334,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::InitiateFunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: None,
                 operation_identifier: initiate_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1343,7 +1343,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
@@ -1352,7 +1352,7 @@ mod tests {
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
-                    method_name: Some("method-name".into()),
+                    method_name: Some("method-name".parse().unwrap()),
                     args: Some(b"binary-args".to_vec().into()),
                     attached_gas: Some(123.into()),
                     ..Default::default()
@@ -1377,7 +1377,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 // This is expected to be negative to match the amount in the FunctionCallOperation
                 amount: Some(crate::models::Amount::from_yoctonear(0)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
@@ -1387,7 +1387,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::InitiateFunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: None,
                 operation_identifier: initiate_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1396,7 +1396,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
@@ -1405,7 +1405,7 @@ mod tests {
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
-                    method_name: Some("method-name".into()),
+                    method_name: Some("method-name".parse().unwrap()),
                     args: Some(b"binary-args".to_vec().into()),
                     attached_gas: Some(123.into()),
                     ..Default::default()
@@ -1430,7 +1430,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 // This is expected to be negative to match the amount in the FunctionCallOperation
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
@@ -1440,7 +1440,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::InitiateFunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: None,
                 operation_identifier: initiate_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1449,7 +1449,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
@@ -1458,7 +1458,7 @@ mod tests {
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
-                    method_name: Some("method-name".into()),
+                    method_name: Some("method-name".parse().unwrap()),
                     args: Some(b"binary-args".to_vec().into()),
                     attached_gas: Some(123.into()),
                     ..Default::default()
@@ -1483,7 +1483,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 // This is expected to match the amount in the FunctionCallOperation
                 amount: Some(-crate::models::Amount::from_yoctonear(2)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
@@ -1493,7 +1493,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::InitiateFunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: None,
                 operation_identifier: initiate_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1502,7 +1502,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
                 related_operations: Some(vec![
@@ -1511,7 +1511,7 @@ mod tests {
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
-                    method_name: Some("method-name".into()),
+                    method_name: Some("method-name".parse().unwrap()),
                     args: Some(b"binary-args".to_vec().into()),
                     attached_gas: Some(123.into()),
                     ..Default::default()
@@ -1536,7 +1536,7 @@ mod tests {
         let operations = vec![
             crate::models::Operation {
                 type_: crate::models::OperationType::Transfer,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: fund_transfer_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1545,7 +1545,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::InitiateFunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 amount: None,
                 operation_identifier: initiate_function_call_operation_id.clone(),
                 related_operations: None,
@@ -1554,7 +1554,7 @@ mod tests {
             },
             crate::models::Operation {
                 type_: crate::models::OperationType::FunctionCall,
-                account: "sender.near".into(),
+                account: "sender.near".parse().unwrap(),
                 // This is expected to be positive
                 amount: Some(-crate::models::Amount::from_yoctonear(1)),
                 operation_identifier: function_call_operation_id,
@@ -1564,7 +1564,7 @@ mod tests {
                 ]),
                 status: None,
                 metadata: Some(crate::models::OperationMetadata {
-                    method_name: Some("method-name".into()),
+                    method_name: Some("method-name".parse().unwrap()),
                     args: Some(b"binary-args".to_vec().into()),
                     attached_gas: Some(123.into()),
                     ..Default::default()

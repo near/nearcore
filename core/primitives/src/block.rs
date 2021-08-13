@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use near_crypto::Signature;
 use num_rational::Rational;
 use primitive_types::U256;
-use serde::Serialize;
 
 use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
@@ -27,7 +26,7 @@ use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use std::ops::Index;
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
     /// Chain Id
     pub chain_id: String,
@@ -35,7 +34,7 @@ pub struct GenesisId {
     pub hash: CryptoHash,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub enum BlockValidityError {
     InvalidStateRoot,
     InvalidReceiptRoot,
@@ -45,7 +44,7 @@ pub enum BlockValidityError {
     InvalidChallengeRoot,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV1 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeaderV1>,
@@ -56,7 +55,7 @@ pub struct BlockV1 {
     pub vrf_proof: near_crypto::vrf::Proof,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockV2 {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
@@ -69,7 +68,7 @@ pub struct BlockV2 {
 
 /// Versioned Block data structure.
 /// For each next version, document what are the changes between versions.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Block {
     BlockV1(Box<BlockV1>),
     BlockV2(Box<BlockV2>),
@@ -602,7 +601,7 @@ impl<'a> ChunksCollection<'a> {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockHeight,
