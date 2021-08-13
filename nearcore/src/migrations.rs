@@ -523,7 +523,6 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         } else {
             0
         },
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if is_mainnet {
             serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
                 .expect("File with receipts restored after apply_chunks fix have to be correct")
@@ -552,7 +551,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn test_restored_receipts_data() {
         assert_eq!(
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),
