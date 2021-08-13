@@ -261,13 +261,13 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<
     store
 }
 
-pub struct StartResult {
+pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
 }
 
-pub fn start_with_config(home_dir: &Path, config: NearConfig) -> StartResult {
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::new(
@@ -347,7 +347,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> StartResult {
     #[cfg(feature = "performance_stats")]
     reset_memory_usage_max();
 
-    StartResult {
+    NearNode {
         client: client_actor,
         view_client,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],

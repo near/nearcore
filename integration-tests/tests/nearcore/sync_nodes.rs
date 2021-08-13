@@ -123,8 +123,7 @@ fn sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let nearcore::StartResult { client: client1, .. } =
-                start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -135,7 +134,7 @@ fn sync_nodes() {
                 add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-            let nearcore::StartResult { view_client: view_client2, .. } =
+            let nearcore::NearNode { view_client: view_client2, .. } =
                 start_with_config(dir2.path(), near2);
 
             WaitOrTimeout::new(
@@ -167,11 +166,10 @@ fn sync_after_sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let nearcore::StartResult { client: client1, .. } =
-                start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-            let nearcore::StartResult { view_client: view_client2, .. } =
+            let nearcore::NearNode { view_client: view_client2, .. } =
                 start_with_config(dir2.path(), near2);
 
             let signer = InMemoryValidatorSigner::from_seed(
@@ -248,7 +246,7 @@ fn sync_state_stake_change() {
                 tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
             let dir2 =
                 tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
-            let nearcore::StartResult { client: client1, view_client: view_client1, .. } =
+            let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1.clone());
 
             let genesis_hash = *genesis_block(&genesis).hash();
@@ -290,9 +288,8 @@ fn sync_state_stake_change() {
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                             started_copy.store(true, Ordering::SeqCst);
-                            let nearcore::StartResult {
-                                view_client: view_client2, arbiters, ..
-                            } = start_with_config(&dir2_path_copy, near2_copy);
+                            let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
+                                start_with_config(&dir2_path_copy, near2_copy);
                             *arbiters_holder2.write().unwrap() = arbiters;
 
                             WaitOrTimeout::new(

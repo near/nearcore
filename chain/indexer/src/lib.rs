@@ -101,7 +101,7 @@ impl Indexer {
             ",
             indexer_config.home_dir.join("config.json").display()
         );
-        let nearcore::StartResult { client, view_client, .. } =
+        let nearcore::NearNode { client, view_client, .. } =
             nearcore::start_with_config(&indexer_config.home_dir, near_config.clone());
         Self { view_client, client, near_config, indexer_config }
     }
