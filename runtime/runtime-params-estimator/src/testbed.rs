@@ -1,25 +1,18 @@
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-
-use borsh::BorshDeserialize;
-
+use genesis_populate::state_dump::StateDump;
 use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
-use near_primitives::types::{Gas, MerkleHash, StateRoot};
+use near_primitives::types::{Gas, MerkleHash};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::{create_store, ColState, ShardTries, StoreCompiledContractCache};
+use near_store::{ShardTries, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-const STATE_DUMP_FILE: &str = "state_dump";
-const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
@@ -39,21 +32,14 @@ impl RuntimeTestbed {
     pub fn from_state_dump(dump_dir: &Path) -> Self {
         let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
         println!("workdir {}", workdir.path().display());
-        let store = create_store(&get_store_path(workdir.path()));
+        let store_path = get_store_path(workdir.path());
+        let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
         let tries = ShardTries::new(store.clone(), 1);
 
         let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
-        let state_file = dump_dir.join(STATE_DUMP_FILE);
-        store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
-        let roots_files = dump_dir.join(GENESIS_ROOTS_FILE);
-        let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
-        let mut data = vec![];
-        file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let state_roots: Vec<StateRoot> =
-            BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
-        assert!(state_roots.len() <= 1, "Parameter estimation works with one shard only.");
-        assert!(!state_roots.is_empty(), "No state roots found.");
-        let root = state_roots[0];
+        assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
+        assert!(!roots.is_empty(), "No state roots found.");
+        let root = roots[0];
 
         let mut runtime_config = RuntimeConfig::default();
 
@@ -96,6 +82,7 @@ impl RuntimeTestbed {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
+
         Self {
             workdir,
             tries,
@@ -150,5 +137,15 @@ impl RuntimeTestbed {
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
         }
+    }
+
+    pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let mut genesis_path = self.workdir.path().to_path_buf();
+        genesis_path.push("genesis.json");
+        self.genesis.to_file(genesis_path.as_path());
+
+        let state_dump = StateDump { store: self.tries.get_store(), roots: vec![self.root] };
+        state_dump.save_to_dir(self.workdir.path().to_path_buf())?;
+        Ok(self.workdir.path().to_path_buf())
     }
 }
