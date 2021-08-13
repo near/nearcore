@@ -28,8 +28,10 @@ use near_store::{create_store, Store, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
+use update_betanet_genesis::update_betanet_genesis;
 
 mod state_dump;
+mod update_betanet_genesis;
 
 #[allow(unused)]
 enum LoadTrieMode {
@@ -566,6 +568,10 @@ fn main() {
                 )
                 .help("dump contract data in storage of given account to binary file"),
         )
+        .subcommand(
+            SubCommand::with_name("update_betanet_genesis")
+                .help("Update betanet genesis for a hard harkfork resetting t:vs "),
+        )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
@@ -703,6 +709,21 @@ fn main() {
             }
             println!("Storage under key {} of account {} not found", storage_key, account_id);
             std::process::exit(1);
+        }
+        ("update_betanet_genesis", Some(_)) => {
+            let (_runtime, state_roots, header) =
+                load_trie_stop_at_height(store, home_dir, &near_config, LoadTrieMode::Latest);
+            assert!(
+                near_config.genesis.config.chain_id != "mainnet"
+                    && near_config.genesis.config.chain_id != "testnet"
+            );
+
+            let new_genesis = update_betanet_genesis(header, &near_config.genesis);
+
+            let home_dir = PathBuf::from(&home_dir);
+            let output_path = home_dir.join(Path::new("output.json"));
+            println!("Saving updated state at {:?} into {}", state_roots, output_path.display(),);
+            new_genesis.to_file(&output_path);
         }
         (_, _) => unreachable!(),
     }
