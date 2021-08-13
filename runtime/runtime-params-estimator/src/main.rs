@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
         let cost_table = fs::read_to_string(&path)
             .ok()
             .and_then(|it| it.parse::<CostTable>().ok())
-            .with_context(|| format!("Failed to pares {}", path.display()))?;
+            .with_context(|| format!("Failed to parse {}", path.display()))?;
 
         let runtime_config = costs_to_runtime_config(&cost_table)?;
 
