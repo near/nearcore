@@ -7,7 +7,7 @@ use std::str::FromStr;
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[repr(u8)]
-pub(crate) enum Cost {
+pub enum Cost {
     ActionReceiptCreation,
     ActionSirReceiptCreation,
     DataReceiptCreationBase,
@@ -81,26 +81,19 @@ pub(crate) enum Cost {
     ValidatorStakeBase,
     ValidatorTotalStakeBase,
 
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128G1MultiexpBase,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128G1MultiexpByte,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128G1MultiexpSublinear,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128PairingCheckBase,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128PairingCheckByte,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128G1SumBase,
-    #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128G1SumByte,
 
     __Count,
 }
 
 impl Cost {
-    pub(crate) fn all() -> impl Iterator<Item = Cost> {
+    pub fn all() -> impl Iterator<Item = Cost> {
         (0..(Cost::__Count as u8)).map(Cost::try_from).map(Result::unwrap)
     }
 }

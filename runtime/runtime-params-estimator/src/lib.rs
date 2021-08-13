@@ -25,6 +25,7 @@ mod function_call;
 mod gas_metering;
 pub mod testbed_runners;
 
+pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 
