@@ -1130,9 +1130,6 @@ impl Runtime {
         // We take the first block with existing chunk in the first epoch in which protocol feature
         // RestoreReceiptsAfterFix was enabled, and put the restored receipts there.
         // See https://github.com/near/nearcore/pull/4248/ for more details.
-        #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-        let receipts_to_restore = vec![];
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         let receipts_to_restore = if ProtocolFeature::RestoreReceiptsAfterFix.protocol_version()
             == protocol_version
             && migration_flags.is_first_block_with_chunk_of_version
