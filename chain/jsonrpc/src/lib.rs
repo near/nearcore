@@ -1202,6 +1202,17 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
+/// Starts HTTP server(s) listening for RPC requests.
+///
+/// Starts an HTTP server which handles JSON RPC calls as well as states
+/// endpoints such as `/status`, `/health`, `/metrics` etc.  Depending on
+/// configuration may also start another HTTP server just for providing
+/// Prometheus metrics (i.e. covering the `/metrics` path).
+///
+/// Returns a vector of servers that have been started.  Each server is returned
+/// as a tuple containing a name of the server (e.g. `"JSON RPC"`) which can be
+/// used in diagnostic messages and a [`actix_web::dev::Server`] object which
+/// can be used to control the server (most notably stop it).
 pub fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
