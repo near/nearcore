@@ -35,11 +35,12 @@ fn test_send_tx_async() {
 
         actix::spawn(client.block(BlockReference::latest()).then(move |res| {
             let block_hash = res.unwrap().header.hash;
-            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+            let signer =
+                InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
                 1,
-                signer_account_id,
-                "test2".to_string(),
+                signer_account_id.parse().unwrap(),
+                "test2".parse().unwrap(),
                 &signer,
                 100,
                 block_hash,
@@ -55,7 +56,7 @@ fn test_send_tx_async() {
         let client1 = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
             Box::new(move |_| {
-                let signer_account_id = "test1".to_string();
+                let signer_account_id = "test1".parse().unwrap();
                 if let Some(tx_hash) = *tx_hash2_2.lock().unwrap() {
                     actix::spawn(
                         client1
@@ -82,11 +83,11 @@ fn test_send_tx_async() {
 fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test2".to_string(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
             &signer,
             100,
             block_hash,
@@ -123,12 +124,15 @@ fn test_expired_tx() {
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
-                                let signer =
-                                    InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+                                let signer = InMemorySigner::from_seed(
+                                    "test1".parse().unwrap(),
+                                    KeyType::ED25519,
+                                    "test1",
+                                );
                                 let tx = SignedTransaction::send_money(
                                     1,
-                                    "test1".to_string(),
-                                    "test2".to_string(),
+                                    "test1".parse().unwrap(),
+                                    "test2".parse().unwrap(),
                                     &signer,
                                     100,
                                     block_hash,
@@ -168,11 +172,11 @@ fn test_expired_tx() {
 #[test]
 fn test_replay_protection() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test2".to_string(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
             &signer,
             100,
             hash(&[1]),
@@ -185,22 +189,9 @@ fn test_replay_protection() {
 }
 
 #[test]
-fn test_tx_status_invalid_account_id() {
-    test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), "".to_string()).await {
-            Err(e) => {
-                let s = serde_json::to_string(&e.data.unwrap()).unwrap();
-                assert!(s.starts_with("\"Invalid account id"));
-            }
-            Ok(_) => panic!("transaction should not succeed"),
-        };
-    });
-}
-
-#[test]
 fn test_tx_status_missing_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        match client.tx(to_base(&CryptoHash::default()), "test1".to_string()).await {
+        match client.tx(to_base(&CryptoHash::default()), "test1".parse().unwrap()).await {
             Err(e) => {
                 let s = serde_json::to_string(&e.data.unwrap()).unwrap();
                 assert_eq!(s, "\"Transaction 11111111111111111111111111111111 doesn't exist\"");
@@ -213,12 +204,12 @@ fn test_tx_status_missing_tx() {
 #[test]
 fn test_check_invalid_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         // invalid base hash
         let tx = SignedTransaction::send_money(
             1,
-            "test1".to_string(),
-            "test2".to_string(),
+            "test1".parse().unwrap(),
+            "test2".parse().unwrap(),
             &signer,
             100,
             hash(&[1]),

@@ -1,6 +1,7 @@
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +35,9 @@ pub enum FunctionCallError {
         debug_message: String,
     },
     HostError(HostError),
-    EvmError(EvmError),
+    // Unused, can be reused by a future error but must be exactly one error to keep Nondeterministic
+    // error borsh serialized at correct index
+    _EVMError,
     /// Non-deterministic error.
     Nondeterministic(String),
 }
@@ -57,7 +60,9 @@ pub enum FunctionCallErrorSer {
     WasmTrap(WasmTrap),
     WasmUnknownError,
     HostError(HostError),
-    EvmError(EvmError),
+    // Unused, can be reused by a future error but must be exactly one error to keep ExecutionError
+    // error borsh serialized at correct index
+    _EVMError,
     ExecutionError(String),
 }
 
@@ -108,7 +113,7 @@ pub enum MethodResolveError {
     Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
 )]
 pub enum CompilationError {
-    CodeDoesNotExist { account_id: String },
+    CodeDoesNotExist { account_id: AccountId },
     PrepareError(PrepareError),
     WasmerCompileError { msg: String },
     UnsupportedCompiler { msg: String },
@@ -216,88 +221,6 @@ pub enum HostError {
     AltBn128SerializationError { msg: String },
 }
 
-/// Errors specifically from native EVM.
-#[derive(Debug, Clone, Eq, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
-pub enum EvmError {
-    /// Contract not found.
-    ContractNotFound,
-    /// Fatal failure due conflicting addresses on contract deployment.
-    DuplicateContract(#[serde(with = "hex_format")] Vec<u8>),
-    /// Contract deployment failure.
-    DeployFail(#[serde(with = "hex_format")] Vec<u8>),
-    /// Contract execution failed, revert the state.
-    Revert(#[serde(with = "hex_format")] Vec<u8>),
-    /// Failed to parse arguments.
-    ArgumentParseError,
-    /// No deposit when expected.
-    MissingDeposit,
-    /// Insufficient funds to finish the operation.
-    InsufficientFunds,
-    /// U256 overflow.
-    IntegerOverflow,
-    /// Method not found.
-    MethodNotFound,
-    /// Invalid signature when recovering.
-    InvalidEcRecoverSignature,
-    /// Invalid nonce.
-    InvalidNonce,
-    /// Invalid sub EVM account.
-    InvalidSubAccount,
-    /// Won't withdraw to itself.
-    FailSelfWithdraw,
-    /// Too small NEAR deposit.
-    InsufficientDeposit,
-    /// `OutOfGas` is returned when transaction execution runs out of gas.
-    /// The state should be reverted to the state from before the
-    /// transaction execution. But it does not mean that transaction
-    /// was invalid. Balance still should be transfered and nonce
-    /// should be increased.
-    OutOfGas,
-    /// `BadJumpDestination` is returned when execution tried to move
-    /// to position that wasn't marked with JUMPDEST instruction
-    BadJumpDestination {
-        /// Position the code tried to jump to.
-        destination: u64,
-    },
-    /// `BadInstructions` is returned when given instruction is not supported
-    BadInstruction {
-        /// Unrecognized opcode
-        instruction: u8,
-    },
-    /// `StackUnderflow` when there is not enough stack elements to execute instruction
-    StackUnderflow {
-        /// Invoked instruction
-        instruction: String,
-        /// How many stack elements was requested by instruction
-        wanted: u64,
-        /// How many elements were on stack
-        on_stack: u64,
-    },
-    /// When execution would exceed defined Stack Limit
-    OutOfStack {
-        /// Invoked instruction
-        instruction: String,
-        /// How many stack elements instruction wanted to push
-        wanted: u64,
-        /// What was the stack limit
-        limit: u64,
-    },
-    /// Built-in contract failed on given input
-    BuiltIn(String),
-    /// When execution tries to modify the state in static context
-    MutableCallInStaticContext,
-    /// Out of bounds access in RETURNDATACOPY.
-    OutOfBounds,
-    /// Execution has been reverted with REVERT.
-    Reverted,
-    /// Invalid method name to parse
-    InvalidMetaTransactionMethodName,
-    /// Invalid function args in meta txn
-    InvalidMetaTransactionFunctionArg,
-    /// Chain ID doesn't match. Trying to use transaction signed for a different chain.
-    InvalidChainId,
-}
-
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 pub enum VMLogicError {
     /// Errors coming from native Wasm VM.
@@ -306,8 +229,6 @@ pub enum VMLogicError {
     ExternalError(Vec<u8>),
     /// An error that is caused by an operation on an inconsistent state.
     InconsistentStateError(InconsistentStateError),
-    /// An error coming from native EVM.
-    EvmError(EvmError),
 }
 
 impl std::error::Error for VMLogicError {}
@@ -349,7 +270,6 @@ impl From<&VMLogicError> for VMError {
             }
             VMLogicError::ExternalError(s) => VMError::ExternalError(s.clone()),
             VMLogicError::InconsistentStateError(e) => VMError::InconsistentStateError(e.clone()),
-            VMLogicError::EvmError(_) => unreachable!("Wasm can't return EVM error"),
         }
     }
 }
@@ -388,10 +308,10 @@ impl fmt::Display for FunctionCallError {
             FunctionCallError::WasmUnknownError { debug_message } => {
                 write!(f, "Unknown error during Wasm contract execution: {}", debug_message)
             }
-            FunctionCallError::EvmError(e) => write!(f, "EVM: {:?}", e),
             FunctionCallError::Nondeterministic(msg) => {
                 write!(f, "Nondeterministic error during contract execution: {}", msg)
             }
+            FunctionCallError::_EVMError => unreachable!(),
         }
     }
 }

@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
+#[cfg(feature = "performance_stats")]
+use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
@@ -13,8 +15,15 @@ use near_client::{start_client, start_view_client, ClientActor, ViewClientActor}
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
-#[cfg(feature = "performance_stats")]
-use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_store::migrations::migrate_18_to_new_validator_stake;
+use near_store::migrations::migrate_20_to_21;
+use near_store::migrations::{
+    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
+    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
+    migrate_25_to_26, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10,
+    set_store_version,
+};
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
@@ -24,19 +33,8 @@ use crate::migrations::{
     migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
-use near_store::migrations::{
-    fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
-    migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10, set_store_version,
-};
-
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_store::migrations::migrate_18_to_new_validator_stake;
-
-use near_store::migrations::migrate_20_to_21;
 
 pub mod config;
-pub mod genesis_validate;
 pub mod migrations;
 mod runtime;
 mod shard_tracker;
@@ -226,6 +224,10 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 24 to 25");
         migrate_24_to_25(&path);
     }
+    if db_version <= 25 {
+        info!(target: "near", "Migrate DB from version 25 to 26");
+        migrate_25_to_26(&path);
+    }
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
@@ -259,10 +261,13 @@ pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<
     store
 }
 
-pub fn start_with_config(
-    home_dir: &Path,
-    config: NearConfig,
-) -> (Addr<ClientActor>, Addr<ViewClientActor>, Vec<ArbiterHandle>) {
+pub struct NearNode {
+    pub client: Addr<ClientActor>,
+    pub view_client: Addr<ViewClientActor>,
+    pub arbiters: Vec<ArbiterHandle>,
+}
+
+pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let store = init_and_migrate_store(home_dir, &config);
 
     let runtime = Arc::new(NightshadeRuntime::new(
@@ -342,5 +347,9 @@ pub fn start_with_config(
     #[cfg(feature = "performance_stats")]
     reset_memory_usage_max();
 
-    (client_actor, view_client, vec![client_arbiter_handle, arbiter.handle()])
+    NearNode {
+        client: client_actor,
+        view_client,
+        arbiters: vec![client_arbiter_handle, arbiter.handle()],
+    }
 }
