@@ -142,14 +142,8 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-<<<<<<< HEAD
-            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-            ProtocolFeature::RestoreReceiptsAfterFix => 112,
             #[cfg(feature = "protocol_feature_simple_nightshade")]
-            // do not enable it yet
             ProtocolFeature::SimpleNightshade => 114,
-=======
->>>>>>> master
         }
     }
 }
