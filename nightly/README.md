@@ -142,3 +142,52 @@ is supported.
 On success the script outputs link to the page which can be used to
 see status of the run.  Depending on which tests were scheduled the
 run can take over an hour to finish.
+
+
+## Creating new tests
+
+New tests can be created either as a Rust test or a pytest.
+
+If a Rust test is long-running (or otherwise requires a lot of
+resources) and intended to be run as a nightly test on NayDuck it
+should be marked with a `#[cfg(feature = "expensive_tests")]`
+directive (either on the test function or module containing it).  With
+that, the tests will not be part of a `cargo test` run performed on
+every commit, but NayDuck will be able to execute them.  Apart from
+that, expensive Rust tests work exactly the same as any other Rust
+tests.
+
+pytests are defined as scripts in the `pytest/tests` directory.  As
+previously mentioned, even though the directory is called pytest, when
+run on NayDuck they scripts are run directly via `python`.  This means
+that they need to execute the tests when run as the main module rather
+than just defining the tests function.  To make that happen it’s best
+to define `test_<foo>` functions with test bodies and than execute all
+those functions in a code fragment guarded by `if __name__ ==
+'__main__'` condition.
+
+### Check scripts
+
+Unless tests are included (potentially transitively) in `nightly.txt`
+file, NayDuck won’t run them.  As part of pull request checks,
+verification is performed to make sure that no test is forgotten and
+all new tests are included in the nightly list.  That’s done by
+`scripts/check_nightly.txt` and `scripts/check_pytest.txt` scripts.
+The list all the expensive and pytest tests defined in the repository
+and then check whether they are all mentioned in the nightly list.
+
+The scripts recognise commented out tests so if a test is broken it
+can be removed from the list by commenting it out.  However, such
+a test must be proceeded by a TODO comment mentioning an issue which
+tracks the breakage.  For example:
+
+    # TODO(#2411): Enable them when we fix the issue with proxy shutdown
+    #pytest --timeout=900 sanity/sync_ban.py true
+    #pytest --timeout=900 sanity/sync_ban.py false
+
+The include directive can be commented out like that as well though
+crucially there must be no space between the hash sign and dot.  For
+example:
+
+    # TODO(#2411): Working on a fix.
+    #./bridge.txt
