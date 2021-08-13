@@ -11,14 +11,15 @@ Here we describe its implementation details which are closely related to Runtime
 
 Base structure. 
 It is stored in the RocksDB, which is persistent across node restarts. Trie communicates with database using `TrieStorage`.
-Trie data is stored in key-value format in `ColState` column, wherein nodes are stored altogether with `Vec<u8>` values.
+Trie data is stored in key-value format in `ColState` column. There are two kinds of records:
+- nodes, for which key is constructed from shard id and `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by custom algorithm;
+- values (encoded contract codes, postponed receipts, etc.), for which hash of value maps to the encoded value.
 
-For trie node, hash of `TrieKey` maps to `RawTrieNodeWithSize` serialized by custom algorithm.
-
-For value, its hash maps to the value itself. So, value can be obtained from `TrieKey` as follows:
-- compute hash of `TrieKey`
-- get serialized `RawTrieNodeWithSize` from storage and deserialize it
-- extract underlying `RawTrieNode`. If it is a `Leaf` or a `Branch` where some key ends, it should contain hash of the value.
+So, value can be obtained from `TrieKey` as follows:
+- start from the hash of `RawTrieNodeWithSize` corresponding to the root;
+- descend to the needed node using nibbles from `TrieKey`;
+- extract underlying `RawTrieNode`;
+- if it is a `Leaf` or `Branch`, it should contain hash of the value;
 - get value from storage by its hash.
 
 Note that `Trie` is almost never called directly from `Runtime`, modifications are made using `TrieUpdate`.
