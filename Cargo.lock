@@ -2740,6 +2740,7 @@ dependencies = [
  "near-store",
  "num-rational",
  "rand 0.7.3",
+ "rayon",
  "serde",
  "strum",
  "thiserror",
