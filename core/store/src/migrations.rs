@@ -158,7 +158,8 @@ pub fn migrate_9_to_10(path: &String, is_archival: bool) {
         let num_data_parts = (num_total_parts - 1) / 3;
         let num_parity_parts = num_total_parts - num_data_parts;
         let mut rs = ReedSolomonWrapper::new(num_data_parts, num_parity_parts);
-        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let signer =
+            InMemoryValidatorSigner::from_seed(AccountId::test_account(), KeyType::ED25519, "test");
         let mut store_update = store.store_update();
         let batch_size_limit = 10_000_000;
         let mut batch_size = 0;
@@ -705,6 +706,15 @@ pub fn migrate_21_to_22(path: &String) {
     })
     .unwrap();
     set_store_version(&store, 22);
+}
+
+pub fn migrate_25_to_26(path: &String) {
+    let store = create_store(path);
+    let mut store_update = store.store_update();
+    store_update.delete_all(DBCol::ColCachedContractCode);
+    store_update.commit().unwrap();
+
+    set_store_version(&store, 26);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

@@ -7,7 +7,6 @@ use threadpool::ThreadPool;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
-use near_vm_logic::profile::ProfileData;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
@@ -140,7 +139,6 @@ impl ContractCaller {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
-        profile: ProfileData,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         match self.preloaded.get(preloaded.handle) {
             Some(call) => {
@@ -173,7 +171,6 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    profile,
                                     current_protocol_version,
                                 )
                             }
@@ -203,7 +200,6 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    profile,
                                     current_protocol_version,
                                 )
                             }
