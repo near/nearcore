@@ -180,7 +180,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         buf
     };
 
-    let nearcore = format!("type=bind,source={},target=/nearcore", project_root.to_str().unwrap());
+    let nearcore =
+        format!("type=bind,source={},target=/host/nearcore", project_root.to_str().unwrap());
     let nearhome = format!("type=bind,source={},target=/.near", state_dump_path.to_str().unwrap());
 
     let mut cmd = Command::new("docker");
