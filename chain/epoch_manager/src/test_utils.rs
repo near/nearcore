@@ -156,7 +156,7 @@ pub fn epoch_config(
 }
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
-    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
+    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
     ValidatorStake::new(
         account_id,
         public_key,

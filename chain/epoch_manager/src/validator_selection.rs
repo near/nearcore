@@ -4,7 +4,7 @@ use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
@@ -26,7 +26,7 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let num_shards = epoch_config.num_shards;
+    let num_shards = epoch_config.num_block_producer_seats_per_shard.len() as NumShards;
     let min_stake_ratio = {
         let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
@@ -312,7 +312,7 @@ mod tests {
         // A simple sanity test. Given fewer proposals than the number of seats,
         // none of which has too little stake, they all get assigned as block and
         // chunk producers.
-        let epoch_config = create_epoch_config(2, 100, 0, Default::default());
+        let epoch_config = create_epoch_config(100, 0, Default::default());
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
         let proposals = create_proposals(&[("test1", 1000), ("test2", 2000), ("test3", 300)]);
@@ -352,7 +352,6 @@ mod tests {
         let num_bp_seats = 10;
         let num_cp_seats = 30;
         let epoch_config = create_epoch_config(
-            2,
             num_bp_seats,
             // purposely set the fishermen threshold high so that none become fishermen
             10_000,
@@ -451,7 +450,6 @@ mod tests {
     #[test]
     fn test_block_producer_sampling() {
         let epoch_config = create_epoch_config(
-            1,
             2,
             0,
             ValidatorSelectionConfig {
@@ -491,7 +489,6 @@ mod tests {
         // When there is 1 CP per shard, they are chosen 100% of the time.
         let num_shards = 4;
         let epoch_config = create_epoch_config(
-            num_shards,
             2 * num_shards,
             0,
             ValidatorSelectionConfig {
@@ -566,7 +563,6 @@ mod tests {
         // being selected to make a block would be too low since it is done in
         // proportion to stake).
         let epoch_config = create_epoch_config(
-            1,
             100,
             150,
             ValidatorSelectionConfig {
@@ -601,7 +597,7 @@ mod tests {
 
         // stake below validator threshold, but above fishermen threshold become fishermen
         let fishermen: Vec<_> = epoch_info.fishermen_iter().map(|v| v.take_account_id()).collect();
-        assert_eq!(vec!["test4"], fishermen);
+        assert_eq!(fishermen, vec!["test4".parse().unwrap()]);
 
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
@@ -619,7 +615,7 @@ mod tests {
     #[test]
     fn test_validator_assignment_with_kickout() {
         // kicked out validators are not selected
-        let epoch_config = create_epoch_config(1, 100, 0, Default::default());
+        let epoch_config = create_epoch_config(100, 0, Default::default());
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(
             prev_epoch_height,
@@ -628,7 +624,7 @@ mod tests {
         );
         let mut kick_out = HashMap::new();
         // test1 is kicked out
-        kick_out.insert("test1".to_string(), ValidatorKickoutReason::Unstaked);
+        kick_out.insert("test1".parse().unwrap(), ValidatorKickoutReason::Unstaked);
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
             [0; 32],
@@ -642,7 +638,7 @@ mod tests {
         .unwrap();
 
         // test1 is not selected
-        assert_eq!(epoch_info.get_validator_id(&"test1".to_string()), None);
+        assert_eq!(epoch_info.get_validator_id(&"test1".parse().unwrap()), None);
     }
 
     #[test]
@@ -650,13 +646,13 @@ mod tests {
         // validator balances are updated based on their rewards
         let validators = [("test1", 3000), ("test2", 2000), ("test3", 1000)];
         let rewards: [u128; 3] = [7, 8, 9];
-        let epoch_config = create_epoch_config(1, 100, 0, Default::default());
+        let epoch_config = create_epoch_config(100, 0, Default::default());
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &validators, &[]);
         let rewards_map = validators
             .iter()
             .zip(rewards.iter())
-            .map(|((name, _), reward)| (name.to_string(), *reward))
+            .map(|((name, _), reward)| (name.parse().unwrap(), *reward))
             .collect();
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
@@ -686,14 +682,12 @@ mod tests {
 
     /// Create EpochConfig, only filling in the fields important for validator selection.
     fn create_epoch_config(
-        num_shards: u64,
         num_block_producer_seats: u64,
         fishermen_threshold: Balance,
         validator_selection_config: ValidatorSelectionConfig,
     ) -> EpochConfig {
         EpochConfig {
             epoch_length: 10,
-            num_shards,
             num_block_producer_seats,
             num_block_producer_seats_per_shard: vec![],
             avg_hidden_validator_seats_per_shard: vec![],
@@ -750,14 +744,19 @@ mod tests {
 
     impl IntoValidatorStake for &str {
         fn into_validator_stake(self) -> ValidatorStake {
-            ValidatorStake::new(self.to_string(), PublicKey::empty(KeyType::ED25519), 100, false)
+            ValidatorStake::new(
+                self.parse().unwrap(),
+                PublicKey::empty(KeyType::ED25519),
+                100,
+                false,
+            )
         }
     }
 
     impl IntoValidatorStake for (&str, Balance) {
         fn into_validator_stake(self) -> ValidatorStake {
             ValidatorStake::new(
-                self.0.to_string(),
+                self.0.parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 self.1,
                 false,
@@ -767,7 +766,12 @@ mod tests {
 
     impl IntoValidatorStake for (String, Balance) {
         fn into_validator_stake(self) -> ValidatorStake {
-            ValidatorStake::new(self.0, PublicKey::empty(KeyType::ED25519), self.1, false)
+            ValidatorStake::new(
+                self.0.parse().unwrap(),
+                PublicKey::empty(KeyType::ED25519),
+                self.1,
+                false,
+            )
         }
     }
 
@@ -778,7 +782,7 @@ mod tests {
                 Proposal::ChunkOnlyProducer => true,
             };
             ValidatorStake::new(
-                self.0.to_string(),
+                self.0.parse().unwrap(),
                 PublicKey::empty(KeyType::ED25519),
                 self.1,
                 is_chunk_only,
@@ -792,7 +796,12 @@ mod tests {
                 Proposal::BlockProducer => false,
                 Proposal::ChunkOnlyProducer => true,
             };
-            ValidatorStake::new(self.0, PublicKey::empty(KeyType::ED25519), self.1, is_chunk_only)
+            ValidatorStake::new(
+                self.0.parse().unwrap(),
+                PublicKey::empty(KeyType::ED25519),
+                self.1,
+                is_chunk_only,
+            )
         }
     }
 

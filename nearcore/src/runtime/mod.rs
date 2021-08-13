@@ -1977,8 +1977,11 @@ mod test {
         let transactions = if cfg!(feature = "protocol_feature_chunk_only_producers") {
             // With the new validator selection algorithm, test2 needs to have less stake to
             // become a fisherman.
-            let signer =
-                InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
+            let signer = InMemorySigner::from_seed(
+                validators[1].clone(),
+                KeyType::ED25519,
+                validators[1].as_ref(),
+            );
             vec![
                 staking_transaction,
                 create_account_transaction,
@@ -2466,7 +2469,7 @@ mod test {
                 let mut em = env.runtime.epoch_manager.0.write().unwrap();
                 em.get_block_producer_info(&epoch_id, height).unwrap()
             };
-            if bp.account_id() == "test1" {
+            if bp.account_id().as_ref() == "test1" {
                 expected_blocks[0] += 1;
             } else {
                 expected_blocks[1] += 1;
@@ -2663,8 +2666,12 @@ mod test {
             vec![],
             true,
         );
-        env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".to_string(), false)]);
-        assert_eq!(env.view_account("test2").locked, 0);
+        env.step(
+            vec![vec![]],
+            vec![true],
+            vec![SlashedValidator::new("test2".parse().unwrap(), false)],
+        );
+        assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, 0);
         let mut bps = env
             .runtime
             .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
@@ -2673,7 +2680,7 @@ mod test {
             .map(|x| (x.0.account_id().clone(), x.1))
             .collect::<Vec<_>>();
         bps.sort_unstable();
-        assert_eq!(bps, vec![("test1".to_string(), false), ("test2".to_string(), true)]);
+        assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
         let signature = signer.sign(&msg);
@@ -2720,7 +2727,7 @@ mod test {
             vec![true],
             vec![SlashedValidator::new("test2".parse().unwrap(), true)],
         );
-        assert_eq!(env.view_account("test2").locked, TESTING_INIT_STAKE);
+        assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, TESTING_INIT_STAKE);
         let mut bps = env
             .runtime
             .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
@@ -2732,9 +2739,9 @@ mod test {
         assert_eq!(
             bps,
             vec![
-                ("test1".to_string(), false),
-                ("test2".to_string(), true),
-                ("test3".to_string(), false)
+                ("test1".parse().unwrap(), false),
+                ("test2".parse().unwrap(), true),
+                ("test3".parse().unwrap(), false)
             ]
         );
         let msg = vec![0, 1, 2];
@@ -3028,7 +3035,8 @@ mod test {
         init_test_logger();
         let num_nodes = 4;
         let epoch_length = 40;
-        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let validators =
+            (0..num_nodes).map(|i| format!("test{}", i + 1).parse().unwrap()).collect::<Vec<_>>();
         let mut env = TestEnv::new(
             "test_validator_reward",
             vec![validators.clone()],
