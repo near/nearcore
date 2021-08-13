@@ -67,6 +67,7 @@ use crate::{metrics, DoomslugThresholdMode};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use std::thread;
+use std::thread::JoinHandle;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -2989,94 +2990,102 @@ impl<'a> ChainUpdate<'a> {
         let block_hash = block.hash().clone();
         let prev_block_hash = prev_block.hash().clone();
         Ok(move |chain_update: &mut ChainUpdate| -> Result<(), Error> {
-            for result in same_height_handlers {
-                let res = result.join();
-                match res {
-                    Ok(res) => {
-                        let (shard_id, gas_limit, apply_result) =
-                            res.map_err(|e| ErrorKind::Other(e.to_string()))?;
-                        let (outcome_root, outcome_paths) =
-                            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-
-                        chain_update
-                            .chain_store_update
-                            .save_trie_changes(apply_result.trie_changes);
-                        // Save state root after applying transactions.
-                        chain_update.chain_store_update.save_chunk_extra(
-                            &block_hash,
-                            shard_id,
-                            ChunkExtra::new(
-                                &apply_result.new_root,
-                                outcome_root,
-                                apply_result.validator_proposals,
-                                apply_result.total_gas_burnt,
-                                gas_limit,
-                                apply_result.total_balance_burnt,
-                            ),
-                        );
-                        chain_update.chain_store_update.save_outgoing_receipt(
-                            &block_hash,
-                            shard_id,
-                            apply_result.receipt_result,
-                        );
-                        // Save receipt and transaction results.
-                        chain_update.chain_store_update.save_outcomes_with_proofs(
-                            &block_hash,
-                            shard_id,
-                            apply_result.outcomes,
-                            outcome_paths,
-                        );
-                    }
-                    Err(err) => {
-                        let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
-                            msg.to_string()
-                        } else if let Some(msg) = err.downcast_ref::<String>() {
-                            msg.clone()
-                        } else {
-                            format!("?{:?}", err)
-                        };
-                        panic!("{}", msg);
-                    }
-                }
-            }
-
-            for result in dif_height_handlers {
-                let res = result.join();
-                match res {
-                    Ok(res) => {
-                        let (shard_id, apply_result) =
-                            res.map_err(|e| ErrorKind::Other(e.to_string()))?;
-
-                        let mut new_extra = chain_update
-                            .chain_store_update
-                            .get_chunk_extra(&prev_block_hash, shard_id)?
-                            .clone();
-
-                        chain_update
-                            .chain_store_update
-                            .save_trie_changes(apply_result.trie_changes);
-                        *new_extra.state_root_mut() = apply_result.new_root;
-
-                        chain_update.chain_store_update.save_chunk_extra(
-                            &block_hash,
-                            shard_id,
-                            new_extra,
-                        );
-                    }
-                    Err(err) => {
-                        let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
-                            msg.to_string()
-                        } else if let Some(msg) = err.downcast_ref::<String>() {
-                            msg.clone()
-                        } else {
-                            format!("?{:?}", err)
-                        };
-                        panic!("{}", msg);
-                    }
-                }
-            }
-            Ok(())
+            chain_update.process_apply_chunk_results(
+                same_height_handlers,
+                dif_height_handlers,
+                block_hash,
+                prev_block_hash,
+            )
         })
+    }
+
+    /// Awaits when all chunks are applied and processes results
+    fn process_apply_chunk_results(
+        &mut self,
+        same_height_handlers: Vec<JoinHandle<Result<(u64, u64, ApplyTransactionResult), Error>>>,
+        dif_height_handlers: Vec<JoinHandle<Result<(u64, ApplyTransactionResult), Error>>>,
+        block_hash: CryptoHash,
+        prev_block_hash: CryptoHash,
+    ) -> Result<(), Error> {
+        for result in same_height_handlers {
+            let res = result.join();
+            match res {
+                Ok(res) => {
+                    let (shard_id, gas_limit, apply_result) =
+                        res.map_err(|e| ErrorKind::Other(e.to_string()))?;
+                    let (outcome_root, outcome_paths) =
+                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+
+                    self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                    // Save state root after applying transactions.
+                    self.chain_store_update.save_chunk_extra(
+                        &block_hash,
+                        shard_id,
+                        ChunkExtra::new(
+                            &apply_result.new_root,
+                            outcome_root,
+                            apply_result.validator_proposals,
+                            apply_result.total_gas_burnt,
+                            gas_limit,
+                            apply_result.total_balance_burnt,
+                        ),
+                    );
+                    self.chain_store_update.save_outgoing_receipt(
+                        &block_hash,
+                        shard_id,
+                        apply_result.receipt_result,
+                    );
+                    // Save receipt and transaction results.
+                    self.chain_store_update.save_outcomes_with_proofs(
+                        &block_hash,
+                        shard_id,
+                        apply_result.outcomes,
+                        outcome_paths,
+                    );
+                }
+                Err(err) => {
+                    let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
+                        msg.to_string()
+                    } else if let Some(msg) = err.downcast_ref::<String>() {
+                        msg.clone()
+                    } else {
+                        format!("?{:?}", err)
+                    };
+                    panic!("{}", msg);
+                }
+            }
+        }
+
+        for result in dif_height_handlers {
+            let res = result.join();
+            match res {
+                Ok(res) => {
+                    let (shard_id, apply_result) =
+                        res.map_err(|e| ErrorKind::Other(e.to_string()))?;
+
+                    let mut new_extra = self
+                        .chain_store_update
+                        .get_chunk_extra(&prev_block_hash, shard_id)?
+                        .clone();
+
+                    self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                    *new_extra.state_root_mut() = apply_result.new_root;
+
+                    self.chain_store_update.save_chunk_extra(&block_hash, shard_id, new_extra);
+                }
+                Err(err) => {
+                    let msg = if let Some(msg) = err.downcast_ref::<&'static str>() {
+                        msg.to_string()
+                    } else if let Some(msg) = err.downcast_ref::<String>() {
+                        msg.clone()
+                    } else {
+                        format!("?{:?}", err)
+                    };
+                    panic!("{}", msg);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
