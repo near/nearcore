@@ -51,7 +51,7 @@ There are three implementations of `TrieStorage`:
 - `TrieRecordingStorage` - records all key-value pairs ever read by `retrieve_raw_bytes`. Used for obtaining state parts (and challenges in the future).
 - `TrieMemoryPartialStorage` - used for validating recorded partial storage.
 
-Note that these storages use database keys, which are retrieved using hashes of trie keys using `get_key_from_shard_id_and_hash` method.
+Note that these storages use database keys, which are retrieved using hashes of trie nodes using `get_key_from_shard_id_and_hash` method.
 
 ### ShardTries
 
