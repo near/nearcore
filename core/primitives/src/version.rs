@@ -105,6 +105,8 @@ pub enum ProtocolFeature {
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
 }
 
 /// Current latest stable version of the protocol.
@@ -140,6 +142,8 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            ProtocolFeature::SimpleNightshade => 114,
         }
     }
 }
