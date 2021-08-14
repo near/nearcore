@@ -9,10 +9,16 @@ Here we describe its implementation details which are closely related to Runtime
 
 ### Trie
 
-Base structure. 
-It is stored in the RocksDB, which is persistent across node restarts. Trie communicates with database using `TrieStorage`.
-Trie data is stored in key-value format in `ColState` column. There are two kinds of records:
-- nodes, for which key is constructed from shard id and `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by custom algorithm;
+Trie stores the state - accounts, contract codes, access keys, etc.
+Each state item corresponds to the unique trie key.
+All types of trie keys are described in the [TrieKey](#triekey) section.
+You can read more about this structure on [Wikipedia](https://en.wikipedia.org/wiki/Trie).
+
+Trie is stored in the RocksDB, which is persistent across node restarts. 
+Trie communicates with database using `TrieStorage`.
+On the database level, data is stored in key-value format in `ColState` column. 
+There are two kinds of records:
+- trie nodes, for which key is constructed from shard id and `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by custom algorithm;
 - values (encoded contract codes, postponed receipts, etc.), for which hash of value maps to the encoded value.
 
 So, value can be obtained from `TrieKey` as follows:
