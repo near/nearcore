@@ -312,7 +312,7 @@ mod tests {
         // A simple sanity test. Given fewer proposals than the number of seats,
         // none of which has too little stake, they all get assigned as block and
         // chunk producers.
-        let epoch_config = create_epoch_config(100, 0, Default::default());
+        let epoch_config = create_epoch_config(2, 100, 0, Default::default());
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
         let proposals = create_proposals(&[("test1", 1000), ("test2", 2000), ("test3", 300)]);
@@ -352,6 +352,7 @@ mod tests {
         let num_bp_seats = 10;
         let num_cp_seats = 30;
         let epoch_config = create_epoch_config(
+            2,
             num_bp_seats,
             // purposely set the fishermen threshold high so that none become fishermen
             10_000,
@@ -450,6 +451,7 @@ mod tests {
     #[test]
     fn test_block_producer_sampling() {
         let epoch_config = create_epoch_config(
+            1,
             2,
             0,
             ValidatorSelectionConfig {
@@ -489,6 +491,7 @@ mod tests {
         // When there is 1 CP per shard, they are chosen 100% of the time.
         let num_shards = 4;
         let epoch_config = create_epoch_config(
+            num_shards,
             2 * num_shards,
             0,
             ValidatorSelectionConfig {
@@ -563,6 +566,7 @@ mod tests {
         // being selected to make a block would be too low since it is done in
         // proportion to stake).
         let epoch_config = create_epoch_config(
+            1,
             100,
             150,
             ValidatorSelectionConfig {
@@ -615,7 +619,7 @@ mod tests {
     #[test]
     fn test_validator_assignment_with_kickout() {
         // kicked out validators are not selected
-        let epoch_config = create_epoch_config(100, 0, Default::default());
+        let epoch_config = create_epoch_config(1, 100, 0, Default::default());
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(
             prev_epoch_height,
@@ -646,7 +650,7 @@ mod tests {
         // validator balances are updated based on their rewards
         let validators = [("test1", 3000), ("test2", 2000), ("test3", 1000)];
         let rewards: [u128; 3] = [7, 8, 9];
-        let epoch_config = create_epoch_config(100, 0, Default::default());
+        let epoch_config = create_epoch_config(1, 100, 0, Default::default());
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &validators, &[]);
         let rewards_map = validators
@@ -682,6 +686,7 @@ mod tests {
 
     /// Create EpochConfig, only filling in the fields important for validator selection.
     fn create_epoch_config(
+        num_shards: u64,
         num_block_producer_seats: u64,
         fishermen_threshold: Balance,
         validator_selection_config: ValidatorSelectionConfig,
@@ -689,8 +694,8 @@ mod tests {
         EpochConfig {
             epoch_length: 10,
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: vec![],
-            avg_hidden_validator_seats_per_shard: vec![],
+            num_block_producer_seats_per_shard: vec![0; num_shards as usize],
+            avg_hidden_validator_seats_per_shard: vec![0; num_shards as usize],
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
             online_min_threshold: 0.into(),
