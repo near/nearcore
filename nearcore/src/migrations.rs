@@ -5,7 +5,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
@@ -148,9 +148,10 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     if near_config.client_config.archive {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let epoch_config = EpochConfig::from(&near_config.genesis.config);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
-            EpochConfig::from(&near_config.genesis.config),
+            AllEpochConfig::new(epoch_config, None),
             near_config.genesis.config.protocol_version,
             RewardCalculator::new(&near_config.genesis.config),
             near_config.genesis.config.validators(),
@@ -523,7 +524,6 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         } else {
             0
         },
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if is_mainnet {
             serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
                 .expect("File with receipts restored after apply_chunks fix have to be correct")
@@ -552,7 +552,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn test_restored_receipts_data() {
         assert_eq!(
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),

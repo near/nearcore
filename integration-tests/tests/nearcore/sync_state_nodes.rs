@@ -4,13 +4,13 @@ use std::time::Duration;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 
+use integration_tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain_configs::Genesis;
 use near_client::GetBlock;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
-use testlib::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -27,7 +27,8 @@ fn sync_state_nodes() {
         near1.client_config.epoch_sync_enabled = false;
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (_, view_client1, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1);
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
@@ -60,8 +61,11 @@ fn sync_state_nodes() {
                                             .prefix("sync_nodes_2")
                                             .tempdir()
                                             .unwrap();
-                                        let (_, view_client2, arbiters) =
-                                            start_with_config(dir2.path(), near2);
+                                        let nearcore::NearNode {
+                                            view_client: view_client2,
+                                            arbiters,
+                                            ..
+                                        } = start_with_config(dir2.path(), near2);
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiters_holder2 = arbiters;
                                     }
@@ -152,13 +156,14 @@ fn sync_state_nodes_multishard() {
             near4.client_config.epoch_sync_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (_, view_client1, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1);
 
             let dir3 = tempfile::Builder::new().prefix("sync_nodes_3").tempdir().unwrap();
-            let (_, _, _) = start_with_config(dir3.path(), near3);
+            start_with_config(dir3.path(), near3);
 
             let dir4 = tempfile::Builder::new().prefix("sync_nodes_4").tempdir().unwrap();
-            let (_, _, _) = start_with_config(dir4.path(), near4);
+            start_with_config(dir4.path(), near4);
 
             let view_client2_holder = Arc::new(RwLock::new(None));
             let arbiter_holder = Arc::new(RwLock::new(vec![]));
@@ -197,8 +202,11 @@ fn sync_state_nodes_multishard() {
                                             .prefix("sync_nodes_2")
                                             .tempdir()
                                             .unwrap();
-                                        let (_, view_client2, arbiters) =
-                                            start_with_config(dir2.path(), near2);
+                                        let nearcore::NearNode {
+                                            view_client: view_client2,
+                                            arbiters,
+                                            ..
+                                        } = start_with_config(dir2.path(), near2);
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiter_holder2 = arbiters;
                                     }
@@ -271,7 +279,8 @@ fn sync_empty_state() {
             near1.client_config.epoch_sync_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (_, view_client1, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1);
             let dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
 
             let view_client2_holder = Arc::new(RwLock::new(None));
@@ -311,8 +320,11 @@ fn sync_empty_state() {
                                         near2.client_config.tracked_shards = vec![0, 1, 2, 3];
                                         near2.client_config.epoch_sync_enabled = false;
 
-                                        let (_, view_client2, arbiters) =
-                                            start_with_config(dir2.path(), near2);
+                                        let nearcore::NearNode {
+                                            view_client: view_client2,
+                                            arbiters,
+                                            ..
+                                        } = start_with_config(dir2.path(), near2);
                                         *view_client2_holder2 = Some(view_client2);
                                         *arbiters_holder2 = arbiters;
                                     }

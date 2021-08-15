@@ -97,21 +97,23 @@ pub enum ProtocolFeature {
     CountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
     MathExtension,
+    /// Restore receipts that were previously stuck because of https://github.com/near/nearcore/pull/4228
+    RestoreReceiptsAfterFix,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-    RestoreReceiptsAfterFix,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
 }
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 46;
+pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -133,14 +135,15 @@ impl ProtocolFeature {
             ProtocolFeature::CapMaxGasPrice => 46,
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
             ProtocolFeature::MathExtension => 46,
+            ProtocolFeature::RestoreReceiptsAfterFix => 47,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-            ProtocolFeature::RestoreReceiptsAfterFix => 112,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            ProtocolFeature::SimpleNightshade => 114,
         }
     }
 }

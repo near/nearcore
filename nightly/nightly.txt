@@ -1,6 +1,8 @@
-./TODO-disabled-4552.txt
 ./sandbox.txt
 ./pytest.txt
 ./expensive.txt
 ./mocknet.txt
-./bridge.txt
+
+# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# working on a fix / deciding whether to remove them.
+#./bridge.txt

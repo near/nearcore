@@ -1,9 +1,15 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 
+pub use crate::node::process_node::ProcessNode;
+pub use crate::node::runtime_node::RuntimeNode;
+pub use crate::node::thread_node::ThreadNode;
+use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
+use near_primitives::contract::ContractCode;
+use near_primitives::num_rational::Rational;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance, NumSeats};
@@ -13,13 +19,7 @@ use nearcore::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt,
 };
 use nearcore::NearConfig;
-
-pub use crate::node::process_node::ProcessNode;
-pub use crate::node::runtime_node::RuntimeNode;
-pub use crate::node::thread_node::ThreadNode;
-use crate::user::{AsyncUser, User};
-use near_primitives::contract::ContractCode;
-use num_rational::Rational;
+use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;
 mod runtime_node;
@@ -29,7 +29,6 @@ pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> Genesis {
-    use super::runtime_utils::{alice_account, bob_account};
     Genesis::test(vec![alice_account(), bob_account()], 2)
 }
 
