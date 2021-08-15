@@ -3,12 +3,13 @@ use serde::Serialize;
 use std::hash::Hash;
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
+#[allow(dead_code)]
 pub enum VMKind {
     /// Wasmer 0.17.x VM.
     Wasmer0 = 0,
     /// Wasmtime VM.
     Wasmtime = 1,
-    /// Wasmer 1.x VM.
+    /// Wasmer 1.x VM, no longer supported.
     // Wasmer1 = 2,
     //  Wasmer 2.x VM,
     Wasmer2 = 3,

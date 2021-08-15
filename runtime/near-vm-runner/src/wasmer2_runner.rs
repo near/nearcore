@@ -8,10 +8,10 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 
+use crate::cache::StableHasher;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_vm::TrapCode;
 
@@ -277,31 +277,57 @@ pub(crate) fn compile_wasmer2_module(code: &[u8]) -> bool {
     Module::new(&store, code).is_ok()
 }
 
+#[derive(Hash, PartialEq, Debug)]
+#[allow(unused)]
+enum WasmerEngine {
+    Universal = 1,
+    StaticLib = 2,
+    DynamicLib = 3,
+}
+
+#[derive(Hash, PartialEq, Debug)]
+#[allow(unused)]
+enum WasmerCompiler {
+    Singlepass = 1,
+    Cranelift = 2,
+    Llvm = 3,
+}
+
 #[derive(Hash)]
 struct Wasmer2Config {
     seed: i32,
+    engine: WasmerEngine,
+    compiler: WasmerCompiler,
 }
 
 impl Wasmer2Config {
     fn config_hash(self: Self) -> u64 {
-        let mut s = DefaultHasher::new();
+        let mut s = StableHasher::new();
         self.hash(&mut s);
         s.finish()
     }
 }
 
-// We use following scheme for bits forming seed:
+// We use following scheme for the bits forming seed:
 //  kind << 10, kind is 1 for Wasmer
 //  major version << 6
 //  minor version
-const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config { seed: (1 << 10) | (2 << 6) | 0 };
+const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
+    seed: (1 << 10) | (2 << 6) | 0,
+    engine: WasmerEngine::Universal,
+    compiler: WasmerCompiler::Singlepass,
+};
 
 pub(crate) fn wasmer2_vm_hash() -> u64 {
     WASMER2_CONFIG.config_hash()
 }
 
 pub(crate) fn default_wasmer2_store() -> Store {
+    // We only support singlepass compiler at the moment.
+    assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
     let compiler = Singlepass::new();
+    // We only support universal engine at the moment.
+    assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
     let engine = wasmer::Universal::new(compiler).engine();
     Store::new(&engine)
 }

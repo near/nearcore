@@ -18,11 +18,19 @@ serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
 wasmparser = "0.51"
-wasmer = { version = "2.0.0", optional = true }
-wasmer-types = { version = "2.0.0", optional = true }
-wasmer-compiler-singlepass = { version = "2.0.0", optional = true, default-features = false, features = ["std"] } # disable `rayon` feature.
-wasmer-engine-universal = { version = "2.0.0", optional = true }
-wasmer-vm = "2.0.0"
+
+# Use the following for development versions of Wasmer.
+# wasmer = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
+# wasmer-types = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-engine-universal = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-vm = { git = "https://github.com/near/wasmer", branch = "near-main" }
+wasmer = { package = "wasmer-near", version = "2.0.0", optional = true, default-features = false, features = ["singlepass", "universal"] }
+wasmer-types = { package = "wasmer-types-near", version = "2.0.0", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "2.0.0", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "2.0.0", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "2.0.0" }
+
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
