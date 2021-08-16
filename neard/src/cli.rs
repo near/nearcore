@@ -6,6 +6,7 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tracing::debug;
 #[cfg(feature = "adversarial")]
 use tracing::error;
 use tracing::info;
@@ -274,7 +275,8 @@ impl RunCmd {
 
         let sys = actix::System::new();
         sys.block_on(async move {
-            nearcore::start_with_config(home_dir, near_config);
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config(home_dir, near_config);
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -288,7 +290,12 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping", sig);
+            info!(target: "neard", "Got {}, stopping...", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
             actix::System::current().stop();
         });
         sys.run().unwrap();
