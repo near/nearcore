@@ -1074,9 +1074,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * Always returns `GasLimitExceeded`;
+    /// * Always returns `GasExceeded`;
     pub fn out_of_gas_callback(&mut self) -> Result<()> {
-        Err(VMLogicError::HostError(HostError::GasLimitExceeded))
+        Err(VMLogicError::HostError(HostError::GasExceeded))
     }
 
     // ################
