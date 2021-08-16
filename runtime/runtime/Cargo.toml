@@ -16,7 +16,6 @@ num-rational = "0.3"
 num-bigint = "0.3"
 num-traits = "0.2.11"
 hex = "0.4.2"
-ethereum-types = "0.11.0"
 rayon = "1.5"
 thiserror = "1.0"
 
