@@ -594,7 +594,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 0),
+            ShardLayout::v0(num_shards, 1),
         )
     }
 
