@@ -416,7 +416,8 @@ pub struct TrieRefcountChange {
     /// Hash of the value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     value_hash: CryptoHash,
-    /// Value corresponding to the TrieKey stored in Trie.
+    /// Value of the record. Can be either serialized RawTrieNodeWithSize or value corresponding to
+    /// some TrieKey.
     value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
