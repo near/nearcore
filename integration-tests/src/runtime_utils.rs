@@ -9,7 +9,7 @@ use testlib::runtime_utils::{
 };
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis = Genesis::test_sharded_version(
+    let mut genesis = Genesis::test_sharded(
         vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
         3,
         vec![3],

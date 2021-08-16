@@ -1549,11 +1549,8 @@ fn test_gc_after_state_sync() {
 fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
     // test with shard_version > 0
-    let mut genesis = Genesis::test_sharded_version(
-        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
-        1,
-        vec![1],
-    );
+    let mut genesis =
+        Genesis::test_sharded(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1, vec![1]);
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -2389,11 +2386,8 @@ fn test_refund_receipts_processing() {
 
     let epoch_length = 5;
     let min_gas_price = 10000;
-    let mut genesis = Genesis::test_sharded_version(
-        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
-        1,
-        vec![1],
-    );
+    let mut genesis =
+        Genesis::test_sharded(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1, vec![1]);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     // set gas limit to be small
