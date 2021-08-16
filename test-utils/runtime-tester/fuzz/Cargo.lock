@@ -515,22 +515,12 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
 name = "bitvec"
-version = "0.17.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41262f11d771fd4a61aa3ce019fca363b4b6c282fca9da2a31186d3965a47a5c"
-dependencies = [
- "either",
- "radium 0.3.0",
-]
-
-[[package]]
-name = "bitvec"
 version = "0.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7774144344a4faa177370406a7ff5f1da24303817368584c6206c8303eb07848"
 dependencies = [
  "funty",
- "radium 0.6.2",
+ "radium",
  "tap",
  "wyz",
 ]
@@ -583,7 +573,17 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09a7111f797cc721407885a323fb071636aee57f750b1a4ddc27397eba168a74"
 dependencies = [
- "borsh-derive",
+ "borsh-derive 0.8.2",
+ "hashbrown 0.9.1",
+]
+
+[[package]]
+name = "borsh"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18dda7dc709193c0d86a1a51050a926dc3df1cf262ec46a23a25dba421ea1924"
+dependencies = [
+ "borsh-derive 0.9.1",
  "hashbrown 0.9.1",
 ]
 
@@ -593,8 +593,21 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "307f3740906bac2c118a8122fe22681232b244f1369273e45f1156b45c43d2dd"
 dependencies = [
- "borsh-derive-internal",
- "borsh-schema-derive-internal",
+ "borsh-derive-internal 0.8.2",
+ "borsh-schema-derive-internal 0.8.2",
+ "proc-macro-crate 0.1.5",
+ "proc-macro2",
+ "syn",
+]
+
+[[package]]
+name = "borsh-derive"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "684155372435f578c0fa1acd13ebbb182cc19d6b38b64ae7901da4393217d264"
+dependencies = [
+ "borsh-derive-internal 0.9.1",
+ "borsh-schema-derive-internal 0.9.1",
  "proc-macro-crate 0.1.5",
  "proc-macro2",
  "syn",
@@ -612,10 +625,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "borsh-derive-internal"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2102f62f8b6d3edeab871830782285b64cc1830168094db05c8e458f209bc5c3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "borsh-schema-derive-internal"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae29eb8418fcd46f723f8691a2ac06857d31179d33d2f2d91eb13967de97c728"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "borsh-schema-derive-internal"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "196c978c4c9b0b142d446ef3240690bf5a8a33497074a113ff9a337ccb750483"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -653,12 +688,6 @@ name = "bumpalo"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c59e7af012c713f529e7a3ee57ce9b31ddd858d4b512923602f74608b009631"
-
-[[package]]
-name = "byte-slice-cast"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0a5e3906bcbf133e33c1d4d95afc664ad37fbdb9f6568d8043e7ea8c27d93d3"
 
 [[package]]
 name = "byte-slice-cast"
@@ -1376,96 +1405,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ethabi"
-version = "13.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53d4e679d6864bc26210feb5cf044e245741cd9d7701b35c00440a6e84d61399"
-dependencies = [
- "anyhow",
- "ethereum-types 0.10.0",
- "hex",
- "serde",
- "serde_json",
- "sha3",
- "thiserror",
- "uint",
-]
-
-[[package]]
-name = "ethabi-contract"
-version = "11.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88d4002f1f77d8233685dafd8589efe1c9dfa63e21ca6c11134372acc7f68032"
-
-[[package]]
-name = "ethabi-derive"
-version = "13.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9b05d8ec904da6703f5ba32273f8f0d2bea25f7be4940c5e1eb617ccfdeb215"
-dependencies = [
- "anyhow",
- "ethabi",
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "ethbloom"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22a621dcebea74f2a6f2002d0a885c81ccf6cbdf86760183316a7722b5707ca4"
-dependencies = [
- "crunchy",
- "fixed-hash",
- "impl-rlp",
- "impl-serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "ethbloom"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "779864b9c7f7ead1f092972c3257496c6a84b46dba2ce131dd8a282cb2cc5972"
-dependencies = [
- "crunchy",
- "fixed-hash",
- "impl-rlp",
- "impl-serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "ethereum-types"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05dc5f0df4915fa6dff7f975a8366ecfaaa8959c74235469495153e7bb1b280e"
-dependencies = [
- "ethbloom 0.10.0",
- "fixed-hash",
- "impl-rlp",
- "impl-serde",
- "primitive-types 0.8.0",
- "uint",
-]
-
-[[package]]
-name = "ethereum-types"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f64b5df66a228d85e4b17e5d6c6aa43b0310898ffe8a85988c4c032357aaabfd"
-dependencies = [
- "ethbloom 0.11.0",
- "fixed-hash",
- "impl-rlp",
- "impl-serde",
- "primitive-types 0.9.1",
- "uint",
-]
-
-[[package]]
 name = "event-listener"
 version = "2.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1854,38 +1793,11 @@ dependencies = [
 
 [[package]]
 name = "impl-codec"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1be51a921b067b0eaca2fad532d9400041561aa922221cc65f95a85641c6bf53"
-dependencies = [
- "parity-scale-codec 1.3.7",
-]
-
-[[package]]
-name = "impl-codec"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "161ebdfec3c8e3b52bf61c4f3550a1eea4f9579d10dc1b936f3171ebdcd6c443"
 dependencies = [
- "parity-scale-codec 2.2.0",
-]
-
-[[package]]
-name = "impl-rlp"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f28220f89297a075ddc7245cd538076ee98b01f2a9c23a53a4f1105d5a322808"
-dependencies = [
- "rlp",
-]
-
-[[package]]
-name = "impl-serde"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b47ca4d2b6931707a55fce5cf66aff80e2178c8b63bbb4ecb5695cbc870ddf6f"
-dependencies = [
- "serde",
+ "parity-scale-codec",
 ]
 
 [[package]]
@@ -2220,6 +2132,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0debeb9fcf88823ea64d64e4a815ab1643f33127d995978e099942ce38f25238"
 
 [[package]]
+name = "near-account-id"
+version = "0.1.0"
+dependencies = [
+ "borsh 0.8.2",
+ "serde",
+]
+
+[[package]]
 name = "near-actix-test-utils"
 version = "0.1.0"
 dependencies = [
@@ -2231,7 +2151,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
- "borsh",
+ "borsh 0.8.2",
  "cached",
  "chrono",
  "failure",
@@ -2266,6 +2186,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smart-default",
+ "tracing",
 ]
 
 [[package]]
@@ -2286,7 +2207,7 @@ name = "near-chunks"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh",
+ "borsh 0.8.2",
  "cached",
  "chrono",
  "futures",
@@ -2309,7 +2230,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "ansi_term 0.12.1",
- "borsh",
+ "borsh 0.8.2",
  "cached",
  "chrono",
  "futures",
@@ -2364,16 +2285,17 @@ version = "0.1.0"
 dependencies = [
  "arrayref",
  "blake2",
- "borsh",
+ "borsh 0.8.2",
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
  "derive_more",
  "ed25519-dalek",
- "ethereum-types 0.11.0",
  "lazy_static",
  "libc",
+ "near-account-id",
  "parity-secp256k1",
+ "primitive-types 0.10.1",
  "rand 0.7.3",
  "rand_core 0.5.1",
  "serde",
@@ -2386,7 +2308,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
- "borsh",
+ "borsh 0.8.2",
  "cached",
  "log",
  "near-chain",
@@ -2412,7 +2334,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "awc",
- "borsh",
+ "borsh 0.8.2",
  "easy-ext",
  "futures",
  "lazy_static",
@@ -2462,7 +2384,6 @@ dependencies = [
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
- "near-runtime-utils",
  "serde",
  "serde_json",
  "thiserror",
@@ -2491,7 +2412,7 @@ name = "near-network"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh",
+ "borsh 0.8.2",
  "byteorder",
  "bytes",
  "bytesize",
@@ -2550,7 +2471,7 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
- "borsh",
+ "borsh 0.8.2",
  "near-crypto",
  "near-primitives",
  "rand 0.7.3",
@@ -2561,7 +2482,7 @@ name = "near-primitives"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.0",
- "borsh",
+ "borsh 0.8.2",
  "bs58",
  "byteorder",
  "chrono",
@@ -2590,11 +2511,12 @@ name = "near-primitives-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.11.0",
- "borsh",
+ "borsh 0.8.2",
  "bs58",
  "derive_more",
  "hex",
  "lazy_static",
+ "near-account-id",
  "num-rational",
  "serde",
  "serde_json",
@@ -2624,14 +2546,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-runtime-utils"
-version = "3.0.0"
-dependencies = [
- "lazy_static",
- "regex",
-]
-
-[[package]]
 name = "near-rust-allocator-proxy"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2651,7 +2565,7 @@ dependencies = [
 name = "near-store"
 version = "2.2.0"
 dependencies = [
- "borsh",
+ "borsh 0.8.2",
  "byteorder",
  "bytesize",
  "cached",
@@ -2666,6 +2580,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "smart-default",
  "strum",
  "thiserror",
  "tracing",
@@ -2698,8 +2613,9 @@ dependencies = [
 name = "near-vm-errors"
 version = "3.0.0"
 dependencies = [
- "borsh",
+ "borsh 0.8.2",
  "hex",
+ "near-account-id",
  "near-rpc-error-macro",
  "serde",
 ]
@@ -2709,13 +2625,13 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "borsh",
+ "borsh 0.8.2",
  "bs58",
  "byteorder",
+ "near-account-id",
  "near-crypto",
  "near-primitives",
  "near-primitives-core",
- "near-runtime-utils",
  "near-vm-errors",
  "ripemd160",
  "serde",
@@ -2728,7 +2644,7 @@ name = "near-vm-runner"
 version = "3.0.0"
 dependencies = [
  "anyhow",
- "borsh",
+ "borsh 0.8.2",
  "cached",
  "near-primitives",
  "near-vm-errors",
@@ -2752,13 +2668,13 @@ dependencies = [
 
 [[package]]
 name = "nearcore"
-version = "1.2.0"
+version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
  "actix_derive",
  "awc",
- "borsh",
+ "borsh 0.8.2",
  "byteorder",
  "chrono",
  "dirs",
@@ -2787,6 +2703,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "smart-default",
  "thiserror",
  "tracing",
 ]
@@ -2808,9 +2725,8 @@ dependencies = [
 name = "node-runtime"
 version = "3.0.0"
 dependencies = [
- "borsh",
+ "borsh 0.8.2",
  "byteorder",
- "ethereum-types 0.11.0",
  "hex",
  "lazy_static",
  "log",
@@ -2818,7 +2734,6 @@ dependencies = [
  "near-crypto",
  "near-metrics",
  "near-primitives",
- "near-runtime-utils",
  "near-store",
  "near-vm-errors",
  "near-vm-logic",
@@ -2996,25 +2911,13 @@ dependencies = [
 
 [[package]]
 name = "parity-scale-codec"
-version = "1.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4b26b16c7687c3075982af47719e481815df30bc544f7a6690763a25ca16e9d"
-dependencies = [
- "arrayvec 0.5.2",
- "bitvec 0.17.4",
- "byte-slice-cast 0.3.5",
- "serde",
-]
-
-[[package]]
-name = "parity-scale-codec"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8975095a2a03bbbdc70a74ab11a4f76a6d0b84680d87c68d722531b0ac28e8a9"
 dependencies = [
  "arrayvec 0.7.1",
- "bitvec 0.20.4",
- "byte-slice-cast 1.0.0",
+ "bitvec",
+ "byte-slice-cast",
  "impl-trait-for-tuples",
  "parity-scale-codec-derive",
  "serde",
@@ -3172,27 +3075,23 @@ checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
 name = "primitive-types"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3824ae2c5e27160113b9e029a10ec9e3f0237bad8029f69c7724393c9fdefd8"
-dependencies = [
- "fixed-hash",
- "impl-codec 0.4.2",
- "impl-rlp",
- "impl-serde",
- "uint",
-]
-
-[[package]]
-name = "primitive-types"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06345ee39fbccfb06ab45f3a1a5798d9dafa04cb8921a76d227040003a234b0e"
 dependencies = [
  "fixed-hash",
- "impl-codec 0.5.1",
- "impl-rlp",
- "impl-serde",
+ "impl-codec",
+ "uint",
+]
+
+[[package]]
+name = "primitive-types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05e4722c697a58a99d5d06a08c30821d7c082a4632198de1eaa5a6c22ef42373"
+dependencies = [
+ "fixed-hash",
+ "impl-codec",
  "uint",
 ]
 
@@ -3309,12 +3208,6 @@ checksum = "c3d0b9745dc2debf507c8422de05d7226cc1f0644216dfdfead988f9b1ab32a7"
 dependencies = [
  "proc-macro2",
 ]
-
-[[package]]
-name = "radium"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "def50a86306165861203e7f84ecffbbdfdea79f0e51039b33de1e952358c47ac"
 
 [[package]]
 name = "radium"
@@ -3621,16 +3514,6 @@ dependencies = [
  "block-buffer",
  "digest 0.9.0",
  "opaque-debug",
-]
-
-[[package]]
-name = "rlp"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e54369147e3e7796c9b885c7304db87ca3d09a0a98f72843d532868675bbfba8"
-dependencies = [
- "bytes",
- "rustc-hex",
 ]
 
 [[package]]
@@ -4112,13 +3995,9 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
- "borsh",
+ "borsh 0.8.2",
  "byteorder",
  "clap",
- "ethabi",
- "ethabi-contract",
- "ethabi-derive",
- "ethereum-types 0.11.0",
  "futures",
  "hex",
  "lazy-static-include",
@@ -4239,15 +4118,6 @@ dependencies = [
  "quote",
  "standback",
  "syn",
-]
-
-[[package]]
-name = "tiny-keccak"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
-dependencies = [
- "crunchy",
 ]
 
 [[package]]
@@ -4774,12 +4644,13 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-core-near"
-version = "0.17.4"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08ff9059d479dbff357e1953edbde198453d5421274119230c50754e61e8ec9f"
+checksum = "2cf26de331c8ef4257bef33649b4665535b105c927ab2e00715f17891362efe8"
 dependencies = [
  "bincode",
  "blake3",
+ "borsh 0.9.1",
  "cc",
  "digest 0.8.1",
  "errno",
@@ -4803,9 +4674,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-runtime-near"
-version = "0.17.1"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6660e86bc7697fa29bab902214d5b33d394a990826c401b10816bcd285f938f"
+checksum = "158e6fff11e5e1ef805af50637374d5bd43d92017beafa18992cdf7f3f7ae3e4"
 dependencies = [
  "lazy_static",
  "memmap",
@@ -4817,11 +4688,12 @@ dependencies = [
 
 [[package]]
 name = "wasmer-singlepass-backend-near"
-version = "0.17.1"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3f23543ef8f59667be4945c22eb4b1a50a79ff340555f6f23354223d2695541"
+checksum = "5f6edd0ba6c0bcf9b279186d4dbe81649dda3e5ef38f586865943de4dcd653f8"
 dependencies = [
  "bincode",
+ "borsh 0.9.1",
  "byteorder",
  "dynasm",
  "dynasmrt",
