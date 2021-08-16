@@ -288,7 +288,7 @@ mod tests {
             })?;
             let mut insertions = insertions
                 .into_iter()
-                .map(|(k, (v, rc))| TrieRefcountChange { key_hash: k, value: v, rc })
+                .map(|(k, (v, rc))| TrieRefcountChange { value_hash: k, value: v, rc })
                 .collect::<Vec<_>>();
             insertions.sort();
             Ok(TrieChanges {
@@ -570,10 +570,10 @@ mod tests {
         let mut map = HashMap::new();
         for changes_set in changes {
             assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
-            for TrieRefcountChange { key_hash, value, rc } in changes_set.insertions {
+            for TrieRefcountChange { value_hash: key_hash, value, rc } in changes_set.insertions {
                 map.entry(key_hash).or_insert_with(|| (value, 0)).1 += rc as i32;
             }
-            for TrieRefcountChange { key_hash, value, rc } in changes_set.deletions {
+            for TrieRefcountChange { value_hash: key_hash, value, rc } in changes_set.deletions {
                 map.entry(key_hash).or_insert_with(|| (value, 0)).1 -= rc as i32;
             }
         }

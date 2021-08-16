@@ -91,7 +91,7 @@ Another reason is that we can dedup values. If the same contract is deployed 100
 
 This structure is used to update `rc` in the database:
 
-- `key` - hash of the value, used for uniting with shard id to get DB key,
+- `value_hash` - hash of the value, used for uniting with shard id to get DB key,
 - `value` - value corresponding to trie key, e.g. contract code,
 - `rc` - change of reference count.
 

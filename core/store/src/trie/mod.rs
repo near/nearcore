@@ -415,7 +415,7 @@ pub struct Trie {
 pub struct TrieRefcountChange {
     /// Hash of the value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
-    key_hash: CryptoHash,
+    value_hash: CryptoHash,
     /// Value corresponding to the TrieKey stored in Trie.
     value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
@@ -708,13 +708,13 @@ impl Trie {
     ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
-        for (key, (value, rc)) in changes.into_iter() {
+        for (value_hash, (value, rc)) in changes.into_iter() {
             match rc.cmp(&0) {
                 Ordering::Greater => {
-                    insertions.push(TrieRefcountChange { key_hash: key, value, rc: rc as u32 })
+                    insertions.push(TrieRefcountChange { value_hash, value, rc: rc as u32 })
                 }
                 Ordering::Less => {
-                    deletions.push(TrieRefcountChange { key_hash: key, value, rc: (-rc) as u32 })
+                    deletions.push(TrieRefcountChange { value_hash, value, rc: (-rc) as u32 })
                 }
                 Ordering::Equal => {}
             }
