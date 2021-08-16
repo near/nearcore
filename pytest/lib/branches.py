@@ -66,12 +66,11 @@ def escaped(branch):
 def compile_current():
     """Compile current branch."""
     branch = current_branch()
-    # Accommodate rename from near to neard
     subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
     subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
-    os.rename('../target/debug/neard', '../target/debug/near-%s' % branch)
+    os.rename('../target/debug/neard', '../target/debug/neard-%s' % branch)
     os.rename('../target/debug/state-viewer',
               '../target/debug/state-viewer-%s' % branch)
     subprocess.check_call(['git', 'checkout', '../Cargo.lock'])
@@ -84,9 +83,9 @@ def download_binary(uname, branch):
     logger.info(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
         'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
-        f'../target/debug/near-{branch}'
+        f'../target/debug/neard-{branch}'
     ])
-    subprocess.check_output(['chmod', '+x', f'../target/debug/near-{branch}'])
+    subprocess.check_output(['chmod', '+x', f'../target/debug/neard-{branch}'])
     url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/state-viewer'
     subprocess.check_output([
         'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
