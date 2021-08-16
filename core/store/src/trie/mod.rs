@@ -410,10 +410,11 @@ pub struct Trie {
     pub counter: TouchedNodesCounter,
 }
 
-/// Stores reference count change for some Trie key and value.
+/// Stores reference count change for some key-value pair in DB.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
-    /// Hash of TrieKey.
+    /// Hash of the value and part of the DB key.
+    /// Used for uniting with shard id to get actual DB key.
     key_hash: CryptoHash,
     /// Value corresponding to the TrieKey stored in Trie.
     value: Vec<u8>,
