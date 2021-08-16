@@ -3945,12 +3945,12 @@ dependencies = [
 [[package]]
 name = "pwasm-utils"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f7a12f176deee919f4ba55326ee17491c8b707d0987aed822682c821b660192"
+source = "git+https://github.com/near/wasm-utils?rev=fe6576a30724c597ab1d1c21122378447b11e91d#fe6576a30724c597ab1d1c21122378447b11e91d"
 dependencies = [
  "byteorder",
  "log",
  "parity-wasm",
+ "wasmprinter",
 ]
 
 [[package]]
@@ -5918,6 +5918,22 @@ name = "wasmparser"
 version = "0.76.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "755a9a4afe3f6cccbbe6d7e965eef44cf260b001f93e547eba84255c1d0187d8"
+
+[[package]]
+name = "wasmparser"
+version = "0.80.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5f71b80b8193e50910919e7d1bc956d2b4f42b1cb1fad84bacb59332c16f2cf"
+
+[[package]]
+name = "wasmprinter"
+version = "0.2.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b48e4f2999b9930e9b037e328357d7d2367e0d8ea6e534be90aeff60976c0452"
+dependencies = [
+ "anyhow",
+ "wasmparser 0.80.0",
+]
 
 [[package]]
 name = "wasmtime"

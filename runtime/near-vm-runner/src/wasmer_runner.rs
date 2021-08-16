@@ -208,6 +208,11 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
+fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available_gas: u64) {
+    let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
+    remaining_gas.set(wasmer_runtime::Value::I32(available_gas as i32));
+}
+
 pub fn run_wasmer<'a>(
     code: &ContractCode,
     method_name: &str,
@@ -254,6 +259,8 @@ pub fn run_wasmer<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
+    let available_gas = context.prepaid_gas;
+
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -280,17 +287,23 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name).err();
+    let err = run_method(&module, &import_object, method_name, available_gas).err();
     (Some(logic.outcome()), err)
 }
 
-fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+fn run_method(
+    module: &Module,
+    import: &ImportObject,
+    method_name: &str,
+    available_gas: u64,
+) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         module.instantiate(import).map_err(|err| err.into_vm_error())?
     };
+    wasmer0_set_available_gas(&instance, available_gas);
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
@@ -327,6 +340,8 @@ pub(crate) fn run_wasmer0_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
+    let available_gas = context.prepaid_gas;
+
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -343,7 +358,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name).err();
+    let err = run_method(&module, &import_object, method_name, available_gas).err();
     (Some(logic.outcome()), err)
 }
 

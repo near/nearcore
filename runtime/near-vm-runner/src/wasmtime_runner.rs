@@ -141,6 +141,11 @@ pub mod wasmtime_runner {
         }
     }
 
+    fn wasmtime_set_available_gas(instance: &wasmtime::Instance, available_gas: u64) {
+        let remaining_gas: wasmtime::Global = instance.get_global("remaining_gas").unwrap();
+        remaining_gas.set(wasmtime::Val::I32(available_gas as i32));
+    }
+
     pub fn run_wasmtime(
         code: &ContractCode,
         method_name: &str,
@@ -172,6 +177,7 @@ pub mod wasmtime_runner {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
+        let available_gas = context.prepaid_gas;
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
@@ -235,21 +241,24 @@ pub mod wasmtime_runner {
             }
         }
         match linker.instantiate(&module) {
-            Ok(instance) => match instance.get_func(method_name) {
-                Some(func) => match func.typed::<(), ()>() {
-                    Ok(run) => match run.call(()) {
-                        Ok(_) => (Some(logic.outcome()), None),
+            Ok(instance) => {
+                wasmtime_set_available_gas(&instance, available_gas);
+                match instance.get_func(method_name) {
+                    Some(func) => match func.typed::<(), ()>() {
+                        Ok(run) => match run.call(()) {
+                            Ok(_) => (Some(logic.outcome()), None),
+                            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
+                        },
                         Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
                     },
-                    Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-                },
-                None => (
-                    None,
-                    Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                        MethodResolveError::MethodNotFound,
-                    ))),
-                ),
-            },
+                    None => (
+                        None,
+                        Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                            MethodResolveError::MethodNotFound,
+                        ))),
+                    ),
+                }
+            }
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         }
     }

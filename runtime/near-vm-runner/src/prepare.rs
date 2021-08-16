@@ -63,7 +63,7 @@ impl<'a> ContractModule<'a> {
             return Ok(Self { module, config });
         }
         let gas_rules = rules::Set::new(1, Default::default()).with_grow_cost(config.grow_mem_cost);
-        let module = pwasm_utils::inject_gas_counter(module, &gas_rules)
+        let module = pwasm_utils::inject_global_gas_counter(module, &gas_rules)
             .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
     }

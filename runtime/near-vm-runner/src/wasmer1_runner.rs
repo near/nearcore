@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
 
 use wasmer_compiler_singlepass::Singlepass;
+use wasmer_types::Value;
 use wasmer_vm::TrapCode;
 
 pub struct Wasmer1Memory(Memory);
@@ -179,6 +180,11 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     }
 }
 
+fn wasmer1_set_available_gas(instance: &wasmer::Instance, available_gas: u64) {
+    let remaining_gas = instance.exports.get_global("remaining_gas").unwrap();
+    remaining_gas.set(Value::I32(available_gas as i32)).unwrap();
+}
+
 pub fn run_wasmer1(
     code: &ContractCode,
     method_name: &str,
@@ -230,6 +236,8 @@ pub fn run_wasmer1(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
+    let available_gas = context.prepaid_gas;
+
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -257,17 +265,23 @@ pub fn run_wasmer1(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name).err();
+    let err = run_method(&module, &import_object, method_name, available_gas).err();
     (Some(logic.outcome()), err)
 }
 
-fn run_method(module: &Module, import: &ImportObject, method_name: &str) -> Result<(), VMError> {
+fn run_method(
+    module: &Module,
+    import: &ImportObject,
+    method_name: &str,
+    available_gas: u64,
+) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
     };
+    wasmer1_set_available_gas(&instance, available_gas);
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
 
@@ -352,6 +366,8 @@ pub(crate) fn run_wasmer1_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
+    let available_gas = context.prepaid_gas;
+
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -368,6 +384,6 @@ pub(crate) fn run_wasmer1_module<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(module, &import, method_name).err();
+    let err = run_method(module, &import, method_name, available_gas).err();
     (Some(logic.outcome()), err)
 }
