@@ -570,11 +570,11 @@ mod tests {
         let mut map = HashMap::new();
         for changes_set in changes {
             assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
-            for TrieRefcountChange { value_hash: key_hash, value, rc } in changes_set.insertions {
-                map.entry(key_hash).or_insert_with(|| (value, 0)).1 += rc as i32;
+            for TrieRefcountChange { value_hash, value, rc } in changes_set.insertions {
+                map.entry(value_hash).or_insert_with(|| (value, 0)).1 += rc as i32;
             }
-            for TrieRefcountChange { value_hash: key_hash, value, rc } in changes_set.deletions {
-                map.entry(key_hash).or_insert_with(|| (value, 0)).1 -= rc as i32;
+            for TrieRefcountChange { value_hash, value, rc } in changes_set.deletions {
+                map.entry(value_hash).or_insert_with(|| (value, 0)).1 -= rc as i32;
             }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
