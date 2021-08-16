@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
 use actix_rt::ArbiterHandle;
+use actix_web;
 #[cfg(feature = "performance_stats")]
 use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use tracing::{error, info, trace};
@@ -265,6 +266,7 @@ pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
     pub arbiters: Vec<ArbiterHandle>,
+    pub rpc_servers: Vec<(&'static str, actix_web::dev::Server)>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
@@ -308,23 +310,31 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         #[cfg(feature = "adversarial")]
         adv.clone(),
     );
+
+    #[allow(unused_mut)]
+    let mut rpc_servers = Vec::new();
+
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
-        near_jsonrpc::start_http(
+        rpc_servers.extend_from_slice(&near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-        );
+        ));
     }
+
     #[cfg(feature = "rosetta_rpc")]
     if let Some(rosetta_rpc_config) = config.rosetta_rpc_config {
-        start_rosetta_rpc(
-            rosetta_rpc_config,
-            Arc::new(config.genesis.clone()),
-            client_actor.clone(),
-            view_client.clone(),
-        );
+        rpc_servers.push((
+            "Rosetta RPC",
+            start_rosetta_rpc(
+                rosetta_rpc_config,
+                Arc::new(config.genesis.clone()),
+                client_actor.clone(),
+                view_client.clone(),
+            ),
+        ));
     }
 
     config.network_config.verify();
@@ -341,6 +351,8 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
 
     network_adapter.set_recipient(network_actor.recipient());
 
+    rpc_servers.shrink_to_fit();
+
     trace!(target: "diagnostic", key="log", "Starting NEAR node with diagnostic activated");
 
     // We probably reached peak memory once on this thread, we want to see when it happens again.
@@ -350,6 +362,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     NearNode {
         client: client_actor,
         view_client,
+        rpc_servers,
         arbiters: vec![client_arbiter_handle, arbiter.handle()],
     }
 }
