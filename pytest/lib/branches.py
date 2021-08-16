@@ -79,7 +79,7 @@ def compile_current():
 
 def download_binary(uname, branch):
     """Download binary for given platform and branch."""
-    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/near'
+    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/neard'
     proto = '"=https"' if uname == 'Darwin' else '=https'
     logger.info(f'Downloading near & state-viewer for {branch}@{uname}')
     subprocess.check_output([
