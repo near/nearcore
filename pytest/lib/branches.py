@@ -52,8 +52,8 @@ def compile_binary(branch):
     prev_branch = current_branch()
     stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', str(branch)])
-    subprocess.check_output(['git', 'pull'])
-    compile_current()
+    subprocess.check_output(['git', 'pull', 'origin', str(branch)])
+    compile_current(branch)
     subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
         subprocess.check_output(['git', 'stash', 'pop'])
@@ -63,9 +63,10 @@ def escaped(branch):
     return branch.replace('/', '-')
 
 
-def compile_current():
+def compile_current(branch=None):
     """Compile current branch."""
-    branch = current_branch()
+    if branch is None:
+        branch = current_branch()
     subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
     subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
