@@ -27,9 +27,12 @@ struct CliArgs {
     /// How many iterations per block are we going to try.
     #[clap(long, default_value = "10")]
     iters: usize,
-    /// How many accounts were generated with `genesis-populate`.
+    /// Number of active accounts in the state (accounts used for estimation).
     #[clap(long, default_value = "10000")]
     accounts_num: usize,
+    /// Number of additional accounts to add to the state, among which active accounts are selected.
+    #[clap(long)]
+    additional_accounts_num: Option<usize>,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -45,9 +48,6 @@ struct CliArgs {
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
-    /// Number of additional accounts to add the state.
-    #[clap(long)]
-    additional_accounts_num: Option<usize>,
 }
 
 fn main() -> anyhow::Result<()> {
