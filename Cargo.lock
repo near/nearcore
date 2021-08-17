@@ -2161,6 +2161,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "include_dir"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31a924bd335356c7622dff9ee33d06920afcf7f762a1a991236645e08c8a484b"
+dependencies = [
+ "glob",
+ "include_dir_impl",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "include_dir_impl"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afae3917f781921d7c7813992ccadff7e816f7e6ecb4b70a9ec3e740d51da3d6"
+dependencies = [
+ "anyhow",
+ "proc-macro-hack",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "indexer-example"
 version = "0.1.0"
 dependencies = [
@@ -3085,6 +3109,7 @@ dependencies = [
  "derive_more",
  "easy-ext",
  "hex",
+ "include_dir",
  "jemallocator",
  "near-crypto",
  "near-primitives-core",

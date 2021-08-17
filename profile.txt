@@ -1,0 +1,2688 @@
+ERROR: No gas profiled
+
+METRIC: warmup PROCESSED BLOCKS: 2
+METRIC: Receipt PROCESSED BLOCKS: 2
+METRIC: SirReceipt PROCESSED BLOCKS: 1
+METRIC: ActionTransfer PROCESSED BLOCKS: 2
+METRIC: ActionCreateAccount PROCESSED BLOCKS: 2
+METRIC: ActionDeleteAccount PROCESSED BLOCKS: 2
+METRIC: ActionAddFullAccessKey PROCESSED BLOCKS: 1
+METRIC: ActionAddFunctionAccessKey1Method PROCESSED BLOCKS: 1
+METRIC: ActionAddFunctionAccessKey1000Methods PROCESSED BLOCKS: 1
+METRIC: ActionDeleteAccessKey PROCESSED BLOCKS: 1
+METRIC: ActionStake PROCESSED BLOCKS: 1
+METRIC: ActionDeploySmallest PROCESSED BLOCKS: 1
+METRIC: ActionDeploy10K PROCESSED BLOCKS: 1
+METRIC: warmup PROCESSED BLOCKS: 1
+METRIC: warmup PROCESSED BLOCKS: 1
+METRIC: ActionDeploy100K PROCESSED BLOCKS: 1
+METRIC: ActionDeploy1M PROCESSED BLOCKS: 1
+METRIC: warmup PROCESSED BLOCKS: 1
+METRIC: noop_1MiB PROCESSED BLOCKS: 1
+METRIC: noop PROCESSED BLOCKS: 1
+Measure cpu_ram_soak_test
+METRIC: cpu_ram_soak_test PROCESSED BLOCKS: 1
+Measure base_1M
+METRIC: base_1M PROCESSED BLOCKS: 1
+Measure read_memory_10b_10k
+METRIC: read_memory_10b_10k PROCESSED BLOCKS: 1
+Measure read_memory_1Mib_10k
+METRIC: read_memory_1Mib_10k PROCESSED BLOCKS: 1
+Measure write_memory_10b_10k
+METRIC: write_memory_10b_10k PROCESSED BLOCKS: 1
+Measure write_memory_1Mib_10k
+METRIC: write_memory_1Mib_10k PROCESSED BLOCKS: 1
+Measure read_register_10b_10k
+METRIC: read_register_10b_10k PROCESSED BLOCKS: 1
+Measure read_register_1Mib_10k
+METRIC: read_register_1Mib_10k PROCESSED BLOCKS: 1
+Measure write_register_10b_10k
+METRIC: write_register_10b_10k PROCESSED BLOCKS: 1
+Measure write_register_1Mib_10k
+METRIC: write_register_1Mib_10k PROCESSED BLOCKS: 1
+Measure utf8_log_10b_10k
+METRIC: utf8_log_10b_10k PROCESSED BLOCKS: 1
+Measure utf8_log_10kib_10k
+METRIC: utf8_log_10kib_10k PROCESSED BLOCKS: 1
+Measure nul_utf8_log_10b_10k
+METRIC: nul_utf8_log_10b_10k PROCESSED BLOCKS: 1
+Measure nul_utf8_log_10kib_10k
+METRIC: nul_utf8_log_10kib_10k PROCESSED BLOCKS: 1
+Measure utf16_log_10b_10k
+METRIC: utf16_log_10b_10k PROCESSED BLOCKS: 1
+Measure utf16_log_10kib_10k
+METRIC: utf16_log_10kib_10k PROCESSED BLOCKS: 1
+Measure nul_utf16_log_10b_10k
+METRIC: nul_utf16_log_10b_10k PROCESSED BLOCKS: 1
+Measure nul_utf16_log_10kib_10k
+METRIC: nul_utf16_log_10kib_10k PROCESSED BLOCKS: 1
+Measure sha256_10b_10k
+METRIC: sha256_10b_10k PROCESSED BLOCKS: 1
+Measure sha256_10kib_10k
+METRIC: sha256_10kib_10k PROCESSED BLOCKS: 1
+Measure keccak256_10b_10k
+METRIC: keccak256_10b_10k PROCESSED BLOCKS: 1
+Measure keccak256_10kib_10k
+METRIC: keccak256_10kib_10k PROCESSED BLOCKS: 1
+Measure keccak512_10b_10k
+METRIC: keccak512_10b_10k PROCESSED BLOCKS: 1
+Measure keccak512_10kib_10k
+METRIC: keccak512_10kib_10k PROCESSED BLOCKS: 1
+Measure ripemd160_10b_10k
+METRIC: ripemd160_10b_10k PROCESSED BLOCKS: 1
+Measure ripemd160_10kib_10k
+METRIC: ripemd160_10kib_10k PROCESSED BLOCKS: 1
+Measure ecrecover_10k
+METRIC: ecrecover_10k PROCESSED BLOCKS: 1
+Measure storage_write_10b_key_10b_value_1k
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 103136725659537
+Host gas: 102978444768213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [5% total, 5% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [62% total, 62% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 32203911852000 [31% total, 31% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 103136725659537
+Host gas: 102978444768213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [5% total, 5% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [62% total, 62% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 32203911852000 [31% total, 31% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 151442593437537
+Host gas: 151284312546213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [3% total, 3% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [42% total, 42% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 80509779630000 [53% total, 53% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 135340637511537
+Host gas: 135182356620213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [3% total, 3% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [47% total, 47% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 64407823704000 [47% total, 47% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_write_10b_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_read_10b_key_10b_value_1k
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 283482952041537
+Host gas: 283324671150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [22% total, 22% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 255872486916972
+Host gas: 255764396694213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [22% total, 22% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [75% total, 75% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 223668575064972
+Host gas: 223560484842213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [25% total, 25% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [71% total, 72% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 283482952041537
+Host gas: 283324671150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [22% total, 22% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 255872486916972
+Host gas: 255764396694213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [22% total, 22% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [75% total, 75% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 223668575064972
+Host gas: 223560484842213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [25% total, 25% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [71% total, 72% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_read_10b_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_has_key_10b_key_10b_value_1k
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 283482952041537
+Host gas: 283324671150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [22% total, 22% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 250590416364972
+Host gas: 250486182513213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [21% total, 21% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [77% total, 77% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 218386504512972
+Host gas: 218282270661213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [24% total, 24% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 283482952041537
+Host gas: 283324671150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [22% total, 22% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 250590416364972
+Host gas: 250486182513213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [21% total, 21% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [77% total, 77% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 218386504512972
+Host gas: 218282270661213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [24% total, 24% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_has_key_10b_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_remove_10b_key_10b_value_1k
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 283482952041537
+Host gas: 283324671150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [22% total, 22% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 269222511612972
+Host gas: 269114421390213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [19% total, 19% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [77% total, 77% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 237018599760972
+Host gas: 236910509538213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [22% total, 22% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [74% total, 74% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 251279040189537
+Host gas: 251120759298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 158280891324 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [2% total, 2% host]
+read_memory_byte -> 76026660000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [25% total, 25% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [70% total, 70% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 237018599760972
+Host gas: 236910509538213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [22% total, 22% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [74% total, 74% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10b_value_1k ---
+------------------------------
+Total gas: 237018599760972
+Host gas: 236910509538213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [1% total, 1% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [22% total, 22% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [74% total, 74% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_remove_10b_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure data_receipt_base_10b_1000
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2447502239188691
+Host gas: 19022302003269 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 54% host]
+read_memory_byte -> 216675981000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4665287664000 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2446911462316895
+Host gas: 18431525131473 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 56% host]
+read_memory_byte -> 209073315000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4082126706000 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2447502239188691
+Host gas: 19022302003269 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 54% host]
+read_memory_byte -> 216675981000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4665287664000 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2446911462316895
+Host gas: 18431525131473 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 56% host]
+read_memory_byte -> 209073315000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4082126706000 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+METRIC: data_receipt_base_10b_1000_TEST PROCESSED BLOCKS: 2
+Measure data_receipt_10b_1000
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844627944775356
+Host gas: 19041184907004 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 216812828988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844036577139936
+Host gas: 18449817271584 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 209202560322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844627944775356
+Host gas: 19041184907004 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 216812828988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844036577139936
+Host gas: 18449817271584 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 209202560322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+METRIC: data_receipt_10b_1000_TEST PROCESSED BLOCKS: 3
+Measure data_receipt_100kib_1000
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844646056576356
+Host gas: 19052588906004 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 228216827988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844054688940936
+Host gas: 18461221270584 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 220606559322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844646056576356
+Host gas: 19052588906004 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 228216827988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844054688940936
+Host gas: 18461221270584 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 220606559322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+METRIC: data_receipt_100kib_1000_TEST PROCESSED BLOCKS: 3
+Measure storage_write_10kib_key_10b_value_1k
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 863537977953501
+Host gas: 862905810768213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [4% total, 4% host]
+storage_write_base -> 64196736000000 [7% total, 7% host]
+storage_write_key_byte -> 721744558080000 [83% total, 83% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 32203911852000 [3% total, 3% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 863537977953501
+Host gas: 862905810768213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [4% total, 4% host]
+storage_write_base -> 64196736000000 [7% total, 7% host]
+storage_write_key_byte -> 721744558080000 [83% total, 83% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 32203911852000 [3% total, 3% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 911843845731501
+Host gas: 911211678546213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [4% total, 4% host]
+storage_write_base -> 64196736000000 [7% total, 7% host]
+storage_write_key_byte -> 721744558080000 [79% total, 79% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 80509779630000 [8% total, 8% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 895741889805501
+Host gas: 895109722620213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [4% total, 4% host]
+storage_write_base -> 64196736000000 [7% total, 7% host]
+storage_write_key_byte -> 721744558080000 [80% total, 80% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+touching_trie_node -> 64407823704000 [7% total, 7% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_write_10kib_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_read_10kib_key_10b_value_1k
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1043884204335501
+Host gas: 1043252037150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [69% total, 69% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 611878422390936
+Host gas: 611296445874213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [9% total, 9% host]
+storage_read_key_byte -> 316953937920000 [51% total, 51% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [31% total, 31% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 579674510538936
+Host gas: 579092534022213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [9% total, 9% host]
+storage_read_key_byte -> 316953937920000 [54% total, 54% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [27% total, 27% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1043884204335501
+Host gas: 1043252037150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [69% total, 69% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 611878422390936
+Host gas: 611296445874213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [9% total, 9% host]
+storage_read_key_byte -> 316953937920000 [51% total, 51% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [31% total, 31% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 579674510538936
+Host gas: 579092534022213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_read_base -> 56356845750000 [9% total, 9% host]
+storage_read_key_byte -> 316953937920000 [54% total, 54% host]
+storage_read_value_byte -> 56110050000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [27% total, 27% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_read_10kib_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_has_key_10kib_key_10b_value_1k
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1043884204335501
+Host gas: 1043252037150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [69% total, 69% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 604942283598936
+Host gas: 604364163453213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 578120145723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+storage_has_key_base -> 54039896625000 [8% total, 8% host]
+storage_has_key_byte -> 315298252800000 [52% total, 52% host]
+touching_trie_node -> 193223471112000 [31% total, 31% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 572738371746936
+Host gas: 572160251601213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 578120145723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+storage_has_key_base -> 54039896625000 [9% total, 9% host]
+storage_has_key_byte -> 315298252800000 [55% total, 55% host]
+touching_trie_node -> 161019559260000 [28% total, 28% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1043884204335501
+Host gas: 1043252037150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [69% total, 69% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 604942283598936
+Host gas: 604364163453213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 578120145723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+storage_has_key_base -> 54039896625000 [8% total, 8% host]
+storage_has_key_byte -> 315298252800000 [52% total, 52% host]
+touching_trie_node -> 193223471112000 [31% total, 31% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 572738371746936
+Host gas: 572160251601213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 578120145723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [6% total, 6% host]
+storage_has_key_base -> 54039896625000 [9% total, 9% host]
+storage_has_key_byte -> 315298252800000 [55% total, 55% host]
+touching_trie_node -> 161019559260000 [28% total, 28% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_has_key_10kib_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_remove_10kib_key_10b_value_1k
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1043884204335501
+Host gas: 1043252037150213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [69% total, 69% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 699578562816936
+Host gas: 698996586300213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [5% total, 5% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [7% total, 7% host]
+storage_remove_key_byte -> 391376732160000 [55% total, 55% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 209325427038000 [29% total, 29% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 667374650964936
+Host gas: 666792674448213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [5% total, 5% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [8% total, 8% host]
+storage_remove_key_byte -> 391376732160000 [58% total, 58% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [26% total, 26% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 1011680292483501
+Host gas: 1011048125298213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632167185288 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 721744558080000 [71% total, 71% host]
+storage_write_value_byte -> 310185390000 [0% total, 0% host]
+storage_write_evicted_byte -> 321173070000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [17% total, 17% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 667374650964936
+Host gas: 666792674448213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [5% total, 5% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [8% total, 8% host]
+storage_remove_key_byte -> 391376732160000 [58% total, 58% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [26% total, 26% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10kib_key_10b_value_1k ---
+------------------------------
+Total gas: 667374650964936
+Host gas: 666792674448213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 581976516723 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38925649920000 [5% total, 5% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38015640000 [0% total, 0% host]
+storage_remove_base -> 53473030500000 [8% total, 8% host]
+storage_remove_key_byte -> 391376732160000 [58% total, 58% host]
+storage_remove_ret_value_byte -> 115315560000 [0% total, 0% host]
+touching_trie_node -> 177121515186000 [26% total, 26% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_remove_10kib_key_10b_value_1k PROCESSED BLOCKS: 1
+Measure storage_write_10b_key_10kib_value_1k
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 459817906369872
+Host gas: 459185735328213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 38963663250000 [8% total, 8% host]
+storage_write_base -> 64196736000000 [13% total, 13% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [69% total, 69% host]
+touching_trie_node -> 32203911852000 [7% total, 7% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 459817906369872
+Host gas: 459185735328213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 38963663250000 [8% total, 8% host]
+storage_write_base -> 64196736000000 [13% total, 13% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [69% total, 69% host]
+touching_trie_node -> 32203911852000 [7% total, 7% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 508123774147872
+Host gas: 507491603106213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 38963663250000 [7% total, 7% host]
+storage_write_base -> 64196736000000 [12% total, 12% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [62% total, 62% host]
+touching_trie_node -> 80509779630000 [15% total, 15% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 492021818221872
+Host gas: 491389647180213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [1% total, 1% host]
+read_memory_byte -> 38963663250000 [7% total, 7% host]
+storage_write_base -> 64196736000000 [13% total, 13% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [64% total, 64% host]
+touching_trie_node -> 64407823704000 [13% total, 13% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_write_10b_key_10kib_value_1k PROCESSED BLOCKS: 1
+Measure storage_write_10b_key_10kib_value_1k
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_write_10b_key_10kib_value_1k_evict PROCESSED BLOCKS: 1
+Measure storage_read_10b_key_10kib_value_1k
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 352163067786972
+Host gas: 352054977564213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [11% total, 11% host]
+storage_read_base -> 56356845750000 [16% total, 16% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 57456691200000 [16% total, 16% host]
+touching_trie_node -> 193223471112000 [54% total, 54% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 319959155934972
+Host gas: 319851065712213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [12% total, 12% host]
+storage_read_base -> 56356845750000 [17% total, 17% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 57456691200000 [17% total, 17% host]
+touching_trie_node -> 161019559260000 [50% total, 50% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 352163067786972
+Host gas: 352054977564213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [11% total, 11% host]
+storage_read_base -> 56356845750000 [16% total, 16% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 57456691200000 [16% total, 16% host]
+touching_trie_node -> 193223471112000 [54% total, 54% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_read_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 319959155934972
+Host gas: 319851065712213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [12% total, 12% host]
+storage_read_base -> 56356845750000 [17% total, 17% host]
+storage_read_key_byte -> 309525330000 [0% total, 0% host]
+storage_read_value_byte -> 57456691200000 [17% total, 17% host]
+touching_trie_node -> 161019559260000 [50% total, 50% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_read_10b_key_10kib_value_1k PROCESSED BLOCKS: 1
+Measure storage_has_key_10b_key_10kib_value_1k
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 250590416364972
+Host gas: 250486182513213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [21% total, 21% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [77% total, 77% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 218386504512972
+Host gas: 218282270661213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [24% total, 24% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 250590416364972
+Host gas: 250486182513213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [21% total, 21% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 193223471112000 [77% total, 77% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_has_key_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 218386504512972
+Host gas: 218282270661213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 104233851759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [1% total, 1% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+storage_has_key_base -> 54039896625000 [24% total, 24% host]
+storage_has_key_byte -> 307908450000 [0% total, 0% host]
+touching_trie_node -> 161019559260000 [73% total, 73% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_has_key_10b_key_10kib_value_1k PROCESSED BLOCKS: 1
+Measure storage_remove_10b_key_10kib_value_1k
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 1007614183081872
+Host gas: 1006982012040213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [31% total, 31% host]
+storage_write_evicted_byte -> 328881223680000 [32% total, 32% host]
+touching_trie_node -> 209325427038000 [20% total, 20% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 426080329212972
+Host gas: 425972238990213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [9% total, 9% host]
+storage_remove_base -> 53473030500000 [12% total, 12% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 118083133440000 [27% total, 27% host]
+touching_trie_node -> 209325427038000 [49% total, 49% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 393876417360972
+Host gas: 393768327138213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [9% total, 9% host]
+storage_remove_base -> 53473030500000 [13% total, 13% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 118083133440000 [29% total, 29% host]
+touching_trie_node -> 177121515186000 [44% total, 44% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_write_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 975410271229872
+Host gas: 974778100188213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 632171041659 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 5219726400000 [0% total, 0% host]
+read_memory_byte -> 38963663250000 [3% total, 3% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [3% total, 3% host]
+storage_write_base -> 64196736000000 [6% total, 6% host]
+storage_write_key_byte -> 704828670000 [0% total, 0% host]
+storage_write_value_byte -> 317629839360000 [32% total, 32% host]
+storage_write_evicted_byte -> 328881223680000 [33% total, 33% host]
+touching_trie_node -> 177121515186000 [18% total, 18% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 393876417360972
+Host gas: 393768327138213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [9% total, 9% host]
+storage_remove_base -> 53473030500000 [13% total, 13% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 118083133440000 [29% total, 29% host]
+touching_trie_node -> 177121515186000 [44% total, 44% host]
+------ Actions --------
+------------------------------
+
+--- Profile storage_remove_10b_key_10kib_value_1k ---
+------------------------------
+Total gas: 393876417360972
+Host gas: 393768327138213 [99% total]
+Action gas: 0 [0% total]
+Wasm execution: 108090222759 [0% total]
+------ Host functions --------
+base -> 264768111000 [0% total, 0% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 2609863200000 [0% total, 0% host]
+read_memory_byte -> 38013330000 [0% total, 0% host]
+write_register_base -> 2865522486000 [0% total, 0% host]
+write_register_byte -> 38928015360000 [9% total, 9% host]
+storage_remove_base -> 53473030500000 [13% total, 13% host]
+storage_remove_key_byte -> 382203840000 [0% total, 0% host]
+storage_remove_ret_value_byte -> 118083133440000 [29% total, 29% host]
+touching_trie_node -> 177121515186000 [44% total, 44% host]
+------ Actions --------
+------------------------------
+
+METRIC: storage_remove_10b_key_10kib_value_1k PROCESSED BLOCKS: 1
+Measure data_receipt_base_10b_1000
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2447502239188691
+Host gas: 19022302003269 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 54% host]
+read_memory_byte -> 216675981000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4665287664000 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2446911462316895
+Host gas: 18431525131473 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 56% host]
+read_memory_byte -> 209073315000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4082126706000 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2447502239188691
+Host gas: 19022302003269 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 54% host]
+read_memory_byte -> 216675981000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4665287664000 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+--- Profile data_receipt_base_10b_1000 ---
+------------------------------
+Total gas: 2446911462316895
+Host gas: 18431525131473 [0% total]
+Action gas: 2427959010878000 [99% total]
+Wasm execution: 520926307422 [0% total]
+------ Host functions --------
+base -> 530860062555 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10442062663200 [0% total, 56% host]
+read_memory_byte -> 209073315000 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3111779061000 [0% total, 16% host]
+utf8_decoding_byte -> 4082126706000 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2319899510878000 [94% total]
+new_receipt -> 108059500000000 [4% total]
+------------------------------
+
+METRIC: data_receipt_base_10b_1000 PROCESSED BLOCKS: 2
+Measure data_receipt_10b_1000
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844627944775356
+Host gas: 19041184907004 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 216812828988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844036577139936
+Host gas: 18449817271584 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 209202560322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844627944775356
+Host gas: 19041184907004 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 216812828988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_10b_1000 ---
+------------------------------
+Total gas: 11844036577139936
+Host gas: 18449817271584 [0% total]
+Action gas: 11825065779571736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 209202560322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322219381321736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+METRIC: data_receipt_10b_1000 PROCESSED BLOCKS: 3
+Measure data_receipt_100kib_1000
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844646056576356
+Host gas: 19052588906004 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 228216827988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844054688940936
+Host gas: 18461221270584 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 220606559322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844646056576356
+Host gas: 19052588906004 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 54% host]
+read_memory_byte -> 228216827988 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 43580352 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1576992 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 60825024 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4669952951664 [0% total, 24% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+--- Profile data_receipt_100kib_1000 ---
+------------------------------
+Total gas: 11844054688940936
+Host gas: 18461221270584 [0% total]
+Action gas: 11825072487373736 [99% total]
+Wasm execution: 520980296616 [0% total]
+------ Host functions --------
+base -> 531389598777 [0% total, 2% host]
+contract_compile_base -> 35445963 [0% total, 0% host]
+contract_compile_bytes -> 2226239250 [0% total, 0% host]
+read_memory_base -> 10452502116000 [0% total, 56% host]
+read_memory_byte -> 220606559322 [0% total, 1% host]
+write_memory_base -> 2803794861 [0% total, 0% host]
+write_memory_byte -> 38132808 [0% total, 0% host]
+read_register_base -> 2517165186 [0% total, 0% host]
+read_register_byte -> 1379868 [0% total, 0% host]
+write_register_base -> 2865522486 [0% total, 0% host]
+write_register_byte -> 53221896 [0% total, 0% host]
+utf8_decoding_base -> 3114890840061 [0% total, 16% host]
+utf8_decoding_byte -> 4086208832706 [0% total, 22% host]
+promise_and_base -> 1465013400 [0% total, 0% host]
+promise_and_per_promise -> 43617408000 [0% total, 0% host]
+------ Actions --------
+function_call -> 2322226089123736 [19% total]
+new_receipt -> 9502846398250000 [80% total]
+------------------------------
+
+METRIC: data_receipt_100kib_1000 PROCESSED BLOCKS: 3
+Measure promise_and_100k
+METRIC: promise_and_100k PROCESSED BLOCKS: 2
+Measure promise_and_100k_on_1k_and
+METRIC: promise_and_100k_on_1k_and PROCESSED BLOCKS: 2
+Measure promise_return_100k
+METRIC: promise_return_100k PROCESSED BLOCKS: 2
+Measure data_producer_10b
+METRIC: data_producer_10b PROCESSED BLOCKS: 1
+Measure data_producer_100kib
+METRIC: data_producer_100kib PROCESSED BLOCKS: 1
