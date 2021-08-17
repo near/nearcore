@@ -711,12 +711,16 @@ impl Trie {
         let mut insertions = Vec::new();
         for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
             match rc.cmp(&0) {
-                Ordering::Greater => {
-                    insertions.push(TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc: rc as u32 })
-                }
-                Ordering::Less => {
-                    deletions.push(TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc: (-rc) as u32 })
-                }
+                Ordering::Greater => insertions.push(TrieRefcountChange {
+                    trie_node_or_value_hash,
+                    trie_node_or_value,
+                    rc: rc as u32,
+                }),
+                Ordering::Less => deletions.push(TrieRefcountChange {
+                    trie_node_or_value_hash,
+                    trie_node_or_value,
+                    rc: (-rc) as u32,
+                }),
                 Ordering::Equal => {}
             }
         }
