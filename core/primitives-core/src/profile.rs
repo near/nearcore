@@ -7,12 +7,49 @@ use serde::{Deserialize, Serialize};
 use crate::config::{ActionCosts, ExtCosts};
 use crate::types::Gas;
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct DataArray([u64; Self::LEN]);
+
+impl DataArray {
+    pub const LEN: usize = Cost::ALL.len();
+}
+
+impl Index<usize> for DataArray {
+    type Output = u64;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl IndexMut<usize> for DataArray {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+impl BorshDeserialize for DataArray {
+    fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
+        let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
+        let mut data_array = [0; Self::LEN];
+        data_array.copy_from_slice(&data_vec[..Self::LEN.min(data_vec.len())]);
+        Ok(Self(data_array))
+    }
+}
+
+impl BorshSerialize for DataArray {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        let v: Vec<_> = self.0.into();
+        BorshSerialize::serialize(&v, writer)
+    }
+}
+
 /// Profile of gas consumption.
 /// Vecs are used for forward compatible. should only append new costs and never remove old costs
-/// When add new cost, the new cost should also be append to ProfileData::ALL
+/// When add new cost, the new cost should also be append to Cost::ALL
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ProfileData {
-    costs: Vec<u64>,
+    data: DataArray,
 }
 
 impl Default for ProfileData {
@@ -24,14 +61,14 @@ impl Default for ProfileData {
 impl ProfileData {
     #[inline]
     pub fn new() -> Self {
-        let costs = vec![0; Cost::ALL.len()];
-        ProfileData { costs }
+        let costs = DataArray([0; DataArray::LEN]);
+        ProfileData { data: costs }
     }
 
     #[inline]
     pub fn merge(&mut self, other: &ProfileData) {
-        for i in 0..self.costs.len() {
-            self.costs[i] = self.costs[i].saturating_add(other.costs[i]);
+        for i in 0..DataArray::LEN {
+            self.data[i] = self.data[i].saturating_add(other.data[i]);
         }
     }
 
@@ -227,113 +264,103 @@ impl Index<Cost> for ProfileData {
 
     fn index(&self, index: Cost) -> &Self::Output {
         match index {
-            Cost::ActionCost { action_cost_kind: ActionCosts::create_account } => &self.costs[0],
-            Cost::ActionCost { action_cost_kind: ActionCosts::delete_account } => &self.costs[1],
-            Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract } => &self.costs[2],
-            Cost::ActionCost { action_cost_kind: ActionCosts::function_call } => &self.costs[3],
-            Cost::ActionCost { action_cost_kind: ActionCosts::transfer } => &self.costs[4],
-            Cost::ActionCost { action_cost_kind: ActionCosts::stake } => &self.costs[5],
-            Cost::ActionCost { action_cost_kind: ActionCosts::add_key } => &self.costs[6],
-            Cost::ActionCost { action_cost_kind: ActionCosts::delete_key } => &self.costs[7],
-            Cost::ActionCost { action_cost_kind: ActionCosts::value_return } => &self.costs[8],
-            Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt } => &self.costs[9],
+            Cost::ActionCost { action_cost_kind: ActionCosts::create_account } => &self.data[0],
+            Cost::ActionCost { action_cost_kind: ActionCosts::delete_account } => &self.data[1],
+            Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract } => &self.data[2],
+            Cost::ActionCost { action_cost_kind: ActionCosts::function_call } => &self.data[3],
+            Cost::ActionCost { action_cost_kind: ActionCosts::transfer } => &self.data[4],
+            Cost::ActionCost { action_cost_kind: ActionCosts::stake } => &self.data[5],
+            Cost::ActionCost { action_cost_kind: ActionCosts::add_key } => &self.data[6],
+            Cost::ActionCost { action_cost_kind: ActionCosts::delete_key } => &self.data[7],
+            Cost::ActionCost { action_cost_kind: ActionCosts::value_return } => &self.data[8],
+            Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt } => &self.data[9],
             Cost::ActionCost { action_cost_kind: ActionCosts::__count } => unreachable!(),
-            Cost::ExtCost { ext_cost_kind: ExtCosts::base } => &self.costs[10],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_base } => &self.costs[11],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_bytes } => &self.costs[12],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_base } => &self.costs[13],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_byte } => &self.costs[14],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_base } => &self.costs[15],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_byte } => &self.costs[16],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_base } => &self.costs[17],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_byte } => &self.costs[18],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_base } => &self.costs[19],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_byte } => &self.costs[20],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_base } => &self.costs[21],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_byte } => &self.costs[22],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_base } => &self.costs[23],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_byte } => &self.costs[24],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_base } => &self.costs[25],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_byte } => &self.costs[26],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_base } => &self.costs[27],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_byte } => &self.costs[28],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_base } => &self.costs[29],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_byte } => &self.costs[30],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_base } => &self.costs[31],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_block } => &self.costs[32],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::ecrecover_base } => &self.costs[33],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::log_base } => &self.costs[34],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte } => &self.costs[35],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_base } => &self.costs[36],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_key_byte } => &self.costs[37],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_value_byte } => &self.costs[38],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_evicted_byte } => {
-                &self.costs[39]
-            }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_base } => &self.costs[40],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_key_byte } => &self.costs[41],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_value_byte } => &self.costs[42],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_base } => &self.costs[43],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_key_byte } => &self.costs[44],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::base } => &self.data[10],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_base } => &self.data[11],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_bytes } => &self.data[12],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_base } => &self.data[13],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_byte } => &self.data[14],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_base } => &self.data[15],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_byte } => &self.data[16],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_base } => &self.data[17],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_byte } => &self.data[18],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_base } => &self.data[19],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_byte } => &self.data[20],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_base } => &self.data[21],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_byte } => &self.data[22],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_base } => &self.data[23],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_byte } => &self.data[24],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_base } => &self.data[25],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_byte } => &self.data[26],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_base } => &self.data[27],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_byte } => &self.data[28],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_base } => &self.data[29],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_byte } => &self.data[30],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_base } => &self.data[31],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_block } => &self.data[32],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::ecrecover_base } => &self.data[33],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::log_base } => &self.data[34],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte } => &self.data[35],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_base } => &self.data[36],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_key_byte } => &self.data[37],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_value_byte } => &self.data[38],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_evicted_byte } => &self.data[39],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_base } => &self.data[40],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_key_byte } => &self.data[41],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_value_byte } => &self.data[42],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_base } => &self.data[43],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_key_byte } => &self.data[44],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_ret_value_byte } => {
-                &self.costs[45]
+                &self.data[45]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_base } => &self.costs[46],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_byte } => &self.costs[47],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_base } => &self.data[46],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_byte } => &self.data[47],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_prefix_base } => {
-                &self.costs[48]
+                &self.data[48]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_prefix_byte } => {
-                &self.costs[49]
+                &self.data[49]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_range_base } => {
-                &self.costs[50]
+                &self.data[50]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_from_byte } => {
-                &self.costs[51]
+                &self.data[51]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_to_byte } => {
-                &self.costs[52]
+                &self.data[52]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_base } => &self.costs[53],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_key_byte } => {
-                &self.costs[54]
-            }
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_base } => &self.data[53],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_key_byte } => &self.data[54],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_value_byte } => {
-                &self.costs[55]
+                &self.data[55]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::touching_trie_node } => &self.costs[56],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_base } => &self.costs[57],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_per_promise } => &self.costs[58],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return } => &self.costs[59],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base } => &self.costs[60],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base } => {
-                &self.costs[61]
-            }
+            Cost::ExtCost { ext_cost_kind: ExtCosts::touching_trie_node } => &self.data[56],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_base } => &self.data[57],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_per_promise } => &self.data[58],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return } => &self.data[59],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base } => &self.data[60],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base } => &self.data[61],
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => {
-                &self.costs[62]
-            }
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => &self.data[62],
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte } => {
-                &self.costs[63]
-            }
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte } => &self.data[63],
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_sublinear } => {
-                &self.costs[64]
+                &self.data[64]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => {
-                &self.costs[65]
+                &self.data[65]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_byte } => {
-                &self.costs[66]
+                &self.data[66]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => &self.costs[67],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => &self.data[67],
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => &self.costs[68],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => &self.data[68],
             Cost::ExtCost { ext_cost_kind: ExtCosts::__count } => unreachable!(),
         }
     }
@@ -342,133 +369,123 @@ impl Index<Cost> for ProfileData {
 impl IndexMut<Cost> for ProfileData {
     fn index_mut(&mut self, index: Cost) -> &mut Self::Output {
         match index {
-            Cost::ActionCost { action_cost_kind: ActionCosts::create_account } => {
-                &mut self.costs[0]
-            }
-            Cost::ActionCost { action_cost_kind: ActionCosts::delete_account } => {
-                &mut self.costs[1]
-            }
+            Cost::ActionCost { action_cost_kind: ActionCosts::create_account } => &mut self.data[0],
+            Cost::ActionCost { action_cost_kind: ActionCosts::delete_account } => &mut self.data[1],
             Cost::ActionCost { action_cost_kind: ActionCosts::deploy_contract } => {
-                &mut self.costs[2]
+                &mut self.data[2]
             }
-            Cost::ActionCost { action_cost_kind: ActionCosts::function_call } => &mut self.costs[3],
-            Cost::ActionCost { action_cost_kind: ActionCosts::transfer } => &mut self.costs[4],
-            Cost::ActionCost { action_cost_kind: ActionCosts::stake } => &mut self.costs[5],
-            Cost::ActionCost { action_cost_kind: ActionCosts::add_key } => &mut self.costs[6],
-            Cost::ActionCost { action_cost_kind: ActionCosts::delete_key } => &mut self.costs[7],
-            Cost::ActionCost { action_cost_kind: ActionCosts::value_return } => &mut self.costs[8],
-            Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt } => &mut self.costs[9],
+            Cost::ActionCost { action_cost_kind: ActionCosts::function_call } => &mut self.data[3],
+            Cost::ActionCost { action_cost_kind: ActionCosts::transfer } => &mut self.data[4],
+            Cost::ActionCost { action_cost_kind: ActionCosts::stake } => &mut self.data[5],
+            Cost::ActionCost { action_cost_kind: ActionCosts::add_key } => &mut self.data[6],
+            Cost::ActionCost { action_cost_kind: ActionCosts::delete_key } => &mut self.data[7],
+            Cost::ActionCost { action_cost_kind: ActionCosts::value_return } => &mut self.data[8],
+            Cost::ActionCost { action_cost_kind: ActionCosts::new_receipt } => &mut self.data[9],
             Cost::ActionCost { action_cost_kind: ActionCosts::__count } => unreachable!(),
-            Cost::ExtCost { ext_cost_kind: ExtCosts::base } => &mut self.costs[10],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_base } => &mut self.costs[11],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_bytes } => {
-                &mut self.costs[12]
-            }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_base } => &mut self.costs[13],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_byte } => &mut self.costs[14],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_base } => &mut self.costs[15],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_byte } => &mut self.costs[16],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_base } => &mut self.costs[17],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_byte } => &mut self.costs[18],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_base } => &mut self.costs[19],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_byte } => &mut self.costs[20],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_base } => &mut self.costs[21],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_byte } => &mut self.costs[22],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_base } => &mut self.costs[23],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_byte } => &mut self.costs[24],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_base } => &mut self.costs[25],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_byte } => &mut self.costs[26],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_base } => &mut self.costs[27],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_byte } => &mut self.costs[28],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_base } => &mut self.costs[29],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_byte } => &mut self.costs[30],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_base } => &mut self.costs[31],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_block } => &mut self.costs[32],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::ecrecover_base } => &mut self.costs[33],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::log_base } => &mut self.costs[34],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte } => &mut self.costs[35],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_base } => &mut self.costs[36],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_key_byte } => {
-                &mut self.costs[37]
-            }
+            Cost::ExtCost { ext_cost_kind: ExtCosts::base } => &mut self.data[10],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_base } => &mut self.data[11],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::contract_compile_bytes } => &mut self.data[12],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_base } => &mut self.data[13],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_memory_byte } => &mut self.data[14],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_base } => &mut self.data[15],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_memory_byte } => &mut self.data[16],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_base } => &mut self.data[17],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::read_register_byte } => &mut self.data[18],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_base } => &mut self.data[19],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::write_register_byte } => &mut self.data[20],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_base } => &mut self.data[21],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf8_decoding_byte } => &mut self.data[22],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_base } => &mut self.data[23],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::utf16_decoding_byte } => &mut self.data[24],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_base } => &mut self.data[25],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::sha256_byte } => &mut self.data[26],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_base } => &mut self.data[27],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak256_byte } => &mut self.data[28],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_base } => &mut self.data[29],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::keccak512_byte } => &mut self.data[30],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_base } => &mut self.data[31],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::ripemd160_block } => &mut self.data[32],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::ecrecover_base } => &mut self.data[33],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::log_base } => &mut self.data[34],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::log_byte } => &mut self.data[35],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_base } => &mut self.data[36],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_key_byte } => &mut self.data[37],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_value_byte } => {
-                &mut self.costs[38]
+                &mut self.data[38]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_write_evicted_byte } => {
-                &mut self.costs[39]
+                &mut self.data[39]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_base } => &mut self.costs[40],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_key_byte } => &mut self.costs[41],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_base } => &mut self.data[40],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_key_byte } => &mut self.data[41],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_read_value_byte } => {
-                &mut self.costs[42]
+                &mut self.data[42]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_base } => &mut self.costs[43],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_base } => &mut self.data[43],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_key_byte } => {
-                &mut self.costs[44]
+                &mut self.data[44]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_remove_ret_value_byte } => {
-                &mut self.costs[45]
+                &mut self.data[45]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_base } => &mut self.costs[46],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_byte } => &mut self.costs[47],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_base } => &mut self.data[46],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_has_key_byte } => &mut self.data[47],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_prefix_base } => {
-                &mut self.costs[48]
+                &mut self.data[48]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_prefix_byte } => {
-                &mut self.costs[49]
+                &mut self.data[49]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_range_base } => {
-                &mut self.costs[50]
+                &mut self.data[50]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_from_byte } => {
-                &mut self.costs[51]
+                &mut self.data[51]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_create_to_byte } => {
-                &mut self.costs[52]
+                &mut self.data[52]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_base } => {
-                &mut self.costs[53]
-            }
+            Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_base } => &mut self.data[53],
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_key_byte } => {
-                &mut self.costs[54]
+                &mut self.data[54]
             }
             Cost::ExtCost { ext_cost_kind: ExtCosts::storage_iter_next_value_byte } => {
-                &mut self.costs[55]
+                &mut self.data[55]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::touching_trie_node } => &mut self.costs[56],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_base } => &mut self.costs[57],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::touching_trie_node } => &mut self.data[56],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_base } => &mut self.data[57],
             Cost::ExtCost { ext_cost_kind: ExtCosts::promise_and_per_promise } => {
-                &mut self.costs[58]
+                &mut self.data[58]
             }
-            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return } => &mut self.costs[59],
-            Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base } => &mut self.costs[60],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::promise_return } => &mut self.data[59],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::validator_stake_base } => &mut self.data[60],
             Cost::ExtCost { ext_cost_kind: ExtCosts::validator_total_stake_base } => {
-                &mut self.costs[61]
+                &mut self.data[61]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_base } => {
-                &mut self.costs[62]
+                &mut self.data[62]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_byte } => {
-                &mut self.costs[63]
+                &mut self.data[63]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_multiexp_sublinear } => {
-                &mut self.costs[64]
+                &mut self.data[64]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_base } => {
-                &mut self.costs[65]
+                &mut self.data[65]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
             Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_pairing_check_byte } => {
-                &mut self.costs[66]
+                &mut self.data[66]
             }
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => &mut self.costs[67],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_base } => &mut self.data[67],
             #[cfg(feature = "protocol_feature_alt_bn128")]
-            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => &mut self.costs[68],
+            Cost::ExtCost { ext_cost_kind: ExtCosts::alt_bn128_g1_sum_byte } => &mut self.data[68],
             Cost::ExtCost { ext_cost_kind: ExtCosts::__count } => unreachable!(),
         }
     }
