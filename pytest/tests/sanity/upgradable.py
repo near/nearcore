@@ -25,16 +25,16 @@ def main():
     node_root = get_near_tempdir('upgradable', clean=True)
     branch = branches.latest_rc_branch()
     logger.info(f"Latest rc release branch is {branch}")
-    near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test(branch)
+    neard_root, (stable_branch,
+                 current_branch) = branches.prepare_ab_test(branch)
 
     # Setup local network.
     logger.info([
-        "%snear-%s" % (near_root, stable_branch),
+        "%sneard-%s" % (neard_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
     ])
     subprocess.call([
-        "%snear-%s" % (near_root, stable_branch),
+        "%sneard-%s" % (neard_root, stable_branch),
         "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
     ])
     genesis_config_changes = [("epoch_length", 20),
@@ -50,20 +50,20 @@ def main():
     # Start 3 stable nodes and one current node.
     config = {
         "local": True,
-        'near_root': near_root,
-        'binary_name': "near-%s" % stable_branch
+        'neard_root': neard_root,
+        'binary_name': "neard-%s" % stable_branch
     }
     nodes = [
-        cluster.spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+        cluster.spin_up_node(config, neard_root, node_dirs[0], 0, None, None)
     ]
     for i in range(1, 3):
         nodes.append(
-            cluster.spin_up_node(config, near_root, node_dirs[i], i,
+            cluster.spin_up_node(config, neard_root, node_dirs[i], i,
                                  nodes[0].node_key.pk, nodes[0].addr()))
     if not os.getenv('NAYDUCK'):
-        config["binary_name"] = "near-%s" % current_branch
+        config["binary_name"] = "neard-%s" % current_branch
     nodes.append(
-        cluster.spin_up_node(config, near_root, node_dirs[3], 3,
+        cluster.spin_up_node(config, neard_root, node_dirs[3], 3,
                              nodes[0].node_key.pk, nodes[0].addr()))
 
     time.sleep(2)
@@ -79,7 +79,7 @@ def main():
     # write some random value
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10 ** 13, 0, 2,
+                               'write_random_value', [], 10**13, 0, 2,
                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
@@ -107,7 +107,7 @@ def main():
     # write some random value again
     tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[0].signer_key.account_id,
-                               'write_random_value', [], 10 ** 13, 0, 4,
+                               'write_random_value', [], 10**13, 0, 4,
                                base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
@@ -117,7 +117,7 @@ def main():
     hex_account_id = '49276d206865782149276d206865782149276d206865782149276d2068657821'
     tx = sign_payment_tx(key=nodes[0].signer_key,
                          to=hex_account_id,
-                         amount=10 ** 25,
+                         amount=10**25,
                          nonce=5,
                          blockHash=base58.b58decode(hash.encode('utf8')))
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
@@ -127,7 +127,7 @@ def main():
 
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
-    assert hex_account_balance == 10 ** 25
+    assert hex_account_balance == 10**25
 
 
 if __name__ == "__main__":
