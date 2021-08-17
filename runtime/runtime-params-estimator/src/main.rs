@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::Clap;
+use genesis_populate::add_additional_accounts;
 use near_vm_runner::VMKind;
 use nearcore::get_default_home;
 use runtime_params_estimator::cases::run;
@@ -14,7 +15,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time;
-use genesis_populate::add_additional_accounts;
 
 #[derive(Clap)]
 struct CliArgs {
