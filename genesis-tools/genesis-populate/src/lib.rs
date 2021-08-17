@@ -24,7 +24,7 @@ use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCa
 use near_store::{
     create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
-use nearcore::{get_store_path, NightshadeRuntime};
+use nearcore::{get_store_path, NightshadeRuntime, load_config};
 
 fn get_account_id(account_index: u64) -> AccountId {
     AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
@@ -282,4 +282,17 @@ impl GenesisBuilder {
         }
         Ok(())
     }
+}
+
+pub fn add_additional_accounts(home_dir: &Path, additional_accounts_num: u64) {
+    let near_config = load_config(home_dir);
+    let store = create_store(&get_store_path(home_dir));
+    GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
+        .add_additional_accounts(additional_accounts_num)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
 }

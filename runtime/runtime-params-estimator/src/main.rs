@@ -14,6 +14,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time;
+use genesis_populate::add_additional_accounts;
 
 #[derive(Clap)]
 struct CliArgs {
@@ -44,6 +45,9 @@ struct CliArgs {
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
+    /// Number of additional accounts to add the state.
+    #[clap(long)]
+    additional_accounts_num: Option<usize>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -77,6 +81,10 @@ fn main() -> anyhow::Result<()> {
         println!("\nOutput saved to:\n\n    {}", output_path.display());
 
         return Ok(());
+    }
+
+    if let Some(additional_accounts_num) = cli_args.additional_accounts_num {
+        add_additional_accounts(state_dump_path, additional_accounts_num);
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
