@@ -25,11 +25,11 @@ fn with_vm_variants(runner: fn(VMKind) -> ()) {
     #[cfg(feature = "wasmer0_vm")]
     runner(VMKind::Wasmer0);
 
-    #[cfg(feature = "wasmtime_vm")]
-    runner(VMKind::Wasmtime);
-
-    #[cfg(feature = "wasmer1_vm")]
-    runner(VMKind::Wasmer1);
+    //    #[cfg(feature = "wasmtime_vm")]
+    //    runner(VMKind::Wasmtime);
+    //
+    //    #[cfg(feature = "wasmer1_vm")]
+    //    runner(VMKind::Wasmer1);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {

@@ -143,7 +143,7 @@ pub mod wasmtime_runner {
 
     fn wasmtime_set_available_gas(instance: &wasmtime::Instance, available_gas: u64) {
         let remaining_gas: wasmtime::Global = instance.get_global("remaining_gas").unwrap();
-        remaining_gas.set(wasmtime::Val::I32(available_gas as i32));
+        remaining_gas.set(wasmtime::Val::I32(available_gas as i32)).unwrap();
     }
 
     pub fn run_wasmtime(

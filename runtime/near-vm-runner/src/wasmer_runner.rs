@@ -213,6 +213,12 @@ fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available
     remaining_gas.set(wasmer_runtime::Value::I32(available_gas as i32));
 }
 
+fn wasmer0_get_remaining_gas(instance: &wasmer_runtime_core::Instance) -> i32 {
+    let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
+    use std::convert::TryFrom;
+    i32::try_from(&remaining_gas.get()).unwrap()
+}
+
 pub fn run_wasmer<'a>(
     code: &ContractCode,
     method_name: &str,
@@ -287,7 +293,7 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name, available_gas).err();
+    let err = run_method(&module, &import_object, method_name, available_gas, &mut logic).err();
     (Some(logic.outcome()), err)
 }
 
@@ -296,6 +302,7 @@ fn run_method(
     import: &ImportObject,
     method_name: &str,
     available_gas: u64,
+    logic: &mut VMLogic,
 ) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
@@ -309,6 +316,11 @@ fn run_method(
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
         instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
+
+    let remaining_gas = wasmer0_get_remaining_gas(&instance) as u64;
+    logic
+        .burn_used_gas(available_gas - remaining_gas)
+        .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
@@ -358,7 +370,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name, available_gas).err();
+    let err = run_method(&module, &import_object, method_name, available_gas, &mut logic).err();
     (Some(logic.outcome()), err)
 }
 
