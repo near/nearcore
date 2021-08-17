@@ -203,7 +203,7 @@ impl ShardTries {
         // Not new_with_tries on purpose
         let mut store_update = StoreUpdate::new(self.get_store().storage.clone());
         for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in trie_changes.insertions.into_iter() {
-            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &value_hash);
+            let key = TrieCachingStorage::get_key_from_shard_id_and_hash(shard_id, &trie_node_or_value_hash);
             store_update.update_refcount(DBCol::ColState, key.as_ref(), &trie_node_or_value, rc as i64);
         }
         (store_update, trie_changes.new_root)
