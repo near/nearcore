@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if let Some(additional_accounts_num) = cli_args.additional_accounts_num {
-        prepare_and_dump_state(state_dump_path, additional_accounts_num);
+        prepare_and_dump_state(&state_dump_path, additional_accounts_num as u64);
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
