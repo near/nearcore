@@ -1530,7 +1530,6 @@ impl Chain {
         if shard_id as usize >= sync_prev_block.chunks().len() {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
-        // TODO: why is this prev_state_root here?
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
         let state_root_node = self
             .runtime_adapter
@@ -1541,7 +1540,6 @@ impl Chain {
         if part_id >= num_parts {
             return Err(ErrorKind::InvalidStateRequest("part_id out of bound".to_string()).into());
         }
-        // TODO: this part of logic may change when shards may change?
         let state_part = self
             .runtime_adapter
             .obtain_state_part(shard_id, &sync_hash, &state_root, part_id, num_parts)
