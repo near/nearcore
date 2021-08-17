@@ -335,15 +335,6 @@ impl NightshadeRuntime {
         }
     }
 
-    fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
-        // TODO: fix this
-        let shard_layout = &self.genesis_config.shard_layout;
-        ShardUId {
-            version: shard_layout.version(),
-            shard_id: self.account_id_to_shard_id(account_id) as u32,
-        }
-    }
-
     fn get_shard_uid_from_prev_hash(
         &self,
         shard_id: ShardId,
@@ -366,9 +357,12 @@ impl NightshadeRuntime {
         Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
     }
 
-    pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+    fn account_id_to_shard_uid(&self, account_id: &AccountId, epoch_id: &EpochId) -> ShardUId {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_shard_layout(epoch_id)?.clone())
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+        let shard_id = account_id_to_shard_id(account_id, shard_layout) as u32;
+        let version = epoch_manager.get_shard_version(epoch_id).unwrap();
+        ShardUId { version, shard_id }
     }
 
     /// Processes state update.
@@ -536,9 +530,15 @@ impl NightshadeRuntime {
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
+        // Outgoing receipts should be sorted by shards of the epoch of the next block
+        let next_block_epoch_id = if self.is_next_block_epoch_start(prev_block_hash)? {
+            self.get_next_epoch_id_from_prev_block(prev_block_hash)?
+        } else {
+            self.get_epoch_id_from_prev_block(prev_block_hash)?
+        };
         for receipt in apply_result.outgoing_receipts {
             receipt_result
-                .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                .entry(self.account_id_to_shard_id(&receipt.receiver_id, &next_block_epoch_id))
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
@@ -647,12 +647,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
         let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
 
         if let Some(state_root) = state_root {
-            let shard_uid = self.account_id_to_shard_uid(&transaction.transaction.signer_id);
+            let shard_uid =
+                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id);
             let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
@@ -994,6 +996,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards
     }
 
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
     fn num_total_parts(&self) -> usize {
         let seats = self.genesis_config.num_block_producer_seats;
         if seats > 1 {
@@ -1012,9 +1019,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
+    fn account_id_to_shard_id(&self, account_id: &AccountId, epoch_id: &EpochId) -> ShardId {
         // TODO: change this function to take the correct shard layout according to epochs
-        let shard_layout = &self.genesis_config.shard_layout;
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
         account_id_to_shard_id(account_id, shard_layout)
     }
 
@@ -1322,13 +1330,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
-        let shard_layout = self.get_shard_layout(epoch_id).map_err(|err| {
-            near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
-                err,
-                block_height,
-                *block_hash,
-            )
-        })?;
+        let shard_layout = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_shard_layout(epoch_id).map_err(|err|{
+                near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
+                    err,
+                    block_height,
+                    *block_hash,
+                )
+            })?.clone()
+        };
         match request {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
@@ -1993,7 +2004,7 @@ mod test {
         }
 
         pub fn view_account(&self, account_id: &AccountId) -> AccountView {
-            let shard_id = self.runtime.account_id_to_shard_id(account_id);
+            let shard_id = self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id);
             let shard_layout = self.runtime.get_shard_layout(&self.head.epoch_id).unwrap();
             self.runtime
                 .view_account(
@@ -2494,7 +2505,8 @@ mod test {
             validators[0].as_ref(),
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
-        let first_account_shard_id = env.runtime.account_id_to_shard_id(&"test1".parse().unwrap());
+        let first_account_shard_id =
+            env.runtime.account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default());
         let transactions = if first_account_shard_id == 0 {
             vec![vec![staking_transaction], vec![]]
         } else {

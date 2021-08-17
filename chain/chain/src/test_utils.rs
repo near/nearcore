@@ -22,7 +22,8 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
@@ -88,7 +89,8 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    u64::from((hash(account_id.as_ref().as_bytes()).0)[0]) % num_shards
+    let shard_layout = ShardLayout::v0(num_shards, 0);
+    shard_layout::account_id_to_shard_id(account_id, &shard_layout)
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -468,6 +470,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.num_shards
     }
 
+    fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -482,7 +488,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
+    fn account_id_to_shard_id(&self, account_id: &AccountId, _epoch_id: &EpochId) -> ShardId {
         account_id_to_shard_id(account_id, self.num_shards())
     }
 
@@ -555,6 +561,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
         _verify_signature: bool,
+        _epoch_id: &EpochId,
         _current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
@@ -631,7 +638,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
-                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
+                assert_eq!(
+                    self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default()),
+                    shard_id
+                );
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
@@ -652,7 +662,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         for transaction in transactions {
-            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            assert_eq!(
+                self.account_id_to_shard_id(
+                    &transaction.transaction.signer_id,
+                    &EpochId::default()
+                ),
+                shard_id
+            );
             if transaction.transaction.actions.is_empty() {
                 continue;
             }
@@ -692,7 +708,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
-            if self.account_id_to_shard_id(&from) != shard_id {
+            if self.account_id_to_shard_id(&from, &EpochId::default()) != shard_id {
                 // This is a receipt, was already debited
                 good_to_go = true;
             } else if let Some(balance) = state.amounts.get(&from) {
@@ -704,7 +720,9 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
 
             if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+                let new_receipt_hashes = if self.account_id_to_shard_id(&to, &EpochId::default())
+                    == shard_id
+                {
                     state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
                     vec![]
                 } else {
@@ -724,7 +742,9 @@ impl RuntimeAdapter for KeyValueRuntime {
                     };
                     let receipt_hash = receipt.get_hash();
                     new_receipts
-                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                        .entry(
+                            self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default()),
+                        )
                         .or_insert_with(|| vec![])
                         .push(receipt);
                     vec![receipt_hash]
@@ -1335,7 +1355,7 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::{AccountId, NumShards};
+    use near_primitives::types::{AccountId, EpochId, NumShards};
     use near_store::test_utils::create_test_store;
 
     use crate::RuntimeAdapter;
@@ -1349,7 +1369,8 @@ mod test {
                 let shard_receipts: Vec<Receipt> = receipts
                     .iter()
                     .filter(|&receipt| {
-                        self.account_id_to_shard_id(&receipt.receiver_id) == shard_id
+                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())
+                            == shard_id
                     })
                     .cloned()
                     .collect();
@@ -1386,7 +1407,8 @@ mod test {
         let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
         let naive_duration = start.elapsed();
         let start = Instant::now();
-        let prod_result = runtime_adapter.build_receipts_hashes(&receipts);
+        let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
+        let prod_result = runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster
