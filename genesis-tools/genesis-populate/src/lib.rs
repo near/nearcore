@@ -129,7 +129,8 @@ impl GenesisBuilder {
         self.unflushed_records =
             self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
 
-        let total_accounts_num = self.additional_accounts_num * self.runtime.num_shards();
+        let num_shards = self.genesis.config.shard_layout.num_shards();
+        let total_accounts_num = self.additional_accounts_num * num_shards;
         let bar = ProgressBar::new(total_accounts_num as _);
         bar.set_style(ProgressStyle::default_bar().template(
             "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
@@ -141,7 +142,7 @@ impl GenesisBuilder {
             bar.inc(1);
         }
 
-        for shard_id in 0..self.runtime.num_shards() {
+        for shard_id in 0..num_shards {
             self.flush_shard_records(shard_id)?;
         }
         bar.finish();
@@ -191,7 +192,7 @@ impl GenesisBuilder {
     fn write_genesis_block(&mut self) -> Result<()> {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
-            self.runtime.num_shards(),
+            self.genesis.config.shard_layout.num_shards(),
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
             self.genesis.config.protocol_version,

@@ -991,9 +991,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_shards(&self) -> NumShards {
-        // TODO: should be dynamic.
-        self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards
+    fn num_shards(&self, epoch_id: &EpochId) -> NumShards {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_shard_layout(epoch_id).unwrap().num_shards()
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
@@ -1332,13 +1332,16 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
         let shard_layout = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-            epoch_manager.get_shard_layout(epoch_id).map_err(|err|{
-                near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
-                    err,
-                    block_height,
-                    *block_hash,
-                )
-            })?.clone()
+            epoch_manager
+                .get_shard_layout(epoch_id)
+                .map_err(|err| {
+                    near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
+                        err,
+                        block_height,
+                        *block_hash,
+                    )
+                })?
+                .clone()
         };
         match request {
             QueryRequest::ViewAccount { account_id } => {
@@ -1931,7 +1934,7 @@ mod test {
             challenges_result: ChallengesResult,
         ) {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
-            let num_shards = self.runtime.num_shards();
+            let num_shards = self.runtime.num_shards(&self.head.epoch_id);
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];

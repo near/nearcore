@@ -745,8 +745,8 @@ impl ClientActor {
                 == Some(&next_block_producer_account)
             {
                 let num_chunks = self.client.shards_mgr.num_chunks_for_block(&head.last_block_hash);
-                let have_all_chunks =
-                    head.height == 0 || num_chunks == self.client.runtime_adapter.num_shards();
+                let have_all_chunks = head.height == 0
+                    || num_chunks == self.client.runtime_adapter.num_shards(&epoch_id);
 
                 if self.client.doomslug.ready_to_produce_block(
                     Instant::now(),
@@ -1328,7 +1328,8 @@ impl ClientActor {
                 let block_header =
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
                 let prev_hash = block_header.prev_hash().clone();
-                let shards_to_sync = (0..self.client.runtime_adapter.num_shards())
+                let epoch_id = self.client.chain.get_block_header(&sync_hash).unwrap().epoch_id();
+                let shards_to_sync = (0..self.client.runtime_adapter.num_shards(&epoch_id))
                     .filter(|x| {
                         self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
                             me.as_ref(),

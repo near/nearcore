@@ -410,7 +410,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
+    fn num_shards(&self, epoch_id: &EpochId) -> ShardId;
 
     fn num_total_parts(&self) -> usize;
 
@@ -694,11 +694,12 @@ pub trait RuntimeAdapter: Send + Sync {
         receipts: &Vec<Receipt>,
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
-        if self.num_shards() == 1 {
+        if shard_layout.num_shards() == 1 {
             return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
         let mut account_id_to_shard_id_map = HashMap::new();
-        let mut shard_receipts: Vec<_> = (0..self.num_shards()).map(|i| (i, Vec::new())).collect();
+        let mut shard_receipts: Vec<_> =
+            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
         for receipt in receipts.iter() {
             let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
                 Some(id) => *id,

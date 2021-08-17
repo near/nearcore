@@ -299,7 +299,7 @@ impl KeyValueRuntime {
 
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards()).map(|_| StateRoot::default()).collect()))
+        (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -457,16 +457,16 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id().clone())
     }
 
-    fn num_shards(&self) -> ShardId {
+    fn num_shards(&self, _epoch_id: &EpochId) -> ShardId {
         self.num_shards
     }
 
@@ -489,7 +489,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId, _epoch_id: &EpochId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+        account_id_to_shard_id(account_id, self.num_shards)
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -512,10 +512,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[epoch_valset.1];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
         if let Some(account_id) = account_id {
@@ -540,10 +540,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
@@ -1365,7 +1365,7 @@ mod test {
     impl KeyValueRuntime {
         fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
             let mut receipts_hashes = vec![];
-            for shard_id in 0..self.num_shards() {
+            for shard_id in 0..self.num_shards {
                 let shard_receipts: Vec<Receipt> = receipts
                     .iter()
                     .filter(|&receipt| {
