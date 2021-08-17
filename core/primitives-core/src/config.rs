@@ -499,6 +499,7 @@ impl ExtCostsConfig {
     BorshDeserialize,
 )]
 #[allow(non_camel_case_types)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExtCosts {
     base,
     contract_compile_base,
@@ -587,6 +588,7 @@ pub enum ExtCosts {
     BorshDeserialize,
 )]
 #[allow(non_camel_case_types)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ActionCosts {
     create_account,
     delete_account,

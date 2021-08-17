@@ -171,7 +171,7 @@ impl fmt::Debug for ProfileData {
     BorshDeserialize,
     Debug,
 )]
-#[serde(tag = "cost_kind")]
+#[serde(tag = "cost_kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Cost {
     ActionCost { action_cost_kind: ActionCosts },
     ExtCost { ext_cost_kind: ExtCosts },
