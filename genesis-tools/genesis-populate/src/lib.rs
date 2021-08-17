@@ -284,7 +284,7 @@ impl GenesisBuilder {
     }
 }
 
-pub fn add_additional_accounts(home_dir: &Path, additional_accounts_num: u64) {
+pub fn prepare_and_dump_state(home_dir: &Path, additional_accounts_num: u64) {
     let near_config = load_config(home_dir);
     let store = create_store(&get_store_path(home_dir));
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)

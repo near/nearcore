@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Clap;
-use genesis_populate::add_additional_accounts;
+use genesis_populate::prepare_and_dump_state;
 use near_vm_runner::VMKind;
 use nearcore::get_default_home;
 use runtime_params_estimator::cases::run;
@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if let Some(additional_accounts_num) = cli_args.additional_accounts_num {
-        add_additional_accounts(state_dump_path, additional_accounts_num);
+        prepare_and_dump_state(state_dump_path, additional_accounts_num);
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;

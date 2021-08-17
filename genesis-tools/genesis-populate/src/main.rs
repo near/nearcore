@@ -6,7 +6,7 @@ use clap::{App, Arg};
 use near_store::create_store;
 use nearcore::{get_default_home, get_store_path, load_config};
 
-use genesis_populate::add_additional_accounts;
+use genesis_populate::prepare_and_dump_state;
 
 fn main() {
     let default_home = get_default_home();
@@ -26,5 +26,5 @@ fn main() {
         .value_of("additional-accounts-num")
         .map(|x| x.parse::<u64>().expect("Failed to parse number of additional accounts."))
         .unwrap();
-    add_additional_accounts(home_dir, additional_accounts_num);
+    prepare_and_dump_state(home_dir, additional_accounts_num);
 }
