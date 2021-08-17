@@ -3,14 +3,17 @@ use clap::Clap;
 use near_vm_runner::VMKind;
 use nearcore::get_default_home;
 use runtime_params_estimator::cases::run;
+use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
+use runtime_params_estimator::CostTable;
 use std::env;
 use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time;
 
 #[derive(Clap)]
 struct CliArgs {
@@ -35,18 +38,45 @@ struct CliArgs {
     /// Only test contract compilation costs.
     #[clap(long)]
     compile_only: bool,
+    /// Render existing `costs.txt` as `RuntimeConfig`.
+    #[clap(long)]
+    costs_file: Option<PathBuf>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
 }
 
 fn main() -> anyhow::Result<()> {
+    let start = time::Instant::now();
+
     let cli_args = CliArgs::parse();
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
+    }
+
+    if let Some(path) = cli_args.costs_file {
+        let cost_table = fs::read_to_string(&path)
+            .ok()
+            .and_then(|it| it.parse::<CostTable>().ok())
+            .with_context(|| format!("Failed to parse {}", path.display()))?;
+
+        let runtime_config = costs_to_runtime_config(&cost_table)?;
+
+        println!("Generated RuntimeConfig:\n");
+        println!("{:#?}", runtime_config);
+
+        let str = serde_json::to_string_pretty(&runtime_config)
+            .expect("Failed serializing the runtime config");
+
+        let output_path = state_dump_path.join("runtime_config.json");
+        fs::write(&output_path, &str)
+            .with_context(|| format!("failed to write runtime config to file"))?;
+        println!("\nOutput saved to:\n\n    {}", output_path.display());
+
+        return Ok(());
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
@@ -63,7 +93,8 @@ fn main() -> anyhow::Result<()> {
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
-    let runtime_config = run(
+
+    let cost_table = run(
         Config {
             warmup_iters_per_block,
             iter_per_block,
@@ -76,13 +107,21 @@ fn main() -> anyhow::Result<()> {
         cli_args.compile_only,
     );
 
-    println!("Generated RuntimeConfig:");
-    println!("{:#?}", runtime_config);
+    let output_path = {
+        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let commit =
+            exec("git rev-parse --short HEAD").map(|hash| format!("-{}", hash)).unwrap_or_default();
+        let file_name = format!("costs-{}{}.txt", timestamp, commit);
 
-    let str = serde_json::to_string_pretty(&runtime_config)
-        .expect("Failed serializing the runtime config");
-    fs::write(state_dump_path.join("runtime_config.json"), &str)
-        .context("Failed to write runtime config to file")?;
+        env::current_dir()?.join(file_name)
+    };
+    fs::write(&output_path, &cost_table.to_string())?;
+    println!(
+        "\nFinished in {:.2?}, output saved to:\n\n    {}",
+        start.elapsed(),
+        output_path.display()
+    );
+
     Ok(())
 }
 
@@ -141,7 +180,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         buf
     };
 
-    let nearcore = format!("type=bind,source={},target=/nearcore", project_root.to_str().unwrap());
+    let nearcore =
+        format!("type=bind,source={},target=/host/nearcore", project_root.to_str().unwrap());
     let nearhome = format!("type=bind,source={},target=/.near", state_dump_path.to_str().unwrap());
 
     let mut cmd = Command::new("docker");
