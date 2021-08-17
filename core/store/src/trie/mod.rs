@@ -415,10 +415,10 @@ pub struct Trie {
 pub struct TrieRefcountChange {
     /// Hash of the value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
-    value_hash: CryptoHash,
+    trie_node_or_value_hash: CryptoHash,
     /// Value of the record. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
-    value: Vec<u8>,
+    trie_node_or_value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
     rc: u32,
@@ -709,13 +709,13 @@ impl Trie {
     ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
-        for (value_hash, (value, rc)) in changes.into_iter() {
+        for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
             match rc.cmp(&0) {
                 Ordering::Greater => {
-                    insertions.push(TrieRefcountChange { value_hash, value, rc: rc as u32 })
+                    insertions.push(TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc: rc as u32 })
                 }
                 Ordering::Less => {
-                    deletions.push(TrieRefcountChange { value_hash, value, rc: (-rc) as u32 })
+                    deletions.push(TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc: (-rc) as u32 })
                 }
                 Ordering::Equal => {}
             }

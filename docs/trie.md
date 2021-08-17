@@ -91,9 +91,9 @@ Another reason is that we can dedup values. If the same contract is deployed 100
 
 This structure is used to update `rc` in the database:
 
-- `value_hash` - hash of the value, used for uniting with shard id to get DB key,
-- `value` - value corresponding to trie key, e.g. contract code,
+- `trie_node_or_value_hash` - hash of the trie node or value, used for uniting with shard id to get DB key,
+- `trie_node_or_value` - serialized trie node or value,
 - `rc` - change of reference count.
 
-Note that for all reference-counted records, the actual value stored in DB is the concatenation of `value` and `rc`.
+Note that for all reference-counted records, the actual value stored in DB is the concatenation of `trie_node_or_value` and `rc`.
 The reference count is updated using custom merge operation `merge_refcounted_records`.
