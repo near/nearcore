@@ -413,10 +413,10 @@ pub struct Trie {
 /// Stores reference count change for some key-value pair in DB.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
-    /// Hash of the value and part of the DB key.
+    /// Hash of trie_node_or_value and part of the DB key.
     /// Used for uniting with shard id to get actual DB key.
     trie_node_or_value_hash: CryptoHash,
-    /// Value of the record. Can be either serialized RawTrieNodeWithSize or value corresponding to
+    /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
     /// some TrieKey.
     trie_node_or_value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
