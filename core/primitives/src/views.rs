@@ -27,7 +27,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::profile::{Cost, ProfileData};
+use crate::profile::{CostGasUsed, ProfileData};
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
@@ -1003,16 +1003,17 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 pub struct ProfileDataView {
-    costs: Vec<(Cost, u64)>,
+    gas_profiling_data: Vec<CostGasUsed>,
 }
 
 impl From<ProfileData> for ProfileDataView {
     fn from(profile: ProfileData) -> Self {
-        ProfileDataView { costs: profile.nonzero_costs() }
+        ProfileDataView { gas_profiling_data: profile.nonzero_costs() }
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+#[serde(tag = "version")]
 pub enum ExecutionMetadataView {
     V1,
     V2(ProfileDataView),
