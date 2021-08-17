@@ -67,7 +67,6 @@ def compile_current(branch=None):
     """Compile current branch."""
     if branch is None:
         branch = current_branch()
-    # Accommodate rename from near to neard
     subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
     subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
