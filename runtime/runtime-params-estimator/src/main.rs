@@ -57,6 +57,10 @@ fn main() -> anyhow::Result<()> {
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
+    if let Some(additional_accounts_num) = cli_args.additional_accounts_num {
+        prepare_and_dump_state(&state_dump_path, additional_accounts_num as u64);
+    }
+
     if cli_args.docker {
         return main_docker(&state_dump_path);
     }
@@ -81,10 +85,6 @@ fn main() -> anyhow::Result<()> {
         println!("\nOutput saved to:\n\n    {}", output_path.display());
 
         return Ok(());
-    }
-
-    if let Some(additional_accounts_num) = cli_args.additional_accounts_num {
-        prepare_and_dump_state(&state_dump_path, additional_accounts_num as u64);
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
@@ -175,6 +175,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
+                "--additional_accounts_num" => continue,
                 "--home" => {
                     args.next();
                     continue;
