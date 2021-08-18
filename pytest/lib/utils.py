@@ -186,7 +186,7 @@ def get_near_tempdir(subdir=None, *, clean=False):
     if subdir:
         tempdir = tempdir / subdir
     if clean and tempdir.exists():
-        shutil.rmtree(node_root)
+        shutil.rmtree(tempdir)
     tempdir.mkdir(parents=True, exist_ok=True)
     return tempdir
 

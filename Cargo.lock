@@ -3350,6 +3350,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "actix-web",
  "actix_derive",
  "awc",
  "borsh 0.8.1",
@@ -4397,6 +4398,7 @@ dependencies = [
  "anyhow",
  "borsh 0.8.1",
  "cfg-if 1.0.0",
+ "chrono",
  "clap 3.0.0-beta.2",
  "csv",
  "genesis-populate",
@@ -5062,7 +5064,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "serde_json",
