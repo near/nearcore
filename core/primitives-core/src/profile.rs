@@ -45,7 +45,6 @@ impl BorshSerialize for DataArray {
 }
 
 /// Profile of gas consumption.
-/// Vecs are used for forward compatible. should only append new costs and never remove old costs
 /// When add new cost, the new cost should also be append to Cost::ALL
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ProfileData {
