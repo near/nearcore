@@ -1333,12 +1333,12 @@ impl ClientActor {
                 let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
                 let block_header =
                     unwrap_or_run_later!(self.client.chain.get_block_header(&sync_hash));
-                let prev_hash = block_header.prev_hash();
+                let prev_hash = block_header.prev_hash().clone();
                 let shards_to_sync = (0..self.client.runtime_adapter.num_shards())
                     .filter(|x| {
                         self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
                             me.as_ref(),
-                            prev_hash,
+                            &prev_hash,
                             *x,
                             true,
                         )
