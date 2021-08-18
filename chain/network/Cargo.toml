@@ -13,6 +13,7 @@ tokio-stream = { version = "0.1.2", features = ["net"] }
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
 rand = "0.7"
+byteorder = "1.2"
 lazy_static = "1.4"
 tracing = "0.1.13"
 strum = { version = "0.20", features = ["derive"] }

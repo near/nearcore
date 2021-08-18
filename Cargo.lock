@@ -3010,6 +3010,7 @@ dependencies = [
  "actix",
  "bencher",
  "borsh 0.8.1",
+ "byteorder",
  "bytes",
  "bytesize",
  "cached",
@@ -3047,10 +3048,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "borsh 0.8.1",
- "byteorder",
  "chrono",
- "conqueue",
- "futures",
  "near-crypto",
  "near-primitives",
  "serde",

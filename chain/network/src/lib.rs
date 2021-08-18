@@ -1,9 +1,9 @@
-pub use near_network_primitives::types::{
+pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
+pub use peer_manager::PeerManagerActor;
+pub use types::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,
     NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,
 };
-pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
-pub use peer_manager::PeerManagerActor;
 
 mod cache;
 mod codec;
