@@ -266,7 +266,11 @@ pub fn run_wasmer<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let available_gas = context.prepaid_gas;
+    let gas_mode = if wasm_config.regular_op_cost > 0 {
+        GasMode::Paid(context.prepaid_gas)
+    } else {
+        GasMode::Free
+    };
 
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
@@ -294,15 +298,20 @@ pub fn run_wasmer<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name, available_gas, &mut logic).err();
+    let err = run_method(&module, &import_object, method_name, gas_mode, &mut logic).err();
     (Some(logic.outcome()), err)
+}
+
+pub enum GasMode {
+    Paid(Gas),
+    Free,
 }
 
 fn run_method(
     module: &Module,
     import: &ImportObject,
     method_name: &str,
-    available_gas: u64,
+    gas_mode: GasMode,
     logic: &mut VMLogic,
 ) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
@@ -311,23 +320,28 @@ fn run_method(
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         module.instantiate(import).map_err(|err| err.into_vm_error())?
     };
-    wasmer0_set_available_gas(&instance, available_gas);
+
+    if let GasMode::Paid(available_gas) = gas_mode {
+        wasmer0_set_available_gas(&instance, available_gas);
+    }
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
         instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
 
-    let remaining_gas = wasmer0_get_remaining_gas(&instance);
-    println!(
-        "gas before: {}, gas now: {}, gas used: {}",
-        available_gas,
-        remaining_gas,
-        available_gas - remaining_gas
-    );
-    logic
-        .burn_used_gas(available_gas - remaining_gas)
-        .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
+    if let GasMode::Paid(available_gas) = gas_mode {
+        let remaining_gas = wasmer0_get_remaining_gas(&instance);
+        println!(
+            "gas before: {}, gas now: {}, gas used: {}",
+            available_gas,
+            remaining_gas,
+            available_gas - remaining_gas
+        );
+        logic
+            .burn_used_gas(available_gas - remaining_gas)
+            .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
+    }
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
@@ -359,7 +373,11 @@ pub(crate) fn run_wasmer0_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let available_gas = context.prepaid_gas;
+    let gas_mode = if wasm_config.regular_op_cost > 0 {
+        GasMode::Paid(context.prepaid_gas)
+    } else {
+        GasMode::Free
+    };
 
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
@@ -377,7 +395,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name, available_gas, &mut logic).err();
+    let err = run_method(&module, &import_object, method_name, gas_mode, &mut logic).err();
     (Some(logic.outcome()), err)
 }
 
