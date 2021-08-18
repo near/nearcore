@@ -325,10 +325,10 @@ fn run_method(
         wasmer0_set_available_gas(&instance, available_gas);
     }
 
-    {
+    let call_result = {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-        instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
-    }
+        instance.call(&method_name, &[])
+    };
 
     if let GasMode::Paid(available_gas) = gas_mode {
         let remaining_gas = wasmer0_get_remaining_gas(&instance);
@@ -342,6 +342,7 @@ fn run_method(
             .burn_used_gas(available_gas - remaining_gas)
             .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
     }
+    call_result.map_err(|err| err.into_vm_error())?;
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
