@@ -411,13 +411,15 @@ pub struct Trie {
     pub counter: TouchedNodesCounter,
 }
 
-/// Stores reference count change for some Trie key and value.
+/// Stores reference count change for some key-value pair in DB.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
-    /// Hash of TrieKey.
-    key_hash: CryptoHash,
-    /// Value corresponding to the TrieKey stored in Trie.
-    value: Vec<u8>,
+    /// Hash of trie_node_or_value and part of the DB key.
+    /// Used for uniting with shard id to get actual DB key.
+    trie_node_or_value_hash: CryptoHash,
+    /// DB value. Can be either serialized RawTrieNodeWithSize or value corresponding to
+    /// some TrieKey.
+    trie_node_or_value: Vec<u8>,
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
     rc: u32,
@@ -708,14 +710,18 @@ impl Trie {
     ) -> (Vec<TrieRefcountChange>, Vec<TrieRefcountChange>) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
-        for (key, (value, rc)) in changes.into_iter() {
+        for (trie_node_or_value_hash, (trie_node_or_value, rc)) in changes.into_iter() {
             match rc.cmp(&0) {
-                Ordering::Greater => {
-                    insertions.push(TrieRefcountChange { key_hash: key, value, rc: rc as u32 })
-                }
-                Ordering::Less => {
-                    deletions.push(TrieRefcountChange { key_hash: key, value, rc: (-rc) as u32 })
-                }
+                Ordering::Greater => insertions.push(TrieRefcountChange {
+                    trie_node_or_value_hash,
+                    trie_node_or_value,
+                    rc: rc as u32,
+                }),
+                Ordering::Less => deletions.push(TrieRefcountChange {
+                    trie_node_or_value_hash,
+                    trie_node_or_value,
+                    rc: (-rc) as u32,
+                }),
                 Ordering::Equal => {}
             }
         }
