@@ -28,8 +28,6 @@ use near_primitives::version::{
 
 use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
-#[cfg(feature = "metric_recorder")]
-use crate::recorder::{PeerMessageMetadata, Status};
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
@@ -255,20 +253,9 @@ impl Peer {
             PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
-        #[cfg(feature = "metric_recorder")]
-        let metadata = {
-            let mut metadata: PeerMessageMetadata = msg.into();
-            metadata = metadata.set_source(self.node_id()).set_status(Status::Sent);
-            if let Some(target) = self.peer_id() {
-                metadata = metadata.set_target(target);
-            }
-            metadata
-        };
 
         match peer_message_to_bytes(msg) {
             Ok(bytes) => {
-                #[cfg(feature = "metric_recorder")]
-                self.peer_manager_addr.do_send(metadata.set_size(bytes.len()));
                 self.tracker.increment_sent(bytes.len() as u64);
                 let bytes_len = bytes.len();
                 if !self.framed.write(bytes) {
@@ -707,9 +694,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
 
-        #[cfg(feature = "metric_recorder")]
-        let msg_size = msg.len();
-
         self.tracker.increment_received(msg.len() as u64);
         if codec::is_forward_tx(&msg).unwrap_or(false) {
             let r = self.txns_since_last_block.load(Ordering::Acquire);
@@ -759,19 +743,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
         trace!(target: "network", "Received message: {}", peer_msg);
 
         self.on_receive_message();
-
-        #[cfg(feature = "metric_recorder")]
-        {
-            let mut metadata: PeerMessageMetadata = (&peer_msg).into();
-            metadata =
-                metadata.set_size(msg_size).set_target(self.node_id()).set_status(Status::Received);
-
-            if let Some(peer_id) = self.peer_id() {
-                metadata = metadata.set_source(peer_id);
-            }
-
-            self.peer_manager_addr.do_send(metadata);
-        }
 
         self.network_metrics
             .inc(NetworkMetrics::peer_message_total_rx(&peer_msg.msg_variant()).as_ref());

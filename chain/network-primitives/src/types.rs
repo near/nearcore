@@ -40,9 +40,6 @@ use near_primitives::version::{
 };
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
 
-// use crate::peer::Peer;
-#[cfg(feature = "metric_recorder")]
-use crate::recorder::MetricRecorder;
 use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
 use std::fmt::{Debug, Error, Formatter};
 use std::io;
@@ -1324,8 +1321,6 @@ pub struct NetworkInfo {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    #[cfg(feature = "metric_recorder")]
-    pub metric_recorder: MetricRecorder,
     pub peer_counter: usize,
 }
 
