@@ -1,5 +1,6 @@
-use integration_tests::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer};
-use near_primitives::shard_layout::ShardUId;
+use integration_tests::runtime_utils::{
+    get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID,
+};
 use near_primitives::{
     account::Account,
     hash::CryptoHash,
@@ -15,8 +16,6 @@ use near_store::set_account;
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::{alice_account, encode_int};
-
-const TEST_SHARD_UID: ShardUId = ShardUId { version: 1, shard_id: 0 };
 
 #[test]
 fn test_view_call() {
