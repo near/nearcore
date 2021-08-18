@@ -2009,6 +2009,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
                     let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
                         .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_uid))?
@@ -2031,6 +2032,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
                     let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
                         .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_uid))?
@@ -2054,6 +2056,7 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::StateSync { .. } => {
                 // Not apply the data from ColTrieChanges
                 // TODO: pass in the actual shard version that this block uses
+                // https://github.com/near/nearcore/issues/4710
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
                     let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_uid));
