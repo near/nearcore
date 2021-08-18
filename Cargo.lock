@@ -2801,7 +2801,6 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-vm-runner",
- "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
