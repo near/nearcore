@@ -3054,7 +3054,6 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "serde",
- "serde_json",
  "strum",
  "tokio",
  "tracing",

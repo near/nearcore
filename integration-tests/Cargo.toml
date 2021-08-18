@@ -49,7 +49,6 @@ performance_stats = ["nearcore/performance_stats", "near-network/performance_sta
 regression_tests = []
 expensive_tests = []
 adversarial = ["nearcore/adversarial"]
-metric_recorder = ["near-client-primitives/metric_recorder"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3"]

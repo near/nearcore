@@ -46,7 +46,6 @@ near-telemetry = { path = "../telemetry" }
 
 [features]
 adversarial = ["near-network-primitives/adversarial"]
-metric_recorder = ["near-network-primitives/metric_recorder"]
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
 sandbox = ["near-network-primitives/sandbox"]
