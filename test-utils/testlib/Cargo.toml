@@ -27,7 +27,6 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
@@ -41,6 +40,5 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 default = []
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
-    "node-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]

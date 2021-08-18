@@ -4,13 +4,12 @@ use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
+use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 use crate::node::Node;
+use crate::runtime_utils::get_runtime_and_trie_from_genesis;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
-use testlib::runtime_utils::{
-    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
-};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
