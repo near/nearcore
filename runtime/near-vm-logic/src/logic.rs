@@ -1075,7 +1075,19 @@ impl<'a> VMLogic<'a> {
         Ok(false as u64)
     }
 
-    /// Called by gas metering injected into Wasm. Called when wasm run out of gas
+    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    ///
+    /// # Errors
+    ///
+    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
+    /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
+    /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
+    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
+        let value = Gas::from(gas_amount) * Gas::from(self.config.regular_op_cost);
+        self.gas_counter.pay_wasm_gas(value)
+    }
+
+    /// Called by gas metering injected into Wasm global based counter when wasm run out of gas
     ///
     /// # Errors
     ///

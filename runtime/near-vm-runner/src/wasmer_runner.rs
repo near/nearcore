@@ -3,6 +3,7 @@ use crate::memory::WasmerMemory;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::types::Gas;
 use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
@@ -208,15 +209,15 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
-fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available_gas: u64) {
+fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available_gas: Gas) {
     let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
-    remaining_gas.set(wasmer_runtime::Value::I32(available_gas as i32));
+    remaining_gas.set(wasmer_runtime::Value::I64(available_gas as i64));
 }
 
-fn wasmer0_get_remaining_gas(instance: &wasmer_runtime_core::Instance) -> i32 {
+fn wasmer0_get_remaining_gas(instance: &wasmer_runtime_core::Instance) -> Gas {
     let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
     use std::convert::TryFrom;
-    i32::try_from(&remaining_gas.get()).unwrap()
+    i64::try_from(&remaining_gas.get()).unwrap() as u64
 }
 
 pub fn run_wasmer<'a>(
@@ -317,7 +318,13 @@ fn run_method(
         instance.call(&method_name, &[]).map_err(|err| err.into_vm_error())?;
     }
 
-    let remaining_gas = wasmer0_get_remaining_gas(&instance) as u64;
+    let remaining_gas = wasmer0_get_remaining_gas(&instance);
+    println!(
+        "gas before: {}, gas now: {}, gas used: {}",
+        available_gas,
+        remaining_gas,
+        available_gas - remaining_gas
+    );
     logic
         .burn_used_gas(available_gas - remaining_gas)
         .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;

@@ -109,15 +109,15 @@ impl GasCounter {
     }
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
-        //        println!("pay wasm gas");
-        //        self.deduct_gas(value, value)
-        let new_burnt_gas = self.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.max_gas_burnt {
-            self.burnt_gas = new_burnt_gas;
-            Ok(())
-        } else {
-            Err(HostError::GasLimitExceeded.into())
-        }
+        println!("pay wasm gas");
+        self.deduct_gas(value, value)
+        //        let new_burnt_gas = self.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
+        //        if new_burnt_gas <= self.max_gas_burnt {
+        //            self.burnt_gas = new_burnt_gas;
+        //            Ok(())
+        //        } else {
+        //            Err(HostError::GasLimitExceeded.into())
+        //        }
     }
 
     /// A helper function to pay a multiple of a cost.
