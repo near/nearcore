@@ -609,6 +609,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
@@ -640,6 +641,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     /// Panics if requested hash is not in storage.
     /// Never returns Error
     fn get_state_root_node(
