@@ -3,9 +3,9 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::{fmt, io};
 
@@ -14,10 +14,14 @@ use num_rational::Rational;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
+use sha2::digest::Digest;
 use smart_default::SmartDefault;
 
-use near_primitives::epoch_manager::EpochConfig;
+use crate::genesis_validate::validate_genesis;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -29,8 +33,6 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
-use sha2::digest::Digest;
-use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
 
@@ -128,6 +130,9 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
+    #[default(None)]
+    // TODO: add config for simple nightshade shards
+    pub simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -147,6 +152,9 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
+            shard_layout: ShardLayout::v0(
+                config.num_block_producer_seats_per_shard.len() as NumShards
+            ),
         }
     }
 }
@@ -164,6 +172,9 @@ impl From<&GenesisConfig> for EpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
+/// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
+/// However, we can't enfore that invariant. All fields are public, but the clients are expected to
+/// use the provided methods for instantiation, serialization and deserialization.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
@@ -175,10 +186,6 @@ pub struct Genesis {
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
     pub records_file: PathBuf,
-    /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
-    /// without calling `new` method, which has some initialization routine.
-    #[serde(skip)]
-    phantom: PhantomData<()>,
 }
 
 impl AsRef<GenesisConfig> for &Genesis {
@@ -370,20 +377,24 @@ impl GenesisJsonHasher {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis =
-            Self { config, records, records_file: PathBuf::new(), phantom: PhantomData };
-        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        validate_genesis(&genesis);
         genesis
     }
 
     pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
-        Self { config, records: GenesisRecords(vec![]), records_file, phantom: PhantomData }
+        let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
+        validate_genesis(&genesis);
+        genesis
     }
 
     /// Reads Genesis from a single file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
+        let genesis: Genesis =
+            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
+        validate_genesis(&genesis);
+        genesis
     }
 
     /// Reads Genesis from config and records files.
@@ -434,16 +445,6 @@ impl Genesis {
             }
         }
     }
-}
-
-pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
-    for record in records {
-        if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
-        }
-    }
-    total_supply
 }
 
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
@@ -543,6 +544,16 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             minimum_stake_divisor: config.minimum_stake_divisor,
         }
     }
+}
+
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
+    let mut total_supply = 0;
+    for record in records {
+        if let StateRecord::Account { account, .. } = record {
+            total_supply += account.amount() + account.locked();
+        }
+    }
+    total_supply
 }
 
 #[cfg(test)]

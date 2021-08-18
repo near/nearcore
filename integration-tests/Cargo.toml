@@ -14,10 +14,13 @@ chrono = { version = "0.4.4", features = ["serde"] }
 funty = "=1.1.0" # Pin dependency to avoid compilation errors: https://github.com/myrrlyn/funty/issues/3
 futures = "0.3"
 hex = "0.4"
+lazy_static = "1.4"
 log = "0.4"
+primitive-types = "0.10.1"
 rand = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
 
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 near-chain = { path = "../chain/chain" }
@@ -26,6 +29,8 @@ near-chunks = { path = "../chain/chunks" }
 near-client = { path = "../chain/client" }
 near-client-primitives = { path = "../chain/client-primitives" }
 near-crypto = { path = "../core/crypto" }
+near-jsonrpc = { path = "../chain/jsonrpc" }
+near-jsonrpc-client = { path = "../chain/jsonrpc/client" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
 near-logger-utils = { path = "../test-utils/logger" }
 near-metrics = { path = "../core/metrics" }
@@ -47,7 +52,6 @@ adversarial = ["nearcore/adversarial"]
 metric_recorder = ["near-client-primitives/metric_recorder"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nearcore/nightly_protocol_features", "testlib/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3", "protocol_feature_restore_receipts_after_fix"]
-nightly_protocol = ["nearcore/nightly_protocol", "testlib/nightly_protocol"]
-protocol_feature_restore_receipts_after_fix = ["nearcore/protocol_feature_restore_receipts_after_fix"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3"]
+nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]

@@ -9,6 +9,7 @@ jemallocator = "0.3"
 awc = "3.0.0-beta.5"
 actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
+actix-web = "=4.0.0-beta.6"
 actix-rt = "2"
 byteorder = "1.2"
 easy-ext = "0.2"
@@ -52,7 +53,7 @@ near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 tempfile = "3"
 testlib = { path = "../test-utils/testlib" }
 near-jsonrpc-primitives = { path = "../chain/jsonrpc-primitives" }
-primitive-types = "0.9"
+primitive-types = "0.10"
 
 [features]
 default = ["json_rpc"]
@@ -69,9 +70,9 @@ rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
 protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
+protocol_feature_simple_nightshade = ["near-primitives/protocol_feature_simple_nightshade"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_simple_nightshade"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
-protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix", "near-chain/protocol_feature_restore_receipts_after_fix", "node-runtime/protocol_feature_restore_receipts_after_fix"]
 
 # enable this to build neard with wasmer 1.0 runner
 # now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default

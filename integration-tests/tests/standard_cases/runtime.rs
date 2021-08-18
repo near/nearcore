@@ -1,9 +1,9 @@
 mod test {
     use crate::*;
+    use integration_tests::node::RuntimeNode;
     use near_chain_configs::Genesis;
     use near_primitives::state_record::StateRecord;
     use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
-    use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
     fn create_runtime_node() -> RuntimeNode {

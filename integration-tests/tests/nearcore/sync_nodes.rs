@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use actix::{Actor, Addr, System};
 use futures::{future, FutureExt};
-use num_rational::Rational;
 
+use integration_tests::genesis_helpers::genesis_block;
+use integration_tests::test_helpers::heavy_test;
 use near_actix_test_utils::run_actix;
 use near_chain::{Block, Chain};
 use near_chain_configs::Genesis;
@@ -16,6 +17,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::num_rational::Rational;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
@@ -23,7 +25,6 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig};
-use testlib::{genesis_block, test_helpers::heavy_test};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
@@ -122,7 +123,7 @@ fn sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (client1, _, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -133,7 +134,8 @@ fn sync_nodes() {
                 add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-            let (_, view_client2, _) = start_with_config(dir2.path(), near2);
+            let nearcore::NearNode { view_client: view_client2, .. } =
+                start_with_config(dir2.path(), near2);
 
             WaitOrTimeout::new(
                 Box::new(move |_ctx| {
@@ -164,10 +166,11 @@ fn sync_after_sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (client1, _, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-            let (_, view_client2, _) = start_with_config(dir2.path(), near2);
+            let nearcore::NearNode { view_client: view_client2, .. } =
+                start_with_config(dir2.path(), near2);
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -243,7 +246,8 @@ fn sync_state_stake_change() {
                 tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
             let dir2 =
                 tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
-            let (client1, view_client1, _) = start_with_config(dir1.path(), near1.clone());
+            let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1.clone());
 
             let genesis_hash = *genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -284,7 +288,7 @@ fn sync_state_stake_change() {
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                             started_copy.store(true, Ordering::SeqCst);
-                            let (_, view_client2, arbiters) =
+                            let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
                                 start_with_config(&dir2_path_copy, near2_copy);
                             *arbiters_holder2.write().unwrap() = arbiters;
 

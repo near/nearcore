@@ -11,12 +11,8 @@ deny = [
     { name = "rand", version = "<0.6" },
 
     # See: https://github.com/near/nearcore/pull/3595
-    { name = "ethabi", version = "<9.0.1" },
-    { name = "ethabi-contract", version = "<9.0.0" },
-    { name = "ethabi-derive", version = "<9.0.1" },
-    { name = "ethereum-types", version = "<0.8.0" },
     { name = "keccak-hash", version = "<0.4.1" },
-    { name = "primitive-types", version = "<0.6.2" },
+    { name = "primitive-types", version = "<0.10.1" },
     { name = "uint", version = "<0.8.2" },
 ]
 
@@ -25,9 +21,6 @@ skip = [
     { name = "humantime", version = "=2.1.0" },
     { name = "socket2", version = "=0.3.19" },
     { name = "textwrap", version = "=0.12.1" },
-
-    # crypto-mac 0.7.0 still uses it: https://github.com/RustCrypto/traits/issues/43
-    { name = "subtle", version = "=1.0.0" },
 
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
@@ -40,11 +33,6 @@ skip = [
     { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "sha2", version = "=0.8.2" },
-    { name = "crypto-mac", version = "=0.7.0" },
-    { name = "block-padding", version = "=0.1.5" },
-    { name = "block-buffer", version = "=0.7.3" },
-    { name = "opaque-debug", version = "=0.2.3" },
     { name = "generic-array", version = "=0.12.3" },
 
     # `sha2` uses it
@@ -89,7 +77,6 @@ skip = [
     { name = "getrandom", version = "=0.1.16" },
 
     # criterion and criterion-plot use conflicting versions
-    { name = "itertools", version = "=0.9.0" },
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
@@ -122,4 +109,10 @@ skip = [
     # dependency which conflicts with 0.6.7 that wasmer-engine-native
     # uses.
     { name = "libloading", version = "=0.7.0" },
+
+    # wasmer-runtime-core-near and parity-secp256k1 use an older version
+    { name = "arrayvec", version = "=0.5.2" },
+
+    # borsh uses a very old version of proc-macro-crate
+    { name = "proc-macro-crate", version = "=0.1.5" }
 ]
