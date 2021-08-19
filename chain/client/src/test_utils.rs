@@ -45,6 +45,7 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_chain::chain::StatePartsMessage;
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -71,6 +72,7 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
+    ctx: &Context<ClientActor>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
@@ -139,6 +141,7 @@ pub fn setup(
         Some(signer),
         telemetry,
         enable_doomslug,
+        ctx,
         #[cfg(feature = "adversarial")]
         adv,
     )
@@ -185,23 +188,28 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client_addr) = setup(
-        vec![validators],
-        1,
-        1,
-        5,
-        account_id,
-        skip_sync_wait,
-        100,
-        200,
-        enable_doomslug,
-        false,
-        false,
-        network_adapter.clone(),
-        transaction_validity_period,
-        Utc::now(),
-    );
-    let client_addr = client.start();
+    let mut vca: Option<Addr<ViewClientActor>> = None;
+    let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
+        let (_, client, view_client_addr) = setup(
+            vec![validators],
+            1,
+            1,
+            5,
+            account_id,
+            skip_sync_wait,
+            100,
+            200,
+            enable_doomslug,
+            false,
+            false,
+            network_adapter.clone(),
+            transaction_validity_period,
+            Utc::now(),
+            ctx,
+        );
+        vca = Some(view_client_addr);
+        client
+    });
     let client_addr1 = client_addr.clone();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
@@ -213,7 +221,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 
     network_adapter.set_recipient(network_actor.recipient());
 
-    (client_addr, view_client_addr)
+    (client_addr, vca.unwrap())
 }
 
 fn sample_binary(n: u64, k: u64) -> bool {
@@ -907,6 +915,7 @@ pub fn setup_mock_all_validators(
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
+                &ctx,
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
@@ -1097,7 +1106,8 @@ impl TestEnv {
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
+        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
+        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f, &None).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(

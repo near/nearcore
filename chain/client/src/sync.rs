@@ -24,6 +24,9 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, 
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
+use near_chain::chain::{
+    SetStateFinalizeResult, StatePartsMessage, StatePartsResponse, StatePartsTaskSource,
+};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
@@ -655,6 +658,9 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
+        state_parts_task_scheduler: &Box<dyn Fn(StatePartsMessage)>,
+        prev_execution_result: &Option<StatePartsResponse>,
+        source: StatePartsTaskSource,
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
@@ -749,12 +755,26 @@ impl StateSync {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
-                        Ok(_) => {
-                            update_sync_status = true;
-                            *shard_sync_download = ShardSyncDownload {
-                                downloads: vec![],
-                                status: ShardSyncStatus::StateDownloadComplete,
+                    match chain.set_state_finalize(
+                        shard_id,
+                        sync_hash,
+                        state_num_parts,
+                        state_parts_task_scheduler,
+                        prev_execution_result,
+                        source,
+                    ) {
+                        Ok(result) => {
+                            match result {
+                                SetStateFinalizeResult::Finished => {
+                                    update_sync_status = true;
+                                    *shard_sync_download = ShardSyncDownload {
+                                        downloads: vec![],
+                                        status: ShardSyncStatus::StateDownloadComplete,
+                                    }
+                                }
+                                _ => {
+                                    // We are not finished yet, do not change anything
+                                }
                             }
                         }
                         Err(e) => {
@@ -1042,6 +1062,9 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
+        state_parts_task_scheduler: &Box<dyn Fn(StatePartsMessage)>,
+        prev_execution_result: &Option<StatePartsResponse>,
+        source: StatePartsTaskSource,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();
@@ -1068,6 +1091,9 @@ impl StateSync {
             highest_height_peers,
             tracking_shards,
             now,
+            state_parts_task_scheduler,
+            prev_execution_result,
+            source,
         )?;
 
         if have_block && all_done {

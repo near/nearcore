@@ -2694,6 +2694,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
+ "actix",
  "borsh 0.8.1",
  "cached",
  "chrono",

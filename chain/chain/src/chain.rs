@@ -36,7 +36,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId,
+    NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -64,6 +64,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
+use actix::Message;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -207,6 +208,7 @@ pub struct Chain {
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
     pending_states_to_patch: Option<Vec<StateRecord>>,
+    currently_applying_state_part: HashMap<(EpochId, ShardId), u64>,
 }
 
 impl Chain {
@@ -244,6 +246,7 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
             pending_states_to_patch: None,
+            currently_applying_state_part: HashMap::new(),
         })
     }
 
@@ -359,6 +362,7 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
             pending_states_to_patch: None,
+            currently_applying_state_part: HashMap::new(),
         })
     }
 
@@ -1767,25 +1771,78 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
-    ) -> Result<(), Error> {
+        state_parts_task_scheduler: &Box<dyn Fn(StatePartsMessage)>,
+        prev_execution_result: &Option<StatePartsResponse>,
+        source: StatePartsTaskSource,
+    ) -> Result<SetStateFinalizeResult, Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        let map_key = (epoch_id.clone(), shard_id);
+        let current_task = self.currently_applying_state_part.get(&map_key);
 
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+        if let Some(result) = prev_execution_result {
+            if result.shard_id != shard_id || result.epoch_id != epoch_id {
+                // Results are not for this shard
+                return Ok(SetStateFinalizeResult::NoAction);
+            }
+            match current_task {
+                Some(scheduled_part_id) => {
+                    if *scheduled_part_id != result.part_id {
+                        // We had probably had to abort process last time
+                        return Ok(SetStateFinalizeResult::NoAction);
+                    }
+                }
+                None => {
+                    // We had probably had to abort process last time
+                    return Ok(SetStateFinalizeResult::NoAction);
+                }
+            }
+            if result.part_id + 1 < num_parts {
+                let part_id = result.part_id + 1;
+                let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+                let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
 
-            self.runtime_adapter.apply_state_part(
-                shard_id,
-                &state_root,
-                part_id,
-                num_parts,
-                &part,
-                &epoch_id,
-            )?;
+                state_parts_task_scheduler(StatePartsMessage {
+                    shard_id,
+                    state_root,
+                    part_id,
+                    num_parts,
+                    part,
+                    epoch_id,
+                    source,
+                });
+                self.currently_applying_state_part.insert(map_key, part_id);
+                return Ok(SetStateFinalizeResult::ScheduledNext);
+            } else {
+                self.currently_applying_state_part.remove(&map_key);
+            }
+        } else {
+            if let Some(_) = current_task {
+                // We are already doing something for this epoch and shard
+                return Ok(SetStateFinalizeResult::NoAction);
+            }
+            if num_parts != 0 {
+                let part_id = 0;
+                let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+                let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+
+                state_parts_task_scheduler(StatePartsMessage {
+                    shard_id,
+                    state_root,
+                    part_id,
+                    num_parts,
+                    part,
+                    epoch_id,
+                    source,
+                });
+                self.currently_applying_state_part.insert(map_key, part_id);
+                return Ok(SetStateFinalizeResult::ScheduledNext);
+            }
         }
+
+        // We've done with applying parts
 
         // Applying the chunk starts here
         let mut chain_update = self.chain_update();
@@ -1805,7 +1862,7 @@ impl Chain {
                 break;
             }
         }
-        Ok(())
+        Ok(SetStateFinalizeResult::Finished)
     }
 
     pub fn clear_downloaded_parts(
@@ -1814,6 +1871,7 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
+        self.currently_applying_state_part.clear();
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
         Ok(chain_store_update.commit()?)
@@ -3959,4 +4017,41 @@ pub fn collect_receipts_from_response(
     collect_receipts(
         receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
     )
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StatePartsMessage {
+    pub shard_id: ShardId,
+    pub state_root: StateRoot,
+    pub part_id: u64,
+    pub num_parts: u64,
+    pub part: Vec<u8>,
+    pub epoch_id: EpochId,
+    pub source: StatePartsTaskSource,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StatePartsResponse {
+    pub apply_result: Result<(), near_chain_primitives::error::Error>,
+    pub shard_id: ShardId,
+    pub part_id: u64,
+    pub epoch_id: EpochId,
+    pub source: StatePartsTaskSource,
+}
+
+pub enum SetStateFinalizeResult {
+    /// No action taken because response is for other epoch/shard_id
+    NoAction,
+    /// Next part scheduled to be applied
+    ScheduledNext,
+    /// All parts for this epoch and shard are applied
+    Finished,
+}
+
+#[derive(Copy, Clone)]
+pub enum StatePartsTaskSource {
+    Catchup,
+    Sync,
 }

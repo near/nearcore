@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Arbiter, Context, Handler};
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
 use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
@@ -55,6 +55,7 @@ use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use near_chain::chain::{StatePartsMessage, StatePartsResponse, StatePartsTaskSource};
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
@@ -91,6 +92,7 @@ pub struct ClientActor {
     doomslug_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
+    state_parts_task_scheduler: Box<dyn Fn(StatePartsMessage)>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -123,8 +125,18 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        ctx: &Context<ClientActor>,
         #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
+        let state_parts_arbiter = Arbiter::new();
+        let self_addr = ctx.address();
+        let runtime_adapter_clone = Arc::clone(&runtime_adapter);
+        let state_parts_actor_addr = StatePartsActor::start_in_arbiter(
+            &state_parts_arbiter.handle(),
+            move |_: &mut Context<StatePartsActor>| -> StatePartsActor {
+                StatePartsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
+            },
+        );
         wait_until_genesis(&chain_genesis.time);
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -165,6 +177,9 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
+            state_parts_task_scheduler: Box::new(move |msg: StatePartsMessage| {
+                state_parts_actor_addr.do_send(msg);
+            }),
         })
     }
 }
@@ -185,7 +200,7 @@ impl Actor for ClientActor {
         self.schedule_triggers(ctx);
 
         // Start catchup job.
-        self.catchup(ctx);
+        self.catchup(ctx, &None);
 
         // Start periodic logging of current state of the client.
         self.log_summary(ctx);
@@ -1170,7 +1185,7 @@ impl ClientActor {
         self.sync_started = true;
 
         // Start main sync loop.
-        self.sync(ctx);
+        self.sync(ctx, &None);
     }
 
     /// Select the block hash we are using to sync state. It will sync with the state before applying the
@@ -1206,10 +1221,19 @@ impl ClientActor {
     }
 
     /// Runs catchup on repeat, if this client is a validator.
-    fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+    /// Schedules itself again if it was not ran as response to state parts job result
+    fn catchup(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        prev_execution_result: &Option<StatePartsResponse>,
+    ) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client catchup".into());
-        match self.client.run_catchup(&self.network_info.highest_height_peers) {
+        match self.client.run_catchup(
+            &self.network_info.highest_height_peers,
+            &self.state_parts_task_scheduler,
+            prev_execution_result,
+        ) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
@@ -1218,15 +1242,17 @@ impl ClientActor {
             }
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            self.client.config.catchup_step_period,
-            move |act, ctx| {
-                act.catchup(ctx);
-            },
-        );
+        if prev_execution_result.is_none() {
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                self.client.config.catchup_step_period,
+                move |act, ctx| {
+                    act.catchup(ctx, &None);
+                },
+            );
+        }
     }
 
     fn run_timer<F>(
@@ -1250,7 +1276,13 @@ impl ClientActor {
     }
 
     /// Main syncing job responsible for syncing client with other peers.
-    fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+    /// Runs itself iff it was not ran as reaction for message with results of
+    /// finishing state part job
+    fn sync(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        prev_execution_result: &Option<StatePartsResponse>,
+    ) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
@@ -1259,14 +1291,16 @@ impl ClientActor {
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
 
-                near_performance_metrics::actix::run_later(
-                    ctx,
-                    file!(),
-                    line!(),
-                    self.client.config.sync_step_period, move |act, ctx| {
-                        act.sync(ctx);
-                    }
-                );
+                if prev_execution_result.is_none() {
+                    near_performance_metrics::actix::run_later(
+                        ctx,
+                        file!(),
+                        line!(),
+                        self.client.config.sync_step_period, move |act, ctx| {
+                            act.sync(ctx, &None);
+                        }
+                    );
+                }
                 return;
             }
         }));
@@ -1354,6 +1388,9 @@ impl ClientActor {
                     &self.client.runtime_adapter,
                     &self.network_info.highest_height_peers,
                     shards_to_sync,
+                    &self.state_parts_task_scheduler,
+                    prev_execution_result,
+                    StatePartsTaskSource::Sync,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
@@ -1420,15 +1457,17 @@ impl ClientActor {
             }
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            wait_period,
-            move |act, ctx| {
-                act.sync(ctx);
-            },
-        );
+        if prev_execution_result.is_none() {
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                wait_period,
+                move |act, ctx| {
+                    act.sync(ctx, &None);
+                },
+            );
+        }
     }
 
     /// Periodically log summary.
@@ -1485,6 +1524,47 @@ impl ClientActor {
     }
 }
 
+struct StatePartsActor {
+    runtime: Arc<dyn RuntimeAdapter>,
+    client_addr: Addr<ClientActor>,
+}
+
+impl Actor for StatePartsActor {
+    type Context = Context<Self>;
+}
+
+impl Handler<StatePartsMessage> for StatePartsActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StatePartsMessage, _: &mut Self::Context) -> Self::Result {
+        self.client_addr.do_send(StatePartsResponse {
+            apply_result: self.runtime.apply_state_part(
+                msg.shard_id,
+                &msg.state_root,
+                msg.part_id,
+                msg.num_parts,
+                &msg.part,
+                &msg.epoch_id,
+            ),
+            shard_id: msg.shard_id,
+            part_id: msg.part_id,
+            epoch_id: msg.epoch_id,
+            source: msg.source,
+        });
+    }
+}
+
+impl Handler<StatePartsResponse> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StatePartsResponse, ctx: &mut Self::Context) -> Self::Result {
+        match msg.source {
+            StatePartsTaskSource::Sync => self.sync(ctx, &Some(msg)),
+            StatePartsTaskSource::Catchup => self.catchup(ctx, &Some(msg)),
+        }
+    }
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     client_config: ClientConfig,
@@ -1497,7 +1577,7 @@ pub fn start_client(
     #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
-    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_ctx| {
+    let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client_config,
             chain_genesis,
@@ -1507,6 +1587,7 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            ctx,
             #[cfg(feature = "adversarial")]
             adv,
         )
