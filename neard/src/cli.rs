@@ -311,7 +311,7 @@ pub(super) struct TestnetCmd {
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the testnet with.
-    #[clap(long, default_value = "4")]
+    #[clap(long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the testnet with.
     #[clap(long = "v", default_value = "4")]

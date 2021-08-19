@@ -3,13 +3,8 @@ use byteorder::{ByteOrder, LittleEndian};
 use near_chain_configs::Genesis;
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
-use near_primitives::types::{AccountId, StateRoot};
-use near_store::test_utils::create_tries;
-use near_store::ShardTries;
-use node_runtime::Runtime;
-
-use std::collections::HashSet;
+use near_primitives::state_record::StateRecord;
+use near_primitives::types::AccountId;
 
 pub fn alice_account() -> AccountId {
     "alice.near".parse().unwrap()
@@ -45,35 +40,6 @@ pub fn add_test_contract(genesis: &mut Genesis, account_id: &AccountId) {
         account_id: account_id.clone(),
         code: near_test_contracts::rs_contract().to_vec(),
     });
-}
-
-pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
-    let tries = create_tries();
-    let runtime = Runtime::new();
-    let mut account_ids: HashSet<AccountId> = HashSet::new();
-    genesis.for_each_record(|record: &StateRecord| {
-        account_ids.insert(state_record_to_account_id(record).clone());
-    });
-    let genesis_root = runtime.apply_genesis_state(
-        tries.clone(),
-        0,
-        &genesis
-            .config
-            .validators
-            .iter()
-            .map(|account_info| {
-                (
-                    account_info.account_id.clone(),
-                    account_info.public_key.clone(),
-                    account_info.amount,
-                )
-            })
-            .collect::<Vec<_>>(),
-        &genesis,
-        &genesis.config.runtime_config,
-        account_ids,
-    );
-    (runtime, tries, genesis_root)
 }
 
 pub fn encode_int(val: i32) -> [u8; 4] {
