@@ -153,8 +153,7 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let runtime_config =
-            ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
+        let runtime_config = ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let all_epoch_config = AllEpochConfig::new(
             initial_epoch_config.clone(),

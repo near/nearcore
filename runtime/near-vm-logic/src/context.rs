@@ -1,10 +1,10 @@
 use crate::types::PublicKey;
+use near_primitives_core::config::ViewConfig;
 use near_primitives_core::serialize::u64_dec_format;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
 use serde::{Deserialize, Serialize};
-use near_primitives_core::config::ViewConfig;
 
 #[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.

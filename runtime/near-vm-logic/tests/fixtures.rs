@@ -1,5 +1,5 @@
-use near_vm_logic::VMContext;
 use near_primitives_core::config::ViewConfig;
+use near_vm_logic::VMContext;
 
 #[allow(dead_code)]
 pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
@@ -18,7 +18,7 @@ pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
         attached_deposit: 10,
         prepaid_gas: 10_u64.pow(14),
         random_seed: vec![],
-        view_config: ViewConfig {is_view, max_gas_burnt_view: None},
+        view_config: ViewConfig { is_view, max_gas_burnt_view: None },
         output_data_receivers: vec![],
     }
 }
