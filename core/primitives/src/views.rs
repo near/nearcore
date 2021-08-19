@@ -27,7 +27,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::profile::{CostGasUsed, ProfileData};
+use crate::profile::{Cost, ProfileData};
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
@@ -1002,13 +1002,26 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub struct CostGasUsed {
+    #[serde(flatten)]
+    pub cost: Cost,
+    pub gas_used: Gas,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 pub struct ProfileDataView {
-    gas_profiling_data: Vec<CostGasUsed>,
+    gas_profile: Vec<CostGasUsed>,
 }
 
 impl From<ProfileData> for ProfileDataView {
     fn from(profile: ProfileData) -> Self {
-        ProfileDataView { gas_profiling_data: profile.nonzero_costs() }
+        let mut gas_profile = Vec::new();
+        for i in Cost::ALL {
+            if profile[*i] > 0 {
+                gas_profile.push(CostGasUsed { cost: *i, gas_used: profile[*i] });
+            }
+        }
+        ProfileDataView { gas_profile }
     }
 }
 
