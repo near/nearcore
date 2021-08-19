@@ -1,7 +1,5 @@
-pub use runner::*;
+pub use crate::runner::*;
 use std::cmp::min;
-
-mod runner;
 
 /// Check that a node is able to connect to the network, even if the number
 /// of active peers of every node is high.

@@ -1,7 +1,5 @@
-pub use runner::*;
+pub use crate::runner::*;
 use std::time::Duration;
-
-mod runner;
 
 /// Check we don't try to connect to a banned peer and we don't accept
 /// incoming connection from it.
