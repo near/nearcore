@@ -7,7 +7,7 @@ use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
 use runtime_params_estimator::CostTable;
-use std::{env, io};
+use std::env;
 use std::fmt::Write;
 use std::fs;
 use std::path::Path;
