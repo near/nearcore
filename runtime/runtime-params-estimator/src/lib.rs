@@ -7,6 +7,8 @@ mod cost_table;
 mod costs_to_runtime_config;
 mod measures_to_costs;
 
+pub mod v2;
+
 // Lists all cases that we want to measure.
 pub mod cases;
 // Generates runtime fees from the measurements.
