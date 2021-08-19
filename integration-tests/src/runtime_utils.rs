@@ -14,7 +14,7 @@ use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 pub const TEST_SHARD_UID: ShardUId = ShardUId { version: 1, shard_id: 0 };
 
 pub fn get_runtime_and_trie() -> (Runtime, ShardTries, StateRoot) {
-    let mut genesis = Genesis::test_sharded(
+    let mut genesis = Genesis::test_sharded_new_version(
         vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
         3,
         vec![3],

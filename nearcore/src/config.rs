@@ -594,6 +594,20 @@ impl Genesis {
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 0),
+        )
+    }
+
+    pub fn test_sharded_new_version(
+        accounts: Vec<AccountId>,
+        num_validator_seats: NumSeats,
+        num_validator_seats_per_shard: Vec<NumSeats>,
+    ) -> Self {
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
             ShardLayout::v0(num_shards, 1),
         )
     }

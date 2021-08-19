@@ -1832,7 +1832,7 @@ mod test {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
             let validators_len = all_validators.len() as ValidatorId;
-            let mut genesis = Genesis::test_sharded(
+            let mut genesis = Genesis::test_sharded_new_version(
                 all_validators.into_iter().collect(),
                 validators_len,
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
