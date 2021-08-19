@@ -177,8 +177,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
                 "--docker" => continue,
                 "--additional-accounts-num" => {
                     args.next();
-                    continue
-                },
+                    continue;
+                }
                 "--home" => {
                     args.next();
                     continue;

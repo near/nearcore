@@ -1,10 +1,8 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use clap::{App, Arg};
 
-use near_store::create_store;
-use nearcore::{get_default_home, get_store_path, load_config};
+use nearcore::get_default_home;
 
 use genesis_populate::prepare_and_dump_state;
 
