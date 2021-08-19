@@ -149,6 +149,73 @@ pub fn setup(
     (genesis_block, client, view_client_addr)
 }
 
+pub fn setup_only_view(
+    validators: Vec<Vec<AccountId>>,
+    validator_groups: u64,
+    num_shards: NumShards,
+    epoch_length: BlockHeightDelta,
+    account_id: AccountId,
+    skip_sync_wait: bool,
+    min_block_prod_time: u64,
+    max_block_prod_time: u64,
+    archive: bool,
+    epoch_sync_enabled: bool,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    transaction_validity_period: NumBlocks,
+    genesis_time: DateTime<Utc>,
+) -> Addr<ViewClientActor> {
+    let store = create_test_store();
+    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
+        store,
+        validators,
+        validator_groups,
+        num_shards,
+        epoch_length,
+        archive,
+    ));
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        gas_price_adjustment_rate: Rational::from_integer(0),
+        transaction_validity_period,
+        epoch_length,
+        protocol_version: PROTOCOL_VERSION,
+    };
+
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        account_id.clone(),
+        KeyType::ED25519,
+        account_id.as_ref(),
+    ));
+    let telemetry = TelemetryActor::default().start();
+    let config = ClientConfig::test(
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validator_seats,
+        archive,
+        epoch_sync_enabled,
+    );
+
+    #[cfg(feature = "adversarial")]
+    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+
+    start_view_client(
+        Some(signer.validator_id().clone()),
+        chain_genesis.clone(),
+        runtime.clone(),
+        network_adapter.clone(),
+        config.clone(),
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
+    )
+}
+
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock(
     validators: Vec<AccountId>,
