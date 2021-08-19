@@ -141,6 +141,10 @@ impl ShardUId {
         res[4..].copy_from_slice(&u32::to_le_bytes(self.shard_id));
         res
     }
+    pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
+        assert!(shard_id < shard_layout.num_shards());
+        Self { shard_id: shard_id as u32, version: shard_layout.version() }
+    }
 }
 
 impl TryFrom<&[u8]> for ShardUId {

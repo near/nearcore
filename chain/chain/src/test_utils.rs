@@ -304,12 +304,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId, _block_hash: &CryptoHash) -> Trie {
-        self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 })
+    fn get_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        _block_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        Ok(self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId, _block_hash: &CryptoHash) -> Trie {
-        self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 })
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        _block_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        Ok(self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
     }
 
     fn verify_block_vrf(

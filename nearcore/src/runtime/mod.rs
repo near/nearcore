@@ -338,29 +338,38 @@ impl NightshadeRuntime {
 
     fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
         // TODO: fix this
-        let shard_layout = &self.get_shard_layout(&EpochId::default());
+        let shard_layout = &self.genesis_config.shard_layout;
         ShardUId {
             version: shard_layout.version(),
             shard_id: self.account_id_to_shard_id(account_id) as u32,
         }
     }
 
-    fn get_shard_uid_from_prev_hash(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> ShardUId {
+    fn get_shard_uid_from_prev_hash(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<ShardUId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash).unwrap();
-        let shard_version = epoch_manager.get_shard_version(&epoch_id).unwrap();
-        ShardUId { version: shard_version, shard_id: shard_id as u32 }
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
+        let shard_version = epoch_manager.get_shard_version(&epoch_id).map_err(Error::from)?;
+        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
     }
 
-    fn get_shard_uid_from_epoch_id(&self, shard_id: ShardId, epoch_id: &EpochId) -> ShardUId {
+    fn get_shard_uid_from_epoch_id(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let shard_version = epoch_manager.get_shard_version(epoch_id).unwrap();
-        ShardUId { version: shard_version, shard_id: shard_id as u32 }
+        let shard_version = epoch_manager.get_shard_version(epoch_id).map_err(Error::from)?;
+        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
     }
 
-    pub fn get_shard_layout(&self, epoch_id: &EpochId) -> ShardLayout {
+    pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_shard_layout(epoch_id).unwrap().clone()
+        Ok(epoch_manager.get_shard_layout(epoch_id)?.clone())
     }
 
     /// Processes state update.
@@ -535,7 +544,7 @@ impl NightshadeRuntime {
                 .push(receipt);
         }
 
-        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash);
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -598,14 +607,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Trie {
-        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash);
-        self.tries.get_trie_for_shard(shard_uid)
+    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
+        Ok(self.tries.get_trie_for_shard(shard_uid))
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Trie {
-        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash);
-        self.tries.get_view_trie_for_shard(shard_uid)
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
+        Ok(self.tries.get_view_trie_for_shard(shard_uid))
     }
 
     fn verify_block_vrf(
@@ -698,7 +711,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
 
         // Total amount of gas burnt for converting transactions towards receipts.
@@ -1002,7 +1015,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         // TODO: change this function to take the correct shard layout according to epochs
-        let shard_layout = &self.get_shard_layout(&EpochId::default());
+        let shard_layout = &self.genesis_config.shard_layout;
         account_id_to_shard_id(account_id, shard_layout)
     }
 
@@ -1227,7 +1240,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id, prev_block_hash);
+        let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
@@ -1310,11 +1323,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
+        let shard_layout = self.get_shard_layout(epoch_id).map_err(|err| {
+            near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
+                err,
+                block_height,
+                *block_hash,
+            )
+        })?;
         match request {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
-                    .view_account(shard_id, epoch_id, *state_root, account_id)
-                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_account_error(err, block_height, *block_hash))?;
+                    .view_account(shard_id, &shard_layout, *state_root, account_id)
+                    .map_err(|err| {
+                    near_chain::near_chain_primitives::error::QueryError::from_view_account_error(
+                        err,
+                        block_height,
+                        *block_hash,
+                    )
+                })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(account.into()),
                     block_height,
@@ -1323,7 +1349,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewCode { account_id } => {
                 let contract_code = self
-                    .view_contract_code(shard_id, epoch_id, *state_root, account_id)
+                    .view_contract_code(shard_id, &shard_layout, *state_root, account_id)
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code.into()),
@@ -1362,6 +1388,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &mut logs,
                         &self.epoch_manager,
                         current_protocol_version,
+                        &shard_layout,
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
@@ -1375,7 +1402,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewState { account_id, prefix } => {
                 let view_state_result = self
-                    .view_state(shard_id, epoch_id, *state_root, account_id, prefix.as_ref())
+                    .view_state(shard_id, &shard_layout, *state_root, account_id, prefix.as_ref())
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_state_error(
                             err,
@@ -1391,7 +1418,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
                 let access_key_list =
-                    self.view_access_keys(shard_id, epoch_id, *state_root, account_id).map_err(|err| {
+                    self.view_access_keys(shard_id, &shard_layout, *state_root, account_id).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
@@ -1414,7 +1441,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
                 let access_key = self
-                    .view_access_key(shard_id, epoch_id, *state_root, account_id, public_key)
+                    .view_access_key(shard_id, &shard_layout, *state_root, account_id, public_key)
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
@@ -1452,7 +1479,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
         let epoch_id = self.get_epoch_id(block_hash)?;
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id);
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
@@ -1505,7 +1532,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let ApplyStatePartResult { trie_changes, contract_codes } =
             Trie::apply_state_part(&state_root, part_id, num_parts, part);
         let tries = self.get_tries();
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let (store_update, _) =
             tries.apply_all(&trie_changes, shard_uid).expect("TrieChanges::into never fails");
         self.precompile_contracts(epoch_id, contract_codes)?;
@@ -1520,7 +1547,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id);
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
         self.tries
             .get_view_trie_for_shard(shard_uid)
             .retrieve_root_node(state_root)
@@ -1617,11 +1644,11 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
         shard_id: ShardId,
-        epoch_id: &EpochId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
         let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -1629,11 +1656,11 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_contract_code(
         &self,
         shard_id: ShardId,
-        epoch_id: &EpochId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
         let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_contract_code(&state_update, account_id)
     }
@@ -1654,8 +1681,9 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        shard_layout: &ShardLayout,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
         let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         let view_state = ViewApplyState {
             block_height: height,
@@ -1681,12 +1709,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_access_key(
         &self,
         shard_id: ShardId,
-        epoch_id: &EpochId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
         let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
@@ -1694,12 +1722,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_access_keys(
         &self,
         shard_id: ShardId,
-        epoch_id: &EpochId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
         let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }
@@ -1707,12 +1735,12 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_state(
         &self,
         shard_id: ShardId,
-        epoch_id: &EpochId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
         let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
@@ -1968,10 +1996,11 @@ mod test {
 
         pub fn view_account(&self, account_id: &AccountId) -> AccountView {
             let shard_id = self.runtime.account_id_to_shard_id(account_id);
+            let shard_layout = self.runtime.get_shard_layout(&self.head.epoch_id).unwrap();
             self.runtime
                 .view_account(
                     shard_id,
-                    &self.head.epoch_id,
+                    &shard_layout,
                     self.state_roots[shard_id as usize],
                     &account_id,
                 )
