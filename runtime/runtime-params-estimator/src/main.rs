@@ -7,7 +7,7 @@ use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
 use runtime_params_estimator::CostTable;
-use std::env;
+use std::{env, io};
 use std::fmt::Write;
 use std::fs;
 use std::path::Path;
@@ -52,6 +52,11 @@ fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
+
+    let mut entries = fs::read_dir(state_dump_path)?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, io::Error>>()?;
+    eprintln!("{:?}", entries);
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
