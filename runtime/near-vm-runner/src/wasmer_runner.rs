@@ -317,13 +317,32 @@ fn run_method(
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
     let instance = {
-        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
-        module.instantiate(import).map_err(|err| err.into_vm_error())?
+        let _span = tracing::debug_span!(target: "vm", "run_method/instantiate_without_start_func")
+            .entered();
+        module.instantiate_without_start_func(import).map_err(|err| err.into_vm_error())?
     };
 
     if let GasMode::Paid(available_gas) = gas_mode {
         wasmer0_set_available_gas(&instance, available_gas);
     }
+
+    let call_start_func_result = {
+        let _span = tracing::debug_span!(target: "vm", "run_method/call_start_func").entered();
+        instance.call_start_func()
+    };
+    if let GasMode::Paid(available_gas) = gas_mode {
+        let remaining_gas = wasmer0_get_remaining_gas(&instance);
+        println!(
+            "gas before: {}, gas now: {}, gas used: {}",
+            available_gas,
+            remaining_gas,
+            available_gas - remaining_gas
+        );
+        logic
+            .burn_used_gas(available_gas - remaining_gas)
+            .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
+    }
+    call_start_func_result.map_err(|err| err.into_vm_error())?;
 
     let call_result = {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
