@@ -115,8 +115,11 @@ impl<'a> VMLogic<'a> {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
-        let max_gas_burnt = if context.is_view {
-            config.limit_config.max_gas_burnt_view
+        let max_gas_burnt = if context.view_config.is_view {
+            match context.view_config.max_gas_burnt_view {
+                Some(max_gas_burnt_view) => max_gas_burnt_view,
+                None => config.limit_config.max_gas_burnt,
+            }
         } else {
             config.limit_config.max_gas_burnt
         };
@@ -125,7 +128,7 @@ impl<'a> VMLogic<'a> {
             config.ext_costs.clone(),
             max_gas_burnt,
             context.prepaid_gas,
-            context.is_view,
+            context.view_config.is_view,
         );
         Self {
             ext,
@@ -146,27 +149,6 @@ impl<'a> VMLogic<'a> {
             total_log_length: 0,
             current_protocol_version,
         }
-    }
-
-    /// Legacy initialization method that doesn't pass the protocol version and uses the last
-    /// protocol version before the change was introduced.
-    pub fn new(
-        ext: &'a mut dyn External,
-        context: VMContext,
-        config: &'a VMConfig,
-        fees_config: &'a RuntimeFeesConfig,
-        promise_results: &'a [PromiseResult],
-        memory: &'a mut dyn MemoryLike,
-    ) -> Self {
-        Self::new_with_protocol_version(
-            ext,
-            context,
-            config,
-            fees_config,
-            promise_results,
-            memory,
-            LEGACY_DEFAULT_PROTOCOL_VERSION,
-        )
     }
 
     // ###########################

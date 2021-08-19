@@ -1,7 +1,7 @@
 use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome, ViewConfig};
 
 use crate::cache::precompile_contract_vm;
 use crate::errors::ContractPrecompilatonResult;
@@ -28,7 +28,7 @@ fn default_vm_context() -> VMContext {
         attached_deposit: 0,
         prepaid_gas: 10u64.pow(18),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: ViewConfig::default(),
         output_data_receivers: vec![],
         epoch_height: 1,
     };

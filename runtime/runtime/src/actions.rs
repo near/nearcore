@@ -36,6 +36,7 @@ use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_vm_runner::precompile_contract;
+use near_primitives::config::ViewConfig;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -49,7 +50,7 @@ pub(crate) fn execute_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    is_view: bool,
+    view_config: &ViewConfig,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
     let code = match runtime_ext.get_code(account.code_hash()) {
@@ -98,7 +99,7 @@ pub(crate) fn execute_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        is_view,
+        view_config: view_config.clone(),
         output_data_receivers,
     };
 

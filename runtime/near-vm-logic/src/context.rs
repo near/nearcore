@@ -4,6 +4,7 @@ use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
 };
 use serde::{Deserialize, Serialize};
+use near_primitives_core::config::ViewConfig;
 
 #[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.
@@ -53,8 +54,8 @@ pub struct VMContext {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
-    /// Whether the execution should not charge any costs.
-    pub is_view: bool,
+    /// Configuration of view methods execution.
+    pub view_config: ViewConfig,
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,

@@ -6,7 +6,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome, ViewConfig};
 use near_vm_runner::{run_vm, MockCompiledContractCache, VMError, VMKind};
 
 use crate::State;
@@ -182,7 +182,7 @@ fn default_vm_context() -> VMContext {
         attached_deposit: 0,
         prepaid_gas: 10u64.pow(18),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: ViewConfig::default(),
         output_data_receivers: vec![],
         epoch_height: 1,
     }

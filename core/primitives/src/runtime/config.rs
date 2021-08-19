@@ -69,11 +69,8 @@ impl ActualRuntimeConfig {
     ///
     /// If `max_gas_burnt_view` is provided, the property in wasm limit
     /// configuration will be adjusted to given value.
-    pub fn new(genesis_runtime_config: RuntimeConfig, max_gas_burnt_view: Option<Gas>) -> Self {
+    pub fn new(genesis_runtime_config: RuntimeConfig) -> Self {
         let mut config = genesis_runtime_config;
-        if let Some(gas) = max_gas_burnt_view {
-            config.wasm_config.limit_config.max_gas_burnt_view = gas;
-        }
         let runtime_config = Arc::new(config.clone());
 
         // Adjust as per LowerStorageCost protocol feature.
@@ -135,16 +132,10 @@ mod tests {
     fn test_lower_cost() {
         let config = RuntimeConfig::default();
         let default_amount = config.storage_amount_per_byte;
-        let config = ActualRuntimeConfig::new(config, None);
+        let config = ActualRuntimeConfig::new(config);
         let base_cfg = config.for_protocol_version(0);
         let new_cfg = config.for_protocol_version(ProtocolVersion::MAX);
         assert_eq!(default_amount, base_cfg.storage_amount_per_byte);
         assert!(default_amount > new_cfg.storage_amount_per_byte);
-    }
-
-    #[test]
-    fn test_max_gas_burnt_view() {
-        let config = ActualRuntimeConfig::new(RuntimeConfig::default(), Some(42));
-        assert_eq!(42, config.for_protocol_version(0).wasm_config.limit_config.max_gas_burnt_view);
     }
 }
