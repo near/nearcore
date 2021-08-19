@@ -175,7 +175,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
-                "--additional_accounts_num" => {
+                "--additional-accounts-num" => {
                     args.next();
                     continue
                 },
