@@ -192,7 +192,6 @@ pub fn setup_only_view(
         KeyType::ED25519,
         account_id.as_ref(),
     ));
-    let telemetry = TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,
