@@ -53,11 +53,6 @@ fn main() -> anyhow::Result<()> {
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
-    let mut entries = fs::read_dir(state_dump_path.clone())?
-        .map(|res| res.map(|e| e.path()))
-        .collect::<Result<Vec<_>, io::Error>>()?;
-    eprintln!("{:?}", entries);
-
     if cli_args.docker {
         return main_docker(&state_dump_path);
     }
