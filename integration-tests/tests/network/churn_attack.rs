@@ -1,6 +1,4 @@
-pub use runner::*;
-
-mod runner;
+pub use crate::runner::*;
 
 /// Spin up four nodes and connect them in a square.
 /// Each node will have at most two connections.
