@@ -1,5 +1,4 @@
 use genesis_populate::state_dump::StateDump;
-use near_chain_configs::Genesis;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -18,10 +17,9 @@ pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
     workdir: tempfile::TempDir,
-    pub tries: ShardTries,
-    pub root: MerkleHash,
-    pub runtime: Runtime,
-    pub genesis: Genesis,
+    tries: ShardTries,
+    root: MerkleHash,
+    runtime: Runtime,
     prev_receipts: Vec<Receipt>,
     apply_state: ApplyState,
     epoch_info_provider: MockEpochInfoProvider,
@@ -35,8 +33,6 @@ impl RuntimeTestbed {
         let store_path = get_store_path(workdir.path());
         let StateDump { store, roots } = StateDump::from_dir(dump_dir, &store_path);
         let tries = ShardTries::new(store.clone(), 1);
-
-        let genesis = Genesis::from_file(dump_dir.join("genesis.json"));
         assert!(roots.len() <= 1, "Parameter estimation works with one shard only.");
         assert!(!roots.is_empty(), "No state roots found.");
         let root = roots[0];
@@ -91,7 +87,6 @@ impl RuntimeTestbed {
             prev_receipts,
             apply_state,
             epoch_info_provider: MockEpochInfoProvider::default(),
-            genesis,
         }
     }
 
@@ -140,10 +135,6 @@ impl RuntimeTestbed {
     }
 
     pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let mut genesis_path = self.workdir.path().to_path_buf();
-        genesis_path.push("genesis.json");
-        self.genesis.to_file(genesis_path.as_path());
-
         let state_dump = StateDump { store: self.tries.get_store(), roots: vec![self.root] };
         state_dump.save_to_dir(self.workdir.path().to_path_buf())?;
         Ok(self.workdir.path().to_path_buf())
