@@ -494,7 +494,7 @@ fn test_stack_overflow() {
             VMKind::Wasmer0 | VMKind::Wasmer1 => assert_eq!(
                 make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
                 (
-                    Some(vm_outcome_with_gas(63226248177)),
+                    Some(vm_outcome_with_gas(21103107744)),
                     Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
                         WasmTrap::Unreachable
                     )))
