@@ -2291,7 +2291,7 @@ fn test_catchup_gas_price_change() {
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let mut response = Cell::new(None);
     let mut last_response = None;
-    let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
+    let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|msg: StatePartsMessage| {
         response.set(Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
