@@ -24,8 +24,6 @@ use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
-#[cfg(feature = "metric_recorder")]
-use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
 use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
@@ -917,8 +915,6 @@ fn client_sync_headers() {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            #[cfg(feature = "metric_recorder")]
-            metric_recorder: MetricRecorder::default(),
             peer_counter: 0,
         }));
         wait_or_panic(2000);

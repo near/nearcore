@@ -2760,6 +2760,7 @@ dependencies = [
  "futures",
  "log",
  "near-chain",
+ "near-chunks-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-network",
@@ -2769,6 +2770,13 @@ dependencies = [
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde",
+]
+
+[[package]]
+name = "near-chunks-primitives"
+version = "0.1.0"
+dependencies = [
+ "near-chain-primitives",
 ]
 
 [[package]]
@@ -2821,9 +2829,9 @@ dependencies = [
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",
- "near-chunks",
+ "near-chunks-primitives",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "serde",
  "strum",
@@ -3018,19 +3026,33 @@ dependencies = [
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
+ "near-network-primitives",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
  "near-rust-allocator-proxy",
  "near-store",
  "rand 0.7.3",
- "serde",
- "serde_json",
  "strum",
  "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "near-network-primitives"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "borsh 0.8.1",
+ "chrono",
+ "near-crypto",
+ "near-primitives",
+ "serde",
+ "strum",
+ "tokio",
  "tracing",
 ]
 

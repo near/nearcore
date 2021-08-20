@@ -6,6 +6,8 @@ use near_metrics::{
 use std::collections::HashMap;
 use strum::VariantNames;
 
+use lazy_static::lazy_static;
+
 lazy_static! {
     pub static ref PEER_CONNECTIONS_TOTAL: near_metrics::Result<IntGauge> =
         try_create_int_gauge("near_peer_connections_total", "Number of connected peers");

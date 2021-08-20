@@ -18,18 +18,16 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::codec::Codec;
+use crate::peer::Peer;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
 
-use crate::codec::Codec;
 use crate::metrics;
-use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
-#[cfg(feature = "metric_recorder")]
-use crate::recorder::{MetricRecorder, PeerMessageMetadata};
 use crate::routing::{
     Edge, EdgeInfo, EdgeType, EdgeVerifierHelper, ProcessEdgeResult, RoutingTable, MAX_NUM_PEERS,
 };
@@ -74,9 +72,6 @@ const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 ///
 /// EXPONENTIAL_BACKOFF_LIMIT = math.log(60000 / 10, EXPONENTIAL_BACKOFF_RATIO)
 const EXPONENTIAL_BACKOFF_LIMIT: u64 = 91;
-/// Time to wait before sending ping to all reachable peers.
-#[cfg(feature = "metric_recorder")]
-const WAIT_BEFORE_PING: u64 = 20_000;
 /// Limit number of pending Peer actors to avoid OOM.
 const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
@@ -172,9 +167,6 @@ pub struct PeerManagerActor {
     pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
-    /// Store all collected metrics from a node.
-    #[cfg(feature = "metric_recorder")]
-    metric_recorder: MetricRecorder,
     edge_verifier_pool: Addr<EdgeVerifier>,
     txns_since_last_block: Arc<AtomicUsize>,
     pending_incoming_connections_counter: Arc<AtomicUsize>,
@@ -203,9 +195,6 @@ impl PeerManagerActor {
         let me: PeerId = config.public_key.clone().into();
         let routing_table = RoutingTable::new(me.clone(), store);
 
-        #[cfg(feature = "metric_recorder")]
-        let metric_recorder = MetricRecorder::default().set_me(me.clone());
-
         let txns_since_last_block = Arc::new(AtomicUsize::new(0));
 
         Ok(PeerManagerActor {
@@ -223,8 +212,6 @@ impl PeerManagerActor {
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
-            #[cfg(feature = "metric_recorder")]
-            metric_recorder,
             txns_since_last_block,
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
@@ -700,8 +687,6 @@ impl PeerManagerActor {
                     act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
                     act.routing_table.update(act.edge_verifier_requests_in_progress == 0);
-                    #[cfg(feature = "metric_recorder")]
-                    act.metric_recorder.set_graph(act.routing_table.get_raw_graph())
                 },
             );
         }
@@ -772,24 +757,6 @@ impl PeerManagerActor {
                         act.pending_update_nonce_request.remove(&other);
                     }
                 }
-            },
-        );
-    }
-
-    #[cfg(feature = "metric_recorder")]
-    fn ping_all_peers(&mut self, ctx: &mut Context<Self>) {
-        for peer_id in self.routing_table.reachable_peers().cloned().collect::<Vec<_>>() {
-            let nonce = self.routing_table.get_ping(peer_id.clone());
-            self.send_ping(ctx, nonce, peer_id);
-        }
-
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            Duration::from_millis(WAIT_BEFORE_PING),
-            move |act, ctx| {
-                act.ping_all_peers(ctx);
             },
         );
     }
@@ -1209,17 +1176,9 @@ impl PeerManagerActor {
     }
 
     /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
-    /// If `metric_recorder` feature flag is enabled, save how much time passed since we sent ping.
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
-        #[cfg(feature = "metric_recorder")]
-        let source = pong.source.clone();
         #[allow(unused_variables)]
         let latency = self.routing_table.add_pong(pong);
-        #[cfg(feature = "metric_recorder")]
-        latency.and_then::<(), _>(|latency| {
-            self.metric_recorder.add_latency(source, latency);
-            None
-        });
     }
 
     pub(crate) fn get_network_info(&mut self) -> NetworkInfo {
@@ -1246,8 +1205,6 @@ impl PeerManagerActor {
                     addr: None,
                 })
                 .collect(),
-            #[cfg(feature = "metric_recorder")]
-            metric_recorder: self.metric_recorder.clone(),
             peer_counter: self.peer_counter.load(Ordering::SeqCst),
         }
     }
@@ -1332,10 +1289,6 @@ impl Actor for PeerManagerActor {
 
         // Start active peer stats querying.
         self.monitor_peer_stats(ctx);
-
-        // Periodically ping all peers to determine latencies between pair of peers.
-        #[cfg(feature = "metric_recorder")]
-        self.ping_all_peers(ctx);
 
         self.broadcast_edges(ctx);
     }
@@ -2001,16 +1954,5 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
         }
-    }
-}
-
-#[cfg(feature = "metric_recorder")]
-impl Handler<PeerMessageMetadata> for PeerManagerActor {
-    type Result = ();
-    #[perf]
-    fn handle(&mut self, msg: PeerMessageMetadata, _ctx: &mut Self::Context) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("peer message metadata".into());
-        self.metric_recorder.handle_peer_message(msg);
     }
 }
