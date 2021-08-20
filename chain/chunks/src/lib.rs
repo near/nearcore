@@ -40,12 +40,11 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-pub use crate::types::Error;
+pub use near_chunks_primitives::Error;
 use rand::Rng;
 
 mod chunk_cache;
 pub mod test_utils;
-mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
 pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
