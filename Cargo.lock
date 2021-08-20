@@ -2264,6 +2264,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-store",
+ "near-telemetry",
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-runner",
@@ -2275,6 +2276,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tracing",
 ]
 
 [[package]]
@@ -2809,7 +2811,6 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-vm-runner",
- "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -3022,7 +3023,6 @@ dependencies = [
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
- "near-client",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
@@ -3032,7 +3032,6 @@ dependencies = [
  "near-primitives",
  "near-rust-allocator-proxy",
  "near-store",
- "near-telemetry",
  "rand 0.7.3",
  "strum",
  "tempfile",

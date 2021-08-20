@@ -1,10 +1,9 @@
-pub use runner::*;
+pub use crate::runner::*;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-mod runner;
 use actix::actors::mocker::Mocker;
 use actix::System;
 use actix::{Actor, Arbiter};

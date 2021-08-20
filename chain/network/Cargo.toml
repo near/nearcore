@@ -42,9 +42,6 @@ near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 tempfile = "3"
 bencher = "0.1.5"
 
-near-client = { path = "../client" }
-near-telemetry = { path = "../telemetry" }
-
 [features]
 adversarial = ["near-network-primitives/adversarial"]
 delay_detector = ["delay-detector"]
