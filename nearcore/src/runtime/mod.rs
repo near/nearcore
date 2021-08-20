@@ -357,12 +357,11 @@ impl NightshadeRuntime {
         Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
     }
 
-    fn account_id_to_shard_uid(&self, account_id: &AccountId, epoch_id: &EpochId) -> ShardUId {
+    fn account_id_to_shard_uid(&self, account_id: &AccountId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
-        let shard_id = account_id_to_shard_id(account_id, shard_layout) as u32;
-        let version = epoch_manager.get_shard_version(epoch_id).unwrap();
-        ShardUId { version, shard_id }
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        let shard_id = account_id_to_shard_id(account_id, shard_layout);
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
     }
 
     /// Processes state update.
@@ -538,7 +537,7 @@ impl NightshadeRuntime {
         };
         for receipt in apply_result.outgoing_receipts {
             receipt_result
-                .entry(self.account_id_to_shard_id(&receipt.receiver_id, &next_block_epoch_id))
+                .entry(self.account_id_to_shard_id(&receipt.receiver_id, &next_block_epoch_id)?)
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
@@ -654,7 +653,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         if let Some(state_root) = state_root {
             let shard_uid =
-                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id);
+                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
             let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
@@ -1019,11 +1018,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId, epoch_id: &EpochId) -> ShardId {
-        // TODO: change this function to take the correct shard layout according to epochs
+    fn account_id_to_shard_id(&self, account_id: &AccountId, epoch_id: &EpochId) -> Result<ShardId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
-        account_id_to_shard_id(account_id, shard_layout)
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(account_id_to_shard_id(account_id, shard_layout))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -2007,7 +2005,7 @@ mod test {
         }
 
         pub fn view_account(&self, account_id: &AccountId) -> AccountView {
-            let shard_id = self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id);
+            let shard_id = self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id).unwrap();
             let shard_layout = self.runtime.get_shard_layout(&self.head.epoch_id).unwrap();
             self.runtime
                 .view_account(
@@ -2509,7 +2507,7 @@ mod test {
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
         let first_account_shard_id =
-            env.runtime.account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default());
+            env.runtime.account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default()).unwrap();
         let transactions = if first_account_shard_id == 0 {
             vec![vec![staking_transaction], vec![]]
         } else {

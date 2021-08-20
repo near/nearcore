@@ -488,8 +488,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId, _epoch_id: &EpochId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards)
+    fn account_id_to_shard_id(&self, account_id: &AccountId, _epoch_id: &EpochId) -> Result<ShardId, Error> {
+        Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -639,7 +639,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
                 assert_eq!(
-                    self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default()),
+                    self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())?,
                     shard_id
                 );
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
@@ -666,7 +666,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 self.account_id_to_shard_id(
                     &transaction.transaction.signer_id,
                     &EpochId::default()
-                ),
+                )?,
                 shard_id
             );
             if transaction.transaction.actions.is_empty() {
@@ -708,7 +708,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
-            if self.account_id_to_shard_id(&from, &EpochId::default()) != shard_id {
+            if self.account_id_to_shard_id(&from, &EpochId::default())? != shard_id {
                 // This is a receipt, was already debited
                 good_to_go = true;
             } else if let Some(balance) = state.amounts.get(&from) {
@@ -720,7 +720,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
 
             if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to, &EpochId::default())
+                let new_receipt_hashes = if self.account_id_to_shard_id(&to, &EpochId::default())?
                     == shard_id
                 {
                     state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
@@ -743,7 +743,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     let receipt_hash = receipt.get_hash();
                     new_receipts
                         .entry(
-                            self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default()),
+                            self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())?,
                         )
                         .or_insert_with(|| vec![])
                         .push(receipt);
@@ -1369,7 +1369,7 @@ mod test {
                 let shard_receipts: Vec<Receipt> = receipts
                     .iter()
                     .filter(|&receipt| {
-                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())
+                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default()).unwrap()
                             == shard_id
                     })
                     .cloned()
