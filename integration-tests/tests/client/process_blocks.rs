@@ -3366,7 +3366,8 @@ mod storage_usage_fix_tests {
 
             let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            env.clients[0].run_catchup(&vec![]).unwrap();
+            let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
+            env.clients[0].run_catchup(&vec![], &f, &None).unwrap();
 
             let root =
                 env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().state_root().clone();
