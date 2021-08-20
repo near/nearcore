@@ -27,7 +27,7 @@ pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
     /// Max burnt gas per view method.
-    /// TODO: remove this field because it does not affect the protocol
+    /// TODO #4719: remove this field because it does not affect the protocol
     pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
