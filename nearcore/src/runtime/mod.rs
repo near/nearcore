@@ -1984,8 +1984,14 @@ mod test {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
-                epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                next_epoch_id: self.runtime.get_next_epoch_id_from_prev_block(&new_hash).unwrap(),
+                epoch_id: self
+                    .runtime
+                    .get_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
+                next_epoch_id: self
+                    .runtime
+                    .get_next_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
             };
         }
 
