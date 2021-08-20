@@ -2292,7 +2292,7 @@ fn test_catchup_gas_price_change() {
     let mut response = Rc::new(None);
     let response_ref = Rc::clone(&response);
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        *response = Some(StatePartsResponse {
+        response.insert(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
