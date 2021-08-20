@@ -235,7 +235,7 @@ impl TrieViewer {
             &empty_hash,
             &config,
             true,
-            Some(ViewConfig { max_gas_burnt_view: self.max_gas_burnt_view }),
+            Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         );
         let elapsed = now.elapsed();
         let time_ms =

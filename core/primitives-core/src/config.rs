@@ -170,7 +170,7 @@ impl Default for VMLimitConfig {
 #[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
     /// If specified, defines max burnt gas per view method.
-    pub max_gas_burnt_view: Gas,
+    pub max_gas_burnt: Gas,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
