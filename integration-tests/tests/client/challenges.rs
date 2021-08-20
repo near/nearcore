@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
+use near_chain::chain::StatePartsMessage;
 use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
@@ -673,7 +674,8 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
-        match env.clients[0].run_catchup(&vec![]) {
+        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
+        match env.clients[0].run_catchup(&vec![], &f, &None) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
                     env.clients[0].on_block_accepted(

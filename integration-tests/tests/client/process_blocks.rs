@@ -11,7 +11,10 @@ use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
-use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
+use near_chain::chain::{
+    SetStateFinalizeResult, StatePartsMessage, StatePartsResponse, StatePartsTaskSource,
+    NUM_EPOCHS_TO_KEEP_STORE_DATA,
+};
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -924,7 +927,8 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let more_accepted_blocks = client.run_catchup(&vec![]).unwrap();
+        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
+        let more_accepted_blocks = client.run_catchup(&vec![], &f, &None).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
@@ -2283,7 +2287,29 @@ fn test_catchup_gas_price_change() {
             .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
             .unwrap();
     }
-    env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
+    let mut response = None;
+    let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|msg: StatePartsMessage| {
+        response = Some(StatePartsResponse {
+            apply_result: env.clients[1].runtime_adapter.apply_state_part(
+                msg.shard_id,
+                &msg.state_root,
+                msg.part_id,
+                msg.num_parts,
+                &msg.part,
+                &msg.epoch_id,
+            ),
+            shard_id: msg.shard_id,
+            part_id: msg.part_id,
+            epoch_id: msg.epoch_id,
+            source: msg.source,
+        });
+    });
+    while env.clients[1]
+        .chain
+        .set_state_finalize(0, sync_hash, num_parts, &f, &response, StatePartsTaskSource::Sync)
+        .unwrap()
+        != SetStateFinalizeResult::Finished
+    {}
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
     let expected_chunk_extra =
@@ -2521,10 +2547,11 @@ fn test_epoch_protocol_version_change() {
         if i != 10 {
             set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION + 1);
         }
+        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            env.clients[j].run_catchup(&vec![]).unwrap();
+            env.clients[j].run_catchup(&vec![], &f, &None).unwrap();
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap().clone();
