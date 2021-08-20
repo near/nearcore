@@ -13,10 +13,12 @@ use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL};
+use crate::types::{NetworkInfo, PeerInfo, ReasonForBan};
 use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
 use futures::future::BoxFuture;
 use std::sync::{Arc, Mutex, RwLock};
+
+use lazy_static::lazy_static;
 
 lazy_static! {
     static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
@@ -46,43 +48,6 @@ pub fn open_port() -> u16 {
     panic!("Failed to find an open port after {} attempts.", max_attempts);
 }
 
-impl NetworkConfig {
-    /// Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, port: u16) -> Self {
-        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let public_key = secret_key.public_key();
-        NetworkConfig {
-            public_key,
-            secret_key,
-            account_id: Some(seed.parse().unwrap()),
-            addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
-            boot_nodes: vec![],
-            handshake_timeout: Duration::from_secs(60),
-            reconnect_delay: Duration::from_secs(60),
-            bootstrap_peers_period: Duration::from_millis(100),
-            max_num_peers: 10,
-            minimum_outbound_peers: 5,
-            ideal_connections_lo: 30,
-            ideal_connections_hi: 35,
-            peer_recent_time_window: Duration::from_secs(600),
-            safe_set_size: 20,
-            archival_peer_connections_lower_bound: 10,
-            ban_window: Duration::from_secs(1),
-            peer_expiration_duration: Duration::from_secs(60 * 60),
-            max_send_peers: 512,
-            peer_stats_period: Duration::from_secs(5),
-            ttl_account_id_router: Duration::from_secs(60 * 60),
-            routed_message_ttl: ROUTED_MESSAGE_TTL,
-            max_routes_to_store: 1,
-            highest_peer_horizon: 5,
-            push_info_period: Duration::from_millis(100),
-            blacklist: HashMap::new(),
-            outbound_disabled: false,
-            archive: false,
-        }
-    }
-}
-
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
     SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
 }
@@ -94,13 +59,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
-}
-
-impl PeerInfo {
-    /// Creates random peer info.
-    pub fn random() -> Self {
-        PeerInfo { id: PeerId::random(), addr: None, account_id: None }
-    }
 }
 
 /// Timeouts by stopping system without any condition and raises panic.

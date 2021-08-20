@@ -51,7 +51,6 @@ performance_stats = ["nearcore/performance_stats", "near-network/performance_sta
 regression_tests = []
 expensive_tests = []
 adversarial = ["nearcore/adversarial"]
-metric_recorder = ["near-client-primitives/metric_recorder"]
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "node-runtime/protocol_feature_alt_bn128",
