@@ -361,8 +361,6 @@ impl ViewClientActor {
         }
 
         let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
-        // TODO: get_tx may not work properly after re-sharding for transactions processed
-        //       by previous shards, fix this
         let target_shard_id = self
             .runtime_adapter
             .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
