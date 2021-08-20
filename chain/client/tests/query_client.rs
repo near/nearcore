@@ -3,7 +3,7 @@ use futures::{future, FutureExt};
 
 use chrono::Utc;
 use near_actix_test_utils::run_actix;
-use near_client::test_utils::{setup, setup_no_network, setup_only_view};
+use near_client::test_utils::{setup_no_network, setup_only_view};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
