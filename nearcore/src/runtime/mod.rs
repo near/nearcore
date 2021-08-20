@@ -153,8 +153,7 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let runtime_config =
-            ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
+        let runtime_config = ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let all_epoch_config = AllEpochConfig::new(
             initial_epoch_config.clone(),
@@ -1524,15 +1523,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
-        // If we were initialised with a custom max_gas_burnt_view (see
-        // ActualRuntimeConfig::new method), keep the value from genesis file.
-        // Since max_gas_burnt_view never changes as a result of protocol
-        // upgrade, we can use it when reporting protocol config.
-        let gas = config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
-        // Currently only runtime config is changed through protocol upgrades.
         config.runtime_config =
             (**self.runtime_config.for_protocol_version(protocol_version)).clone();
-        config.runtime_config.wasm_config.limit_config.max_gas_burnt_view = gas;
         Ok(config)
     }
 
