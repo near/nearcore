@@ -344,9 +344,11 @@ fn apply_chain_range(
         }
     }
     println!(
-        "Results of applying chunks in the range {}..={} for shard_id {}:\n============================\n{:#?}",
-        start_height, end_height, shard_id, info
+        "Results of applying chunks in the range {}..={} for shard_id {}:",
+        start_height, end_height, shard_id
     );
+    println!("============================");
+    println!("{:#?}", info);
     let mut chunk_gas_used_stats = Stats::new();
     let mut chunk_balance_burnt_stats = Stats::new();
     let mut receipts_gas_burnt_stats = Stats::new();
@@ -361,9 +363,10 @@ fn apply_chain_range(
             receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
         }
     }
-    println!("Chunk gas usage stats: {}", chunk_gas_used_stats);
-    println!("Chunk balance burnt stats: {}", chunk_balance_burnt_stats);
-    println!("Receipt gas burnt stats: {}", receipts_gas_burnt_stats);
+    println!("============================");
+    println!("Chunk gas usage stats:      {}", chunk_gas_used_stats);
+    println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
+    println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
     println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
 }
 
@@ -401,7 +404,7 @@ impl fmt::Display for Stats {
         if self.cnt > 0 {
             write!(
                 f,
-                "Max: {}; Min: {}; Sum: {}; Count: {}, Average: {:.3}",
+                "Max: {:>23}; Min: {:>23}; Sum: {:>23}; Count: {:>8}; Average: {:>25.3}",
                 self.max,
                 self.min,
                 self.sum,
