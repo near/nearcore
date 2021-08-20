@@ -8,7 +8,7 @@ use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
 use near_primitives_core::config::ExtCosts::*;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
+use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig, ViewConfig};
 use near_primitives_core::profile::ProfileData;
 use near_primitives_core::runtime::fees::{
     transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig,
@@ -113,20 +113,16 @@ impl<'a> VMLogic<'a> {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
-        let max_gas_burnt = if context.view_config.is_view {
-            match context.view_config.max_gas_burnt_view {
-                Some(max_gas_burnt_view) => max_gas_burnt_view,
-                None => config.limit_config.max_gas_burnt,
-            }
-        } else {
-            config.limit_config.max_gas_burnt
+        let max_gas_burnt = match context.view_config {
+            Some(ViewConfig { max_gas_burnt_view }) => max_gas_burnt_view,
+            None => config.limit_config.max_gas_burnt,
         };
         let current_account_locked_balance = context.account_locked_balance;
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
             context.prepaid_gas,
-            context.view_config.is_view,
+            context.view_config.is_some(),
         );
         Self {
             ext,
@@ -516,7 +512,7 @@ impl<'a> VMLogic<'a> {
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "signer_account_id".to_string(),
             }
@@ -543,7 +539,7 @@ impl<'a> VMLogic<'a> {
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "signer_account_pk".to_string(),
             }
@@ -567,7 +563,7 @@ impl<'a> VMLogic<'a> {
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "predecessor_account_id".to_string(),
             }
@@ -709,7 +705,7 @@ impl<'a> VMLogic<'a> {
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
 
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "attached_deposit".to_string(),
             }
@@ -729,7 +725,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(
                 HostError::ProhibitedInView { method_name: "prepaid_gas".to_string() }.into()
             );
@@ -748,7 +744,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     pub fn used_gas(&mut self) -> Result<Gas> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView { method_name: "used_gas".to_string() }.into());
         }
         Ok(self.gas_counter.used_gas())
@@ -1224,7 +1220,7 @@ impl<'a> VMLogic<'a> {
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(
                 HostError::ProhibitedInView { method_name: "promise_and".to_string() }.into()
             );
@@ -1292,7 +1288,7 @@ impl<'a> VMLogic<'a> {
         account_id_ptr: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_create".to_string(),
             }
@@ -1335,7 +1331,7 @@ impl<'a> VMLogic<'a> {
         account_id_ptr: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_then".to_string(),
             }
@@ -1409,7 +1405,7 @@ impl<'a> VMLogic<'a> {
     /// `used_gas := burnt_gas + exec action fee`
     pub fn promise_batch_action_create_account(&mut self, promise_idx: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_create_account".to_string(),
             }
@@ -1451,7 +1447,7 @@ impl<'a> VMLogic<'a> {
         code_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_deploy_contract".to_string(),
             }
@@ -1514,7 +1510,7 @@ impl<'a> VMLogic<'a> {
         gas: Gas,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_function_call".to_string(),
             }
@@ -1573,7 +1569,7 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_transfer".to_string(),
             }
@@ -1626,7 +1622,7 @@ impl<'a> VMLogic<'a> {
         public_key_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_stake".to_string(),
             }
@@ -1672,7 +1668,7 @@ impl<'a> VMLogic<'a> {
         nonce: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_add_key_with_full_access".to_string(),
             }
@@ -1724,7 +1720,7 @@ impl<'a> VMLogic<'a> {
         method_names_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_add_key_with_function_call".to_string(),
             }
@@ -1789,7 +1785,7 @@ impl<'a> VMLogic<'a> {
         public_key_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_delete_key".to_string(),
             }
@@ -1832,7 +1828,7 @@ impl<'a> VMLogic<'a> {
         beneficiary_id_ptr: u64,
     ) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_batch_action_delete_account".to_string(),
             }
@@ -1868,7 +1864,7 @@ impl<'a> VMLogic<'a> {
     /// `base`
     pub fn promise_results_count(&mut self) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_results_count".to_string(),
             }
@@ -1901,7 +1897,7 @@ impl<'a> VMLogic<'a> {
     /// `base + cost of writing data into a register`
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(
                 HostError::ProhibitedInView { method_name: "promise_result".to_string() }.into()
             );
@@ -1934,7 +1930,7 @@ impl<'a> VMLogic<'a> {
     pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
         self.gas_counter.pay_base(promise_return)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(
                 HostError::ProhibitedInView { method_name: "promise_return".to_string() }.into()
             );
@@ -2182,7 +2178,7 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(
                 HostError::ProhibitedInView { method_name: "storage_write".to_string() }.into()
             );
@@ -2322,7 +2318,7 @@ impl<'a> VMLogic<'a> {
     /// + cost to read the key + cost to write the value`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
-        if self.context.view_config.is_view {
+        if self.context.view_config.is_some() {
             return Err(
                 HostError::ProhibitedInView { method_name: "storage_remove".to_string() }.into()
             );

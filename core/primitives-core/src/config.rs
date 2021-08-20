@@ -166,14 +166,11 @@ impl Default for VMLimitConfig {
     }
 }
 
-/// Configuration of view methods execution.
-/// View execution means that no costs should be charged.
+/// Configuration of view methods execution, during which no costs should be charged.
 #[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
-    /// Whether the execution should not charge any costs.
-    pub is_view: bool,
     /// If specified, defines max burnt gas per view method.
-    pub max_gas_burnt_view: Option<Gas>,
+    pub max_gas_burnt_view: Gas,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]

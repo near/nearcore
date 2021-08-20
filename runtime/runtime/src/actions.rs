@@ -50,7 +50,7 @@ pub(crate) fn execute_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    view_config: &ViewConfig,
+    view_config: Option<ViewConfig>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
     let code = match runtime_ext.get_code(account.code_hash()) {
@@ -99,7 +99,7 @@ pub(crate) fn execute_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        view_config: view_config.clone(),
+        view_config,
         output_data_receivers,
     };
 
@@ -150,7 +150,6 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
-    let view_config = ViewConfig::default();
     let (outcome, err) = execute_function_call(
         apply_state,
         &mut runtime_ext,
@@ -162,7 +161,7 @@ pub(crate) fn action_function_call(
         action_hash,
         config,
         is_last_action,
-        &view_config,
+        None,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {

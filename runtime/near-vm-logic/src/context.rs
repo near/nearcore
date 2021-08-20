@@ -54,8 +54,8 @@ pub struct VMContext {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
-    /// Configuration of view methods execution.
-    pub view_config: ViewConfig,
+    /// If present, defines that view execution is enabled and configures it.
+    pub view_config: Option<ViewConfig>,
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
