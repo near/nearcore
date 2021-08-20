@@ -1,8 +1,10 @@
 use anyhow::Context;
 use clap::Clap;
-use genesis_populate::prepare_and_dump_state;
+use genesis_populate::{prepare_and_dump_state, GenesisBuilder};
+use near_store::create_store;
+use near_test_contracts;
 use near_vm_runner::VMKind;
-use nearcore::get_default_home;
+use nearcore::{get_default_home, get_store_path, load_config};
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
@@ -14,6 +16,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use std::time;
 
 #[derive(Clap)]
@@ -28,11 +31,11 @@ struct CliArgs {
     #[clap(long, default_value = "10")]
     iters: usize,
     /// Number of active accounts in the state (accounts used for estimation).
-    #[clap(long, default_value = "10000")]
+    #[clap(long, default_value = "20000")]
     accounts_num: usize,
     /// Number of additional accounts to add to the state, among which active accounts are selected.
-    #[clap(long)]
-    additional_accounts_num: Option<usize>,
+    #[clap(long, default_value = "200000")]
+    additional_accounts_num: usize,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -57,9 +60,16 @@ fn main() -> anyhow::Result<()> {
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
-    if let Some(additional_accounts_num) = cli_args.additional_accounts_num {
-        prepare_and_dump_state(&state_dump_path, additional_accounts_num as u64);
-    }
+    let near_config = load_config(state_dump_path);
+    let store = create_store(&get_store_path(state_dump_path));
+    GenesisBuilder::from_config_and_store(state_dump_path, Arc::new(near_config.genesis), store)
+        .add_additional_accounts(cli_args.additional_accounts_num as u64)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
@@ -154,6 +164,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
+        buf.push_str("cd /host/nearcore");
         buf.push_str(
             "\
 cargo build --manifest-path /host/nearcore/Cargo.toml \
