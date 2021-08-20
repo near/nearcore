@@ -1,5 +1,3 @@
-#[cfg(feature = "metric_recorder")]
-use near_network::recorder::MetricRecorder;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,8 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use near_chain_configs::ProtocolConfigView;
-use near_network::types::{AccountOrPeerIdOrHash, KnownProducer};
-use near_network::PeerInfo;
+use near_network_primitives::types::{AccountOrPeerIdOrHash, KnownProducer, PeerInfo};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -33,7 +30,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain_primitives::Error),
-    Chunk(near_chunks::Error),
+    Chunk(near_chunks_primitives::Error),
     BlockProducer(String),
     ChunkProducer(String),
     Other(String),
@@ -66,8 +63,8 @@ impl From<near_chain_primitives::ErrorKind> for Error {
     }
 }
 
-impl From<near_chunks::Error> for Error {
-    fn from(err: near_chunks::Error) -> Self {
+impl From<near_chunks_primitives::Error> for Error {
+    fn from(err: near_chunks_primitives::Error) -> Self {
         Error::Chunk(err)
     }
 }
@@ -469,8 +466,6 @@ pub struct NetworkInfoResponse {
     pub received_bytes_per_sec: u64,
     /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<KnownProducer>,
-    #[cfg(feature = "metric_recorder")]
-    pub metric_recorder: MetricRecorder,
 }
 
 /// Status of given transaction including all the subsequent receipts.
