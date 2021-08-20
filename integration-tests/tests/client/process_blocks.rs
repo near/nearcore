@@ -2304,12 +2304,14 @@ fn test_catchup_gas_price_change() {
             source: msg.source,
         });
     });
-    while env.clients[1]
+    while match env.clients[1]
         .chain
         .set_state_finalize(0, sync_hash, num_parts, &f, &response, StatePartsTaskSource::Sync)
         .unwrap()
-        != SetStateFinalizeResult::Finished
-    {}
+    {
+        SetStateFinalizeResult::Finished => false,
+        _ => true,
+    } {}
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
     let expected_chunk_extra =
