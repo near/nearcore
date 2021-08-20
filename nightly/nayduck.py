@@ -1,1 +1,0 @@
-../scripts/nayduck.py
