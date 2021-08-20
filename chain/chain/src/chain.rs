@@ -1819,7 +1819,7 @@ impl Chain {
                 self.currently_applying_state_part.remove(&map_key);
             }
         } else {
-            if let Some(_) = current_task {
+            if current_task.is_some() {
                 // We are already doing something for this epoch and shard
                 return Ok(SetStateFinalizeResult::NoAction);
             }
