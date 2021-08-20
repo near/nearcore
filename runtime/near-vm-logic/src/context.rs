@@ -54,7 +54,7 @@ pub struct VMContext {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
-    /// If non-None, means that execution is made in a view mode and defines its configuration.
+    /// If Some, it means that execution is made in a view mode and defines its configuration.
     /// View mode means that only read-only operations are allowed.
     /// See https://nomicon.io/Proposals/0018-view-change-method.html for more details.
     pub view_config: Option<ViewConfig>,
