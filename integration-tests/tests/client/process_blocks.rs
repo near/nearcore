@@ -2289,10 +2289,10 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let mut response = Rc::new(None);
+    let mut response = Rc::new((None,));
     let response_ref = Rc::clone(&response);
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        response.insert(StatePartsResponse {
+        response.0 = Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
@@ -2309,7 +2309,14 @@ fn test_catchup_gas_price_change() {
     });
     while match env.clients[1]
         .chain
-        .set_state_finalize(0, sync_hash, num_parts, &f, &response_ref, StatePartsTaskSource::Sync)
+        .set_state_finalize(
+            0,
+            sync_hash,
+            num_parts,
+            &f,
+            &response_ref.0,
+            StatePartsTaskSource::Sync,
+        )
         .unwrap()
     {
         SetStateFinalizeResult::Finished => false,
