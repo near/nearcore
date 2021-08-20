@@ -37,6 +37,7 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
+use near_primitives::borsh::maybestd::rc::Rc;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -2287,10 +2288,11 @@ fn test_catchup_gas_price_change() {
             .set_state_part(0, sync_hash, i, num_parts, &state_sync_parts[i as usize])
             .unwrap();
     }
-    let mut response = None;
-    let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|msg: StatePartsMessage| {
-        response = Some(StatePartsResponse {
-            apply_result: env.clients[1].runtime_adapter.apply_state_part(
+    let rt = Arc::clone(&env.clients[1].runtime_adapter);
+    let mut response = Rc::new(None);
+    let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
+        *response = Some(StatePartsResponse {
+            apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 msg.part_id,
