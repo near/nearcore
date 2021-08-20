@@ -66,6 +66,7 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use std::cell::Cell;
+use std::rc::Rc;
 
 fn set_block_protocol_version(
     block: &mut Block,
@@ -2289,10 +2290,11 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let response = Cell::new(None);
+    let response = Rc::new(Cell::new(None));
+    let response_in_f = Rc::clone(&response);
     let mut last_response = None;
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        response.set(Some(StatePartsResponse {
+        response_in_f.set(Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
