@@ -66,6 +66,7 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
+use std::borrow::BorrowMut;
 
 fn set_block_protocol_version(
     block: &mut Block,
@@ -2292,7 +2293,7 @@ fn test_catchup_gas_price_change() {
     let mut response = Rc::new((None,));
     let response_ref = Rc::clone(&response);
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        response.0 = Some(StatePartsResponse {
+        response.borrow_mut().0 = Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
