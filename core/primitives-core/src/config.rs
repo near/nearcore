@@ -168,7 +168,7 @@ impl Default for VMLimitConfig {
 
 /// Configuration of view methods execution.
 /// View execution means that no costs should be charged.
-#[derive(Clone, Debug, Default)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
 pub struct ViewConfig {
     /// Whether the execution should not charge any costs.
     pub is_view: bool,

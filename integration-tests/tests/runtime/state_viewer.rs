@@ -180,6 +180,48 @@ fn test_view_state_with_large_contract() {
 }
 
 #[test]
+fn test_max_gas_burnt_view() {
+    let (_, tries, root) = get_runtime_and_trie();
+    let mut state_update = tries.new_trie_update(0, root);
+    let view_state = ViewApplyState {
+        block_height: 1,
+        prev_block_hash: CryptoHash::default(),
+        block_hash: CryptoHash::default(),
+        epoch_id: EpochId::default(),
+        epoch_height: 0,
+        block_timestamp: 1,
+        current_protocol_version: PROTOCOL_VERSION,
+        cache: None,
+    };
+    let max_gas_burnt_view = 1_000_000_000_000;
+    let trie_viewer = TrieViewer::new(None, Some(max_gas_burnt_view));
+    let data = serde_json::json!([
+        {"create": {
+        "account_id": "test0",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": "0",
+        "gas": max_gas_burnt_view * 2,
+        }, "id": 0 }
+    ]);
+
+    let mut logs = vec![];
+    trie_viewer
+        .call_function(
+            state_update,
+            view_state,
+            &"test.contract".parse().unwrap(),
+            "call_promise",
+            &serde_json::to_vec(&data).unwrap(),
+            &mut logs,
+            &MockEpochInfoProvider::default(),
+        )
+        .unwrap_err();
+
+    assert_eq!(logs, vec!["hello".to_string()]);
+}
+
+#[test]
 fn test_log_when_panic() {
     let (viewer, root) = get_test_trie_viewer();
     let view_state = ViewApplyState {
