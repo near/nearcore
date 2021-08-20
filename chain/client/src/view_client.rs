@@ -248,9 +248,10 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id, &header.epoch_id()).map_err(|err|{
-            QueryError::InternalError{error_message: err.to_string()}
-        })?;
+        let shard_id = self
+            .runtime_adapter
+            .account_id_to_shard_id(account_id, &header.epoch_id())
+            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id).map_err(|err| {
             match err.kind() {
@@ -362,10 +363,10 @@ impl ViewClientActor {
         let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
         // TODO: get_tx may not work properly after re-sharding for transactions processed
         //       by previous shards, fix this
-        let target_shard_id =
-            self.runtime_adapter.account_id_to_shard_id(&signer_account_id, &head.epoch_id).map_err(|err|{
-                TxStatusError::InternalError(err.to_string())
-            })?;
+        let target_shard_id = self
+            .runtime_adapter
+            .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
+            .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.runtime_adapter.cares_about_shard(
             self.validator_account_id.as_ref(),
@@ -425,10 +426,10 @@ impl ViewClientActor {
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
                 let epoch_id =
                     self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.epoch_id;
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&signer_account_id, &epoch_id).map_err(|err|{
-                        TxStatusError::InternalError(err.to_string())
-                    })?;
+                let target_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&signer_account_id, &epoch_id)
+                    .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .chain
                     .find_validator_for_forwarding(target_shard_id)

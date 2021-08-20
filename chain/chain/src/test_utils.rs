@@ -488,7 +488,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId, _epoch_id: &EpochId) -> Result<ShardId, Error> {
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
         Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
@@ -1369,7 +1373,8 @@ mod test {
                 let shard_receipts: Vec<Receipt> = receipts
                     .iter()
                     .filter(|&receipt| {
-                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default()).unwrap()
+                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())
+                            .unwrap()
                             == shard_id
                     })
                     .cloned()

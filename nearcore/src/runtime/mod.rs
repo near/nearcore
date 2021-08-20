@@ -357,7 +357,11 @@ impl NightshadeRuntime {
         Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
     }
 
-    fn account_id_to_shard_uid(&self, account_id: &AccountId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
+    fn account_id_to_shard_uid(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         let shard_id = account_id_to_shard_id(account_id, shard_layout);
@@ -1018,7 +1022,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId, epoch_id: &EpochId) -> Result<ShardId, Error> {
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
         Ok(account_id_to_shard_id(account_id, shard_layout))
@@ -2005,7 +2013,8 @@ mod test {
         }
 
         pub fn view_account(&self, account_id: &AccountId) -> AccountView {
-            let shard_id = self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id).unwrap();
+            let shard_id =
+                self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id).unwrap();
             let shard_layout = self.runtime.get_shard_layout(&self.head.epoch_id).unwrap();
             self.runtime
                 .view_account(
@@ -2506,8 +2515,10 @@ mod test {
             validators[0].as_ref(),
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
-        let first_account_shard_id =
-            env.runtime.account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default()).unwrap();
+        let first_account_shard_id = env
+            .runtime
+            .account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default())
+            .unwrap();
         let transactions = if first_account_shard_id == 0 {
             vec![vec![staking_transaction], vec![]]
         } else {
