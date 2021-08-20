@@ -2290,6 +2290,7 @@ fn test_catchup_gas_price_change() {
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let mut response = Rc::new(None);
+    let response_ref = Rc::clone(response);
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
         *response = Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
@@ -2308,7 +2309,7 @@ fn test_catchup_gas_price_change() {
     });
     while match env.clients[1]
         .chain
-        .set_state_finalize(0, sync_hash, num_parts, &f, &response, StatePartsTaskSource::Sync)
+        .set_state_finalize(0, sync_hash, num_parts, &f, &response_ref, StatePartsTaskSource::Sync)
         .unwrap()
     {
         SetStateFinalizeResult::Finished => false,
