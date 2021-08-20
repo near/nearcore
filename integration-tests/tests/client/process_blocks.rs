@@ -65,6 +65,7 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
+use std::cell::Cell;
 
 fn set_block_protocol_version(
     block: &mut Block,
@@ -2288,9 +2289,10 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let mut response = None;
+    let mut response = Cell::new(None);
+    let mut last_response = None;
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        response = Some(StatePartsResponse {
+        response.set(Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
@@ -2303,16 +2305,18 @@ fn test_catchup_gas_price_change() {
             part_id: msg.part_id,
             epoch_id: msg.epoch_id,
             source: msg.source,
-        });
+        }));
     });
     while match env.clients[1]
         .chain
-        .set_state_finalize(0, sync_hash, num_parts, &f, &response, StatePartsTaskSource::Sync)
+        .set_state_finalize(0, sync_hash, num_parts, &f, &last_response, StatePartsTaskSource::Sync)
         .unwrap()
     {
         SetStateFinalizeResult::Finished => false,
         _ => true,
-    } {}
+    } {
+        last_response = response.take();
+    }
     let chunk_extra_after_sync =
         env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
     let expected_chunk_extra =
