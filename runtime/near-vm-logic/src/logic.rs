@@ -24,8 +24,6 @@ use std::mem::size_of;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-const LEGACY_DEFAULT_PROTOCOL_VERSION: ProtocolVersion = 34;
-
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.

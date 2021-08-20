@@ -150,6 +150,7 @@ pub(crate) fn action_function_call(
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
+    let view_config = ViewConfig::default();
     let (outcome, err) = execute_function_call(
         apply_state,
         &mut runtime_ext,
@@ -161,7 +162,7 @@ pub(crate) fn action_function_call(
         action_hash,
         config,
         is_last_action,
-        false,
+        &view_config,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
