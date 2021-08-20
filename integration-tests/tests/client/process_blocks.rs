@@ -37,7 +37,6 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
-use near_primitives::borsh::maybestd::rc::Rc;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -48,7 +47,7 @@ use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
+//use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -66,7 +65,6 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
-use std::borrow::BorrowMut;
 
 fn set_block_protocol_version(
     block: &mut Block,
@@ -2222,8 +2220,6 @@ fn test_gas_price_change_no_chunk() {
     assert!(res.is_ok());
 }
 
-// TODO: fix this test
-/*
 #[test]
 fn test_catchup_gas_price_change() {
     init_test_logger();
@@ -2292,10 +2288,9 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let mut response = Rc::new((None,));
-    let response_ref = Rc::clone(&response);
+    let mut response = None;
     let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        response.borrow_mut().0 = Some(StatePartsResponse {
+        response = Some(StatePartsResponse {
             apply_result: rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
@@ -2312,14 +2307,7 @@ fn test_catchup_gas_price_change() {
     });
     while match env.clients[1]
         .chain
-        .set_state_finalize(
-            0,
-            sync_hash,
-            num_parts,
-            &f,
-            &response_ref.0,
-            StatePartsTaskSource::Sync,
-        )
+        .set_state_finalize(0, sync_hash, num_parts, &f, &response, StatePartsTaskSource::Sync)
         .unwrap()
     {
         SetStateFinalizeResult::Finished => false,
@@ -2332,7 +2320,6 @@ fn test_catchup_gas_price_change() {
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
- */
 
 #[test]
 fn test_block_execution_outcomes() {
