@@ -223,6 +223,53 @@ struct ApplyInfo {
     outcomes: Vec<ExecutionOutcomeWithId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stats {
+    min: u128,
+    max: u128,
+    sum: u128,
+    cnt: u64,
+}
+
+impl Stats {
+    fn new() -> Self {
+        Self { min: u128::MAX, max: u128::MIN, sum: 0, cnt: 0 }
+    }
+
+    fn add_u128(&mut self, x: u128) {
+        self.max = std::cmp::max(self.max, x);
+        self.min = std::cmp::min(self.min, x);
+        self.sum += x;
+        self.cnt += 1;
+    }
+
+    fn add_u64(&mut self, x: u64) {
+        let x = x as u128;
+        self.max = std::cmp::max(self.max, x);
+        self.min = std::cmp::min(self.min, x);
+        self.sum += x;
+        self.cnt += 1;
+    }
+}
+
+impl fmt::Display for Stats {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.cnt > 0 {
+            write!(
+                f,
+                "Max: {:>23}; Min: {:>23}; Sum: {:>23}; Count: {:>8}; Average: {:>25.3}",
+                self.max,
+                self.min,
+                self.sum,
+                self.cnt,
+                self.sum as f64 / self.cnt as f64,
+            )
+        } else {
+            write!(f, "Empty")
+        }
+    }
+}
+
 fn apply_chain_range(
     store: Arc<Store>,
     home_dir: &Path,
@@ -368,53 +415,6 @@ fn apply_chain_range(
     println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
     println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
     println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Stats {
-    min: u128,
-    max: u128,
-    sum: u128,
-    cnt: u64,
-}
-
-impl Stats {
-    fn new() -> Self {
-        Self { min: u128::MAX, max: u128::MIN, sum: 0, cnt: 0 }
-    }
-
-    fn add_u128(&mut self, x: u128) {
-        self.max = std::cmp::max(self.max, x);
-        self.min = std::cmp::min(self.min, x);
-        self.sum += x;
-        self.cnt += 1;
-    }
-
-    fn add_u64(&mut self, x: u64) {
-        let x = x as u128;
-        self.max = std::cmp::max(self.max, x);
-        self.min = std::cmp::min(self.min, x);
-        self.sum += x;
-        self.cnt += 1;
-    }
-}
-
-impl fmt::Display for Stats {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.cnt > 0 {
-            write!(
-                f,
-                "Max: {:>23}; Min: {:>23}; Sum: {:>23}; Count: {:>8}; Average: {:>25.3}",
-                self.max,
-                self.min,
-                self.sum,
-                self.cnt,
-                self.sum as f64 / self.cnt as f64,
-            )
-        } else {
-            write!(f, "Empty")
-        }
-    }
 }
 
 fn apply_block_at_height(
