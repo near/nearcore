@@ -11,7 +11,7 @@
 #        --test_file <test_file>.txt
 #
 # See the `.txt` files in this directory for examples of test suites. Note that
-# you must be a *public* memeber of the near org on GitHub to authenticate:
+# you must be a *public* member of the near org on GitHub to authenticate:
 #
 #    https://github.com/orgs/near/people
 #
