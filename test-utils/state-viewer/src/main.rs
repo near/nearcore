@@ -584,7 +584,8 @@ fn main() {
             let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
             for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let trie =
+                    runtime.get_trie_for_shard(shard_id as u64, &header.prev_hash()).unwrap();
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
@@ -646,12 +647,15 @@ fn main() {
         }
         ("dump_code", Some(args)) => {
             let account_id = args.value_of("account").expect("account is required");
-            let (runtime, state_roots, _header) = load_trie(store, &home_dir, &near_config);
+            let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
+            let epoch_id = &runtime.get_epoch_id(&header.hash()).unwrap();
+            let shard_layout = runtime.get_shard_layout(epoch_id).unwrap();
 
             for (shard_id, state_root) in state_roots.iter().enumerate() {
                 let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
                 if let Ok(contract_code) = runtime.view_contract_code(
                     shard_id as u64,
+                    &shard_layout,
                     CryptoHash::try_from(state_root_vec).unwrap(),
                     &account_id.parse().unwrap(),
                 ) {
@@ -676,10 +680,10 @@ fn main() {
             } else {
                 panic!("block_height shoulb be either number or \"latest\"")
             };
-            let (runtime, state_roots, _header) =
+            let (runtime, state_roots, header) =
                 load_trie_stop_at_height(store, &home_dir, &near_config, block_height);
             for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
                 let key = TrieKey::ContractData {
                     account_id: account_id.parse().unwrap(),
                     key: storage_key.as_bytes().to_vec(),

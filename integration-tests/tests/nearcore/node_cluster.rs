@@ -24,7 +24,7 @@ pub fn start_nodes(
     let num_nodes = dirs.len();
     let num_tracking_nodes = num_nodes - num_lightclient;
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
-    let mut genesis = Genesis::test_sharded(
+    let mut genesis = Genesis::test_sharded_new_version(
         seeds.iter().map(|s| s.parse().unwrap()).collect(),
         num_validator_seats,
         (0..num_shards).map(|_| num_validator_seats).collect(),
