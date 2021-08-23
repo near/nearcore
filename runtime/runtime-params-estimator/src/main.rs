@@ -60,16 +60,19 @@ fn main() -> anyhow::Result<()> {
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
-    let near_config = load_config(&state_dump_path);
-    let store = create_store(&get_store_path(&state_dump_path));
-    GenesisBuilder::from_config_and_store(&state_dump_path, Arc::new(near_config.genesis), store)
-        .add_additional_accounts(cli_args.additional_accounts_num as u64)
-        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
-        .print_progress()
-        .build()
-        .unwrap()
-        .dump_state()
-        .unwrap();
+    let additional_accounts_num = cli_args.additional_accounts_num as u64;
+    if additional_accounts_num > 0 {
+        let near_config = load_config(&state_dump_path);
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(&state_dump_path, Arc::new(near_config.genesis), store)
+            .add_additional_accounts()
+            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+            .print_progress()
+            .build()
+            .unwrap()
+            .dump_state()
+            .unwrap();
+    }
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
@@ -188,6 +191,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
                 "--docker" => continue,
                 "--additional-accounts-num" => {
                     args.next();
+                    write!(buf, " {:?} 0", arg).unwrap();
                     continue;
                 }
                 "--home" => {
