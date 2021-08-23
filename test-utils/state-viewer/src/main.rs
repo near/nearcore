@@ -249,7 +249,7 @@ impl fmt::Display for Stats {
         if self.cnt > 0 {
             write!(
                 f,
-                "Max: {:>23}; Min: {:>23}; Sum: {:>26}; Count: {:>8}; Average: {:>25.3}",
+                "Max: {:>23}; Min: {:>23}; Sum: {:>30}; Count: {:>8}; Average: {:>30.3}",
                 self.max,
                 self.min,
                 self.sum,
