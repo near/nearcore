@@ -208,15 +208,15 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
-fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available_gas: u64) {
-    let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
-    remaining_gas.set(wasmer_runtime::Value::I64(available_gas as i64));
+fn wasmer0_set_remaining_ops(instance: &wasmer_runtime_core::Instance, available_ops: u64) {
+    let remaining_ops: wasmer_runtime::Global = instance.exports.get("remaining_ops").unwrap();
+    remaining_ops.set(wasmer_runtime::Value::I64(available_ops as i64));
 }
 
-fn wasmer0_get_remaining_gas(instance: &wasmer_runtime_core::Instance) -> u64 {
-    let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
+fn wasmer0_get_remaining_ops(instance: &wasmer_runtime_core::Instance) -> u64 {
+    let remaining_ops: wasmer_runtime::Global = instance.exports.get("remaining_ops").unwrap();
     use std::convert::TryFrom;
-    i64::try_from(&remaining_gas.get()).unwrap() as u64
+    i64::try_from(&remaining_ops.get()).unwrap() as u64
 }
 
 pub fn run_wasmer<'a>(
@@ -324,7 +324,7 @@ fn run_method(
     };
 
     if let GasMode::Paid(available_gas) = gas_mode {
-        wasmer0_set_available_gas(&instance, available_gas);
+        wasmer0_set_remaining_ops(&instance, available_gas);
     }
 
     let call_start_func_result = {
@@ -332,7 +332,7 @@ fn run_method(
         instance.call_start_func()
     };
     if let GasMode::Paid(available_gas) = gas_mode {
-        let remaining_gas = wasmer0_get_remaining_gas(&instance);
+        let remaining_gas = wasmer0_get_remaining_ops(&instance);
         println!(
             "gas before: {}, gas now: {}, gas used: {}",
             available_gas,
@@ -351,7 +351,7 @@ fn run_method(
     };
 
     if let GasMode::Paid(available_gas) = gas_mode {
-        let remaining_gas = wasmer0_get_remaining_gas(&instance);
+        let remaining_gas = wasmer0_get_remaining_ops(&instance);
         println!(
             "gas before: {}, gas now: {}, gas used: {}",
             available_gas,

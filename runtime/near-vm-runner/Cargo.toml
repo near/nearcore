@@ -25,7 +25,7 @@ wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-featu
 wasmer-compiler-cranelift = { version = "1.0.2", optional = true }
 wasmer-engine-native = { version = "1.0.2", optional = true }
 wasmer-vm = "1.0.2"
-pwasm-utils = { git = "https://github.com/near/wasm-utils", rev = "b2e6290c647c7d8d1bb4cd59ff9360bc8ca10ce7" }
+pwasm-utils = { git = "https://github.com/near/wasm-utils", rev = "3dc572b7ff69bbb51c6dc54626ca9981fab8e715" }
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
