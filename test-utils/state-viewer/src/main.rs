@@ -310,7 +310,7 @@ fn apply_chain_range(
         };
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
-            info!(target:"state-viewer", "Skipping the genesis block #{}, because it has no ChunkExtra.", height);
+            info!(target:"state-viewer", "Skipping the genesis block #{}.", height);
             skipped_blocks += 1;
             continue;
         } else if block.chunks()[shard_id as usize].height_included() == height {
