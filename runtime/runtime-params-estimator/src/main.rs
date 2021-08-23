@@ -164,7 +164,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
-        buf.push_str("cd /host/nearcore");
+        buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
 cargo build --manifest-path /host/nearcore/Cargo.toml \
