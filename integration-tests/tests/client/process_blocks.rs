@@ -24,8 +24,6 @@ use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
-#[cfg(feature = "metric_recorder")]
-use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
 use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
@@ -63,8 +61,6 @@ use near_primitives::views::{
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-use nearcore::migrations::load_migration_data;
 use nearcore::NEAR_BASE;
 
 fn set_block_protocol_version(
@@ -918,8 +914,6 @@ fn client_sync_headers() {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            #[cfg(feature = "metric_recorder")]
-            metric_recorder: MetricRecorder::default(),
             peer_counter: 0,
         }));
         wait_or_panic(2000);
@@ -3155,11 +3149,12 @@ mod access_key_nonce_range_tests {
     }
 }
 
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 mod protocol_feature_restore_receipts_after_fix_tests {
     use super::*;
     use near_primitives::runtime::migration_data::MigrationData;
     use near_primitives::version::ProtocolFeature;
+    use nearcore::migrations::load_migration_data;
 
     const EPOCH_LENGTH: u64 = 5;
     const HEIGHT_TIMEOUT: u64 = 10;
@@ -3270,10 +3265,10 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             );
         } else {
             assert_eq!(
-                receipt_hashes_to_restore,
-                get_restored_receipt_hashes(&migration_data),
-                "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
-            );
+            receipt_hashes_to_restore,
+            get_restored_receipt_hashes(&migration_data),
+            "If accidentally there are no chunks in first epoch with new protocol version, receipts should not be introduced"
+        );
         }
     }
 
@@ -3320,7 +3315,8 @@ mod storage_usage_fix_tests {
         check_storage_usage: fn(AccountId, u64, u64),
     ) {
         let epoch_length = 5;
-        let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "near".parse().unwrap()], 1);
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.chain_id = chain_id;
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
@@ -3345,19 +3341,19 @@ mod storage_usage_fix_tests {
             let trie = Rc::new(env.clients[0].runtime_adapter.get_trie_for_shard(0));
             let state_update = TrieUpdate::new(trie.clone(), root);
             use near_primitives::account::Account;
-            let mut account_near_raw = state_update
-                .get(&TrieKey::Account { account_id: "near".parse().unwrap() })
+            let mut account_test1_raw = state_update
+                .get(&TrieKey::Account { account_id: "test1".parse().unwrap() })
                 .unwrap()
                 .unwrap()
                 .clone();
-            let account_near = Account::try_from_slice(&mut account_near_raw).unwrap();
+            let account_test1 = Account::try_from_slice(&mut account_test1_raw).unwrap();
             let mut account_test0_raw = state_update
                 .get(&TrieKey::Account { account_id: "test0".parse().unwrap() })
                 .unwrap()
                 .unwrap()
                 .clone();
             let account_test0 = Account::try_from_slice(&mut account_test0_raw).unwrap();
-            check_storage_usage("near".parse().unwrap(), i, account_near.storage_usage());
+            check_storage_usage("test1".parse().unwrap(), i, account_test1.storage_usage());
             check_storage_usage("test0".parse().unwrap(), i, account_test0.storage_usage());
         }
     }
@@ -3368,7 +3364,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "mainnet".to_string(),
             |account_id: AccountId, block_height: u64, storage_usage: u64| {
-                if account_id.as_ref() == "test0" {
+                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
                     assert_eq!(storage_usage, 182);
                 } else if block_height >= 11 {
                     assert_eq!(storage_usage, 4560);
@@ -3380,7 +3376,7 @@ mod storage_usage_fix_tests {
         process_blocks_with_storage_usage_fix(
             "testnet".to_string(),
             |account_id: AccountId, _: u64, storage_usage: u64| {
-                if account_id.as_ref() == "test0" {
+                if account_id.as_ref() == "test0" || account_id.as_ref() == "test1" {
                     assert_eq!(storage_usage, 182);
                 } else {
                     assert_eq!(storage_usage, 364);

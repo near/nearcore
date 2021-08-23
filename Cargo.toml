@@ -27,11 +27,11 @@ members = [
     "chain/jsonrpc-primitives",
     "chain/rosetta-rpc",
     "test-utils/actix-test-utils",
-    "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/runtime-tester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
+    "test-utils/testlib",
     "neard",
     "nearcore",
     "tools/rpctypegen/core",
@@ -57,8 +57,6 @@ wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = 
 overflow-checks = true
 
 [profile.bench]
-lto = true
-codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 overflow-checks = true
 
 [profile.dev.package.hex]

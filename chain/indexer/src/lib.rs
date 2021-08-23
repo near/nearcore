@@ -93,7 +93,7 @@ impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
         let near_config = nearcore::load_config(&indexer_config.home_dir);
-        nearcore::genesis_validate::validate_genesis(&near_config.genesis);
+        near_chain_configs::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
             "Indexer should track at least one shard. \n\
@@ -101,7 +101,7 @@ impl Indexer {
             ",
             indexer_config.home_dir.join("config.json").display()
         );
-        let (client, view_client, _) =
+        let nearcore::NearNode { client, view_client, .. } =
             nearcore::start_with_config(&indexer_config.home_dir, near_config.clone());
         Self { view_client, client, near_config, indexer_config }
     }

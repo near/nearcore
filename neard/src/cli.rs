@@ -6,6 +6,7 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tracing::debug;
 #[cfg(feature = "adversarial")]
 use tracing::error;
 use tracing::info;
@@ -215,7 +216,6 @@ impl RunCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
-        nearcore::genesis_validate::validate_genesis(&near_config.genesis);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
@@ -275,7 +275,8 @@ impl RunCmd {
 
         let sys = actix::System::new();
         sys.block_on(async move {
-            nearcore::start_with_config(home_dir, near_config);
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config(home_dir, near_config);
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -289,7 +290,12 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping", sig);
+            info!(target: "neard", "Got {}, stopping...", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
             actix::System::current().stop();
         });
         sys.run().unwrap();
@@ -305,7 +311,7 @@ pub(super) struct TestnetCmd {
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the testnet with.
-    #[clap(long, default_value = "4")]
+    #[clap(long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the testnet with.
     #[clap(long = "v", default_value = "4")]

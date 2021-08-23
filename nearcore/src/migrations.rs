@@ -5,7 +5,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
@@ -148,9 +148,10 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     if near_config.client_config.archive {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let epoch_config = EpochConfig::from(&near_config.genesis.config);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
-            EpochConfig::from(&near_config.genesis.config),
+            AllEpochConfig::new(epoch_config, None),
             near_config.genesis.config.protocol_version,
             RewardCalculator::new(&near_config.genesis.config),
             near_config.genesis.config.validators(),
@@ -447,9 +448,44 @@ pub fn migrate_24_to_25(path: &String) {
             Ok(old_outcomes) => old_outcomes,
             _ => {
                 // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
-                let old_outcome =
-                    OldExecutionOutcomeWithIdAndProof::try_from_slice(&value).unwrap();
-                vec![old_outcome]
+                if let Ok(old_outcome) = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
+                    println!(
+                        "! Format Changed. Check outcome id, block hash for indexer: {},{}",
+                        old_outcome.outcome_with_id.id, old_outcome.block_hash
+                    );
+                    vec![old_outcome]
+                } else {
+                    let mut v2: Vec<u8> = value.clone().into();
+                    use std::convert::TryFrom;
+                    // We investigate how deserialization went wrong, by manually borsh deserialize struct field-by-field and found
+                    // the problem comes from https://github.com/near/nearcore/commit/6c3c2f7475a5e8c258a39ed94f11f6a8a7b2108e, where
+                    // where MethodUTF8Error was dropped without a migration, which lead to deser index 3 of MethodResolveError
+                    // error. We compare bytes here to try recovery this case and still panic in case we hit other cases. This only
+                    // happened at testnet archival node.
+                    if &v2[0..4] == [1, 0, 0, 0] {
+                        // ensure there's one execution outcome
+                        if &v2[v2.len() - 3..] == [12, 2, 3] {
+                            // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
+                            let last = v2.len() - 1;
+                            v2[last] = 2; // MethodInvalidSignature error is now at index 2.
+                            let old_outcomes =
+                                Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2)
+                                    .unwrap();
+                            println!(
+                                "! Byte Changed. Check outcome id, block hash for indexer: {},{}",
+                                old_outcomes[0].outcome_with_id.id, old_outcomes[0].block_hash
+                            );
+                            old_outcomes
+                        } else {
+                            unimplemented!(
+                                "Unknown corruption for outcome: {}",
+                                CryptoHash::try_from(key.as_ref()).unwrap()
+                            );
+                        }
+                    } else {
+                        unimplemented!("More than one execution outcome not supported",);
+                    }
+                }
             }
         };
         let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
@@ -488,7 +524,6 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         } else {
             0
         },
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if is_mainnet {
             serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
                 .expect("File with receipts restored after apply_chunks fix have to be correct")
@@ -517,7 +552,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn test_restored_receipts_data() {
         assert_eq!(
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),

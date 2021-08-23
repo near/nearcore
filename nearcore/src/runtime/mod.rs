@@ -23,7 +23,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -55,12 +55,13 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use crate::shard_tracker::ShardTracker;
 use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
@@ -152,10 +153,12 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let runtime_config =
-            ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let runtime_config = ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
         let initial_epoch_config = EpochConfig::from(&genesis_config);
+        let all_epoch_config = AllEpochConfig::new(
+            initial_epoch_config.clone(),
+            genesis.config.simple_nightshade_shard_config.clone(),
+        );
         let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
@@ -166,7 +169,7 @@ impl NightshadeRuntime {
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
-                initial_epoch_config,
+                all_epoch_config,
                 genesis_config.protocol_version,
                 reward_calculator,
                 genesis_config.validators(),
@@ -176,9 +179,7 @@ impl NightshadeRuntime {
         let shard_tracker = ShardTracker::new(
             initial_tracking_accounts,
             initial_tracking_shards,
-            EpochId::default(),
             epoch_manager.clone(),
-            num_shards,
         );
         NightshadeRuntime {
             genesis_config,
@@ -228,12 +229,14 @@ impl NightshadeRuntime {
             info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.records_file);
         }
         let mut state_roots = vec![];
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let initial_epoch_config = EpochConfig::from(&genesis.config);
+        let shard_layout = initial_epoch_config.shard_layout;
+        let num_shards = shard_layout.num_shards();
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
         genesis.for_each_record(|record: &StateRecord| {
-            shard_account_ids[state_record_to_shard_id(record, num_shards) as usize]
+            shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
                 .insert(state_record_to_account_id(record).clone());
             if let StateRecord::Account { account_id, .. } = record {
                 if account_id == &genesis.config.protocol_treasury_account {
@@ -250,7 +253,7 @@ impl NightshadeRuntime {
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, num_shards) == shard_id {
+                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -532,8 +535,8 @@ impl NightshadeRuntime {
     }
 }
 
-pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShards) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), num_shards)
+pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
+    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -944,7 +947,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+        // TODO: change this function to take the correct shard layout according to epochs
+        account_id_to_shard_id(account_id, &ShardLayout::v0(self.num_shards()))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -1519,15 +1523,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
-        // If we were initialised with a custom max_gas_burnt_view (see
-        // ActualRuntimeConfig::new method), keep the value from genesis file.
-        // Since max_gas_burnt_view never changes as a result of protocol
-        // upgrade, we can use it when reporting protocol config.
-        let gas = config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
-        // Currently only runtime config is changed through protocol upgrades.
         config.runtime_config =
             (**self.runtime_config.for_protocol_version(protocol_version)).clone();
-        config.runtime_config.wasm_config.limit_config.max_gas_burnt_view = gas;
         Ok(config)
     }
 
@@ -1876,8 +1873,14 @@ mod test {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
-                epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                next_epoch_id: self.runtime.get_next_epoch_id_from_prev_block(&new_hash).unwrap(),
+                epoch_id: self
+                    .runtime
+                    .get_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
+                next_epoch_id: self
+                    .runtime
+                    .get_next_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
             };
         }
 

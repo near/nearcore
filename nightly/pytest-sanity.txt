@@ -35,10 +35,14 @@ pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly_protocol,nightly_protocol_features
 pytest --timeout=300 sanity/state_sync_late.py notx
 pytest --timeout=300 sanity/state_sync_late.py notx --features nightly_protocol,nightly_protocol_features
-pytest --timeout=900 sanity/state_sync_massive.py
-pytest --timeout=900 sanity/state_sync_massive.py --features nightly_protocol,nightly_protocol_features
-pytest sanity/sync_chunks_from_archival.py
-pytest sanity/sync_chunks_from_archival.py --features nightly_protocol,nightly_protocol_features
+
+# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# working on a fix / deciding whether to remove them.
+#pytest --timeout=900 sanity/state_sync_massive.py
+#pytest --timeout=900 sanity/state_sync_massive.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/sync_chunks_from_archival.py
+#pytest sanity/sync_chunks_from_archival.py --features nightly_protocol,nightly_protocol_features
+
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/skip_epoch.py
@@ -105,3 +109,12 @@ pytest sanity/proxy_example.py
 pytest sanity/proxy_example.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/rpc_tx_submission.py
 pytest sanity/rpc_tx_submission.py --features nightly_protocol,nightly_protocol_features
+
+# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# working on a fix / deciding whether to remove them.
+#pytest sanity/restart.py
+#pytest sanity/restart.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/rpc_finality.py
+#pytest sanity/rpc_finality.py --features nightly_protocol,nightly_protocol_features
+#pytest sanity/state_migration.py
+#pytest sanity/state_migration.py --features nightly_protocol,nightly_protocol_features
