@@ -1092,7 +1092,7 @@ impl Client {
                     .runtime_adapter
                     .get_epoch_id_from_prev_block(&block.header().hash())
                     .unwrap();
-                for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id) {
+                for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id).unwrap() {
                     let chunk_proposer = self
                         .runtime_adapter
                         .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)

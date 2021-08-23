@@ -219,7 +219,7 @@ impl Chain {
         let store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(&EpochId::default()),
+            runtime_adapter.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -257,7 +257,7 @@ impl Chain {
         let mut store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(&EpochId::default()),
+            runtime_adapter.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -1181,7 +1181,7 @@ impl Chain {
         parent_hash: &CryptoHash,
     ) -> Vec<ShardId> {
         let epoch_id = self.runtime_adapter().get_epoch_id_from_prev_block(parent_hash).unwrap();
-        (0..self.runtime_adapter.num_shards(&epoch_id))
+        (0..self.runtime_adapter.num_shards(&epoch_id).unwrap())
             .filter(|shard_id| {
                 self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
@@ -2607,7 +2607,7 @@ impl<'a> ChainUpdate<'a> {
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
-        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id) {
+        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
             if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
@@ -3127,7 +3127,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         if block.chunks().len()
-            != self.runtime_adapter.num_shards(&block.header().epoch_id()) as usize
+            != self.runtime_adapter.num_shards(&block.header().epoch_id())? as usize
         {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
         }
@@ -3469,7 +3469,9 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards(&header.epoch_id()) {
+        if header.chunk_mask().len() as u64
+            != self.runtime_adapter.num_shards(&header.epoch_id())?
+        {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 

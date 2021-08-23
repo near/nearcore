@@ -466,8 +466,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators[offset + delta].account_id().clone())
     }
 
-    fn num_shards(&self, _epoch_id: &EpochId) -> ShardId {
-        self.num_shards
+    fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
+        Ok(self.num_shards)
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {

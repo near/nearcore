@@ -585,7 +585,7 @@ impl ShardsManager {
 
     fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        (0..self.runtime_adapter.num_shards(&epoch_id))
+        (0..self.runtime_adapter.num_shards(&epoch_id).unwrap())
             .filter(|chunk_shard_id| {
                 self.cares_about_shard_this_or_next_epoch(
                     self.me.as_ref(),
@@ -1401,7 +1401,7 @@ impl ShardsManager {
         chunk_entry: &EncodedChunksCacheEntry,
     ) -> Result<bool, Error> {
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
-        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id) {
+        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
             let shard_id = shard_id as ShardId;
             if !chunk_entry.receipts.contains_key(&shard_id) {
                 if self.need_receipt(&prev_block_hash, shard_id) {

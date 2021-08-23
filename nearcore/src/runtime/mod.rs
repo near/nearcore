@@ -994,9 +994,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_shards(&self, epoch_id: &EpochId) -> NumShards {
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_shard_layout(epoch_id).unwrap().num_shards()
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::From)?.num_shards())
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
@@ -1940,7 +1940,7 @@ mod test {
             challenges_result: ChallengesResult,
         ) {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
-            let num_shards = self.runtime.num_shards(&self.head.epoch_id);
+            let num_shards = self.runtime.num_shards(&self.head.epoch_id).unwrap();
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];

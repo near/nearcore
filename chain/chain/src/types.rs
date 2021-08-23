@@ -410,7 +410,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
-    fn num_shards(&self, epoch_id: &EpochId) -> ShardId;
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
 
     fn num_total_parts(&self) -> usize;
 
