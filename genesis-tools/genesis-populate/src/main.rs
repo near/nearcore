@@ -4,7 +4,7 @@ use clap::{App, Arg};
 
 use nearcore::{get_default_home, get_store_path, load_config};
 
-use genesis_populate::{prepare_and_dump_state, GenesisBuilder};
+use genesis_populate::GenesisBuilder;
 use near_store::create_store;
 use std::sync::Arc;
 
