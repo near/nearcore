@@ -12,8 +12,6 @@ tokio-util = { version = "0.6", features = ["codec"] }
 tokio-stream = { version = "0.1.2", features = ["net"] }
 futures = "0.3"
 chrono = { version = "0.4.4", features = ["serde"] }
-serde = { version = "1", features = [ "derive" ] }
-serde_json = "1"
 rand = "0.7"
 byteorder = "1.2"
 lazy_static = "1.4"
@@ -26,32 +24,29 @@ conqueue = "0.4.0"
 borsh = "0.8.1"
 cached = "0.23"
 
+near-network-primitives = { path = "../network-primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-near-chain = { path = "../chain" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 
 [dev-dependencies]
+near-chain = { path = "../chain" }
 near-logger-utils = {path = "../../test-utils/logger"}
 near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 tempfile = "3"
 bencher = "0.1.5"
 
-near-client = { path = "../client" }
-near-telemetry = { path = "../telemetry" }
-
 [features]
-adversarial = []
-metric_recorder = []
+adversarial = ["near-network-primitives/adversarial"]
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
-sandbox = []
+sandbox = ["near-network-primitives/sandbox"]
 
 [[bench]]
 name = "graph"

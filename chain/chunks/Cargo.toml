@@ -17,6 +17,7 @@ reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
+near-chunks-primitives = { path = "../chunks-primitives" }
 near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
 near-chain = { path = "../chain" }
