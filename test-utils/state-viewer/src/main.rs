@@ -300,12 +300,12 @@ fn apply_chain_range(
     }
     let mut applied_cnt = 0;
     for height in start_height..=end_height {
-        let maybe_block_hash = chain_store.get_block_hash_by_height(height);
-        if maybe_block_hash.is_err() {
+        let block_hash = if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
+            block_hash
+        } else {
             info!(target:"state-viewer", "Skipping block #{}, because it's not available in ChainStore.", height);
             continue;
-        }
-        let block_hash = maybe_block_hash.unwrap();
+        };
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
             info!(target:"state-viewer", "Skipping the genesis block #{}, because it has no ChunkExtra.", height);
@@ -316,12 +316,13 @@ fn apply_chain_range(
                 .unwrap()
                 .clone();
 
-            let maybe_prev_block = chain_store.get_block(&block.header().prev_hash());
-            if maybe_prev_block.is_err() {
+            let prev_block = if let Ok(prev_block) = chain_store.get_block(&block.header().prev_hash()) {
+                prev_block.clone()
+            } else {
                 info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
                 continue;
-            }
-            let prev_block = maybe_prev_block.unwrap().clone();
+            };
+
             let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
             let receipt_proof_response = chain_store_update
                 .get_incoming_receipts_for_shard(
