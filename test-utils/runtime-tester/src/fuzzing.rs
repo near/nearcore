@@ -23,10 +23,9 @@ pub const MAX_BLOCKS: usize = 2500;
 pub const MAX_TXS: usize = 500;
 pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
+pub const MAX_ACTIONS: usize = 100;
 
 const GAS_1: u64 = 900_000_000_000_000;
-const GAS_2: u64 = GAS_1 / 3;
-// const GAS_3: u64 = GAS_2 / 3;
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
@@ -167,8 +166,15 @@ impl TransactionConfig {
         // Delete Account
         if scope.num_alive_accounts() > 1 {
             options.push(|u, scope| {
-                let account_usize_id = scope.random_non_zero_alive_account_usize_id(u)?;
-                let signer_account = scope.accounts[account_usize_id].clone();
+                let signer_account = scope.random_account(u)?;
+                let receiver_account = scope.random_non_zero_account(u)?;
+                let beneficiary_id = {
+                    if u.arbitrary::<bool>()? {
+                        scope.accounts.len() + 100
+                    } else {
+                        scope.random_alive_account_usize_id(u)?
+                    }
+                };
 
                 let signer = InMemorySigner::from_seed(
                     &signer_account.id,
@@ -176,13 +182,15 @@ impl TransactionConfig {
                     &signer_account.id,
                 );
 
+                scope.delete_account(receiver_account.usize_id());
+
                 Ok(TransactionConfig {
                     nonce: scope.nonce(),
                     signer_id: signer_account.id.clone(),
-                    receiver_id: signer_account.id.clone(),
+                    receiver_id: receiver_account.id.clone(),
                     signer,
                     actions: vec![Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: signer_account.id.clone(),
+                        beneficiary_id: format!("test{}", beneficiary_id),
                     })],
                 })
             });
@@ -213,53 +221,58 @@ impl TransactionConfig {
             })
         });
 
-        // Call
-        for acc in &scope.accounts {
-            if acc.deployed_contracts.len() > 0 {
-                options.push(|u, scope| {
-                    let nonce = scope.nonce();
+        // Multiple function calls
+        options.push(|u, scope| {
+            let nonce = scope.nonce();
 
-                    let mut accounts_with_contracts = vec![];
-                    for acc in &scope.accounts {
-                        if acc.deployed_contracts.len() > 0 {
-                            accounts_with_contracts.push(acc.usize_id());
-                        }
-                    }
+            let signer_account = scope.random_account(u)?;
+            let receiver_account = scope.random_account(u)?;
 
-                    let signer_account = scope.random_account(u)?;
-                    let receiver_account = &scope.accounts[*u.choose(&accounts_with_contracts)?];
+            let signer =
+                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
 
-                    let contract_id = *u.choose(
-                        &receiver_account.deployed_contracts.iter().cloned().collect::<Vec<_>>(),
-                    )?;
-                    let function = u.choose(&scope.available_contracts[contract_id].functions)?;
-
-                    let signer = InMemorySigner::from_seed(
-                        &signer_account.id,
-                        KeyType::ED25519,
-                        &signer_account.id,
-                    );
-
-                    Ok(TransactionConfig {
-                        nonce,
-                        signer_id: signer_account.id.clone(),
-                        receiver_id: receiver_account.id.clone(),
-                        signer,
-                        actions: vec![Action::FunctionCall(
-                            function.arbitrary(u, &signer_account)?,
-                        )],
-                    })
-                });
-                break;
+            let mut receiver_functions = vec![];
+            for contract_id in receiver_account.deployed_contracts {
+                for function in &scope.available_contracts[contract_id].functions {
+                    receiver_functions.push(function);
+                }
             }
-        }
 
+            if receiver_functions.is_empty() {
+                return Ok(TransactionConfig {
+                    nonce,
+                    signer_id: signer_account.id.clone(),
+                    receiver_id: receiver_account.id.clone(),
+                    signer,
+                    actions: vec![],
+                });
+            }
+
+            let mut actions = vec![];
+            let mut actions_num = u.int_in_range(0..=MAX_ACTIONS)?;
+            if u.int_in_range(0..=10)? == 0 {
+                actions_num = 1;
+            }
+
+            while actions.len() < actions_num && u.len() > Function::size_hint(0).1.unwrap() {
+                let function = u.choose(&receiver_functions)?;
+                actions.push(Action::FunctionCall(function.arbitrary(u)?));
+            }
+
+            Ok(TransactionConfig {
+                nonce,
+                signer_id: signer_account.id.clone(),
+                receiver_id: receiver_account.id.clone(),
+                signer,
+                actions,
+            })
+        });
         let f = u.choose(&options)?;
         f(u, scope)
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
-        (7, Some(14))
+        (7, Some(210))
     }
 }
 
@@ -288,11 +301,22 @@ pub struct Contract {
 
 #[derive(Clone)]
 pub enum Function {
-    BubbleSort,
-    CallPromise,
-    WriteBlockHeight,
-    ExtUsedGas,
+    StorageUsage,
+    BlockIndex,
+    BlockTimestamp,
+    PrepaidGas,
+    RandomSeed,
+    PredecessorAccountId,
+    SignerAccountPk,
+    SignerAccountId,
+    CurrentAccountId,
+    AccountBalance,
+    AttachedDeposit,
+    ValidatorTotalStake,
+    ExtSha256,
+    UsedGas,
     WriteKeyValue,
+    WriteBlockHeight,
 }
 
 impl Scope {
@@ -309,23 +333,27 @@ impl Scope {
     }
 
     fn construct_available_contracts() -> Vec<Contract> {
-        vec![
-            /*
-            Contract {
-                code: near_test_contracts::load_contract().to_vec(),
-                functions: vec![Function::BubbleSort],
-            },
-             */
-            Contract {
-                code: near_test_contracts::rs_contract().to_vec(),
-                functions: vec![
-                    Function::CallPromise,
-                    Function::WriteBlockHeight,
-                    Function::ExtUsedGas,
-                    Function::WriteKeyValue,
-                ],
-            },
-        ]
+        vec![Contract {
+            code: near_test_contracts::rs_contract().to_vec(),
+            functions: vec![
+                Function::StorageUsage,
+                Function::BlockIndex,
+                Function::BlockTimestamp,
+                Function::PrepaidGas,
+                Function::RandomSeed,
+                Function::PredecessorAccountId,
+                Function::SignerAccountPk,
+                Function::SignerAccountId,
+                Function::CurrentAccountId,
+                Function::AccountBalance,
+                Function::AttachedDeposit,
+                Function::ValidatorTotalStake,
+                Function::ExtSha256,
+                Function::UsedGas,
+                Function::WriteKeyValue,
+                Function::WriteBlockHeight,
+            ],
+        }]
     }
 
     pub fn inc_height(&mut self) {
@@ -362,6 +390,10 @@ impl Scope {
         Ok(self.accounts[self.random_alive_account_usize_id(u)?].clone())
     }
 
+    pub fn random_non_zero_account(&self, u: &mut Unstructured) -> Result<Account> {
+        Ok(self.accounts[self.random_non_zero_alive_account_usize_id(u)?].clone())
+    }
+
     pub fn new_account(&mut self) -> Account {
         let new_id = format!("test{}", self.accounts.len());
         self.alive_accounts.insert(self.accounts.len());
@@ -390,42 +422,96 @@ impl Account {
 }
 
 impl Function {
-    pub fn arbitrary(
-        &self,
-        u: &mut Unstructured,
-        signer_account: &Account,
-    ) -> Result<FunctionCallAction> {
+    pub fn arbitrary(&self, u: &mut Unstructured) -> Result<FunctionCallAction> {
         match self {
-            Function::BubbleSort => Ok(FunctionCallAction {
-                method_name: "bubble_sort".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 1,
-            }),
-            Function::CallPromise => {
-                let data = serde_json::json!([
-                    {"create": {
-                    "account_id": signer_account.id,
-                    "method_name": "call_promise",
-                    "arguments": [],
-                    "amount": "0",
-                    "gas": GAS_2,
-                    }, "id": 0 }
-                ]);
-                Ok(FunctionCallAction {
-                    method_name: "call_promise".to_string(),
-                    args: serde_json::to_vec(&data).unwrap(),
-                    gas: GAS_1,
-                    deposit: 0,
-                })
-            }
-            Function::WriteBlockHeight => Ok(FunctionCallAction {
-                method_name: "write_block_height".to_string(),
+            Function::StorageUsage => Ok(FunctionCallAction {
+                method_name: "ext_storage_usage".to_string(),
                 args: vec![],
                 gas: GAS_1,
                 deposit: 0,
             }),
-            Function::ExtUsedGas => Ok(FunctionCallAction {
+            Function::BlockIndex => Ok(FunctionCallAction {
+                method_name: "ext_block_index".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::BlockTimestamp => Ok(FunctionCallAction {
+                method_name: "ext_block_timestamp".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::PrepaidGas => Ok(FunctionCallAction {
+                method_name: "ext_prepaid_gas".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::RandomSeed => Ok(FunctionCallAction {
+                method_name: "ext_random_seed".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::PredecessorAccountId => Ok(FunctionCallAction {
+                method_name: "ext_predecessor_account_id".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::SignerAccountPk => Ok(FunctionCallAction {
+                method_name: "ext_signer_account_pk".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::SignerAccountId => Ok(FunctionCallAction {
+                method_name: "ext_signer_account_id".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::CurrentAccountId => Ok(FunctionCallAction {
+                method_name: "ext_current_account_id".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::AccountBalance => Ok(FunctionCallAction {
+                method_name: "ext_account_balance".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::AttachedDeposit => Ok(FunctionCallAction {
+                method_name: "ext_attached_deposit".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::ValidatorTotalStake => Ok(FunctionCallAction {
+                method_name: "ext_validators_total_stake".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
+            Function::ExtSha256 => {
+                const VALUES_LEN: usize = 20;
+                let mut args = [0u8; VALUES_LEN * size_of::<u64>()];
+                let mut values = vec![];
+                for _ in 0..VALUES_LEN {
+                    values.push(u.arbitrary::<u64>()?);
+                }
+                LittleEndian::write_u64_into(&values, &mut args);
+                Ok(FunctionCallAction {
+                    method_name: "ext_sha256".to_string(),
+                    args: args.to_vec(),
+                    gas: GAS_1,
+                    deposit: 0,
+                })
+            }
+            Function::UsedGas => Ok(FunctionCallAction {
                 method_name: "ext_used_gas".to_string(),
                 args: vec![],
                 gas: GAS_1,
@@ -443,6 +529,16 @@ impl Function {
                     deposit: 1,
                 })
             }
+            Function::WriteBlockHeight => Ok(FunctionCallAction {
+                method_name: "write_block_height".to_string(),
+                args: vec![],
+                gas: GAS_1,
+                deposit: 0,
+            }),
         }
+    }
+
+    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+        (0, Some(20))
     }
 }
