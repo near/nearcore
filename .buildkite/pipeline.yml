@@ -96,8 +96,7 @@ steps:
       ./build.sh
       cd ..
       RUSTFLAGS='-D warnings' cargo run --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-      RUSTFLAGS='-D warnings' cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
 
     branches: "!master !beta !stable"
     timeout: 60
