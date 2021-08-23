@@ -112,7 +112,7 @@ fn sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test_sharded(
+        let mut genesis = Genesis::test_sharded_new_version(
             vec![
                 "test1".parse().unwrap(),
                 "test2".parse().unwrap(),
@@ -259,7 +259,7 @@ fn sync_empty_state() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis = Genesis::test_sharded(
+        let mut genesis = Genesis::test_sharded_new_version(
             vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             1,
             vec![1, 1, 1, 1],

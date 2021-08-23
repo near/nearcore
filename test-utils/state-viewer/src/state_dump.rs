@@ -37,7 +37,8 @@ pub fn state_dump(
 
     let mut records = vec![];
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64);
+        let trie =
+            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
         let trie = TrieIterator::new(&trie, &state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
@@ -67,6 +68,7 @@ pub fn state_dump(
     // `total_supply` is expected to change due to the natural processes of burning tokens and
     // minting tokens every epoch.
     genesis_config.total_supply = get_initial_supply(&records);
+    genesis_config.shard_layout = runtime.get_shard_layout(last_block_header.epoch_id()).unwrap();
     Genesis::new(genesis_config, records.into())
 }
 

@@ -8,10 +8,13 @@ use chrono::Utc;
 use num_rational::Rational;
 use tracing::debug;
 
+use near_chain_configs::ProtocolConfig;
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -19,7 +22,9 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -49,10 +54,6 @@ use crate::types::{
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
-use near_chain_configs::ProtocolConfig;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::state_record::StateRecord;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -137,7 +138,7 @@ impl KeyValueRuntime {
         epoch_length: u64,
         no_gc: bool,
     ) -> Self {
-        let tries = ShardTries::new(store.clone(), num_shards);
+        let tries = ShardTries::new(store.clone(), 0, num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
@@ -303,12 +304,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        _block_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        Ok(self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_view_trie_for_shard(shard_id)
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        _block_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        Ok(self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
     }
 
     fn verify_block_vrf(
@@ -555,6 +564,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _gas_price: Balance,
         _gas_limit: Gas,
+        _epoch_id: &EpochId,
         _shard_id: ShardId,
         _state_root: StateRoot,
         _next_block_height: BlockHeight,
@@ -759,7 +769,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                shard_id,
+                ShardUId { version: 0, shard_id: shard_id as u32 },
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block_hash.clone(),
@@ -869,6 +879,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn obtain_state_part(
         &self,
         _shard_id: ShardId,
+        _block_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -917,6 +928,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_state_root_node(
         &self,
         _shard_id: ShardId,
+        _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
         Ok(StateRootNode {
