@@ -416,17 +416,17 @@ fn apply_chain_range(
         applied_cnt += 1;
         if progress > 0 && 0 == applied_cnt % progress {
             println!("============================");
-            println!(
+            info!(target: "state-viewer",
                 "Progress: {:.2}%. Blocks done: {}, Blocks remaining: {}",
                 100. * applied_cnt as f64 / (end_height - start_height + 1) as f64,
                 applied_cnt,
                 end_height + 1 - height
             );
-            println!("Applied blocks up to {}", height);
-            println!("Chunk gas usage stats:      {}", chunk_gas_used_stats);
-            println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
-            println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
-            println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
+            info!(target: "state-viewer","Applied blocks up to #{}", height);
+            info!(target: "state-viewer","Chunk gas usage stats:      {}", chunk_gas_used_stats);
+            info!(target: "state-viewer","Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
+            info!(target: "state-viewer","Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
+            info!(target: "state-viewer","Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
         }
     }
     println!("============================");
