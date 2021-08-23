@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
@@ -18,6 +16,7 @@ use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::mem::size_of;
+use std::str::FromStr;
 
 pub type ContractId = usize;
 
@@ -188,9 +187,9 @@ impl TransactionConfig {
                 };
 
                 let signer = InMemorySigner::from_seed(
-                    &signer_account.id,
+                    signer_account.id.clone(),
                     KeyType::ED25519,
-                    &signer_account.id,
+                    signer_account.id.as_ref(),
                 );
 
                 scope.delete_account(receiver_account.usize_id());
@@ -201,7 +200,10 @@ impl TransactionConfig {
                     receiver_id: receiver_account.id.clone(),
                     signer,
                     actions: vec![Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: format!("test{}", beneficiary_id),
+                        beneficiary_id: AccountId::from_str(
+                            format!("test{}", beneficiary_id).as_str(),
+                        )
+                        .expect("Invalid account_id"),
                     })],
                 })
             });
@@ -216,8 +218,11 @@ impl TransactionConfig {
             let max_contract_id = scope.available_contracts.len() - 1;
             let contract_id = u.int_in_range::<usize>(0..=max_contract_id)?;
 
-            let signer =
-                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+            let signer = InMemorySigner::from_seed(
+                signer_account.id.clone(),
+                KeyType::ED25519,
+                signer_account.id.as_ref(),
+            );
 
             scope.deploy_contract(&signer_account, contract_id);
 
@@ -239,8 +244,11 @@ impl TransactionConfig {
             let signer_account = scope.random_account(u)?;
             let receiver_account = scope.random_account(u)?;
 
-            let signer =
-                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+            let signer = InMemorySigner::from_seed(
+                signer_account.id.clone(),
+                KeyType::ED25519,
+                signer_account.id.as_ref(),
+            );
 
             let mut receiver_functions = vec![];
             for contract_id in receiver_account.deployed_contracts {
@@ -423,12 +431,16 @@ impl Scope {
 }
 
 impl Account {
-    pub fn from_id(id: AccountId) -> Self {
-        Self { id, balance: TESTING_INIT_BALANCE, deployed_contracts: HashSet::default() }
+    pub fn from_id(id: String) -> Self {
+        Self {
+            id: AccountId::from_str(id.as_str()).expect("Invalid account_id"),
+            balance: TESTING_INIT_BALANCE,
+            deployed_contracts: HashSet::default(),
+        }
     }
 
     pub fn usize_id(&self) -> usize {
-        self.id[4..].parse::<usize>().unwrap()
+        self.id.as_ref()[4..].parse::<usize>().unwrap()
     }
 }
 
