@@ -98,7 +98,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 
     let mut fake_external = MockedExternal::new();
 
-    let context = default_vm_context();
+    let context = VMContext::;
     let vm_config = VMConfig::default();
     let cache: Option<Arc<dyn CompiledContractCache>> =
         Some(Arc::new(MockCompiledContractCache::new(0)));

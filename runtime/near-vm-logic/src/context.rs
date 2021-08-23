@@ -68,3 +68,26 @@ impl VMContext {
         self.view_config.is_some()
     }
 }
+
+impl Default for VMContext {
+    fn default() -> Self {
+        VMContext {
+            current_account_id: "alice".parse().unwrap(),
+            signer_account_id: "bob".parse().unwrap(),
+            signer_account_pk: vec![0, 1, 2],
+            predecessor_account_id: "carol".parse().unwrap(),
+            input: vec![],
+            block_index: 1,
+            block_timestamp: 1586796191203000000,
+            account_balance: 10u128.pow(25),
+            account_locked_balance: 0,
+            storage_usage: 100,
+            attached_deposit: 0,
+            prepaid_gas: 10u64.pow(18),
+            random_seed: vec![0, 1, 2],
+            view_config: None,
+            output_data_receivers: vec![],
+            epoch_height: 1,
+        }
+    }
+}
