@@ -11,7 +11,7 @@ use near_primitives::{
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
 use byteorder::{ByteOrder, LittleEndian};
-use libfuzzer_sys::arbitrary::{Arbitrary, Error, Result, Unstructured};
+use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -200,7 +200,7 @@ impl TransactionConfig {
             let signer =
                 InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
 
-            scope.deploy_contract(&receiver_account, contract_id);
+            scope.deploy_contract(&signer_account, contract_id);
 
             Ok(TransactionConfig {
                 nonce,
@@ -296,7 +296,7 @@ pub enum Function {
 }
 
 impl Scope {
-    fn from_seeds(seeds: &Vec<String>) -> Self {
+    fn from_seeds(seeds: &[String]) -> Self {
         let accounts = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
         Scope {
             accounts,

@@ -1,0 +1,13 @@
+[package]
+name = "run_scenario"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33.0"
+
+runtime-tester = { path = ".." }
+
+[workspace]
+
