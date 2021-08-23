@@ -1,15 +1,32 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_crypto::KeyType;
+use near_primitives::block::{Block, Tip};
+use near_primitives::block_header::BlockHeader;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::merklize;
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
     ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
 };
+use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::trie_key::TrieKey;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{AccountId, Balance};
+use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
 use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
@@ -20,25 +37,8 @@ use crate::migrations::v6_to_v7::{
 use crate::migrations::v8_to_v9::{
     recompute_col_rc, repair_col_receipt_id_to_shard_id, repair_col_transactions,
 };
-use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
-
 use crate::trie::{TrieCache, TrieCachingStorage};
-use near_crypto::KeyType;
-use near_primitives::block::{Block, Tip};
-use near_primitives::block_header::BlockHeader;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
-use near_primitives::merkle::merklize;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
-use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
-use near_primitives::trie_key::TrieKey;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use std::rc::Rc;
+use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
@@ -410,8 +410,9 @@ pub fn migrate_13_to_14(path: &String) {
 /// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
 pub fn migrate_14_to_15(path: &String) {
     let store = create_store(path);
-    let trie_store = Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), 0));
-    let trie = Rc::new(Trie::new(trie_store, 0));
+    let trie_store =
+        Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), ShardUId::default()));
+    let trie = Rc::new(Trie::new(trie_store, ShardUId::default()));
 
     let mut store_update = store.store_update();
     let batch_size_limit = 10_000_000;

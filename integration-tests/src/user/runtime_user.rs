@@ -24,6 +24,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
+use near_primitives::shard_layout::ShardUId;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -36,7 +37,7 @@ pub struct MockClient {
 
 impl MockClient {
     pub fn get_state_update(&self) -> TrieUpdate {
-        self.tries.new_trie_update(0, self.state_root)
+        self.tries.new_trie_update(ShardUId::default(), self.state_root)
     }
 }
 
@@ -90,7 +91,7 @@ impl RuntimeUser {
             let apply_result = client
                 .runtime
                 .apply(
-                    client.tries.get_trie_for_shard(0),
+                    client.tries.get_trie_for_shard(ShardUId::default()),
                     client.state_root,
                     &None,
                     &apply_state,
@@ -116,7 +117,13 @@ impl RuntimeUser {
                     .borrow_mut()
                     .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
-            client.tries.apply_all(&apply_result.trie_changes, 0).unwrap().0.commit().unwrap();
+            client
+                .tries
+                .apply_all(&apply_result.trie_changes, ShardUId::default())
+                .unwrap()
+                .0
+                .commit()
+                .unwrap();
             client.state_root = apply_result.state_root;
             if apply_result.outgoing_receipts.is_empty() {
                 return Ok(());

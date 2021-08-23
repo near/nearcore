@@ -29,7 +29,7 @@ pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 use near_chain::types::{BlockHeaderInfo, ValidatorInfoIdentifier};
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardVersion};
 use near_store::db::DBCol::ColEpochValidatorInfo;
 
 mod proposals;
@@ -1188,10 +1188,17 @@ impl EpochManager {
         Ok(EpochId(*first_block_info.prev_hash()))
     }
 
-    pub fn get_shard_layout(&mut self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+    pub fn get_shard_layout(&mut self, epoch_id: &EpochId) -> Result<&ShardLayout, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         let shard_layout = &self.config.for_protocol_version(protocol_version).shard_layout;
-        Ok(shard_layout.clone())
+        Ok(shard_layout)
+    }
+
+    pub fn get_shard_version(&mut self, epoch_id: &EpochId) -> Result<ShardVersion, EpochError> {
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        let shard_version =
+            self.config.for_protocol_version(protocol_version).shard_layout.version();
+        Ok(shard_version)
     }
 
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
@@ -3616,6 +3623,7 @@ mod tests {
             vec!["aurora".parse().unwrap()],
             vec!["hhhh", "oooo"].into_iter().map(|x| x.parse().unwrap()).collect(),
             Some(vec![0, 0, 0, 0]),
+            1,
         );
         let shard_config = ShardConfig {
             num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),
@@ -3661,12 +3669,15 @@ mod tests {
             epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(),
             new_protocol_version - 1
         );
-        assert_eq!(epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(), ShardLayout::v0(1),);
+        assert_eq!(
+            *epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(),
+            ShardLayout::default(),
+        );
         assert_eq!(
             epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
             new_protocol_version
         );
-        assert_eq!(epoch_manager.get_shard_layout(&EpochId(h[4])).unwrap(), shard_layout);
+        assert_eq!(*epoch_manager.get_shard_layout(&EpochId(h[4])).unwrap(), shard_layout);
     }
 
     #[test]
@@ -3686,7 +3697,7 @@ mod tests {
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
             minimum_stake_divisor: 1,
-            shard_layout: ShardLayout::v0(1),
+            shard_layout: ShardLayout::default(),
         };
         let config = AllEpochConfig::new(epoch_config, None);
         let amount_staked = 1_000_000;
