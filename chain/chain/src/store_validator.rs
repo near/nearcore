@@ -26,6 +26,7 @@ use near_store::{
 use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
+use near_primitives::shard_layout::get_block_shard_uid_rev;
 
 mod validate;
 
@@ -204,12 +205,12 @@ impl StoreValidator {
                     self.check(&validate::chunk_extra_block_exists, &block_hash, &chunk_extra, col);
                 }
                 DBCol::ColTrieChanges => {
-                    let (block_hash, shard_id) = get_block_shard_id_rev(key_ref)?;
+                    let (block_hash, shard_uid) = get_block_shard_uid_rev(key_ref)?;
                     let trie_changes = TrieChanges::try_from_slice(value_ref)?;
                     // ShardChunk should exist for current TrieChanges
                     self.check(
                         &validate::trie_changes_chunk_extra_exists,
-                        &(block_hash, shard_id),
+                        &(block_hash, shard_uid),
                         &trie_changes,
                         col,
                     );

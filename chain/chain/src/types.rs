@@ -243,11 +243,17 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_tries(&self) -> ShardTries;
 
-    /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
+    /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
+    /// `shard_id` is at.
+    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error>;
 
     /// Returns trie with view cache
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<Trie, Error>;
 
     fn verify_block_vrf(
         &self,
@@ -285,6 +291,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
+        epoch_id: &EpochId,
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
@@ -606,9 +613,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -636,11 +645,13 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     /// Panics if requested hash is not in storage.
     /// Never returns Error
     fn get_state_root_node(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error>;
 

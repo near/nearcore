@@ -1355,6 +1355,7 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
         // Chunk header here is the same chunk header as at the `current` height.
+        let sync_prev_hash = sync_prev_block.hash().clone();
         let chunk_header = sync_prev_block.chunks()[shard_id as usize].clone();
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
@@ -1453,8 +1454,11 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        let state_root_node =
-            self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.prev_state_root())?;
+        let state_root_node = self.runtime_adapter.get_state_root_node(
+            shard_id,
+            &sync_prev_hash,
+            &chunk_header.prev_state_root(),
+        )?;
 
         let shard_state_header = match chunk {
             ShardChunk::V1(chunk) => {
@@ -1528,9 +1532,10 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
+        let sync_prev_hash = sync_prev_block.hash().clone();
         let state_root_node = self
             .runtime_adapter
-            .get_state_root_node(shard_id, &state_root)
+            .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
@@ -1539,7 +1544,7 @@ impl Chain {
         }
         let state_part = self
             .runtime_adapter
-            .obtain_state_part(shard_id, &state_root, part_id, num_parts)
+            .obtain_state_part(shard_id, &sync_prev_hash, &state_root, part_id, num_parts)
             .log_storage_error("obtain_state_part fail")?;
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header
