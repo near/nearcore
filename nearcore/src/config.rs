@@ -465,7 +465,8 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &PathBuf) -> Self {
-        let mut file = File::open(path).unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
+        let mut file = File::open(path)
+            .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
         Config::from(content.as_str())

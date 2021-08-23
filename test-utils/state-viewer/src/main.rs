@@ -319,7 +319,9 @@ fn apply_chain_range(
                 .unwrap()
                 .clone();
 
-            let prev_block = if let Ok(prev_block) = chain_store.get_block(&block.header().prev_hash()) {
+            let prev_block = if let Ok(prev_block) =
+                chain_store.get_block(&block.header().prev_hash())
+            {
                 prev_block.clone()
             } else {
                 info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
