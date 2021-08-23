@@ -298,17 +298,20 @@ fn apply_chain_range(
         println!("============================");
         println!("Printing results including outcomes of applying receipts");
     }
-    let mut applied_cnt = 0;
+    let mut applied_blocks = 0;
+    let mut skipped_blocks = 0;
     for height in start_height..=end_height {
         let block_hash = if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             block_hash
         } else {
-            info!(target:"state-viewer", "Skipping block #{}, because it's not available in ChainStore.", height);
+            // Skipping block because it's not available in ChainStore.
+            skipped_blocks += 1;
             continue;
         };
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
             info!(target:"state-viewer", "Skipping the genesis block #{}, because it has no ChunkExtra.", height);
+            skipped_blocks += 1;
             continue;
         } else if block.chunks()[shard_id as usize].height_included() == height {
             let chunk = chain_store
@@ -320,6 +323,7 @@ fn apply_chain_range(
                 prev_block.clone()
             } else {
                 info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                skipped_blocks += 1;
                 continue;
             };
 
@@ -414,13 +418,13 @@ fn apply_chain_range(
             receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
             receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
         }
-        applied_cnt += 1;
-        if progress > 0 && 0 == applied_cnt % progress {
+        applied_blocks += 1;
+        if progress > 0 && 0 == applied_blocks % progress {
             println!("============================");
             info!(target: "state-viewer",
                 "Progress: {:.2}%. Blocks done: {}, Blocks remaining: {}",
-                100. * applied_cnt as f64 / (end_height - start_height + 1) as f64,
-                applied_cnt,
+                100. * applied_blocks as f64 / (end_height - start_height + 1) as f64,
+                applied_blocks,
                 end_height + 1 - height
             );
             info!(target: "state-viewer","Applied blocks up to #{}", height);
@@ -435,6 +439,7 @@ fn apply_chain_range(
     println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
     println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
     println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
+    println!("Applied blocks: {}. Skipped blocks: {}.", applied_blocks, skipped_blocks);
 }
 
 fn apply_block_at_height(
