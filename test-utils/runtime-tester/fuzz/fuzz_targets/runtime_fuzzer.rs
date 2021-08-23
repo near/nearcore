@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use runtime_tester::{Scenario};
+use runtime_tester::Scenario;
 use std::fs::File;
 use std::time::Duration;
 
@@ -15,8 +15,10 @@ fuzz_target!(|scenario: Scenario| {
         for block_stats in stats.blocks_stats {
             if block_stats.block_production_time > Duration::from_secs(1) {
                 serde_json::to_writer(&File::create(filename).unwrap(), &scenario).unwrap();
-                panic!("Bad scenario: {}, block at height {} was produced in {:?}",
-                filename, block_stats.height, block_stats.block_production_time);
+                panic!(
+                    "Bad scenario: {}, block at height {} was produced in {:?}",
+                    filename, block_stats.height, block_stats.block_production_time
+                );
             }
         }
     }
