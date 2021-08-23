@@ -996,7 +996,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::From)?.num_shards())
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
     }
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
