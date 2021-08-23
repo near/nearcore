@@ -409,7 +409,7 @@ fn apply_chain_range(
             }
         }
         applied_cnt += 1;
-        if !verbose && 0 == applied_cnt % 100 {
+        if !verbose && 0 == applied_cnt % 1000 {
             println!("============================");
             println!("applied_cnt: {}", applied_cnt);
             println!("Chunk gas usage stats:      {}", chunk_gas_used_stats);
