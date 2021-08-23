@@ -248,7 +248,7 @@ impl fmt::Display for Stats {
         if self.cnt > 0 {
             write!(
                 f,
-                "Max: {:>23}; Min: {:>23}; Sum: {:>23}; Count: {:>8}; Average: {:>25.3}",
+                "Max: {:>23}; Min: {:>23}; Sum: {:>26}; Count: {:>8}; Average: {:>25.3}",
                 self.max,
                 self.min,
                 self.sum,
@@ -269,6 +269,7 @@ fn apply_chain_range(
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
     verbose: bool,
+    progress: u64,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
@@ -409,9 +410,15 @@ fn apply_chain_range(
             }
         }
         applied_cnt += 1;
-        if !verbose && 0 == applied_cnt % 1000 {
+        if progress > 0 && 0 == applied_cnt % progress {
             println!("============================");
-            println!("applied_cnt: {}", applied_cnt);
+            println!(
+                "Progress: {:.2}%. Blocks done: {}, Blocks remaining: {}",
+                100. * applied_cnt as f64 / (end_height - start_height + 1) as f64,
+                applied_cnt,
+                end_height + 1 - height
+            );
+            println!("Applied blocks up to {}", height);
             println!("Chunk gas usage stats:      {}", chunk_gas_used_stats);
             println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
             println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
@@ -718,6 +725,13 @@ fn main() {
                         .default_value("0")
                         .takes_value(true),
                 )
+                .arg(
+                    Arg::with_name("progress")
+                        .long("progress")
+                        .help("Print stats every that many blocks")
+                        .default_value("0")
+                        .takes_value(true),
+                )
                 .help("apply blocks at a range of heights for a single shard"),
         )
         .subcommand(
@@ -888,6 +902,8 @@ fn main() {
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
             let verbose =
                 args.value_of("verbose").map(|s| s.parse::<bool>().unwrap()).unwrap_or_default();
+            let progress =
+                args.value_of("progress").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
             apply_chain_range(
                 store,
                 home_dir,
@@ -896,6 +912,7 @@ fn main() {
                 end_index,
                 shard_id,
                 verbose,
+                progress,
             );
         }
         ("view_chain", Some(args)) => {
