@@ -13,27 +13,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-fn default_vm_context() -> VMContext {
-    return VMContext {
-        current_account_id: "alice".parse().unwrap(),
-        signer_account_id: "bob".parse().unwrap(),
-        signer_account_pk: vec![0, 1, 2],
-        predecessor_account_id: "carol".parse().unwrap(),
-        input: vec![],
-        block_index: 1,
-        block_timestamp: 1586796191203000000,
-        account_balance: 10u128.pow(25),
-        account_locked_balance: 0,
-        storage_usage: 100,
-        attached_deposit: 0,
-        prepaid_gas: 10u64.pow(18),
-        random_seed: vec![0, 1, 2],
-        view_config: None,
-        output_data_receivers: vec![],
-        epoch_height: 1,
-    };
-}
-
 #[derive(Default, Clone)]
 pub struct MockCompiledContractCache {
     store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
@@ -98,7 +77,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 
     let mut fake_external = MockedExternal::new();
 
-    let context = VMContext::;
+    let context = VMContext::default();
     let vm_config = VMConfig::default();
     let cache: Option<Arc<dyn CompiledContractCache>> =
         Some(Arc::new(MockCompiledContractCache::new(0)));
