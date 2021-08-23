@@ -169,11 +169,6 @@ impl<'a> VMLogic<'a> {
         )
     }
 
-    /// new update burnt gas helper to adapt the global-based wasm gas meter
-    pub fn burn_used_gas(&mut self, used_gas: Gas) -> Result<()> {
-        self.gas_counter.pay_wasm_gas(used_gas)
-    }
-
     // ###########################
     // # Memory helper functions #
     // ###########################

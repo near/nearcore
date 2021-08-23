@@ -8,6 +8,7 @@ use near_primitives::{config::VMConfig, types::CompiledContractCache, version::P
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
+use std::convert::TryInto;
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
@@ -209,15 +210,15 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
-fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available_gas: Gas) {
+fn wasmer0_set_available_gas(instance: &wasmer_runtime_core::Instance, available_gas: u32) {
     let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
-    remaining_gas.set(wasmer_runtime::Value::I64(available_gas as i64));
+    remaining_gas.set(wasmer_runtime::Value::I32(available_gas as i32));
 }
 
-fn wasmer0_get_remaining_gas(instance: &wasmer_runtime_core::Instance) -> Gas {
+fn wasmer0_get_remaining_gas(instance: &wasmer_runtime_core::Instance) -> u32 {
     let remaining_gas: wasmer_runtime::Global = instance.exports.get("remaining_gas").unwrap();
     use std::convert::TryFrom;
-    i64::try_from(&remaining_gas.get()).unwrap() as u64
+    i32::try_from(&remaining_gas.get()).unwrap() as u32
 }
 
 pub fn run_wasmer<'a>(
@@ -267,7 +268,10 @@ pub fn run_wasmer<'a>(
     let memory_copy = memory.clone();
 
     let gas_mode = if wasm_config.regular_op_cost > 0 {
-        GasMode::Paid(context.prepaid_gas)
+        println!("=== {} {}", context.prepaid_gas, wasm_config.regular_op_cost);
+        GasMode::Paid(
+            (context.prepaid_gas / wasm_config.regular_op_cost as u64).try_into().unwrap(),
+        )
     } else {
         GasMode::Free
     };
@@ -303,7 +307,7 @@ pub fn run_wasmer<'a>(
 }
 
 pub enum GasMode {
-    Paid(Gas),
+    Paid(u32),
     Free,
 }
 
@@ -339,7 +343,7 @@ fn run_method(
             available_gas - remaining_gas
         );
         logic
-            .burn_used_gas(available_gas - remaining_gas)
+            .gas(available_gas - remaining_gas)
             .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
     }
     call_start_func_result.map_err(|err| err.into_vm_error())?;
@@ -358,7 +362,7 @@ fn run_method(
             available_gas - remaining_gas
         );
         logic
-            .burn_used_gas(available_gas - remaining_gas)
+            .gas(available_gas - remaining_gas)
             .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
     }
     call_result.map_err(|err| err.into_vm_error())?;
@@ -394,7 +398,9 @@ pub(crate) fn run_wasmer0_module<'a>(
     let memory_copy = memory.clone();
 
     let gas_mode = if wasm_config.regular_op_cost > 0 {
-        GasMode::Paid(context.prepaid_gas)
+        GasMode::Paid(
+            (context.prepaid_gas / wasm_config.regular_op_cost as u64).try_into().unwrap(),
+        )
     } else {
         GasMode::Free
     };

@@ -19,9 +19,8 @@ fn test_gas_metering_cost(metric: GasMetric) {
     let mut ys1 = vec![];
     let mut xs2 = vec![];
     let mut ys2 = vec![];
-    for depth in vec![1, 10, 20, 30, 50, 100, 200] {
+    for depth in vec![1, 10, 20, 30, 50, 100, 200, 1000] {
         if true {
-            println!("!!! {}", depth);
             // Here we test gas metering costs for forward branch cases.
             let nested_contract = make_deeply_nested_blocks_contact(depth);
             let cost =
@@ -31,7 +30,6 @@ fn test_gas_metering_cost(metric: GasMetric) {
             ys1.push(cost);
         }
         if true {
-            println!("!!!! {}", depth);
             let loop_contract = make_simple_loop_contact(depth);
             let cost = compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &loop_contract);
             println!("loop {} {}", depth, cost / (REPEATS as u64));
