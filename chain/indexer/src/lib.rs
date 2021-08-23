@@ -9,16 +9,19 @@
 //! [example]: https://github.com/nearprotocol/nearcore/tree/master/tools/indexer/example
 use tokio::sync::mpsc;
 
+pub use near_primitives;
+use near_primitives::types::Gas;
 pub use nearcore::{get_default_home, init_configs, NearConfig};
-mod streamer;
 
 pub use self::streamer::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
     IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
     StreamerMessage,
 };
-pub use near_primitives;
-use near_primitives::types::Gas;
+
+mod streamer;
+
+pub const INDEXER: &str = "indexer";
 
 /// Config wrapper to simplify signature and usage of `nearcore::init_configs`
 /// function by making args more explicit via struct
@@ -92,7 +95,11 @@ pub struct Indexer {
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
+        tracing::info!(target: INDEXER, "Load config from {:?}...", &indexer_config.home_dir);
+
         let near_config = nearcore::load_config(&indexer_config.home_dir);
+
+        tracing::info!(target: INDEXER, "Validate genesis...",);
         near_chain_configs::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
