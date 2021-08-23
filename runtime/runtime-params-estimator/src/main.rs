@@ -2,7 +2,6 @@ use anyhow::Context;
 use clap::Clap;
 use genesis_populate::GenesisBuilder;
 use near_store::create_store;
-use near_test_contracts;
 use near_vm_runner::VMKind;
 use nearcore::{get_default_home, get_store_path, load_config};
 use runtime_params_estimator::cases::run;
@@ -65,7 +64,7 @@ fn main() -> anyhow::Result<()> {
         let near_config = load_config(&state_dump_path);
         let store = create_store(&get_store_path(&state_dump_path));
         GenesisBuilder::from_config_and_store(&state_dump_path, Arc::new(near_config.genesis), store)
-            .add_additional_accounts()
+            .add_additional_accounts(additional_accounts_num)
             .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
             .print_progress()
             .build()
