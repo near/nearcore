@@ -63,14 +63,18 @@ fn main() -> anyhow::Result<()> {
     if additional_accounts_num > 0 {
         let near_config = load_config(&state_dump_path);
         let store = create_store(&get_store_path(&state_dump_path));
-        GenesisBuilder::from_config_and_store(&state_dump_path, Arc::new(near_config.genesis), store)
-            .add_additional_accounts(additional_accounts_num)
-            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
-            .print_progress()
-            .build()
-            .unwrap()
-            .dump_state()
-            .unwrap();
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(additional_accounts_num)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
     }
 
     if cli_args.docker {
