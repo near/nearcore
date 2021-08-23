@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
 use borsh::BorshSerialize;
 
 use near_chain_configs::Genesis;
 use near_crypto::PublicKey;
 use near_primitives::runtime::fees::StorageUsageConfig;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::{
     account::{AccessKey, Account},
     contract::ContractCode,
@@ -20,8 +22,6 @@ use near_store::{
 
 use crate::config::RuntimeConfig;
 use crate::Runtime;
-
-use std::iter::FromIterator;
 
 pub struct StorageComputer<'a> {
     result: HashMap<AccountId, u64>,
@@ -81,13 +81,13 @@ impl GenesisStateApplier {
         mut state_update: TrieUpdate,
         current_state_root: &mut StateRoot,
         tries: &mut ShardTries,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
     ) {
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize_genesis().expect("Genesis state update failed");
 
         let (store_update, new_state_root) =
-            tries.apply_all(&trie_changes, shard_id).expect("Failed to apply genesis chunk");
+            tries.apply_all(&trie_changes, shard_uid).expect("Failed to apply genesis chunk");
         store_update.commit().expect("Store update failed on genesis initialization");
         *current_state_root = new_state_root;
     }
@@ -96,13 +96,13 @@ impl GenesisStateApplier {
         current_state_root: &mut StateRoot,
         mut delayed_receipts_indices: &mut DelayedReceiptIndices,
         tries: &mut ShardTries,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &RuntimeConfig,
         genesis: &Genesis,
         batch_account_ids: HashSet<&AccountId>,
     ) {
-        let mut state_update = tries.new_trie_update(shard_id, *current_state_root);
+        let mut state_update = tries.new_trie_update(shard_uid, *current_state_root);
         let mut postponed_receipts: Vec<Receipt> = vec![];
 
         let mut storage_computer = StorageComputer::new(config);
@@ -213,20 +213,20 @@ impl GenesisStateApplier {
             set_account(&mut state_update, account_id.clone(), &account);
         }
 
-        Self::commit(state_update, current_state_root, tries, shard_id);
+        Self::commit(state_update, current_state_root, tries, shard_uid);
     }
 
     fn apply_delayed_receipts(
         delayed_receipts_indices: DelayedReceiptIndices,
         current_state_root: &mut StateRoot,
         tries: &mut ShardTries,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
     ) {
-        let mut state_update = tries.new_trie_update(shard_id, *current_state_root);
+        let mut state_update = tries.new_trie_update(shard_uid, *current_state_root);
 
         if delayed_receipts_indices != DelayedReceiptIndices::default() {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
-            Self::commit(state_update, current_state_root, tries, shard_id);
+            Self::commit(state_update, current_state_root, tries, shard_uid);
         }
     }
 
@@ -240,6 +240,8 @@ impl GenesisStateApplier {
     ) -> StateRoot {
         let mut current_state_root = MerkleHash::default();
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
+        let shard_uid =
+            ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
         for batch_account_ids in
             shard_account_ids.into_iter().collect::<Vec<AccountId>>().chunks(300_000)
         {
@@ -247,7 +249,7 @@ impl GenesisStateApplier {
                 &mut current_state_root,
                 &mut delayed_receipts_indices,
                 &mut tries,
-                shard_id,
+                shard_uid,
                 validators,
                 config,
                 genesis,
@@ -258,7 +260,7 @@ impl GenesisStateApplier {
             delayed_receipts_indices,
             &mut current_state_root,
             &mut tries,
-            shard_id,
+            shard_uid,
         );
         current_state_root
     }

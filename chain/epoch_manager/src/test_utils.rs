@@ -148,7 +148,7 @@ pub fn epoch_config(
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
-        shard_layout: ShardLayout::v0(num_shards),
+        shard_layout: ShardLayout::v0(num_shards, 0),
     };
     AllEpochConfig::new(epoch_config, simple_nightshade_shard_config)
 }
