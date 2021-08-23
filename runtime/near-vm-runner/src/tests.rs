@@ -5,7 +5,6 @@ mod rs_contract;
 mod ts_contract;
 
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
 
 use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -35,10 +34,10 @@ fn with_vm_variants(runner: fn(VMKind) -> ()) {
 
 fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
-        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
-        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
+        current_account_id: CURRENT_ACCOUNT_ID.parse().unwrap(),
+        signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
-        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
+        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         input,
         block_index: 10,
         block_timestamp: 42,
@@ -49,7 +48,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(14),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: None,
         output_data_receivers: vec![],
     }
 }
@@ -80,7 +79,6 @@ fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
-        ProfileData::new(),
     )
 }
 
@@ -118,6 +116,5 @@ fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
-        ProfileData::new(),
     )
 }

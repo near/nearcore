@@ -1,7 +1,6 @@
 use crate::cases::ratio_to_gas_signed;
 use crate::testbed_runners::{end_count, start_count, GasMetric};
 use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -25,10 +24,10 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
 pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
     VMContext {
-        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
-        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
+        current_account_id: CURRENT_ACCOUNT_ID.parse().unwrap(),
+        signer_account_id: SIGNER_ACCOUNT_ID.parse().unwrap(),
         signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
-        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
+        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.parse().unwrap(),
         input,
         block_index: 10,
         block_timestamp: 42,
@@ -39,7 +38,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(18),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: None,
         output_data_receivers: vec![],
     }
 }
@@ -63,7 +62,6 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
         &promise_results,
         PROTOCOL_VERSION,
         None,
-        &Default::default(),
     )
 }
 
@@ -375,7 +373,6 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
             vm_kind,
             ProtocolVersion::MAX,
             cache,
-            ProfileData::new(),
         );
         assert!(result.1.is_none());
     }
@@ -409,17 +406,9 @@ fn test_many_contracts_call_icount() {
 
 fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {
     let m = &mut Module::from_buffer(wasm_bin)?;
-    for id in get_ids(m.data.iter().map(|t| t.id())) {
+    for id in m.data.iter().map(|t| t.id()).collect::<Vec<_>>() {
         m.data.delete(id);
     }
     *wasm_bin = m.emit_wasm();
     Ok(wasm_bin)
-}
-
-fn get_ids<T>(all: impl Iterator<Item = T>) -> Vec<T> {
-    let mut ids = Vec::new();
-    for id in all {
-        ids.push(id);
-    }
-    ids
 }

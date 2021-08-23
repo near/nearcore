@@ -1,12 +1,14 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use num_rational::Rational;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::challenge::SlashedValidator;
+use crate::checked_feature;
+use crate::shard_layout::ShardLayout;
 use crate::types::validator_stake::ValidatorStakeV1;
 use crate::types::{
-    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, NumShards,
-    ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, BlockHeightDelta, EpochHeight, EpochId, NumSeats, ProtocolVersion,
+    ValidatorId, ValidatorKickoutReason,
 };
 use crate::version::PROTOCOL_VERSION;
 use near_primitives_core::hash::CryptoHash;
@@ -24,8 +26,6 @@ pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,
-    /// Number of shards currently.
-    pub num_shards: NumShards,
     /// Number of seats for block producers.
     pub num_block_producer_seats: NumSeats,
     /// Number of seats of block producers per each shard.
@@ -48,6 +48,56 @@ pub struct EpochConfig {
     pub protocol_upgrade_stake_threshold: Rational,
     /// Number of epochs after stake threshold was achieved to start next prtocol version.
     pub protocol_upgrade_num_epochs: EpochHeight,
+    /// Shard layout of this epoch, may change from epoch to epoch
+    pub shard_layout: ShardLayout,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShardConfig {
+    pub num_block_producer_seats_per_shard: Vec<NumSeats>,
+    pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
+    pub shard_layout: ShardLayout,
+}
+
+#[derive(Clone)]
+pub struct AllEpochConfig {
+    genesis_epoch_config: EpochConfig,
+    simple_nightshade_epoch_config: EpochConfig,
+}
+
+impl AllEpochConfig {
+    pub fn new(
+        genesis_epoch_config: EpochConfig,
+        simple_nightshade_shard_config: Option<ShardConfig>,
+    ) -> Self {
+        let mut config = genesis_epoch_config.clone();
+        if let Some(ShardConfig {
+            num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard,
+            shard_layout,
+        }) = simple_nightshade_shard_config
+        {
+            config.num_block_producer_seats_per_shard = num_block_producer_seats_per_shard;
+            config.avg_hidden_validator_seats_per_shard = avg_hidden_validator_seats_per_shard;
+            config.shard_layout = shard_layout;
+        }
+        Self {
+            genesis_epoch_config: genesis_epoch_config.clone(),
+            simple_nightshade_epoch_config: config,
+        }
+    }
+
+    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
+        if checked_feature!(
+            "protocol_feature_simple_nightshade",
+            SimpleNightshade,
+            protocol_version
+        ) {
+            &self.simple_nightshade_epoch_config
+        } else {
+            &self.genesis_epoch_config
+        }
+    }
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -422,7 +472,7 @@ impl BlockInfoV1 {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ValidatorWeight(ValidatorId, u64);
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -637,7 +687,7 @@ pub mod epoch_info {
         }
 
         #[inline]
-        pub fn account_is_validator(&self, account_id: &str) -> bool {
+        pub fn account_is_validator(&self, account_id: &AccountId) -> bool {
             match self {
                 Self::V1(v1) => v1.validator_to_index.contains_key(account_id),
                 Self::V2(v2) => v2.validator_to_index.contains_key(account_id),
@@ -843,7 +893,7 @@ pub mod epoch_info {
         }
 
         #[inline]
-        pub fn account_is_validator(&self, account_id: &str) -> bool {
+        pub fn account_is_validator(&self, account_id: &AccountId) -> bool {
             self.validator_to_index.contains_key(account_id)
         }
 

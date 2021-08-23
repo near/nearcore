@@ -7,15 +7,18 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
+    use integration_tests::node::{
+        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
+    };
+    use integration_tests::test_helpers::{heavy_test, wait, wait_for_catchup};
     use near_chain_configs::Genesis;
     use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
-    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
-    use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
+            #[allow(unused_mut)]
             let mut args = vec!["build", "-p", "neard"];
             #[cfg(feature = "nightly_protocol")]
             {
@@ -90,7 +93,7 @@ mod test {
             })
             .collect();
 
-        let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+        let nodes: Vec<_> = nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
         let account_names: Vec<_> =
             nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
 
@@ -174,7 +177,7 @@ mod test {
             })
             .collect();
         let nodes: Vec<Arc<RwLock<dyn Node>>> =
-            nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+            nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
         let account_names: Vec<_> =
             nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
 

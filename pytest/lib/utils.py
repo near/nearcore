@@ -181,6 +181,16 @@ def chain_query(node, block_handler, *, block_hash=None, max_blocks=-1):
                 break
 
 
+def get_near_tempdir(subdir=None, *, clean=False):
+    tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
+    if subdir:
+        tempdir = tempdir / subdir
+    if clean and tempdir.exists():
+        shutil.rmtree(tempdir)
+    tempdir.mkdir(parents=True, exist_ok=True)
+    return tempdir
+
+
 def load_binary_file(filepath):
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
@@ -197,8 +207,7 @@ def load_test_contract(filename='test_contract_rs.wasm'):
 
 
 def compile_rust_contract(content):
-    tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
-    tempdir.mkdir(parents=True, exist_ok=True)
+    tempdir = get_near_tempdir()
     with tempfile.TemporaryDirectory(dir=tempdir) as build_dir:
         build_dir = pathlib.Path(build_dir) / 'empty-contract-rs'
         shutil.copytree(
@@ -248,29 +257,23 @@ class Unbuffered(object):
 
 
 def collect_gcloud_config(num_nodes):
+    tempdir = get_near_tempdir()
     keys = []
     for i in range(num_nodes):
-        if not os.path.exists(f'/tmp/near/node{i}'):
+        node_dir = tempdir / f'node{i}'
+        if not node_dir.exists():
             # TODO: avoid hardcoding the username
             logger.info(f'downloading node{i} config from gcloud')
-            pathlib.Path(f'/tmp/near/node{i}').mkdir(parents=True,
-                                                     exist_ok=True)
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/config.json',
-                f'/tmp/near/node{i}/')
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/signer0_key.json',
-                f'/tmp/near/node{i}/')
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/validator_key.json',
-                f'/tmp/near/node{i}/')
-            gcloud.get(f'pytest-node-{user_name()}-{i}').download(
-                '/home/bowen_nearprotocol_com/.near/node_key.json',
-                f'/tmp/near/node{i}/')
-        with open(f'/tmp/near/node{i}/signer0_key.json') as f:
+            node_dir.mkdir(parents=True, exist_ok=True)
+            host = gcloud.get(f'pytest-node-{user_name()}-{i}')
+            for filename in ('config.json', 'signer0_key.json',
+                             'validator_key.json', 'node_key.json'):
+                host.download(f'/home/bowen_nearprotocol_com/.near/{filename}',
+                              str(node_dir))
+        with open(node_dir / 'signer0_key.json') as f:
             key = json.load(f)
         keys.append(key)
-    with open('/tmp/near/node0/config.json') as f:
+    with open(tempdir / 'node0' / 'config.json') as f:
         config = json.load(f)
     ip_addresses = map(lambda x: x.split('@')[-1],
                        config['network']['boot_nodes'].split(','))
@@ -284,10 +287,10 @@ def collect_gcloud_config(num_nodes):
         'accounts':
             keys
     }
-    outfile = '/tmp/near/gcloud_config.json'
-    with open(outfile, 'w+') as f:
+    outfile = tempdir / 'gcloud_config.json'
+    with open(outfile, 'w') as f:
         json.dump(res, f)
-    os.environ[CONFIG_ENV_VAR] = outfile
+    os.environ[CONFIG_ENV_VAR] = str(outfile)
 
 
 def obj_to_string(obj, extra='    ', full=False):

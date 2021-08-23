@@ -1,14 +1,15 @@
 //! Tools for creating a genesis block.
 
+pub mod state_dump;
+
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Write;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::state_dump::StateDump;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -21,12 +22,12 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
+    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
 use nearcore::{get_store_path, NightshadeRuntime};
 
-fn get_account_id(account_index: u64) -> String {
-    format!("near_{}_{}", account_index, account_index)
+fn get_account_id(account_index: u64) -> AccountId {
+    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -141,17 +142,9 @@ impl GenesisBuilder {
     }
 
     pub fn dump_state(self) -> Result<Self> {
-        let mut dump_path = self.home_dir.clone();
-        dump_path.push("state_dump");
-        self.store.save_to_file(ColState, dump_path.as_path())?;
-        {
-            let mut roots_files = self.home_dir.clone();
-            roots_files.push("genesis_roots");
-            let mut file = File::create(roots_files)?;
-            let roots: Vec<_> = self.roots.values().cloned().collect();
-            let data = roots.try_to_vec()?;
-            file.write_all(&data)?;
-        }
+        let state_dump =
+            StateDump { store: self.store.clone(), roots: self.roots.values().cloned().collect() };
+        state_dump.save_to_dir(self.home_dir.clone())?;
         Ok(self)
     }
 
@@ -247,7 +240,8 @@ impl GenesisBuilder {
         let mut state_update =
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,

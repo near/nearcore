@@ -108,7 +108,7 @@ pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
     /// TX signer_id is not in a valid format or not satisfy requirements see `near_runtime_utils::utils::is_valid_account_id`
-    InvalidSignerId { signer_id: AccountId },
+    InvalidSignerId { signer_id: String },
     /// TX signer_id is not found in a storage
     SignerDoesNotExist { signer_id: AccountId },
     /// Transaction nonce must be account[access_key].nonce + 1
@@ -116,7 +116,7 @@ pub enum InvalidTxError {
     /// Transaction nonce is larger than the upper bound given by the block height
     NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
     /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
-    InvalidReceiverId { receiver_id: AccountId },
+    InvalidReceiverId { receiver_id: String },
     /// TX signature is not valid
     InvalidSignature,
     /// Account does not have enough balance to cover TX cost
@@ -154,7 +154,7 @@ pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
     AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
     /// Transaction `receiver_id` doesn't match the access key receiver_id
-    ReceiverMismatch { tx_receiver: AccountId, ak_receiver: AccountId },
+    ReceiverMismatch { tx_receiver: AccountId, ak_receiver: String },
     /// Transaction method name isn't allowed by the access key
     MethodNameMismatch { method_name: String },
     /// Transaction requires a full permission access key.
@@ -209,13 +209,13 @@ pub enum ActionsValidationError {
 )]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
-    InvalidPredecessorId { account_id: AccountId },
+    InvalidPredecessorId { account_id: String },
     /// The `receiver_id` of a Receipt is not valid.
-    InvalidReceiverId { account_id: AccountId },
+    InvalidReceiverId { account_id: String },
     /// The `signer_id` of an ActionReceipt is not valid.
-    InvalidSignerId { account_id: AccountId },
+    InvalidSignerId { account_id: String },
     /// The `receiver_id` of a DataReceiver within an ActionReceipt is not valid.
-    InvalidDataReceiverId { account_id: AccountId },
+    InvalidDataReceiverId { account_id: String },
     /// The length of the returned data exceeded the limit in a DataReceipt.
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
     /// The number of input data dependencies exceeds the limit in an ActionReceipt.
@@ -358,9 +358,7 @@ impl From<FunctionCallErrorSer> for ContractCallError {
             FunctionCallErrorSer::WasmUnknownError => {
                 ContractCallError::ExecutionError { msg: "unknown error".to_string() }
             }
-            FunctionCallErrorSer::EvmError(e) => {
-                ContractCallError::ExecutionError { msg: format!("EVM: {:?}", e) }
-            }
+            FunctionCallErrorSer::_EVMError => unreachable!(),
             FunctionCallErrorSer::WasmTrap(e) => {
                 ContractCallError::ExecutionError { msg: format!("WASM: {:?}", e) }
             }

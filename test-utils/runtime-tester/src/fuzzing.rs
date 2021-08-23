@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
@@ -107,9 +109,9 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id.clone(),
                 signer: InMemorySigner::from_seed(
-                    &signer_account.id,
+                    signer_account.id.clone(),
                     KeyType::ED25519,
-                    &signer_account.id,
+                    signer_account.id.as_ref(),
                 ),
                 actions: vec![Action::Transfer(TransferAction { deposit: amount })],
             })
@@ -120,14 +122,17 @@ impl TransactionConfig {
         options.push(|u, scope| {
             let signer_account = scope.random_account(u)?;
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
-            let signer =
-                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
+            let signer = InMemorySigner::from_seed(
+                signer_account.id.clone(),
+                KeyType::ED25519,
+                signer_account.id.as_ref(),
+            );
             let public_key = signer.public_key.clone();
 
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
-                receiver_id: signer_account.id.clone(),
+                receiver_id: signer_account.id,
                 signer,
                 actions: vec![Action::Stake(StakeAction { stake: amount, public_key })],
             })
@@ -139,15 +144,21 @@ impl TransactionConfig {
             let signer_account = scope.random_account(u)?;
             let new_account = scope.new_account();
 
-            let signer =
-                InMemorySigner::from_seed(&signer_account.id, KeyType::ED25519, &signer_account.id);
-            let new_public_key =
-                InMemorySigner::from_seed(&new_account.id, KeyType::ED25519, &new_account.id)
-                    .public_key;
+            let signer = InMemorySigner::from_seed(
+                signer_account.id.clone(),
+                KeyType::ED25519,
+                signer_account.id.as_ref(),
+            );
+            let new_public_key = InMemorySigner::from_seed(
+                new_account.id.clone(),
+                KeyType::ED25519,
+                new_account.id.as_ref(),
+            )
+            .public_key;
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
-                signer_id: signer_account.id.clone(),
-                receiver_id: new_account.id.clone(),
+                signer_id: signer_account.id,
+                receiver_id: new_account.id,
                 signer,
                 actions: vec![
                     Action::CreateAccount(CreateAccountAction {}),

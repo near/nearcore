@@ -27,6 +27,7 @@ pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
     /// Max burnt gas per view method.
+    /// TODO #4719: remove this field because it does not affect the protocol
     pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
@@ -87,7 +88,7 @@ impl Default for VMConfig {
         VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
-            regular_op_cost: 3856371,
+            regular_op_cost: (SAFETY_MULTIPLIER as u32) * 1285457,
             limit_config: VMLimitConfig::default(),
         }
     }
@@ -163,6 +164,13 @@ impl Default for VMLimitConfig {
             max_number_input_data_dependencies: 128,
         }
     }
+}
+
+/// Configuration of view methods execution, during which no costs should be charged.
+#[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
+pub struct ViewConfig {
+    /// If specified, defines max burnt gas per view method.
+    pub max_gas_burnt: Gas,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]

@@ -16,7 +16,6 @@ num-rational = "0.3"
 num-bigint = "0.3"
 num-traits = "0.2.11"
 hex = "0.4.2"
-ethereum-types = "0.11.0"
 rayon = "1.5"
 thiserror = "1.0"
 
@@ -27,16 +26,13 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
-near-runtime-utils = { path = "../../runtime/near-runtime-utils" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-evm-runner = { path = "../../runtime/near-evm-runner", optional = true }
 
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-protocol_feature_evm = ["near-evm-runner/protocol_feature_evm", "near-primitives/protocol_feature_evm", "near-vm-runner/protocol_feature_evm"]
 wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
 wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
 wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
@@ -54,7 +50,6 @@ protocol_feature_alt_bn128 = [
     "near-vm-runner/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_restore_receipts_after_fix = []
 sandbox = []
 
 [dev-dependencies]

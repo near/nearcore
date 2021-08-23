@@ -19,20 +19,17 @@ sys.path.append('lib')
 
 import branches
 import cluster
-from utils import wait_for_blocks_or_timeout
+from utils import wait_for_blocks_or_timeout, get_near_tempdir
 
 def main():
-    node_root = '/tmp/near/state_migration'
-    if os.path.exists(node_root):
-        shutil.rmtree(node_root)
-    subprocess.check_output('mkdir -p /tmp/near', shell=True)
+    node_root = get_near_tempdir('state_migration', clean=True)
 
     near_root, (stable_branch,
                 current_branch) = branches.prepare_ab_test("beta")
 
     # Run stable node for few blocks.
     subprocess.call([
-        "%snear-%s" % (near_root, stable_branch),
+        "%sneard-%s" % (near_root, stable_branch),
         "--home=%s/test0" % node_root, "init", "--fast"
     ])
     stable_protocol_version = json.load(
@@ -40,7 +37,7 @@ def main():
     config = {
         "local": True,
         'near_root': near_root,
-        'binary_name': "near-%s" % stable_branch
+        'binary_name': "neard-%s" % stable_branch
     }
     stable_node = cluster.spin_up_node(config, near_root,
                                        os.path.join(node_root, "test0"), 0,
@@ -83,7 +80,7 @@ def main():
                 os.path.join(node_root, 'test0/'))
 
     # Run new node and verify it runs for a few more blocks.
-    config["binary_name"] = "near-%s" % current_branch
+    config["binary_name"] = "neard-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
                                         os.path.join(node_root, "test0"), 0,
                                         None, None)

@@ -13,7 +13,6 @@ from utils import load_test_contract
 
 CONFIG = {
     'local': True,
-    'preexist': False,
     'release': False,
 }
 

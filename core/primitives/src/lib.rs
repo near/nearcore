@@ -17,6 +17,7 @@ pub use near_primitives_core::profile;
 pub mod receipt;
 pub mod runtime;
 pub mod serialize;
+pub mod shard_layout;
 pub mod sharding;
 pub mod state_record;
 pub mod syncing;

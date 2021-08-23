@@ -1,4 +1,5 @@
 use crate::types::PublicKey;
+use near_primitives_core::config::ViewConfig;
 use near_primitives_core::serialize::u64_dec_format;
 use near_primitives_core::types::{
     AccountId, Balance, BlockHeight, EpochHeight, Gas, StorageUsage,
@@ -53,9 +54,17 @@ pub struct VMContext {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
-    /// Whether the execution should not charge any costs.
-    pub is_view: bool,
+    /// If Some, it means that execution is made in a view mode and defines its configuration.
+    /// View mode means that only read-only operations are allowed.
+    /// See https://nomicon.io/Proposals/0018-view-change-method.html for more details.
+    pub view_config: Option<ViewConfig>,
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.
     pub output_data_receivers: Vec<AccountId>,
+}
+
+impl VMContext {
+    pub fn is_view(&self) -> bool {
+        self.view_config.is_some()
+    }
 }
