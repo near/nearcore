@@ -2288,6 +2288,7 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-store",
+ "near-telemetry",
  "near-test-contracts",
  "near-vm-errors",
  "near-vm-runner",
@@ -2299,6 +2300,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testlib",
+ "tracing",
 ]
 
 [[package]]
@@ -2782,6 +2784,7 @@ dependencies = [
  "futures",
  "log",
  "near-chain",
+ "near-chunks-primitives",
  "near-crypto",
  "near-logger-utils",
  "near-network",
@@ -2791,6 +2794,13 @@ dependencies = [
  "rand 0.7.3",
  "reed-solomon-erasure",
  "serde",
+]
+
+[[package]]
+name = "near-chunks-primitives"
+version = "0.1.0"
+dependencies = [
+ "near-chain-primitives",
 ]
 
 [[package]]
@@ -2825,7 +2835,6 @@ dependencies = [
  "near-telemetry",
  "near-test-contracts",
  "near-vm-runner",
- "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "reed-solomon-erasure",
@@ -2844,9 +2853,9 @@ dependencies = [
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",
- "near-chunks",
+ "near-chunks-primitives",
  "near-crypto",
- "near-network",
+ "near-network-primitives",
  "near-primitives",
  "serde",
  "strum",
@@ -3038,24 +3047,36 @@ dependencies = [
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
- "near-client",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
+ "near-network-primitives",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
  "near-rust-allocator-proxy",
  "near-store",
- "near-telemetry",
  "rand 0.7.3",
- "serde",
- "serde_json",
  "strum",
  "tempfile",
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "near-network-primitives"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "borsh 0.8.1",
+ "chrono",
+ "near-crypto",
+ "near-primitives",
+ "serde",
+ "strum",
+ "tokio",
  "tracing",
 ]
 
@@ -4399,6 +4420,7 @@ dependencies = [
  "anyhow",
  "borsh 0.8.1",
  "cfg-if 1.0.0",
+ "chrono",
  "clap 3.0.0-beta.2",
  "csv",
  "genesis-populate",
@@ -5064,7 +5086,6 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-errors",
- "node-runtime",
  "num-rational",
  "rand 0.7.3",
  "serde_json",

@@ -40,10 +40,6 @@ near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 
-# Required to pass sandbox feature to node-runtime. Used in tests but cannot in dev-dependencies because
-# of passing features
-node-runtime = { path = "../../runtime/runtime"}
-
 delay-detector = { path = "../../tools/delay_detector", optional = true }
 
 [dev-dependencies]
@@ -56,9 +52,8 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
-metric_recorder = ["near-client-primitives/metric_recorder"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3"]
-sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox"]
+sandbox = ["near-network/sandbox", "near-chain/sandbox"]

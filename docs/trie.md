@@ -19,14 +19,14 @@ Trie communicates with database using `TrieStorage`.
 On the database level, data is stored in key-value format in `ColState` column. 
 There are two kinds of records:
 - trie nodes, for which key is constructed from shard id and `RawTrieNodeWithSize` hash, and value is a `RawTrieNodeWithSize` serialized by custom algorithm;
-- values (encoded contract codes, postponed receipts, etc.), for which hash of value maps to the encoded value.
+- values (encoded contract codes, postponed receipts, etc.), for which key is constructed from shard id and hash of value, which maps to the encoded value.
 
 So, value can be obtained from `TrieKey` as follows:
 - start from the hash of `RawTrieNodeWithSize` corresponding to the root;
 - descend to the needed node using nibbles from `TrieKey`;
 - extract underlying `RawTrieNode`;
 - if it is a `Leaf` or `Branch`, it should contain hash of the value;
-- get value from storage by its hash.
+- get value from storage by its hash and shard id.
 
 Note that `Trie` is almost never called directly from `Runtime`, modifications are made using `TrieUpdate`.
 
@@ -91,6 +91,9 @@ Another reason is that we can dedup values. If the same contract is deployed 100
 
 This structure is used to update `rc` in the database:
 
-- `key_hash` - hash of `TrieKey`,
-- `value` - value corresponding to trie key, e.g. contract code,
+- `trie_node_or_value_hash` - hash of the trie node or value, used for uniting with shard id to get DB key,
+- `trie_node_or_value` - serialized trie node or value,
 - `rc` - change of reference count.
+
+Note that for all reference-counted records, the actual value stored in DB is the concatenation of `trie_node_or_value` and `rc`.
+The reference count is updated using custom merge operation `merge_refcounted_records`.

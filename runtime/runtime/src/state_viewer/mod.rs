@@ -20,7 +20,7 @@ use near_primitives::{
     views::{StateItem, ViewApplyState, ViewStateResult},
 };
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_logic::ReturnData;
+use near_vm_logic::{ReturnData, ViewConfig};
 use std::{str, sync::Arc, time::Instant};
 
 pub mod errors;
@@ -34,10 +34,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        Self {
-            state_size_limit: None,
-            max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt_view,
-        }
+        Self { state_size_limit: None, max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt }
     }
 }
 
@@ -194,11 +191,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = Arc::new({
-            let mut cfg = RuntimeConfig::default();
-            cfg.wasm_config.limit_config.max_gas_burnt_view = self.max_gas_burnt_view;
-            cfg
-        });
+        let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
@@ -228,7 +221,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: config.wasm_config.limit_config.max_gas_burnt_view,
+            gas: self.max_gas_burnt_view,
             deposit: 0,
         };
         let (outcome, err) = execute_function_call(
@@ -242,7 +235,7 @@ impl TrieViewer {
             &empty_hash,
             &config,
             true,
-            true,
+            Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         );
         let elapsed = now.elapsed();
         let time_ms =

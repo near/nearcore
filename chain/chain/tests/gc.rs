@@ -9,6 +9,7 @@ mod tests {
     use near_crypto::KeyType;
     use near_primitives::block::Block;
     use near_primitives::merkle::PartialMerkleTree;
+    use near_primitives::shard_layout::ShardUId;
     use near_primitives::types::{NumBlocks, NumShards, StateRoot};
     use near_primitives::validator_signer::InMemoryValidatorSigner;
     use near_store::test_utils::{create_test_store, gen_changes};
@@ -78,9 +79,10 @@ mod tests {
 
             let mut trie_changes_shards = Vec::new();
             for shard_id in 0..num_shards {
+                let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                 let trie_changes_data = gen_changes(&mut rng, max_changes);
                 let state_root = prev_state_roots[shard_id as usize];
-                let trie = tries.get_trie_for_shard(shard_id);
+                let trie = tries.get_trie_for_shard(shard_uid);
                 let trie_changes =
                     trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
                 if verbose {
@@ -90,7 +92,7 @@ mod tests {
                 let new_root = trie_changes.new_root;
                 let wrapped_trie_changes = WrappedTrieChanges::new(
                     tries.clone(),
-                    shard_id,
+                    shard_uid,
                     trie_changes,
                     Default::default(),
                     *block.hash(),
@@ -127,7 +129,8 @@ mod tests {
         let tries1 = chain1.runtime_adapter.get_tries();
         let mut rng = rand::thread_rng();
         let shard_to_check_trie = rng.gen_range(0, num_shards);
-        let trie1 = tries1.get_trie_for_shard(shard_to_check_trie);
+        let shard_uid = ShardUId { version: 0, shard_id: shard_to_check_trie as u32 };
+        let trie1 = tries1.get_trie_for_shard(shard_uid);
         let genesis1 = chain1.get_block_by_height(0).unwrap().clone();
         let mut states1 = vec![];
         states1.push((
@@ -159,7 +162,7 @@ mod tests {
 
         let mut chain2 = get_chain(num_shards);
         let tries2 = chain2.runtime_adapter.get_tries();
-        let trie2 = tries2.get_trie_for_shard(shard_to_check_trie);
+        let trie2 = tries2.get_trie_for_shard(shard_uid);
 
         // Find gc_height
         let mut gc_height = simple_chains[0].length - 51;
@@ -202,18 +205,14 @@ mod tests {
                 if block1.header().height() > gc_height || i == gc_height {
                     let mut trie_store_update2 = StoreUpdate::new_with_tries(tries2.clone());
                     tries2
-                        .apply_insertions(
-                            &trie_changes2,
-                            shard_to_check_trie,
-                            &mut trie_store_update2,
-                        )
+                        .apply_insertions(&trie_changes2, shard_uid, &mut trie_store_update2)
                         .unwrap();
                     state_root2 = trie_changes2.new_root;
                     assert_eq!(state_root1[shard_to_check_trie as usize], state_root2);
                     store_update2.merge(trie_store_update2);
                 } else {
                     let (trie_store_update2, new_root2) =
-                        tries2.apply_all(&trie_changes2, shard_to_check_trie).unwrap();
+                        tries2.apply_all(&trie_changes2, shard_uid).unwrap();
                     state_root2 = new_root2;
                     store_update2.merge(trie_store_update2);
                 }

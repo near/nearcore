@@ -21,6 +21,7 @@ rand = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
+tracing = "0.1.13"
 
 near-actix-test-utils = { path = "../test-utils/actix-test-utils" }
 near-chain = { path = "../chain/chain" }
@@ -37,11 +38,12 @@ near-metrics = { path = "../core/metrics" }
 near-network = { path = "../chain/network" }
 near-primitives = { path = "../core/primitives" }
 near-store = { path = "../core/store" }
+near-telemetry = { path = "../chain/telemetry" }
 near-test-contracts = { path = "../runtime/near-test-contracts" }
 near-vm-errors = { path = "../runtime/near-vm-errors" }
 near-vm-runner = { path = "../runtime/near-vm-runner" }
 nearcore = { path = "../nearcore" }
-node-runtime = { path = "../runtime/runtime"}
+node-runtime = { path = "../runtime/runtime" }
 testlib = { path = "../test-utils/testlib" }
 
 [features]
@@ -49,8 +51,11 @@ performance_stats = ["nearcore/performance_stats", "near-network/performance_sta
 regression_tests = []
 expensive_tests = []
 adversarial = ["nearcore/adversarial"]
-metric_recorder = ["near-client-primitives/metric_recorder"]
-protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
+protocol_feature_alt_bn128 = [
+    "near-primitives/protocol_feature_alt_bn128",
+    "node-runtime/protocol_feature_alt_bn128",
+    "near-vm-errors/protocol_feature_alt_bn128",
+]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3"]
 nightly_protocol = ["nearcore/nightly_protocol"]

@@ -26,4 +26,11 @@ Use this tool to measure the running time of elementary runtime operations that 
     We will be using different parameters to do the actual parameter estimation.
     The instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the real data.
 
+3. The result of the estimator run is the `costs-$timestamp$.txt` file, which contains human-readable representation of the costs.
+   It can be compared with `costs.txt` file in the repository, which contains the current costs we are using.
+   Note that, at the moment, `costs.txt` is *not* the source of truth.
+   Rather, the costs are hard-codded in the `Default` impl for `RuntimeConfig`.
+   You can run `cargo run --package runtime-params-estimator --bin runtime-params-estimator -- --costs-file costs.txt` to convert cost table into `RuntimeConfig`.
+
+
 Note, if you use the plotting functionality you would need to install [gnuplot](http://gnuplot.info/) to see the graphs.
