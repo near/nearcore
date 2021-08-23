@@ -1082,6 +1082,12 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_wasm_gas(value)
     }
 
+    /// Convert number of wasm ops to gas, and pay in gas counter
+    pub fn pay_gas_for_wasm_ops(&mut self, ops: u64) -> Result<()> {
+        let value = ops * Gas::from(self.config.regular_op_cost);
+        self.gas_counter.pay_wasm_gas(value)
+    }
+
     /// Called by gas metering injected into Wasm global based counter when wasm run out of gas
     ///
     /// # Errors
