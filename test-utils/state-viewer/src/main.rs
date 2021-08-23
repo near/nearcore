@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use ansi_term::Color::Red;
 use clap::{App, AppSettings, Arg, SubCommand};
+use tracing::info;
 
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
@@ -281,16 +282,8 @@ fn apply_chain_range(
         None,
         near_config.client_config.max_gas_burnt_view,
     ));
-    let end_height: BlockHeight = if let Some(end_height) = end_height {
-        end_height
-    } else {
-        chain_store.head().unwrap().height
-    };
-    let start_height: BlockHeight = if let Some(start_height) = start_height {
-        start_height
-    } else {
-        chain_store.tail().unwrap()
-    };
+    let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
+    let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
     println!(
         "Applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
@@ -307,107 +300,118 @@ fn apply_chain_range(
     }
     let mut applied_cnt = 0;
     for height in start_height..=end_height {
-        if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            let block = chain_store.get_block(&block_hash).unwrap().clone();
-            let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
-                let chunk = chain_store
-                    .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
-                    .unwrap()
-                    .clone();
-                let prev_block =
-                    chain_store.get_block(&block.header().prev_hash()).unwrap().clone();
-                let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
-                let receipt_proof_response = chain_store_update
-                    .get_incoming_receipts_for_shard(
-                        shard_id,
-                        block_hash,
-                        prev_block.chunks()[shard_id as usize].height_included(),
-                    )
-                    .unwrap();
-                let receipts = collect_receipts_from_response(&receipt_proof_response);
+        let maybe_block_hash = chain_store.get_block_hash_by_height(height);
+        if maybe_block_hash.is_err() {
+            info!(target:"state-viewer", "Skipping block #{}, because it's not available in ChainStore.", height);
+            continue;
+        }
+        let block_hash = maybe_block_hash.unwrap();
+        let block = chain_store.get_block(&block_hash).unwrap().clone();
+        let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
+            info!(target:"state-viewer", "Skipping the genesis block #{}, because it has no ChunkExtra.", height);
+            continue;
+        } else if block.chunks()[shard_id as usize].height_included() == height {
+            let chunk = chain_store
+                .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
+                .unwrap()
+                .clone();
 
-                let chunk_inner = chunk.cloned_header().take_inner();
-                let is_first_block_with_chunk_of_version =
-                    check_if_block_is_first_with_chunk_of_version(
-                        &mut chain_store,
-                        runtime_adapter.as_ref(),
-                        block.header().prev_hash(),
-                        shard_id,
-                    )
-                    .unwrap();
-                runtime_adapter
-                    .apply_transactions(
-                        shard_id,
-                        chunk_inner.prev_state_root(),
-                        height,
-                        block.header().raw_timestamp(),
-                        block.header().prev_hash(),
-                        block.hash(),
-                        &receipts,
-                        chunk.transactions(),
-                        chunk_inner.validator_proposals(),
-                        prev_block.header().gas_price(),
-                        chunk_inner.gas_limit(),
-                        &block.header().challenges_result(),
-                        *block.header().random_value(),
-                        true,
-                        is_first_block_with_chunk_of_version,
-                        None,
-                    )
-                    .unwrap()
-            } else {
-                let chunk_extra = chain_store
-                    .get_chunk_extra(block.header().prev_hash(), shard_id)
-                    .unwrap()
-                    .clone();
-
-                runtime_adapter
-                    .apply_transactions(
-                        shard_id,
-                        chunk_extra.state_root(),
-                        block.header().height(),
-                        block.header().raw_timestamp(),
-                        block.header().prev_hash(),
-                        &block.hash(),
-                        &[],
-                        &[],
-                        chunk_extra.validator_proposals(),
-                        block.header().gas_price(),
-                        chunk_extra.gas_limit(),
-                        &block.header().challenges_result(),
-                        *block.header().random_value(),
-                        false,
-                        false,
-                        None,
-                    )
-                    .unwrap()
-            };
-            let (outcome_root, _) =
-                ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-            let chunk_extra = ChunkExtra::new(
-                &apply_result.new_root,
-                outcome_root,
-                apply_result.validator_proposals,
-                apply_result.total_gas_burnt,
-                near_config.genesis.config.gas_limit,
-                apply_result.total_balance_burnt,
-            );
-
-            if verbose {
-                println!("block_height: {}, block_hash: {}", height, block_hash);
-                println!("chunk_extra: {:#?}", chunk_extra);
-                let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, shard_id);
-                println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
-                println!("outcomes: {:#?}", apply_result.outcomes);
+            let maybe_prev_block = chain_store.get_block(&block.header().prev_hash());
+            if maybe_prev_block.is_err() {
+                info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                continue;
             }
+            let prev_block = maybe_prev_block.unwrap().clone();
+            let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+            let receipt_proof_response = chain_store_update
+                .get_incoming_receipts_for_shard(
+                    shard_id,
+                    block_hash,
+                    prev_block.chunks()[shard_id as usize].height_included(),
+                )
+                .unwrap();
+            let receipts = collect_receipts_from_response(&receipt_proof_response);
 
-            chunk_gas_used_stats.add_u64(chunk_extra.gas_used());
-            chunk_balance_burnt_stats.add_u128(chunk_extra.balance_burnt());
+            let chunk_inner = chunk.cloned_header().take_inner();
+            let is_first_block_with_chunk_of_version =
+                check_if_block_is_first_with_chunk_of_version(
+                    &mut chain_store,
+                    runtime_adapter.as_ref(),
+                    block.header().prev_hash(),
+                    shard_id,
+                )
+                .unwrap();
+            runtime_adapter
+                .apply_transactions(
+                    shard_id,
+                    chunk_inner.prev_state_root(),
+                    height,
+                    block.header().raw_timestamp(),
+                    block.header().prev_hash(),
+                    block.hash(),
+                    &receipts,
+                    chunk.transactions(),
+                    chunk_inner.validator_proposals(),
+                    prev_block.header().gas_price(),
+                    chunk_inner.gas_limit(),
+                    &block.header().challenges_result(),
+                    *block.header().random_value(),
+                    true,
+                    is_first_block_with_chunk_of_version,
+                    None,
+                )
+                .unwrap()
+        } else {
+            let chunk_extra =
+                chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
 
-            for outcome in apply_result.outcomes {
-                receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
-                receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
-            }
+            runtime_adapter
+                .apply_transactions(
+                    shard_id,
+                    chunk_extra.state_root(),
+                    block.header().height(),
+                    block.header().raw_timestamp(),
+                    block.header().prev_hash(),
+                    &block.hash(),
+                    &[],
+                    &[],
+                    chunk_extra.validator_proposals(),
+                    block.header().gas_price(),
+                    chunk_extra.gas_limit(),
+                    &block.header().challenges_result(),
+                    *block.header().random_value(),
+                    false,
+                    false,
+                    None,
+                )
+                .unwrap()
+        };
+
+        let (outcome_root, _) =
+            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+        let chunk_extra = ChunkExtra::new(
+            &apply_result.new_root,
+            outcome_root,
+            apply_result.validator_proposals,
+            apply_result.total_gas_burnt,
+            near_config.genesis.config.gas_limit,
+            apply_result.total_balance_burnt,
+        );
+
+        if verbose {
+            println!("block_height: {}, block_hash: {}", height, block_hash);
+            println!("chunk_extra: {:#?}", chunk_extra);
+            let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, shard_id);
+            println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
+            println!("outcomes: {:#?}", apply_result.outcomes);
+        }
+
+        chunk_gas_used_stats.add_u64(chunk_extra.gas_used());
+        chunk_balance_burnt_stats.add_u128(chunk_extra.balance_burnt());
+
+        for outcome in apply_result.outcomes {
+            receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
+            receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
         }
         applied_cnt += 1;
         if progress > 0 && 0 == applied_cnt % progress {
