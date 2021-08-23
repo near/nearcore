@@ -21,7 +21,6 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::ExecutionOutcomeWithId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -213,16 +212,8 @@ fn replay_chain(
     }
 }
 
-#[derive(Clone, Debug)]
-struct ApplyInfo {
-    shard_id: ShardId,
-    block_height: BlockHeight,
-    block_hash: CryptoHash,
-    chunk_extra: ChunkExtra,
-    existing_chunk_extra: Option<ChunkExtra>,
-    outcomes: Vec<ExecutionOutcomeWithId>,
-}
-
+/// Computes simple statistics about an integer metric: max, min, avg.
+/// Doesn't store metric sample values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Stats {
     min: u128,
@@ -274,9 +265,10 @@ fn apply_chain_range(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-    start_height: BlockHeight,
-    end_height: BlockHeight,
+    start_height: Option<BlockHeight>,
+    end_height: Option<BlockHeight>,
     shard_id: ShardId,
+    verbose: bool,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
@@ -288,7 +280,31 @@ fn apply_chain_range(
         None,
         near_config.client_config.max_gas_burnt_view,
     ));
-    let mut info: Vec<ApplyInfo> = vec![];
+    let end_height: BlockHeight = if let Some(end_height) = end_height {
+        end_height
+    } else {
+        chain_store.head().unwrap().height
+    };
+    let start_height: BlockHeight = if let Some(start_height) = start_height {
+        start_height
+    } else {
+        chain_store.tail().unwrap()
+    };
+    println!(
+        "Applying chunks in the range {}..={} for shard_id {}",
+        start_height, end_height, shard_id
+    );
+
+    let mut chunk_gas_used_stats = Stats::new();
+    let mut chunk_balance_burnt_stats = Stats::new();
+    let mut receipts_gas_burnt_stats = Stats::new();
+    let mut receipts_tokens_burnt_stats = Stats::new();
+
+    if verbose {
+        println!("============================");
+        println!("Printing results including outcomes of applying receipts");
+    }
+    let mut applied_cnt = 0;
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let block = chain_store.get_block(&block_hash).unwrap().clone();
@@ -376,38 +392,30 @@ fn apply_chain_range(
                 apply_result.total_balance_burnt,
             );
 
-            let mut apply_info = ApplyInfo {
-                shard_id,
-                block_height: height,
-                block_hash,
-                chunk_extra,
-                existing_chunk_extra: None,
-                outcomes: apply_result.outcomes,
-            };
-            if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, shard_id) {
-                apply_info.existing_chunk_extra = Some(chunk_extra.clone());
+            if verbose {
+                println!("block_height: {}, block_hash: {}", height, block_hash);
+                println!("chunk_extra: {:#?}", chunk_extra);
+                let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, shard_id);
+                println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
+                println!("outcomes: {:#?}", apply_result.outcomes);
             }
-            info.push(apply_info);
+
+            chunk_gas_used_stats.add_u64(chunk_extra.gas_used());
+            chunk_balance_burnt_stats.add_u128(chunk_extra.balance_burnt());
+
+            for outcome in apply_result.outcomes {
+                receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
+                receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
+            }
         }
-    }
-    println!(
-        "Results of applying chunks in the range {}..={} for shard_id {}:",
-        start_height, end_height, shard_id
-    );
-    println!("============================");
-    println!("{:#?}", info);
-    let mut chunk_gas_used_stats = Stats::new();
-    let mut chunk_balance_burnt_stats = Stats::new();
-    let mut receipts_gas_burnt_stats = Stats::new();
-    let mut receipts_tokens_burnt_stats = Stats::new();
-    for block_info in info {
-        if let ChunkExtra::V2(v2) = block_info.chunk_extra {
-            chunk_gas_used_stats.add_u64(v2.gas_used);
-            chunk_balance_burnt_stats.add_u128(v2.balance_burnt);
-        }
-        for outcome in block_info.outcomes {
-            receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
-            receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
+        applied_cnt += 1;
+        if !verbose && 0 == applied_cnt % 100 {
+            println!("============================");
+            println!("applied_cnt: {}", applied_cnt);
+            println!("Chunk gas usage stats:      {}", chunk_gas_used_stats);
+            println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
+            println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
+            println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
         }
     }
     println!("============================");
@@ -684,16 +692,22 @@ fn main() {
         .subcommand(
             SubCommand::with_name("apply_range")
                 .arg(
+                    Arg::with_name("verbose")
+                        .long("verbose")
+                        .help("Whether to print individual outcomes")
+                        .takes_value(true),
+                )
+                .arg(
                     Arg::with_name("start_index")
                         .long("start_index")
-                        .required(true)
+                        .required(false)
                         .help("Start index of query")
                         .takes_value(true),
                 )
                 .arg(
                     Arg::with_name("end_index")
                         .long("end_index")
-                        .required(true)
+                        .required(false)
                         .help("End index of query")
                         .takes_value(true),
                 )
@@ -701,6 +715,7 @@ fn main() {
                     Arg::with_name("shard_id")
                         .long("shard_id")
                         .help("Id of the shard to apply")
+                        .default_value("0")
                         .takes_value(true),
                 )
                 .help("apply blocks at a range of heights for a single shard"),
@@ -867,12 +882,21 @@ fn main() {
             apply_block_at_height(store, home_dir, &near_config, height, shard_id);
         }
         ("apply_range", Some(args)) => {
-            let start_index =
-                args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
-            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            let start_index = args.value_of("start_index").map(|s| s.parse::<u64>().unwrap());
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap());
             let shard_id =
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
-            apply_chain_range(store, home_dir, &near_config, start_index, end_index, shard_id);
+            let verbose =
+                args.value_of("verbose").map(|s| s.parse::<bool>().unwrap()).unwrap_or_default();
+            apply_chain_range(
+                store,
+                home_dir,
+                &near_config,
+                start_index,
+                end_index,
+                shard_id,
+                verbose,
+            );
         }
         ("view_chain", Some(args)) => {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
