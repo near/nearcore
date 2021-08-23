@@ -1360,7 +1360,9 @@ impl Client {
                 self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id, horizon)?;
             validators.insert(validator);
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
-                let next_shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
+                let next_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
                 let validator = self.chain.find_chunk_producer_for_forwarding(
                     next_epoch_id,
                     next_shard_id,
