@@ -56,7 +56,6 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::ShardTracker;
-use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
