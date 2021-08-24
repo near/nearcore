@@ -219,6 +219,22 @@ fn wasmer0_get_remaining_ops(instance: &wasmer_runtime_core::Instance) -> u64 {
     i64::try_from(&remaining_ops.get()).unwrap() as u64
 }
 
+fn wasmer0_pay_gas(
+    instance: &wasmer_runtime_core::Instance,
+    logic: &mut VMLogic,
+    gas_mode: GasMode,
+) -> Result<GasMode, VMError> {
+    if let GasMode::Paid(available_ops) = gas_mode {
+        let remaining_ops = wasmer0_get_remaining_ops(&instance);
+        logic
+            .pay_gas_for_wasm_ops(available_ops - remaining_ops)
+            .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
+        Ok(GasMode::Paid(remaining_ops))
+    } else {
+        Ok(GasMode::Free)
+    }
+}
+
 pub fn run_wasmer<'a>(
     code: &ContractCode,
     method_name: &str,
@@ -266,7 +282,6 @@ pub fn run_wasmer<'a>(
     let memory_copy = memory.clone();
 
     let gas_mode = if wasm_config.regular_op_cost > 0 {
-        println!("=== {} {}", context.prepaid_gas, wasm_config.regular_op_cost);
         GasMode::Paid(context.prepaid_gas / wasm_config.regular_op_cost as u64)
     } else {
         GasMode::Free
@@ -323,26 +338,15 @@ fn run_method(
         module.instantiate_without_start_func(import).map_err(|err| err.into_vm_error())?
     };
 
-    if let GasMode::Paid(available_gas) = gas_mode {
-        wasmer0_set_remaining_ops(&instance, available_gas);
+    if let GasMode::Paid(available_ops) = gas_mode {
+        wasmer0_set_remaining_ops(&instance, available_ops);
     }
 
     let call_start_func_result = {
         let _span = tracing::debug_span!(target: "vm", "run_method/call_start_func").entered();
         instance.call_start_func()
     };
-    if let GasMode::Paid(available_gas) = gas_mode {
-        let remaining_gas = wasmer0_get_remaining_ops(&instance);
-        println!(
-            "gas before: {}, gas now: {}, gas used: {}",
-            available_gas,
-            remaining_gas,
-            available_gas - remaining_gas
-        );
-        logic
-            .pay_gas_for_wasm_ops(available_gas - remaining_gas)
-            .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
-    }
+    let gas_mode = wasmer0_pay_gas(&instance, logic, gas_mode)?;
     call_start_func_result.map_err(|err| err.into_vm_error())?;
 
     let call_result = {
@@ -350,18 +354,7 @@ fn run_method(
         instance.call(&method_name, &[])
     };
 
-    if let GasMode::Paid(available_gas) = gas_mode {
-        let remaining_gas = wasmer0_get_remaining_ops(&instance);
-        println!(
-            "gas before: {}, gas now: {}, gas used: {}",
-            available_gas,
-            remaining_gas,
-            available_gas - remaining_gas
-        );
-        logic
-            .pay_gas_for_wasm_ops(available_gas - remaining_gas)
-            .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
-    }
+    let _ = wasmer0_pay_gas(&instance, logic, gas_mode)?;
     call_result.map_err(|err| err.into_vm_error())?;
 
     {
