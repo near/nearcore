@@ -36,6 +36,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -277,6 +278,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error>;
 
@@ -408,17 +410,23 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
 
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error>;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
+
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
@@ -685,18 +693,23 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.
-    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
-        if self.num_shards() == 1 {
+    fn build_receipts_hashes(
+        &self,
+        receipts: &Vec<Receipt>,
+        shard_layout: &ShardLayout,
+    ) -> Vec<CryptoHash> {
+        if shard_layout.num_shards() == 1 {
             return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
-        let mut account_id_to_shard_id = HashMap::new();
-        let mut shard_receipts: Vec<_> = (0..self.num_shards()).map(|i| (i, Vec::new())).collect();
+        let mut account_id_to_shard_id_map = HashMap::new();
+        let mut shard_receipts: Vec<_> =
+            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
         for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id.get(&receipt.receiver_id) {
+            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
                 Some(id) => *id,
                 None => {
-                    let id = self.account_id_to_shard_id(&receipt.receiver_id);
-                    account_id_to_shard_id.insert(receipt.receiver_id.clone(), id);
+                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
                     id
                 }
             };
