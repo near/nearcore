@@ -8,8 +8,14 @@ use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
+macro_rules! include_config {
+    ($file:expr) => {
+        include_bytes!(Path::new("../../nearcore/res/runtime_configs/").join($file))
+    };
+}
+
 static CONFIGS: [(ProtocolVersion, &[u8])] =
-    [(0, include_str!("0.json")), (42, include_str!("42.json"))];
+    *[(0, include_config!("0.json")), (42, include_config!("42.json"))];
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -23,20 +29,8 @@ impl RuntimeConfigStore {
     ///
     /// If `max_gas_burnt_view` is provided, the property in wasm limit
     /// configuration will be adjusted to given value.
-    pub fn new(max_gas_burnt_view: Option<Gas>) -> Self {
-        let runtime_configs_dir: Dir = include_dir!("../../nearcore/res/runtime_configs");
-        Self {
-            store: BTreeMap::from_iter(runtime_configs_dir.files().iter().map(|file| {
-                let mut config: RuntimeConfig = serde_json::from_slice(file.contents()).unwrap();
-                if let Some(gas) = max_gas_burnt_view {
-                    config.wasm_config.limit_config.max_gas_burnt_view = gas;
-                }
-                (
-                    file.path().file_stem().unwrap().to_str().unwrap().parse().unwrap(),
-                    Arc::new(config),
-                )
-            })),
-        }
+    pub fn new() -> Self {
+        Self { store: BTreeMap::from_iter(CONFIGS.iter()) }
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
@@ -62,18 +56,20 @@ mod tests {
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
-    const MAX_GAS_BURNT: u64 = 42;
 
     #[test]
-    #[should_panic]
-    fn test_no_config_before_genesis() {
-        let store = RuntimeConfigStore::new(None);
+    fn test_existing_configs() {
+        let store = RuntimeConfigStore::new();
+        store.get_config(0);
         store.get_config(GENESIS_PROTOCOL_VERSION - 1);
+        store.get_config(GENESIS_PROTOCOL_VERSION);
+        store.get_config(LowerStorageCost.protocol_version());
+        store.get_config(ProtocolVersion::MAX);
     }
 
     #[test]
     fn test_max_prepaid_gas() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         for (protocol_version, config) in store.store.iter() {
             assert!(
                 config.wasm_config.limit_config.max_total_prepaid_gas
@@ -88,19 +84,9 @@ mod tests {
 
     #[test]
     fn test_lower_cost() {
-        let store = RuntimeConfigStore::new(None);
+        let store = RuntimeConfigStore::new();
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
         let new_cfg = store.get_config(LowerStorageCost.protocol_version());
         assert!(base_cfg.storage_amount_per_byte > new_cfg.storage_amount_per_byte);
-    }
-
-    #[test]
-    fn test_max_gas_burnt_view() {
-        let store = RuntimeConfigStore::new(None);
-        let config = store.store.iter().next().unwrap().1;
-        let store_max_gas_burnt = RuntimeConfigStore::new(Some(MAX_GAS_BURNT));
-        let config_max_gas_burnt = store_max_gas_burnt.store.iter().next().unwrap().1;
-        assert_ne!(MAX_GAS_BURNT, config.wasm_config.limit_config.max_gas_burnt_view);
-        assert_eq!(MAX_GAS_BURNT, config_max_gas_burnt.wasm_config.limit_config.max_gas_burnt_view);
     }
 }
