@@ -576,8 +576,9 @@ impl Client {
         // 2. anyone who just asks for one's incoming receipts
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
+        let shard_layout = self.runtime_adapter.get_shard_layout(epoch_id)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
@@ -1087,11 +1088,11 @@ impl Client {
 
             if provenance != Provenance::SYNC && !self.sync_status.is_syncing() {
                 // Produce new chunks
-                for shard_id in 0..self.runtime_adapter.num_shards() {
-                    let epoch_id = self
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&block.header().hash())
-                        .unwrap();
+                let epoch_id = self
+                    .runtime_adapter
+                    .get_epoch_id_from_prev_block(&block.header().hash())
+                    .unwrap();
+                for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id).unwrap() {
                     let chunk_proposer = self
                         .runtime_adapter
                         .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
@@ -1346,7 +1347,8 @@ impl Client {
 
     /// Forwards given transaction to upcoming validators.
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let shard_id =
+            self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id, epoch_id)?;
         let head = self.chain.head()?;
         let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
 
@@ -1358,9 +1360,12 @@ impl Client {
                 self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id, horizon)?;
             validators.insert(validator);
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
+                let next_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
                 let validator = self.chain.find_chunk_producer_for_forwarding(
                     next_epoch_id,
-                    shard_id,
+                    next_shard_id,
                     horizon,
                 )?;
                 validators.insert(validator);
@@ -1438,7 +1443,9 @@ impl Client {
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let shard_id = self
+            .runtime_adapter
+            .account_id_to_shard_id(&tx.transaction.signer_id, &head.epoch_id)?;
         let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
@@ -1459,7 +1466,7 @@ impl Client {
 
         if let Some(err) = self
             .runtime_adapter
-            .validate_tx(gas_price, None, &tx, true, protocol_version)
+            .validate_tx(gas_price, None, &tx, true, &epoch_id, protocol_version)
             .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
@@ -1486,7 +1493,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx, false, protocol_version)
+                .validate_tx(gas_price, Some(state_root), &tx, false, &epoch_id, protocol_version)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
