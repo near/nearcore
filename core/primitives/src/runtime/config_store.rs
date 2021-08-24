@@ -1,7 +1,6 @@
 use include_dir::{include_dir, Dir};
 
 use crate::runtime::config::RuntimeConfig;
-use crate::types::Gas;
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
 use std::iter::FromIterator;
@@ -9,8 +8,8 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 macro_rules! include_config {
-    ($file:tt) => {
-        include_bytes!(Path::new("../../nearcore/res/runtime_configs/").join($file))
+    ($file:expr) => {
+        include_bytes!("../../nearcore/res/runtime_configs/".to_owned() + $file)
     };
 }
 
