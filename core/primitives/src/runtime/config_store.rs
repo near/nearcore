@@ -52,7 +52,9 @@ impl RuntimeConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::serialize::to_base;
     use crate::version::ProtocolFeature::LowerStorageCost;
+    use near_primitives_core::hash::hash;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
@@ -65,6 +67,17 @@ mod tests {
         store.get_config(GENESIS_PROTOCOL_VERSION);
         store.get_config(LowerStorageCost.protocol_version());
         store.get_config(ProtocolVersion::MAX);
+    }
+
+    #[test]
+    fn test_runtime_config_data() {
+        let expected_hashes = vec![
+            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx",
+            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx",
+        ];
+        for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
+            assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
+        }
     }
 
     #[test]
