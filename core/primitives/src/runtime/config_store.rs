@@ -9,7 +9,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 macro_rules! include_config {
-    ($file:expr) => {
+    ($file:tt) => {
         include_bytes!(Path::new("../../nearcore/res/runtime_configs/").join($file))
     };
 }
