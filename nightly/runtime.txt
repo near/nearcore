@@ -1,1 +1,1 @@
-pytest --timeout=3600 runtime/fuzz.py
+mocknet --timeout=7200 runtime/fuzz.py
