@@ -25,9 +25,11 @@ impl RuntimeConfigStore {
     /// Constructs a new store.
     pub fn new() -> Self {
         Self {
-            store: BTreeMap::from_iter(CONFIGS.iter().map(|(protocol_version, config_bytes)| {
-                (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
-            })),
+            store: BTreeMap::from_iter(CONFIGS.iter().cloned().map(
+                |(protocol_version, config_bytes)| {
+                    (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
+                },
+            )),
         }
     }
 
