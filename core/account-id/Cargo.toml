@@ -13,7 +13,7 @@ default = ["borsh", "serde"]
 internal_unstable = []
 
 [dependencies]
-borsh = { version = "0.8.1", optional = true }
+borsh = { version = "0.9", optional = true }
 serde = { version = "1", optional = true }
 
 [dependencies.paperclip]
