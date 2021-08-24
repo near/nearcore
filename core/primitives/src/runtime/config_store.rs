@@ -1,5 +1,3 @@
-use include_dir::{include_dir, Dir};
-
 use crate::runtime::config::RuntimeConfig;
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
@@ -9,10 +7,7 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_bytes!(Path::new("../../nearcore/res/runtime_configs/")
-            .join($file)
-            .to_str()
-            .unwrap())
+        include_bytes!(concat!("../../nearcore/res/runtime_configs/", $file))
     };
 }
 
