@@ -1,11 +1,13 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
+use crate::vm_kind::VMKind::Wasmer0;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
+use near_vm_logic::InstanceLike;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
 
@@ -208,9 +210,24 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
     }
 }
 
-fn wasmer0_set_remaining_ops(instance: &wasmer_runtime_core::Instance, available_ops: u64) {
+pub struct Wasmer0Instance(pub wasmer_runtime_core::Instance);
+
+impl InstanceLike for Wasmer0Instance {
+    fn get_remaining_ops(&self) -> u64 {
+        let remaining_ops: wasmer_runtime::Global = self.0.exports.get("remaining_ops").unwrap();
+        use std::convert::TryFrom;
+        i64::try_from(&remaining_ops.get()).unwrap() as u64
+    }
+
+    fn set_remaining_ops(&self, ops: u64) {
+        let remaining_ops: wasmer_runtime::Global = self.0.exports.get("remaining_ops").unwrap();
+        remaining_ops.set(wasmer_runtime::Value::I64(ops as i64));
+    }
+}
+
+fn wasmer0_set_remaining_ops(instance: &wasmer_runtime_core::Instance, ops: u64) {
     let remaining_ops: wasmer_runtime::Global = instance.exports.get("remaining_ops").unwrap();
-    remaining_ops.set(wasmer_runtime::Value::I64(available_ops as i64));
+    remaining_ops.set(wasmer_runtime::Value::I64(ops as i64));
 }
 
 fn wasmer0_get_remaining_ops(instance: &wasmer_runtime_core::Instance) -> u64 {
@@ -338,6 +355,19 @@ fn run_method(
         module.instantiate_without_start_func(import).map_err(|err| err.into_vm_error())?
     };
 
+    let instance = Wasmer0Instance(instance);
+    logic.set_instance(Some(&instance as *const dyn InstanceLike));
+    let result = run_method_inner(&instance.0, method_name, gas_mode, logic);
+    logic.set_instance(None);
+    result
+}
+
+fn run_method_inner(
+    instance: &wasmer_runtime_core::Instance,
+    method_name: &str,
+    gas_mode: GasMode,
+    logic: &mut VMLogic,
+) -> Result<(), VMError> {
     if let GasMode::Paid(available_ops) = gas_mode {
         wasmer0_set_remaining_ops(&instance, available_ops);
     }

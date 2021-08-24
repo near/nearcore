@@ -1,5 +1,5 @@
 use crate::context::VMContext;
-use crate::dependencies::{External, MemoryLike};
+use crate::dependencies::{External, InstanceLike, MemoryLike};
 use crate::gas_counter::GasCounter;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
@@ -41,6 +41,8 @@ pub struct VMLogic<'a> {
     promise_results: &'a [PromiseResult],
     /// Pointer to the guest memory.
     memory: &'a mut dyn MemoryLike,
+    /// Pointer to the instance (module layout + instance inner), for access wasm gas from host
+    instance: Option<*const dyn InstanceLike>,
 
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
@@ -134,6 +136,7 @@ impl<'a> VMLogic<'a> {
             fees_config,
             promise_results,
             memory,
+            instance: None,
             current_account_balance,
             current_account_locked_balance,
             current_storage_usage,
@@ -167,6 +170,24 @@ impl<'a> VMLogic<'a> {
             memory,
             LEGACY_DEFAULT_PROTOCOL_VERSION,
         )
+    }
+
+    pub fn set_instance(&mut self, instance: Option<*const dyn InstanceLike>) {
+        self.instance = instance;
+    }
+
+    fn sync_from_wasm_counter(&mut self) {
+        let remaining_gas_before = self.gas_counter.remaining_prepaid_gas();
+        let remaining_ops_before = remaining_gas_before / self.config.regular_op_cost as u64;
+        let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
+        let remaining_ops_after = instance.get_remaining_ops();
+        self.gas_counter.pay_wasm_gas(remaining_ops_after - remaining_gas_before);
+    }
+
+    fn sync_to_wasm_counter(&self) {
+        let remaining_gas_now = self.gas_counter.remaining_prepaid_gas();
+        let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
+        instance.set_remaining_ops(remaining_gas_now / self.config.regular_op_cost as u64);
     }
 
     // ###########################
@@ -327,9 +348,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + read_memory_base + read_memory_bytes * num_bytes + write_register_base + write_register_bytes * num_bytes`
     pub fn write_register(&mut self, register_id: u64, data_len: u64, data_ptr: u64) -> Result<()> {
+        self.sync_from_wasm_counter();
         self.gas_counter.pay_base(base)?;
         let data = self.memory_get_vec(data_ptr, data_len)?;
-        self.internal_write_register(register_id, data)
+        let r = self.internal_write_register(register_id, data);
+        self.sync_to_wasm_counter();
+        r
     }
 
     // ###################################

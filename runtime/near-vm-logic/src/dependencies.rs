@@ -31,6 +31,15 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]);
 }
 
+/// An abstraction over the instance to execute the smart contract
+pub trait InstanceLike {
+    /// Get wasm remaining ops.
+    fn get_remaining_ops(&self) -> u64;
+
+    /// Set wasm remaining ops.
+    fn set_remaining_ops(&self, ops: u64);
+}
+
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Logical pointer to a value in storage.
