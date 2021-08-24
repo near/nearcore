@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx",
+            "9T3VNaNdGTiZZvuWiymSxtPdwWKNoJmqoTAaZ4JkuSoL",
             "6CFkdSZZVj4v83cMPD3z6Y8XSQhDh3EQjFh3PRAqFEAx",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
