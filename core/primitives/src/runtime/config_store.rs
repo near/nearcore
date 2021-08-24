@@ -20,24 +20,17 @@ static CONFIGS: [(ProtocolVersion, &[u8])] =
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
 pub struct RuntimeConfigStore {
-    /// Maps protocol version to the config with possibly modified `max_gas_burnt_view` limit.
+    /// Maps protocol version to the config.
     store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>,
 }
 
 impl RuntimeConfigStore {
     /// Constructs a new store.
-    ///
-    /// If `max_gas_burnt_view` is provided, the property in wasm limit
-    /// configuration will be adjusted to given value.
     pub fn new() -> Self {
         Self { store: BTreeMap::from_iter(CONFIGS.iter()) }
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
-    ///
-    /// Note that even if some old version is given as the argument, this may
-    /// still return configuration which differs from configuration found in
-    /// genesis file by the `max_gas_burnt_view` limit.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
         self.store
             .range((Bound::Unbounded, Bound::Included(protocol_version)))
