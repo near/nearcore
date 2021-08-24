@@ -1,0 +1,1 @@
+pytest --timeout=300 runtime/fuzz.py
