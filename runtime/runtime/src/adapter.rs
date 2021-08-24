@@ -1,3 +1,4 @@
+use crate::near_primitives::shard_layout::ShardLayout;
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
@@ -13,6 +14,7 @@ pub trait ViewRuntimeAdapter {
     fn view_account(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, crate::state_viewer::errors::ViewAccountError>;
@@ -20,6 +22,7 @@ pub trait ViewRuntimeAdapter {
     fn view_contract_code(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, crate::state_viewer::errors::ViewContractCodeError>;
@@ -40,11 +43,13 @@ pub trait ViewRuntimeAdapter {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        shard_layout: &ShardLayout,
     ) -> Result<Vec<u8>, crate::state_viewer::errors::CallFunctionError>;
 
     fn view_access_key(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
@@ -53,6 +58,7 @@ pub trait ViewRuntimeAdapter {
     fn view_access_keys(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, crate::state_viewer::errors::ViewAccessKeyError>;
@@ -60,6 +66,7 @@ pub trait ViewRuntimeAdapter {
     fn view_state(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],

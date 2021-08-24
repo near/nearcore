@@ -239,6 +239,12 @@
   "protocol_treasury_account": "test.near",
   "fishermen_threshold": "10000000000000000000000000",
   "minimum_stake_divisor": 10,
+  "shard_layout": {
+    "V0": {
+      "num_shards": 1,
+      "version": 0
+    }
+  },
   "simple_nightshade_shard_config": null,
   "records": []
 }

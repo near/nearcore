@@ -1,8 +1,9 @@
-use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
+use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::shard_layout::ShardUId;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::cell::RefCell;
@@ -85,8 +86,9 @@ where
 fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
-        let tries = create_tries();
-        let trie = tries.get_trie_for_shard(0);
+        let tries = create_tries_complex(1, 2);
+        let shard_uid = ShardUId { version: 1, shard_id: 0 };
+        let trie = tries.get_trie_for_shard(shard_uid);
         let trie = Rc::new(trie);
         let mut state_root = Trie::empty_root();
         let trie_changes = gen_changes(&mut rng, 20);
@@ -94,7 +96,7 @@ fn test_reads_with_incomplete_storage() {
         if trie_changes.is_empty() {
             continue;
         }
-        state_root = test_populate_trie(&tries, &state_root, 0, trie_changes.clone());
+        state_root = test_populate_trie(&tries, &state_root, shard_uid, trie_changes.clone());
 
         {
             let (key, _) = trie_changes.choose(&mut rng).unwrap();
