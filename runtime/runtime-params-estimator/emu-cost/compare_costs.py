@@ -41,12 +41,12 @@ def parse_debug_print(path):
                     prefix = m.group(1) + ": "
     return result
 
-def read_costs(path):
+def read_config(path):
     result = OrderedDict()
     try:
         with open(path) as f:
             genesis_or_runtime_config = json.load(f, object_pairs_hook=OrderedDict)
-    except (json.decoder.JSONDecodeError):
+    except json.decoder.JSONDecodeError:
         # try to load Rust debug pretty print.
         genesis_or_runtime_config = parse_debug_print(path)
     if 'runtime_config' in genesis_or_runtime_config:
@@ -54,6 +54,21 @@ def read_costs(path):
     else:
         runtime_config = genesis_or_runtime_config
     return flatten_dict(runtime_config, result)
+
+def read_table(path):
+    def parse_line(s):
+        tokens = s.split()
+        return tokens[0], int(tokens[1])
+
+    with open(path) as f:
+        return OrderedDict(map(parse_line, f.read().splitlines()))
+
+
+def read_costs(path, costs_type):
+    if costs_type == 'config':
+        return read_config(path)
+    else:
+        return read_table(path)
 
 
 def rate(c2, c1):
@@ -67,9 +82,9 @@ def significant(c1, c2):
         return c1 != c2
     return abs((c1 / c2) - 1.0) > EPSILON or abs((c2 / c1) - 1.0) > EPSILON
 
-def process_props(file1, file2, safety1, safety2, diff):
-    costs1 = read_costs(file1)
-    costs2 = read_costs(file2)
+def process_props(file1, file2, safety1, safety2, costs_type, diff):
+    costs1 = read_costs(file1, costs_type)
+    costs2 = read_costs(file2, costs_type)
 
     for key in costs1:
         c1 = int(costs1[key]) * safety1
@@ -77,16 +92,6 @@ def process_props(file1, file2, safety1, safety2, diff):
         if not diff or significant(c1, c2):
             print("{}: first={} second={} second/first={}".format(
                 key, c1, c2, rate(c2, c1)))
-
-
-def process_json(file1, file2):
-    data1 = None
-    with open(file1) as json_file:
-        data1 = json.load(json_file)
-    data2 = None
-    with open(file2) as json_file:
-        data2 = json.load(json_file)
-    print(data1)
 
 
 if __name__ == "__main__":
@@ -98,9 +103,12 @@ if __name__ == "__main__":
     parser.add_argument('--safety_second',
                         default=1,
                         help='Safety multiplier applied to second')
+    parser.add_argument('--type', dest='type', choices=['config', 'table'],
+                        default='config',
+                        help='Choose type of objects to compare')
     parser.add_argument('--diff', dest='diff', action='store_true')
     parser.set_defaults(diff=False)
     args = parser.parse_args()
 
     process_props(args.files[0], args.files[1], int(args.safety_first),
-                  int(args.safety_second), args.diff)
+                  int(args.safety_second), args.type, args.diff)
