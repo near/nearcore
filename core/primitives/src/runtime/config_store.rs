@@ -8,6 +8,9 @@ use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
+static CONFIGS: [(ProtocolVersion, &[u8])] =
+    [(0, include_str!("0.json")), (42, include_str!("42.json"))];
+
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
 pub struct RuntimeConfigStore {
