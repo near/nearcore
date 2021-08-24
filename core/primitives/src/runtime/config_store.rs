@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_str!(concat!("../../../../nearcore/res/runtime_configs/", $file))
+        include_bytes!(concat!("../../../../nearcore/res/runtime_configs/", $file))
     };
 }
 
-static CONFIGS: [(ProtocolVersion, &str); 2] =
-    *[(0, include_config!("0.json")), (42, include_config!("42.json"))];
+static CONFIGS: [(ProtocolVersion, &[u8]); 2] =
+    [(0, include_config!("0.json")), (42, include_config!("42.json"))];
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -24,7 +24,11 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     pub fn new() -> Self {
-        Self { store: BTreeMap::from_iter(CONFIGS.iter().cloned()) }
+        Self {
+            store: BTreeMap::from_iter(CONFIGS.iter().map(|(protocol_version, config_bytes)| {
+                (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
+            })),
+        }
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
