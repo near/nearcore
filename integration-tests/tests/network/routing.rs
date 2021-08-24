@@ -1,6 +1,4 @@
-pub use runner::*;
-
-mod runner;
+use crate::runner::*;
 
 #[test]
 fn simple() {

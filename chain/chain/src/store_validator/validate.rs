@@ -23,6 +23,7 @@ use near_store::{
 };
 
 use crate::StoreValidator;
+use near_primitives::shard_layout::ShardUId;
 
 #[derive(Error, Debug)]
 pub enum StoreValidatorError {
@@ -518,7 +519,7 @@ pub(crate) fn canonical_prev_block_validity(
 
 pub(crate) fn trie_changes_chunk_extra_exists(
     sv: &mut StoreValidator,
-    (block_hash, shard_id): &(CryptoHash, ShardId),
+    (block_hash, shard_uid): &(CryptoHash, ShardUId),
     trie_changes: &TrieChanges,
 ) -> Result<(), StoreValidatorError> {
     let new_root = trie_changes.new_root;
@@ -527,9 +528,10 @@ pub(crate) fn trie_changes_chunk_extra_exists(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),
         "Can't get Block from DB"
     );
+    let shard_id = shard_uid.shard_id as u64;
     // 2. There should be ShardChunk with ShardId `shard_id`
     for chunk_header in block.chunks().iter() {
-        if chunk_header.shard_id() == *shard_id {
+        if chunk_header.shard_id() == shard_id {
             let chunk_hash = chunk_header.chunk_hash();
             // 3. ShardChunk with `chunk_hash` should be available
             unwrap_or_err_db!(
@@ -541,13 +543,13 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             let chunk_extra = unwrap_or_err_db!(
                 sv.store.get_ser::<ChunkExtra>(
                     ColChunkExtra,
-                    &get_block_shard_id(block_hash, *shard_id)
+                    &get_block_shard_id(block_hash, shard_id)
                 ),
                 "Can't get Chunk Extra from storage with key {:?} {:?}",
                 block_hash,
                 shard_id
             );
-            let trie = sv.runtime_adapter.get_trie_for_shard(*shard_id);
+            let trie = sv.runtime_adapter.get_tries().get_trie_for_shard(*shard_uid);
             let trie_iterator = unwrap_or_err!(
                 TrieIterator::new(&trie, &new_root),
                 "Trie Node Missing for ShardChunk {:?}",
@@ -569,7 +571,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             }
             if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
                 ColChunkExtra,
-                &get_block_shard_id(block.header().prev_hash(), *shard_id),
+                &get_block_shard_id(block.header().prev_hash(), shard_id),
             ) {
                 check_discrepancy!(
                     prev_chunk_extra.state_root(),

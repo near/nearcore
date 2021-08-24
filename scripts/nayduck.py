@@ -10,14 +10,15 @@
 #        --branch    <your_branch>   \
 #        --test_file <test_file>.txt
 #
-# See the `.txt` files in this directory for examples of test suites. Note that
-# you must be a *public* memeber of the near org on GitHub to authenticate:
+# See README.md in nightly directory for documentation of the test suite file
+# format.  Note that you must be a member of the Near or Near Protocol
+# organisation on GitHub to authenticate:
 #
 #    https://github.com/orgs/near/people
 #
-# The source code for nayduck itself is here:
+# The source code for NayDuck itself is here:
 #
-#    https://github.com/utka/nayduck
+#    https://github.com/near/nayduck
 
 import json
 import os

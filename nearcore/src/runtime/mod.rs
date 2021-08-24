@@ -23,7 +23,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -55,12 +55,13 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use crate::shard_tracker::ShardTracker;
 use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
@@ -152,21 +153,32 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let runtime_config =
-            ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        assert_eq!(
+            genesis_config.shard_layout.num_shards(),
+            genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
+            "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards {} vs {}",
+            genesis_config.shard_layout.num_shards(),
+            genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
+        );
+        let runtime_config = ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
         let initial_epoch_config = EpochConfig::from(&genesis_config);
+        let initial_shard_version = initial_epoch_config.shard_layout.version();
+        let all_epoch_config = AllEpochConfig::new(
+            initial_epoch_config.clone(),
+            genesis.config.simple_nightshade_shard_config.clone(),
+        );
         let reward_calculator = RewardCalculator::new(&genesis_config);
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
             store.clone(),
+            initial_shard_version,
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
         let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
-                initial_epoch_config,
+                all_epoch_config,
                 genesis_config.protocol_version,
                 reward_calculator,
                 genesis_config.validators(),
@@ -177,7 +189,6 @@ impl NightshadeRuntime {
             initial_tracking_accounts,
             initial_tracking_shards,
             epoch_manager.clone(),
-            num_shards,
         );
         NightshadeRuntime {
             genesis_config,
@@ -202,7 +213,7 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
 
-    fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
+    pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
     }
@@ -227,12 +238,14 @@ impl NightshadeRuntime {
             info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.records_file);
         }
         let mut state_roots = vec![];
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let initial_epoch_config = EpochConfig::from(&genesis.config);
+        let shard_layout = initial_epoch_config.shard_layout;
+        let num_shards = shard_layout.num_shards();
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
         genesis.for_each_record(|record: &StateRecord| {
-            shard_account_ids[state_record_to_shard_id(record, num_shards) as usize]
+            shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
                 .insert(state_record_to_account_id(record).clone());
             if let StateRecord::Account { account_id, .. } = record {
                 if account_id == &genesis.config.protocol_treasury_account {
@@ -241,7 +254,8 @@ impl NightshadeRuntime {
             }
         });
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(store.clone(), num_shards);
+        let tries =
+            ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
         for shard_id in 0..num_shards {
             let validators = genesis
@@ -249,7 +263,7 @@ impl NightshadeRuntime {
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, num_shards) == shard_id {
+                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -321,6 +335,42 @@ impl NightshadeRuntime {
         }
     }
 
+    fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
+        // TODO: fix this
+        let shard_layout = &self.genesis_config.shard_layout;
+        ShardUId {
+            version: shard_layout.version(),
+            shard_id: self.account_id_to_shard_id(account_id) as u32,
+        }
+    }
+
+    fn get_shard_uid_from_prev_hash(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
+        let shard_version = epoch_manager.get_shard_version(&epoch_id).map_err(Error::from)?;
+        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+    }
+
+    fn get_shard_uid_from_epoch_id(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let shard_version = epoch_manager.get_shard_version(epoch_id).map_err(Error::from)?;
+        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+    }
+
+    pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_shard_layout(epoch_id)?.clone())
+    }
+
     /// Processes state update.
     fn process_state_update(
         &self,
@@ -342,8 +392,10 @@ impl NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?.clone();
             debug!(target: "runtime",
                    "block height: {}, is next_block_epoch_start {}",
                    block_height,
@@ -353,7 +405,9 @@ impl NightshadeRuntime {
             let mut slashing_info: HashMap<_, _> = challenges_result
                 .iter()
                 .filter_map(|s| {
-                    if self.account_id_to_shard_id(&s.account_id) == shard_id && !s.is_double_sign {
+                    if account_id_to_shard_id(&s.account_id, &shard_layout) == shard_id
+                        && !s.is_double_sign
+                    {
                         Some((s.account_id.clone(), None))
                     } else {
                         None
@@ -366,14 +420,18 @@ impl NightshadeRuntime {
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    })
                     .collect();
                 let validator_rewards = validator_reward
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    })
                     .collect();
                 let last_proposals = last_validator_proposals
-                    .filter(|v| self.account_id_to_shard_id(v.account_id()) == shard_id)
+                    .filter(|v| account_id_to_shard_id(v.account_id(), &shard_layout) == shard_id)
                     .fold(HashMap::new(), |mut acc, v| {
                         let (account_id, stake) = v.account_and_stake();
                         acc.insert(account_id, stake);
@@ -381,7 +439,9 @@ impl NightshadeRuntime {
                     });
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    })
                     .map(|(account_id, stake)| (account_id, Some(stake)))
                     .collect();
                 slashing_info.extend(double_sign_slashing_info);
@@ -392,7 +452,9 @@ impl NightshadeRuntime {
                     protocol_treasury_account_id: Some(
                         self.genesis_config.protocol_treasury_account.clone(),
                     )
-                    .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
+                    .filter(|account_id| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    }),
                     slashing_info,
                 })
             } else if !challenges_result.is_empty() {
@@ -409,7 +471,6 @@ impl NightshadeRuntime {
         };
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
@@ -482,10 +543,11 @@ impl NightshadeRuntime {
                 .push(receipt);
         }
 
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                shard_id,
+                shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
                 block_hash.clone(),
@@ -531,8 +593,8 @@ impl NightshadeRuntime {
     }
 }
 
-pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShards) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), num_shards)
+pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
+    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -544,12 +606,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
+        Ok(self.tries.get_trie_for_shard(shard_uid))
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_view_trie_for_shard(shard_id)
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
+        Ok(self.tries.get_view_trie_for_shard(shard_uid))
     }
 
     fn verify_block_vrf(
@@ -584,8 +652,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
 
         if let Some(state_root) = state_root {
-            let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
-            let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
+            let shard_uid = self.account_id_to_shard_uid(&transaction.transaction.signer_id);
+            let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
                 runtime_config,
@@ -634,6 +702,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
+        epoch_id: &EpochId,
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
@@ -641,7 +710,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
+        let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -943,7 +1013,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+        // TODO: change this function to take the correct shard layout according to epochs
+        let shard_layout = &self.genesis_config.shard_layout;
+        account_id_to_shard_id(account_id, shard_layout)
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -1167,7 +1239,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id);
+        let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
@@ -1250,11 +1322,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         request: &QueryRequest,
     ) -> Result<QueryResponse, near_chain::near_chain_primitives::error::QueryError> {
+        let shard_layout = self.get_shard_layout(epoch_id).map_err(|err| {
+            near_chain::near_chain_primitives::error::QueryError::from_epoch_error(
+                err,
+                block_height,
+                *block_hash,
+            )
+        })?;
         match request {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
-                    .view_account(shard_id, *state_root, account_id)
-                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_account_error(err, block_height, *block_hash))?;
+                    .view_account(shard_id, &shard_layout, *state_root, account_id)
+                    .map_err(|err| {
+                    near_chain::near_chain_primitives::error::QueryError::from_view_account_error(
+                        err,
+                        block_height,
+                        *block_hash,
+                    )
+                })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(account.into()),
                     block_height,
@@ -1263,7 +1348,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewCode { account_id } => {
                 let contract_code = self
-                    .view_contract_code(shard_id, *state_root, account_id)
+                    .view_contract_code(shard_id, &shard_layout, *state_root, account_id)
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code.into()),
@@ -1302,6 +1387,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         &mut logs,
                         &self.epoch_manager,
                         current_protocol_version,
+                        &shard_layout,
                     )
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_call_function_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
@@ -1315,7 +1401,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewState { account_id, prefix } => {
                 let view_state_result = self
-                    .view_state(shard_id, *state_root, account_id, prefix.as_ref())
+                    .view_state(shard_id, &shard_layout, *state_root, account_id, prefix.as_ref())
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_state_error(
                             err,
@@ -1331,7 +1417,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
                 let access_key_list =
-                    self.view_access_keys(shard_id, *state_root, account_id).map_err(|err| {
+                    self.view_access_keys(shard_id, &shard_layout, *state_root, account_id).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
@@ -1354,7 +1440,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
                 let access_key = self
-                    .view_access_key(shard_id, *state_root, account_id, public_key)
+                    .view_access_key(shard_id, &shard_layout, *state_root, account_id, public_key)
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
@@ -1381,15 +1467,19 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     /// Returns StorageError when storage is inconsistent.
     /// This is possible with the used isolation level + running ViewClient in a separate thread
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
-        let trie = self.get_view_trie_for_shard(shard_id);
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -1441,18 +1531,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         let ApplyStatePartResult { trie_changes, contract_codes } =
             Trie::apply_state_part(&state_root, part_id, num_parts, part);
         let tries = self.get_tries();
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let (store_update, _) =
-            tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
+            tries.apply_all(&trie_changes, shard_uid).expect("TrieChanges::into never fails");
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
 
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn get_state_root_node(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        self.get_view_trie_for_shard(shard_id)
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        self.tries
+            .get_view_trie_for_shard(shard_uid)
             .retrieve_root_node(state_root)
             .map_err(|e| e.to_string().into())
     }
@@ -1518,15 +1614,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
-        // If we were initialised with a custom max_gas_burnt_view (see
-        // ActualRuntimeConfig::new method), keep the value from genesis file.
-        // Since max_gas_burnt_view never changes as a result of protocol
-        // upgrade, we can use it when reporting protocol config.
-        let gas = config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
-        // Currently only runtime config is changed through protocol upgrades.
         config.runtime_config =
             (**self.runtime_config.for_protocol_version(protocol_version)).clone();
-        config.runtime_config.wasm_config.limit_config.max_gas_burnt_view = gas;
         Ok(config)
     }
 
@@ -1547,20 +1636,24 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn view_contract_code(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_contract_code(&state_update, account_id)
     }
 
@@ -1580,8 +1673,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
+        shard_layout: &ShardLayout,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         let view_state = ViewApplyState {
             block_height: height,
             prev_block_hash: *prev_block_hash,
@@ -1606,33 +1701,39 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_access_key(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
     fn view_access_keys(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }
 
     fn view_state(
         &self,
         shard_id: ShardId,
+        shard_layout: &ShardLayout,
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let state_update = self.get_tries().new_trie_update_view(shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }
@@ -1751,7 +1852,7 @@ mod test {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
             let validators_len = all_validators.len() as ValidatorId;
-            let mut genesis = Genesis::test_sharded(
+            let mut genesis = Genesis::test_sharded_new_version(
                 all_validators.into_iter().collect(),
                 validators_len,
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
@@ -1875,8 +1976,14 @@ mod test {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
-                epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                next_epoch_id: self.runtime.get_next_epoch_id_from_prev_block(&new_hash).unwrap(),
+                epoch_id: self
+                    .runtime
+                    .get_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
+                next_epoch_id: self
+                    .runtime
+                    .get_next_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
             };
         }
 
@@ -1887,8 +1994,14 @@ mod test {
 
         pub fn view_account(&self, account_id: &AccountId) -> AccountView {
             let shard_id = self.runtime.account_id_to_shard_id(account_id);
+            let shard_layout = self.runtime.get_shard_layout(&self.head.epoch_id).unwrap();
             self.runtime
-                .view_account(shard_id, self.state_roots[shard_id as usize], account_id)
+                .view_account(
+                    shard_id,
+                    &shard_layout,
+                    self.state_roots[shard_id as usize],
+                    &account_id,
+                )
                 .unwrap()
                 .into()
         }
@@ -2299,8 +2412,11 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1).unwrap();
-        let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]).unwrap();
+        let block_hash = hash(&vec![env.head.height as u8]);
+        let state_part =
+            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], 0, 1).unwrap();
+        let root_node =
+            env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
         for i in 1..=2 {

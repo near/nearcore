@@ -303,6 +303,7 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Rational;
@@ -704,6 +705,7 @@ mod tests {
             minimum_stake_divisor: 0,
             protocol_upgrade_stake_threshold: 0.into(),
             protocol_upgrade_num_epochs: 0,
+            shard_layout: ShardLayout::default(),
             validator_selection_config,
         }
     }

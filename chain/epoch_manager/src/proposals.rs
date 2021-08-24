@@ -292,6 +292,7 @@ mod tests {
     };
 
     use super::*;
+    use near_primitives::shard_layout::ShardLayout;
 
     #[test]
     fn test_find_threshold() {
@@ -306,7 +307,7 @@ mod tests {
     fn test_proposals_to_assignments() {
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 1, 90, 60, 0),
+                &epoch_config(2, 2, 1, 1, 90, 60, 0, None).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1".parse().unwrap(), 1_000_000)],
@@ -345,6 +346,7 @@ mod tests {
                     minimum_stake_divisor: 1,
                     protocol_upgrade_stake_threshold: Rational::new(80, 100),
                     protocol_upgrade_num_epochs: 2,
+                    shard_layout: ShardLayout::v0(5, 0),
                     #[cfg(feature = "protocol_feature_chunk_only_producers")]
                     validator_selection_config: Default::default(),
                 },
@@ -399,7 +401,7 @@ mod tests {
         // 4 proposals of stake 10, fishermen threshold 10 --> 1 validator and 3 fishermen
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 0, 90, 60, 10),
+                &epoch_config(2, 2, 1, 0, 90, 60, 10, None).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![
@@ -411,7 +413,7 @@ mod tests {
                 HashMap::default(),
                 HashMap::default(),
                 0,
-                PROTOCOL_VERSION
+                PROTOCOL_VERSION,
             )
             .unwrap(),
             epoch_info(
@@ -466,7 +468,7 @@ mod tests {
         }
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 0, 90, 60, 10),
+                &epoch_config(2, 2, 1, 0, 90, 60, 10, None).for_protocol_version(PROTOCOL_VERSION),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![
