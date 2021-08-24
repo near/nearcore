@@ -11,8 +11,12 @@ macro_rules! include_config {
     };
 }
 
+/// Stores pairs of protocol versions for which runtime config was updated and
+/// the new runtime config in bytes.
+/// Protocol versions are given in increasing order. First one is always 0, so that each version is
+/// mapped to some config.
 static CONFIGS: [(ProtocolVersion, &[u8]); 2] =
-    [(0, include_config!("0.json")), (42, include_config!("42.json"))];
+    [(0, include_config!("29.json")), (42, include_config!("42.json"))];
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
