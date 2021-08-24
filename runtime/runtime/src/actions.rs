@@ -35,6 +35,7 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_primitives::config::ViewConfig;
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
@@ -49,7 +50,7 @@ pub(crate) fn execute_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    is_view: bool,
+    view_config: Option<ViewConfig>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
     let code = match runtime_ext.get_code(account.code_hash()) {
@@ -98,7 +99,7 @@ pub(crate) fn execute_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed,
-        is_view,
+        view_config,
         output_data_receivers,
     };
 
@@ -160,7 +161,7 @@ pub(crate) fn action_function_call(
         action_hash,
         config,
         is_last_action,
-        false,
+        None,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
@@ -689,6 +690,7 @@ mod tests {
     use near_store::test_utils::create_tries;
 
     use super::*;
+    use crate::near_primitives::shard_layout::ShardUId;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -815,7 +817,7 @@ mod tests {
     #[test]
     fn test_delete_account_too_large() {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
         let action_result = test_delete_large_account(
             &"alice".parse().unwrap(),
             &CryptoHash::default(),
@@ -835,7 +837,7 @@ mod tests {
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
         let empty_contract = [0; 10_000].to_vec();

@@ -15,7 +15,7 @@ rand = "0.7"
 serde = { version = "1", features = [ "derive" ] }
 serde_json = "1"
 smart-default = "0.6"
-primitive-types = "0.9"
+primitive-types = "0.10"
 num-rational = "0.3"
 chrono = { version = "0.4.4", optional = true}
 
@@ -28,5 +28,6 @@ near-chain-configs = { path = "../../core/chain-configs" }
 [features]
 expensive_tests = []
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_block_header_v3"]
+protocol_feature_simple_nightshade = ["near-primitives/protocol_feature_simple_nightshade"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_simple_nightshade"]
 nightly_protocol = ["near-primitives/nightly_protocol"]

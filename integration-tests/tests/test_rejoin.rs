@@ -7,12 +7,15 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
+    use integration_tests::node::{
+        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
+    };
+    use integration_tests::test_helpers::{heavy_test, wait, wait_for_catchup};
     use near_chain_configs::Genesis;
     use near_primitives::runtime::config::RuntimeConfig;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
-    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
-    use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
         if let Err(_) = std::env::var("NIGHTLY_RUNNER") {
@@ -83,6 +86,7 @@ mod test {
                     config.num_block_producer_seats = 17;
                     config.num_block_producer_seats_per_shard =
                         if two_shards { vec![8, 9] } else { vec![17] };
+                    config.shard_layout = ShardLayout::v0(if two_shards { 2 } else { 1 }, 0);
                     new_cfg.genesis = Genesis::new(config, records.clone());
                     NodeConfig::Process(new_cfg)
                 } else {

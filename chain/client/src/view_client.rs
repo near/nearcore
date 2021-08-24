@@ -248,7 +248,10 @@ impl ViewClientActor {
             QueryRequest::CallFunction { account_id, .. } => account_id,
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(account_id);
+        let shard_id = self
+            .runtime_adapter
+            .account_id_to_shard_id(account_id, &header.epoch_id())
+            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id).map_err(|err| {
             match err.kind() {
@@ -358,7 +361,10 @@ impl ViewClientActor {
         }
 
         let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
-        let target_shard_id = self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+        let target_shard_id = self
+            .runtime_adapter
+            .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
+            .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.runtime_adapter.cares_about_shard(
             self.validator_account_id.as_ref(),
@@ -416,8 +422,12 @@ impl ViewClientActor {
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
-                let target_shard_id =
-                    self.runtime_adapter.account_id_to_shard_id(&signer_account_id);
+                let epoch_id =
+                    self.chain.head().map_err(|e| TxStatusError::ChainError(e))?.epoch_id;
+                let target_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&signer_account_id, &epoch_id)
+                    .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .chain
                     .find_validator_for_forwarding(target_shard_id)
@@ -789,17 +799,20 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
 
     #[perf]
     fn handle(&mut self, msg: GetExecutionOutcome, _: &mut Self::Context) -> Self::Result {
-        let (id, target_shard_id) = match msg.id {
+        let (id, account_id) = match msg.id {
             TransactionOrReceiptId::Transaction { transaction_hash, sender_id } => {
-                (transaction_hash, self.runtime_adapter.account_id_to_shard_id(&sender_id))
+                (transaction_hash, sender_id)
             }
             TransactionOrReceiptId::Receipt { receipt_id, receiver_id } => {
-                (receipt_id, self.runtime_adapter.account_id_to_shard_id(&receiver_id))
+                (receipt_id, receiver_id)
             }
         };
         match self.chain.get_execution_outcome(&id) {
             Ok(outcome) => {
                 let mut outcome_proof = outcome.clone();
+                let epoch_id = self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
+                let target_shard_id =
+                    self.runtime_adapter.account_id_to_shard_id(&account_id, epoch_id)?;
                 let next_block_hash = self
                     .chain
                     .get_next_block_hash_with_new_chunk(&outcome_proof.block_hash, target_shard_id)?
@@ -837,6 +850,8 @@ impl Handler<GetExecutionOutcome> for ViewClientActor {
             Err(e) => match e.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
                     let head = self.chain.head().map_err(|e| TxStatusError::ChainError(e))?;
+                    let target_shard_id =
+                        self.runtime_adapter.account_id_to_shard_id(&account_id, &head.epoch_id)?;
                     if self.runtime_adapter.cares_about_shard(
                         self.validator_account_id.as_ref(),
                         &head.last_block_hash,

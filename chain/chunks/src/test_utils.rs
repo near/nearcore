@@ -14,7 +14,7 @@ use near_primitives::merkle;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -207,7 +207,8 @@ impl Default for ChunkForwardingTestFixture {
             mock_network.clone(),
         );
         let receipts = Vec::new();
-        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts);
+        let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
+        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkles) = producer_shard_manager
             .create_encoded_shard_chunk(

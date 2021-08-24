@@ -337,7 +337,10 @@ class LocalNode(BaseNode):
 
     def kill(self):
         if self.pid.value != 0:
-            os.kill(self.pid.value, signal.SIGKILL)
+            try:
+                os.kill(self.pid.value, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # the process has already terminated
             self.pid.value = 0
 
             if self._proxy_local_stopped is not None:

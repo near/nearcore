@@ -18,7 +18,8 @@ use sha2::digest::Digest;
 use smart_default::SmartDefault;
 
 use crate::genesis_validate::validate_genesis;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
     hash::CryptoHash,
@@ -48,6 +49,10 @@ fn default_minimum_stake_divisor() -> u64 {
 
 fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
+}
+
+fn default_shard_layout() -> ShardLayout {
+    ShardLayout::default()
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -128,6 +133,13 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
+    /// Layout information regarding how to split accounts to shards
+    #[serde(default = "default_shard_layout")]
+    #[default(ShardLayout::default())]
+    pub shard_layout: ShardLayout,
+    #[default(None)]
+    // TODO: add config for simple nightshade shards
+    pub simple_nightshade_shard_config: Option<ShardConfig>,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -147,6 +159,7 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
+            shard_layout: config.shard_layout.clone(),
         }
     }
 }

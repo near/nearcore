@@ -30,7 +30,7 @@ genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
 def near_init_genesis():
     tempdir = pathlib.Path(tempfile.gettempdir()) / 'update_res'
     if tempdir.exists():
-        shutil.rmtree(node_root)
+        shutil.rmtree(tempdir)
     tempdir.mkdir(parents=True, exist_ok=True)
 
     subprocess.check_output(('cargo', 'run', '-p', 'neard', '--bin', 'neard',
