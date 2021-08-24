@@ -11,7 +11,7 @@ macro_rules! include_config {
     };
 }
 
-static CONFIGS: [(ProtocolVersion, &[u8])] =
+static CONFIGS: [(ProtocolVersion, &[u8]); 2] =
     *[(0, include_config!("0.json")), (42, include_config!("42.json"))];
 
 /// Stores runtime config for each protocol version where it was updated.
