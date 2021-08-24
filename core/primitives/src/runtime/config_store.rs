@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 macro_rules! include_config {
     ($file:expr) => {
-        include_bytes!(concat!("../../nearcore/res/runtime_configs/", $file))
+        include_bytes!(concat!("../../../../nearcore/res/runtime_configs/", $file))
     };
 }
 
