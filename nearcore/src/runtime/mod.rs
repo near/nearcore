@@ -60,6 +60,7 @@ use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -125,10 +126,7 @@ impl EpochInfoProvider for SafeEpochManager {
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    /// Runtime configuration.  Note that it may be slightly different than
-    /// `genesis_config.runtime_config`.  Consider `max_gas_burnt_view` value
-    /// which may be configured per node.
-    runtime_config: ActualRuntimeConfig,
+    runtime_config_store: RuntimeConfigStore,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -160,7 +158,6 @@ impl NightshadeRuntime {
             genesis_config.shard_layout.num_shards(),
             genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
         );
-        let runtime_config = ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let initial_shard_version = initial_epoch_config.shard_layout.version();
         let all_epoch_config = AllEpochConfig::new(
@@ -192,7 +189,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
-            runtime_config,
+            runtime_config_store: RuntimeConfigStore::new(),
             store,
             tries,
             runtime,
@@ -487,7 +484,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: self.runtime_config.for_protocol_version(current_protocol_version).clone(),
+            config: self.runtime_config_store.get_config(current_protocol_version).clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
@@ -570,7 +567,7 @@ impl NightshadeRuntime {
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config = self.runtime_config.for_protocol_version(protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
@@ -649,7 +646,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         verify_signature: bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(state_root) = state_root {
             let shard_uid = self.account_id_to_shard_uid(&transaction.transaction.signer_id);
@@ -720,7 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -1614,8 +1611,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
-        config.runtime_config =
-            (**self.runtime_config.for_protocol_version(protocol_version)).clone();
+        config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
         Ok(config)
     }
 

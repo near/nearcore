@@ -55,6 +55,7 @@ impl RuntimeConfig {
 /// but i) may have it’s `max_gas_burnt_view` limit adjusted and ii) provides
 /// a method which returns configuration with adjustments done through protocol
 /// version upgrades.
+/// TODO #4649: deprecated after RuntimeConfigStore creation, remove it
 pub struct ActualRuntimeConfig {
     /// The runtime configuration taken from the genesis file but with possibly
     /// modified `max_gas_burnt_view` limit.

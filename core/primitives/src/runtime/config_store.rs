@@ -58,7 +58,7 @@ mod tests {
     const RECEIPTS_DEPTH: u64 = 63;
 
     #[test]
-    fn test_existing_configs() {
+    fn test_configs_existence() {
         let store = RuntimeConfigStore::new();
         store.get_config(0);
         store.get_config(GENESIS_PROTOCOL_VERSION - 1);
