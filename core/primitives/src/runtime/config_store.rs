@@ -39,7 +39,9 @@ impl RuntimeConfigStore {
 
     /// Constructs test store.
     pub fn test() -> Self {
-        Self { store: BTreeMap::from_iter([(0, RuntimeConfig::default())].iter().cloned()) }
+        Self {
+            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
+        }
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
