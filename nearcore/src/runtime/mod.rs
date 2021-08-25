@@ -1891,7 +1891,7 @@ mod test {
                 initial_tracked_shards,
                 None,
                 None,
-                RuntimeConfigStore::new(),
+                RuntimeConfigStore::test(),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);

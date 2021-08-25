@@ -62,7 +62,7 @@ fn main() -> Result<()> {
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::test(),
+        RuntimeConfigStore::new(),
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();

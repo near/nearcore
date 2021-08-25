@@ -40,7 +40,7 @@ fn main() {
         near_config.client_config.tracked_shards.clone(),
         None,
         None,
-        RuntimeConfigStore::test(),
+        RuntimeConfigStore::new(),
     ));
 
     let mut store_validator = StoreValidator::new(

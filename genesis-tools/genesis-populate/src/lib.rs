@@ -71,7 +71,7 @@ impl GenesisBuilder {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
+            RuntimeConfigStore::new(),
         );
         Self {
             home_dir: home_dir.to_path_buf(),
