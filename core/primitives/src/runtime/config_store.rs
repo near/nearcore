@@ -68,14 +68,21 @@ mod tests {
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
     const RECEIPTS_DEPTH: u64 = 63;
 
+    fn check_config(protocol_version: ProtocolVersion, config_bytes: &[u8]) {
+        assert_eq!(
+            RuntimeConfigStore::new().get_config(protocol_version).as_ref(),
+            &serde_json::from_slice::<RuntimeConfig>(config_bytes).unwrap()
+        );
+    }
+
     #[test]
-    fn test_configs_existence() {
-        let store = RuntimeConfigStore::new();
-        store.get_config(0);
-        store.get_config(GENESIS_PROTOCOL_VERSION - 1);
-        store.get_config(GENESIS_PROTOCOL_VERSION);
-        store.get_config(LowerStorageCost.protocol_version());
-        store.get_config(ProtocolVersion::MAX);
+    fn test_get_config() {
+        check_config(0, CONFIGS[0].1);
+        check_config(GENESIS_PROTOCOL_VERSION - 1, CONFIGS[0].1);
+        check_config(GENESIS_PROTOCOL_VERSION, CONFIGS[0].1);
+        // First non-trivial version for which runtime config was updated.
+        check_config(LowerStorageCost.protocol_version(), CONFIGS[1].1);
+        check_config(ProtocolVersion::MAX, CONFIGS.last().unwrap().1);
     }
 
     #[test]
