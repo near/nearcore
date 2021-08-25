@@ -67,7 +67,7 @@ impl GasCounter {
         assert!(burn_gas <= use_gas);
         let new_burnt_gas =
             self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        println!("!! {} {}", self.used_gas, use_gas);
+        println!("!! {} {} {}", self.used_gas, burn_gas, use_gas);
         let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
         {

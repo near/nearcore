@@ -176,18 +176,28 @@ impl<'a> VMLogic<'a> {
         self.instance = instance;
     }
 
-    fn sync_from_wasm_counter(&mut self) {
+    pub fn sync_from_wasm_counter(&mut self) {
         let remaining_gas_before = self.gas_counter.remaining_prepaid_gas();
         let remaining_ops_before = remaining_gas_before / self.config.regular_op_cost as u64;
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
         let remaining_ops_after = instance.get_remaining_ops();
-        self.gas_counter.pay_wasm_gas(remaining_ops_after - remaining_gas_before);
+        println!(
+            "ooo {} {} {}",
+            remaining_ops_before,
+            remaining_ops_after,
+            remaining_ops_before > remaining_ops_after
+        );
+        self.gas_counter.pay_wasm_gas(remaining_ops_before - remaining_ops_after);
     }
 
-    fn sync_to_wasm_counter(&self) {
+    pub fn sync_to_wasm_counter(&self) {
         let remaining_gas_now = self.gas_counter.remaining_prepaid_gas();
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
         instance.set_remaining_ops(remaining_gas_now / self.config.regular_op_cost as u64);
+    }
+
+    pub fn remaining_prepaid_gas(&self) -> Gas {
+        self.gas_counter.remaining_prepaid_gas()
     }
 
     // ###########################
@@ -348,12 +358,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// `base + read_memory_base + read_memory_bytes * num_bytes + write_register_base + write_register_bytes * num_bytes`
     pub fn write_register(&mut self, register_id: u64, data_len: u64, data_ptr: u64) -> Result<()> {
-        self.sync_from_wasm_counter();
         self.gas_counter.pay_base(base)?;
         let data = self.memory_get_vec(data_ptr, data_len)?;
-        let r = self.internal_write_register(register_id, data);
-        self.sync_to_wasm_counter();
-        r
+        self.internal_write_register(register_id, data)
     }
 
     // ###################################
@@ -2240,7 +2247,6 @@ impl<'a> VMLogic<'a> {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.sync_from_wasm_counter();
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
             return Err(
@@ -2287,7 +2293,6 @@ impl<'a> VMLogic<'a> {
                     .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
-                self.sync_to_wasm_counter();
                 Ok(1)
             }
             None => {
@@ -2300,7 +2305,6 @@ impl<'a> VMLogic<'a> {
                             + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
-                self.sync_to_wasm_counter();
                 Ok(0)
             }
         }
