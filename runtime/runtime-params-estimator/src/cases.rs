@@ -294,7 +294,7 @@ pub fn run(mut config: Config, only_compile: bool) -> CostTable {
     let mut f = || {
         let account_idx = loop {
             let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-            if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
+            if !deleted_accounts.contains(&x) && !beneficiaries.contains(&x) {
                 break x;
             }
         };
