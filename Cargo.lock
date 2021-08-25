@@ -4814,6 +4814,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
