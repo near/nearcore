@@ -1874,7 +1874,6 @@ mod test {
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
-            genesis.config.runtime_config = RuntimeConfig::free();
             genesis.config.epoch_length = epoch_length;
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
@@ -1891,7 +1890,7 @@ mod test {
                 initial_tracked_shards,
                 None,
                 None,
-                RuntimeConfigStore::default(),
+                RuntimeConfigStore::free(),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
