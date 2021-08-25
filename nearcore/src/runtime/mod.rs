@@ -63,7 +63,6 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use std::alloc::Global;
 
 pub mod errors;
 
