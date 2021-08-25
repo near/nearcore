@@ -2240,6 +2240,7 @@ impl<'a> VMLogic<'a> {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
+        self.sync_from_wasm_counter();
         self.gas_counter.pay_base(base)?;
         if self.context.is_view {
             return Err(
@@ -2286,6 +2287,7 @@ impl<'a> VMLogic<'a> {
                     .checked_add(value.len() as u64)
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
                 self.internal_write_register(register_id, old_value)?;
+                self.sync_to_wasm_counter();
                 Ok(1)
             }
             None => {
@@ -2298,6 +2300,7 @@ impl<'a> VMLogic<'a> {
                             + storage_config.num_extra_bytes_record,
                     )
                     .ok_or(InconsistentStateError::IntegerOverflow)?;
+                self.sync_to_wasm_counter();
                 Ok(0)
             }
         }
