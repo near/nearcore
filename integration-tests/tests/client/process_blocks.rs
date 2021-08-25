@@ -90,7 +90,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
                 vec![],
                 None,
                 None,
-                RuntimeConfigStore::test(),
+                RuntimeConfigStore::default(),
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
@@ -1888,7 +1888,7 @@ fn test_incorrect_validator_key_produce_block() {
         vec![],
         None,
         None,
-        RuntimeConfigStore::test(),
+        RuntimeConfigStore::default(),
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
@@ -3197,7 +3197,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
+            RuntimeConfigStore::default(),
         );
         // TODO #4305: get directly from NightshadeRuntime
         let migration_data = load_migration_data(&genesis.config.chain_id);
@@ -3495,7 +3495,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
-                    RuntimeConfigStore::test(),
+                    RuntimeConfigStore::default(),
                 ))
             })
             .collect();
@@ -3598,7 +3598,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
-                    RuntimeConfigStore::test(),
+                    RuntimeConfigStore::default(),
                 ))
             })
             .collect();
@@ -3680,7 +3680,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
-                    RuntimeConfigStore::test(),
+                    RuntimeConfigStore::default(),
                 ))
             })
             .collect();

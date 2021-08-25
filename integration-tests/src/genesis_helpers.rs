@@ -28,7 +28,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
         vec![],
         None,
         None,
-        RuntimeConfigStore::test(),
+        RuntimeConfigStore::default(),
     ));
     let chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.genesis().clone()
@@ -47,7 +47,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         vec![],
         None,
         None,
-        RuntimeConfigStore::test(),
+        RuntimeConfigStore::default(),
     ));
     let mut chain = Chain::new(runtime, &chain_genesis, DoomslugThresholdMode::TwoThirds).unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap().clone()

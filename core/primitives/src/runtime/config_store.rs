@@ -25,6 +25,15 @@ pub struct RuntimeConfigStore {
     store: BTreeMap<ProtocolVersion, Arc<RuntimeConfig>>,
 }
 
+impl Default for RuntimeConfigStore {
+    /// Constructs test store.
+    fn default() -> Self {
+        Self {
+            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
+        }
+    }
+}
+
 impl RuntimeConfigStore {
     /// Constructs a new store.
     pub fn new() -> Self {
@@ -34,13 +43,6 @@ impl RuntimeConfigStore {
                     (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
                 },
             )),
-        }
-    }
-
-    /// Constructs test store.
-    pub fn test() -> Self {
-        Self {
-            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
         }
     }
 
