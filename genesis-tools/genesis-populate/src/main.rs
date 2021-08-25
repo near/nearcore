@@ -1,12 +1,12 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use clap::{App, Arg};
 
+use near_store::create_store;
 use nearcore::{get_default_home, get_store_path, load_config};
 
 use genesis_populate::GenesisBuilder;
-use near_store::create_store;
-use std::sync::Arc;
 
 fn main() {
     let default_home = get_default_home();
@@ -27,6 +27,7 @@ fn main() {
         .map(|x| x.parse::<u64>().expect("Failed to parse number of additional accounts."))
         .unwrap();
     let near_config = load_config(home_dir);
+
     let store = create_store(&get_store_path(home_dir));
     GenesisBuilder::from_config_and_store(home_dir, Arc::new(near_config.genesis), store)
         .add_additional_accounts(additional_accounts_num)
