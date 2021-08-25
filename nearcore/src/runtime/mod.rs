@@ -63,6 +63,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use std::alloc::Global;
 
 pub mod errors;
 
@@ -146,6 +147,7 @@ impl NightshadeRuntime {
         initial_tracking_shards: Vec<ShardId>,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
+        runtime_config_store: RuntimeConfigStore,
     ) -> Self {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
@@ -188,7 +190,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
-            runtime_config_store: RuntimeConfigStore::new(),
+            runtime_config_store,
             store,
             tries,
             runtime,
@@ -1890,6 +1892,7 @@ mod test {
                 initial_tracked_shards,
                 None,
                 None,
+                RuntimeConfigStore::new(),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
