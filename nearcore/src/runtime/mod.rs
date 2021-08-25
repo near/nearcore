@@ -1766,7 +1766,6 @@ mod test {
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::receipt::ReceiptResult;
-    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
