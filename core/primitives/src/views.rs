@@ -1005,6 +1005,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 pub struct CostGasUsed {
     #[serde(flatten)]
     pub cost: Cost,
+    #[serde(with = "u64_dec_format")]
     pub gas_used: Gas,
 }
 
@@ -1028,7 +1029,9 @@ impl From<ProfileData> for ProfileDataView {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 #[serde(tag = "version")]
 pub enum ExecutionMetadataView {
+    #[serde(rename = "1")]
     V1,
+    #[serde(rename = "2")]
     V2(ProfileDataView),
 }
 
