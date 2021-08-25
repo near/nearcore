@@ -384,7 +384,11 @@ fn run_method_inner(
         instance.call(&method_name, &[])
     };
 
-    let _ = wasmer0_pay_gas(&instance, logic, gas_mode)?;
+    if let GasMode::Paid(_) = gas_mode {
+        // ??
+        logic.sync_from_wasm_counter();
+    }
+    //    let _ = wasmer0_pay_gas(&instance, logic, gas_mode)?;
     call_result.map_err(|err| err.into_vm_error())?;
 
     {

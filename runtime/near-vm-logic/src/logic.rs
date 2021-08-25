@@ -187,7 +187,7 @@ impl<'a> VMLogic<'a> {
             remaining_ops_after,
             remaining_ops_before > remaining_ops_after
         );
-        self.gas_counter.pay_wasm_gas(remaining_ops_before - remaining_ops_after);
+        self.pay_gas_for_wasm_ops(remaining_ops_before - remaining_ops_after);
     }
 
     pub fn sync_to_wasm_counter(&self) {
