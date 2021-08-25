@@ -1,7 +1,9 @@
 use anyhow::Context;
 use clap::Clap;
+use genesis_populate::GenesisBuilder;
+use near_store::create_store;
 use near_vm_runner::VMKind;
-use nearcore::get_default_home;
+use nearcore::{get_default_home, get_store_path, load_config};
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
@@ -13,6 +15,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use std::time;
 
 #[derive(Clap)]
@@ -26,9 +29,12 @@ struct CliArgs {
     /// How many iterations per block are we going to try.
     #[clap(long, default_value = "10")]
     iters: usize,
-    /// How many accounts were generated with `genesis-populate`.
-    #[clap(long, default_value = "10000")]
+    /// Number of active accounts in the state (accounts used for estimation).
+    #[clap(long, default_value = "20000")]
     accounts_num: usize,
+    /// Number of additional accounts to add to the state, among which active accounts are selected.
+    #[clap(long, default_value = "200000")]
+    additional_accounts_num: usize,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -52,6 +58,24 @@ fn main() -> anyhow::Result<()> {
     let cli_args = CliArgs::parse();
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
+
+    let additional_accounts_num = cli_args.additional_accounts_num as u64;
+    if additional_accounts_num > 0 {
+        let near_config = load_config(&state_dump_path);
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(additional_accounts_num)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+    }
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
@@ -146,6 +170,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
+        buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
 cargo build --manifest-path /host/nearcore/Cargo.toml \
@@ -167,6 +192,11 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
+                "--additional-accounts-num" => {
+                    args.next();
+                    write!(buf, " {:?} 0", arg).unwrap();
+                    continue;
+                }
                 "--home" => {
                     args.next();
                     continue;
