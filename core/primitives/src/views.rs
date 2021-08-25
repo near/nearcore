@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 use near_crypto::{PublicKey, Signature};
 
@@ -1029,6 +1029,8 @@ impl From<ProfileData> for ProfileDataView {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 #[serde(tag = "version")]
 pub enum ExecutionMetadataView {
+    // serde doesn't support rename a variant as integer: https://github.com/serde-rs/serde/issues/745
+    // and the workaround is heavy, we choose a "version": "1" format.
     #[serde(rename = "1")]
     V1,
     #[serde(rename = "2")]
