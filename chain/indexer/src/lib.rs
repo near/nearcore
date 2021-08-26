@@ -97,10 +97,8 @@ impl Indexer {
     pub fn new(indexer_config: IndexerConfig) -> Self {
         tracing::info!(target: INDEXER, "Load config from {:?}...", &indexer_config.home_dir);
 
-        let near_config = nearcore::load_config(&indexer_config.home_dir);
+        let near_config = nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir);
 
-        tracing::info!(target: INDEXER, "Validate genesis...",);
-        near_chain_configs::genesis_validate::validate_genesis(&near_config.genesis);
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
             "Indexer should track at least one shard. \n\
