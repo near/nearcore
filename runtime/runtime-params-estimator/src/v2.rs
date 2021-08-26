@@ -4,11 +4,11 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::time::Instant;
 
-use near_crypto::{KeyType, SecretKey};
+use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    SignedTransaction, TransferAction,
+    SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
 use rand::Rng;
@@ -29,6 +29,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionAddFunctionAccessKeyBase, action_add_function_access_key_base),
     (Cost::ActionAddFunctionAccessKeyPerByte, action_add_function_access_key_per_byte),
     (Cost::ActionDeleteKey, action_delete_key),
+    (Cost::ActionStake, action_stake),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -300,6 +301,31 @@ fn action_delete_key(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
+fn action_stake(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed();
+
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_account();
+            let receiver = sender.clone();
+
+            let public_key: PublicKey =
+                "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
+
+            tb.transaction_from_actions(
+                sender,
+                receiver,
+                vec![Action::Stake(StakeAction { stake: 1, public_key })],
+            )
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    total_cost - base_cost
+}
+
 #[test]
 fn smoke() {
     use crate::testbed_runners::GasMetric;
@@ -313,7 +339,7 @@ fn smoke() {
         state_dump_path: get_default_home().into(),
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
-        metrics_to_measure: Some(vec!["ActionDeleteKey".to_string()]),
+        metrics_to_measure: Some(vec!["ActionStake".to_string()]),
     };
     let table = run(config);
     eprintln!("{}", table);
