@@ -187,6 +187,10 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
 }
 
 fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
+    if let Some(cost) = ctx.cached.action_add_function_access_key_base.clone() {
+        return cost;
+    }
+
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
@@ -212,7 +216,9 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
 
     let base_cost = action_sir_receipt_creation(ctx);
 
-    total_cost - base_cost
+    let cost = total_cost - base_cost;
+    ctx.cached.action_add_function_access_key_base = Some(cost);
+    cost
 }
 
 fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {

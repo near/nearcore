@@ -17,6 +17,7 @@ use crate::testbed_runners::{end_count, get_account_id, start_count, Config, Gas
 pub(crate) struct CachedCosts {
     pub(crate) action_receipt_creation: Option<GasCost>,
     pub(crate) action_sir_receipt_creation: Option<GasCost>,
+    pub(crate) action_add_function_access_key_base: Option<GasCost>,
 }
 
 /// Global context shared by all cost calculating functions.
