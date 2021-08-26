@@ -62,7 +62,7 @@ pub fn proposals_to_epoch_info(
     // is the smaller of the two thresholds
     let bp_stake_threshold = cmp::min(bp_stake_threshold, cp_stake_threshold);
 
-    // proposals remaining chunk_producer_proposals were not selected for either role
+    // process remaining chunk_producer_proposals that were not selected for either role
     for OrderedValidatorStake(p) in chunk_producer_proposals {
         let stake = p.stake();
         let account_id = p.account_id();

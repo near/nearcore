@@ -17,7 +17,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
 ) -> Result<Vec<Vec<T>>, NotEnoughValidators> {
     // Initially, sort by number of validators, then total stake
     // (i.e. favour filling under-occupied shards first).
-    let mut shard_index: MinHeap<(usize, Balance, ShardId)> =
+    let mut shard_validator_heap: MinHeap<(usize, Balance, ShardId)> =
         (0..num_shards).map(|s| (0, 0, s)).collect();
 
     let num_chunk_producers = chunk_producers.len();
@@ -39,14 +39,18 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
         let mut cp_iter = chunk_producers.into_iter();
 
         // First we assign one validator to each shard, until all have the minimum number
-        while shard_index.peek().unwrap().0 < min_validators_per_shard {
+        while shard_validator_heap.peek().unwrap().0 < min_validators_per_shard {
             let cp = cp_iter
                 .next()
                 .expect("cp_iter should contain enough elements to minimally fill each shard");
             let (least_validator_count, shard_stake, shard_id) =
-                shard_index.pop().expect("shard_index should never be empty");
+                shard_validator_heap.pop().expect("shard_index should never be empty");
 
-            shard_index.push((least_validator_count + 1, shard_stake + cp.get_stake(), shard_id));
+            shard_validator_heap.push((
+                least_validator_count + 1,
+                shard_stake + cp.get_stake(),
+                shard_id,
+            ));
             result[shard_id].push(cp);
         }
 
@@ -56,15 +60,19 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
             // we can change priorities to try and balance the total stake in each shard
 
             // re-index shards to favour lowest stake first
-            let mut shard_index: MinHeap<(Balance, usize, ShardId)> = shard_index
+            let mut shard_index: MinHeap<(Balance, usize, ShardId)> = shard_validator_heap
                 .into_iter()
-                .map(|(validator_count, stake, shard_id)| (stake, validator_count, shard_id))
+                .map(|(count, stake, shard_id)| (stake, count, shard_id))
                 .collect();
 
             for cp in cp_iter {
-                let (least_stake, validator_count, shard_id) =
+                let (least_stake, least_validator_count, shard_id) =
                     shard_index.pop().expect("shard_index should never be empty");
-                shard_index.push((least_stake + cp.get_stake(), validator_count + 1, shard_id));
+                shard_index.push((
+                    least_stake + cp.get_stake(),
+                    least_validator_count + 1,
+                    shard_id,
+                ));
                 result[shard_id].push(cp);
             }
         }
@@ -80,7 +88,7 @@ pub fn assign_shards<T: HasStake + Eq + Clone>(
         // producers than shards, so this case will never come up and thus the algorithm does not
         // need to be tuned for this situation.
         assign_with_possible_repeats(
-            &mut shard_index,
+            &mut shard_validator_heap,
             &mut result,
             &mut cp_iter,
             num_shards,
