@@ -319,7 +319,7 @@ impl Client {
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
         if next_height > 2 {
-            panic!("Intentional easy bug: height > 2");s
+            panic!("Intentional easy bug: height > 2");
         }
         let known_height = self.chain.mut_store().get_latest_known()?.height;
 
