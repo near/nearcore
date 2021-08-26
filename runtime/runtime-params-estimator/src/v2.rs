@@ -15,6 +15,8 @@ use crate::testbed_runners::Config;
 use crate::v2::support::{Ctx, GasCost, TestBed};
 use crate::{Cost, CostTable};
 
+use self::support::TransactionBuilder;
+
 static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
@@ -51,7 +53,7 @@ fn action_receipt_creation(ctx: &mut Ctx) -> GasCost {
 
     let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |tb: &mut TestBed| -> SignedTransaction {
+    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
         let sender = tb.random_account();
         let receiver = tb.random_account();
         tb.transaction_from_actions(sender, receiver, vec![])
@@ -69,7 +71,7 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
 
     let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |tb: &mut TestBed<'_>| -> SignedTransaction {
+    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
         let sender = tb.random_account();
         let receiver = sender.clone();
         tb.transaction_from_actions(sender, receiver, vec![])
@@ -83,7 +85,7 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
 fn action_transfer(ctx: &mut Ctx) -> GasCost {
     let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |tb: &mut TestBed<'_>| -> SignedTransaction {
+    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
         let sender = tb.random_account();
         let receiver = tb.random_account();
         tb.transaction_from_actions(
@@ -99,7 +101,7 @@ fn action_create_account(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |tb: &mut TestBed<'_>| -> SignedTransaction {
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
             let existing_account = tb.random_account();
             let new_account =
                 AccountId::try_from(format!("{}_{}", existing_account, tb.rng().gen::<u64>()))
@@ -128,7 +130,7 @@ fn action_delete_account(ctx: &mut Ctx) -> GasCost {
 
         let mut deleted_accounts = HashSet::new();
         let mut beneficiaries = HashSet::new();
-        let mut make_transaction = |tb: &mut TestBed<'_>| -> SignedTransaction {
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
             let existing_account = tb
                 .random_accounts()
                 .find(|it| !deleted_accounts.contains(it) && !beneficiaries.contains(it))
@@ -158,7 +160,7 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
         let mut testbed = ctx.test_bed();
 
         let mut used_accounts = HashSet::new();
-        let mut make_transaction = |tb: &mut TestBed<'_>| -> SignedTransaction {
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
             let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
             used_accounts.insert(sender.clone());
 

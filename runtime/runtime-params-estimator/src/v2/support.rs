@@ -19,13 +19,14 @@ pub(crate) struct CachedCosts {
     pub(crate) action_sir_receipt_creation: Option<GasCost>,
 }
 
-pub(crate) struct Ctx<'a> {
-    pub(crate) config: &'a Config,
+/// Global context shared by all cost calculating functions.
+pub(crate) struct Ctx<'c> {
+    pub(crate) config: &'c Config,
     pub(crate) cached: CachedCosts,
 }
 
-impl<'a> Ctx<'a> {
-    pub(crate) fn new(config: &'a Config) -> Self {
+impl<'c> Ctx<'c> {
+    pub(crate) fn new(config: &'c Config) -> Self {
         let cached = CachedCosts::default();
         Self { cached, config }
     }
@@ -36,44 +37,75 @@ impl<'a> Ctx<'a> {
     }
 }
 
-pub(crate) struct TestBed<'a> {
-    config: &'a Config,
+/// A single isolated instance of near.
+///
+/// We use it to time processing a bunch of blocks.
+pub(crate) struct TestBed<'c> {
+    config: &'c Config,
     inner: RuntimeTestbed,
     nonces: HashMap<AccountId, u64>,
 }
 
-impl TestBed<'_> {
-    pub(crate) fn rng(&mut self) -> ThreadRng {
-        rand::thread_rng()
-    }
-
+impl<'c> TestBed<'c> {
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
         let nonce = self.nonces.entry(account_id.clone()).or_default();
         *nonce += 1;
         *nonce
     }
 
-    pub(crate) fn random_account(&mut self) -> AccountId {
-        self.random_accounts().next().unwrap()
-    }
+    pub(crate) fn average_transaction_cost<'a>(
+        &'a mut self,
+        make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
+    ) -> GasCost {
+        let allow_failures = false;
 
-    pub(crate) fn random_accounts<'a>(&'a mut self) -> impl Iterator<Item = AccountId> + 'a {
-        let active_accounts = self.config.active_accounts;
-        let mut rng = self.rng();
-        iter::repeat_with(move || {
-            let account_index = rng.gen_range(0, active_accounts);
-            get_account_id(account_index)
-        })
-    }
+        let total_iters = self.config.warmup_iters_per_block + self.config.iter_per_block;
 
+        let mut total = 0;
+        let mut n = 0;
+        for iter in 0..total_iters {
+            let block_size = 100;
+            let block: Vec<_> = iter::repeat_with(|| {
+                let tb = TransactionBuilder { testbed: self };
+                make_transaction(tb)
+            })
+            .take(block_size)
+            .collect();
+
+            let start = start_count(self.config.metric);
+            self.inner.process_block(&block, allow_failures);
+            self.inner.process_blocks_until_no_receipts(allow_failures);
+            let measured = end_count(self.config.metric, &start);
+
+            let is_warmup = iter < self.config.warmup_iters_per_block;
+
+            if !is_warmup {
+                total += measured;
+                n += block_size as u64;
+            }
+        }
+
+        GasCost { value: total / n, metric: self.config.metric }
+    }
+}
+
+/// A helper to create transaction for processing by a `TestBed`.
+///
+/// Physically, this *is* a `TestBed`, just with a restricted interface
+/// specifically for creating a transaction struct. 
+pub(crate) struct TransactionBuilder<'a, 'c> {
+    testbed: &'a mut TestBed<'c>,
+}
+
+impl<'a, 'c> TransactionBuilder<'a, 'c> {
     pub(crate) fn transaction_from_actions(
-        &mut self,
+        self,
         sender: AccountId,
         receiver: AccountId,
         actions: Vec<Action>,
     ) -> SignedTransaction {
         let signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_ref());
-        let nonce = self.nonce(&sender);
+        let nonce = self.testbed.nonce(&sender);
 
         SignedTransaction::from_actions(
             nonce as u64,
@@ -85,39 +117,21 @@ impl TestBed<'_> {
         )
     }
 
-    pub(crate) fn average_transaction_cost(
-        &mut self,
-        make_transaction: &mut dyn FnMut(&mut Self) -> SignedTransaction,
-    ) -> GasCost {
-        let allow_failures = false;
+    pub(crate) fn rng(&mut self) -> ThreadRng {
+        rand::thread_rng()
+    }
 
-        if self.config.warmup_iters_per_block > 0 {
-            let block_size = 100;
-            for _ in 0..self.config.warmup_iters_per_block {
-                let block: Vec<_> =
-                    iter::repeat_with(|| make_transaction(self)).take(block_size).collect();
-                self.inner.process_block(&block, allow_failures);
-            }
-            self.inner.process_blocks_until_no_receipts(allow_failures);
-        }
+    pub(crate) fn random_account(&mut self) -> AccountId {
+        self.random_accounts().next().unwrap()
+    }
 
-        let mut total = 0;
-        let mut n = 0;
-        for _ in 0..self.config.iter_per_block {
-            let block_size = 100;
-            let block: Vec<_> =
-                iter::repeat_with(|| make_transaction(self)).take(block_size).collect();
-
-            let start = start_count(self.config.metric);
-            self.inner.process_block(&block, allow_failures);
-            self.inner.process_blocks_until_no_receipts(allow_failures);
-            let measured = end_count(self.config.metric, &start);
-
-            total += measured;
-            n += block_size as u64;
-        }
-
-        GasCost { value: total / n, metric: self.config.metric }
+    pub(crate) fn random_accounts<'b>(&'b mut self) -> impl Iterator<Item = AccountId> + 'b {
+        let active_accounts = self.testbed.config.active_accounts;
+        let mut rng = self.rng();
+        iter::repeat_with(move || {
+            let account_index = rng.gen_range(0, active_accounts);
+            get_account_id(account_index)
+        })
     }
 }
 
