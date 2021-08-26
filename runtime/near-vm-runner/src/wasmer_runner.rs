@@ -385,7 +385,6 @@ fn run_method_inner(
     };
 
     if let GasMode::Paid(_) = gas_mode {
-        // ??
         logic.sync_from_wasm_counter();
     }
     //    let _ = wasmer0_pay_gas(&instance, logic, gas_mode)?;

@@ -47,7 +47,7 @@ macro_rules! wrapped_imports {
                     $(#[cfg(feature = $feature_name)])*
                     pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                         let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
-                        logic.sync_from_wasm_counter();
+                        logic.sync_from_wasm_counter()?;
                         let r = logic.$func( $( $arg_name, )* );
                         logic.sync_to_wasm_counter();
                         r
