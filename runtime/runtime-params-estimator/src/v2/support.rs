@@ -92,7 +92,7 @@ impl<'c> TestBed<'c> {
 /// A helper to create transaction for processing by a `TestBed`.
 ///
 /// Physically, this *is* a `TestBed`, just with a restricted interface
-/// specifically for creating a transaction struct. 
+/// specifically for creating a transaction struct.
 pub(crate) struct TransactionBuilder<'a, 'c> {
     testbed: &'a mut TestBed<'c>,
 }
@@ -119,6 +119,10 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
 
     pub(crate) fn rng(&mut self) -> ThreadRng {
         rand::thread_rng()
+    }
+
+    pub(crate) fn account(&mut self, idx: usize) -> AccountId {
+        get_account_id(idx)
     }
 
     pub(crate) fn random_account(&mut self) -> AccountId {
@@ -156,6 +160,14 @@ impl ops::Sub for GasCost {
     fn sub(self, rhs: GasCost) -> Self::Output {
         assert_eq!(self.metric, rhs.metric);
         GasCost { value: self.value - rhs.value, metric: self.metric }
+    }
+}
+
+impl ops::Div<u64> for GasCost {
+    type Output = GasCost;
+
+    fn div(self, rhs: u64) -> Self::Output {
+        GasCost { value: self.value / rhs, metric: self.metric }
     }
 }
 

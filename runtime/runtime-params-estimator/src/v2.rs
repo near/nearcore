@@ -3,7 +3,7 @@ mod support;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction,
     TransferAction,
@@ -12,7 +12,7 @@ use near_primitives::types::AccountId;
 use rand::Rng;
 
 use crate::testbed_runners::Config;
-use crate::v2::support::{Ctx, GasCost, TestBed};
+use crate::v2::support::{Ctx, GasCost};
 use crate::{Cost, CostTable};
 
 use self::support::TransactionBuilder;
@@ -24,6 +24,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionCreateAccount, action_create_account),
     (Cost::ActionDeleteAccount, action_delete_account),
     (Cost::ActionAddFullAccessKey, action_add_full_access_key),
+    (Cost::ActionAddFunctionAccessKeyBase, action_add_function_access_key_base),
+    (Cost::ActionAddFunctionAccessKeyPerByte, action_add_function_access_key_per_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -182,6 +184,82 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost - base_cost
+}
+
+fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed();
+
+        let mut used_accounts = HashSet::new();
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
+            used_accounts.insert(sender.clone());
+
+            let receiver = sender.clone();
+
+            let public_key =
+                "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
+            let access_key = AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: tb.account(0).to_string(),
+                    method_names: vec!["method1".to_string()],
+                }),
+            };
+
+            tb.transaction_from_actions(
+                sender,
+                receiver,
+                vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+            )
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    total_cost - base_cost
+}
+
+fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed();
+
+        let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
+        let mut used_accounts = HashSet::new();
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
+            used_accounts.insert(sender.clone());
+
+            let receiver = sender.clone();
+
+            let public_key =
+                "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
+            let access_key = AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(100),
+                    receiver_id: tb.account(0).to_string(),
+                    method_names: many_methods.clone(),
+                }),
+            };
+
+            tb.transaction_from_actions(
+                sender,
+                receiver,
+                vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+            )
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    // 1k methods for 10 bytes each
+    let bytes_per_transaction = 10 * 1000;
+
+    (total_cost - base_cost) / bytes_per_transaction
 }
 
 #[test]
