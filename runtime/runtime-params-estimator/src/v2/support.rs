@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::time::Duration;
 use std::{fmt, iter, ops};
 
@@ -40,6 +41,14 @@ impl<'c> Ctx<'c> {
             nonces: HashMap::new(),
             used_accounts: HashSet::new(),
         }
+    }
+
+    pub(crate) fn read_resource(&mut self, path: &str) -> Vec<u8> {
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let path = Path::new(dir).join(path);
+        std::fs::read(&path).unwrap_or_else(|err| {
+            panic!("failed to load test resource: {}, {}", path.display(), err)
+        })
     }
 }
 
