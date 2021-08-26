@@ -31,13 +31,13 @@ impl BorshDeserialize for DataArray {
         let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
         let mut data_array = [0; Self::LEN];
         data_array.copy_from_slice(&data_vec[..Self::LEN.min(data_vec.len())]);
-        Ok(Self(data_array))
+        Ok(Self(Box::new(data_array)))
     }
 }
 
 impl BorshSerialize for DataArray {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        let v: Vec<_> = self.0.into();
+        let v: Vec<_> = self.0.as_ref().to_vec();
         BorshSerialize::serialize(&v, writer)
     }
 }
@@ -58,7 +58,7 @@ impl Default for ProfileData {
 impl ProfileData {
     #[inline]
     pub fn new() -> Self {
-        let costs = DataArray([0; DataArray::LEN]);
+        let costs = DataArray(Box::new([0; DataArray::LEN]));
         ProfileData { data: costs }
     }
 
