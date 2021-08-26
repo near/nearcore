@@ -4,10 +4,11 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::time::Instant;
 
+use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    SignedTransaction, TransferAction,
 };
 use near_primitives::types::AccountId;
 use rand::Rng;
@@ -27,6 +28,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionAddFullAccessKey, action_add_full_access_key),
     (Cost::ActionAddFunctionAccessKeyBase, action_add_function_access_key_base),
     (Cost::ActionAddFunctionAccessKeyPerByte, action_add_function_access_key_per_byte),
+    (Cost::ActionDeleteKey, action_delete_key),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -217,7 +219,7 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
     let base_cost = action_sir_receipt_creation(ctx);
 
     let cost = total_cost - base_cost;
-    ctx.cached.action_add_function_access_key_base = Some(cost);
+    ctx.cached.action_add_function_access_key_base = Some(cost.clone());
     cost
 }
 
@@ -271,6 +273,33 @@ fn add_key_transaction(
     )
 }
 
+fn action_delete_key(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed();
+
+        let mut deleted_accounts = HashSet::new();
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let existing_account =
+                tb.random_accounts().find(|it| !deleted_accounts.contains(it)).unwrap();
+            deleted_accounts.insert(existing_account.clone());
+
+            let public_key =
+                SecretKey::from_seed(KeyType::ED25519, existing_account.as_ref()).public_key();
+
+            tb.transaction_from_actions(
+                existing_account.clone(),
+                existing_account,
+                vec![Action::DeleteKey(DeleteKeyAction { public_key })],
+            )
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    total_cost - base_cost
+}
+
 #[test]
 fn smoke() {
     use crate::testbed_runners::GasMetric;
@@ -284,7 +313,7 @@ fn smoke() {
         state_dump_path: get_default_home().into(),
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
-        metrics_to_measure: None,
+        metrics_to_measure: Some(vec!["ActionDeleteKey".to_string()]),
     };
     let table = run(config);
     eprintln!("{}", table);
