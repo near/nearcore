@@ -466,6 +466,8 @@ impl TrieChanges {
 pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,
+    // State changes after applying state part, used for splitting states for resharding
+    pub state_changes: Vec<(Vec<u8>, Vec<u8>)>,
     /// Contract codes belonging to the state part.
     pub contract_codes: Vec<ContractCode>,
 }

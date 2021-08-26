@@ -1548,8 +1548,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let ApplyStatePartResult { trie_changes, contract_codes } =
-            Trie::apply_state_part(&state_root, part_id, num_parts, part);
+        let ApplyStatePartResult { trie_changes, contract_codes, .. } =
+            Trie::apply_state_part(&state_root, part_id, num_parts, part, false);
         let tries = self.get_tries();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let (store_update, _) =

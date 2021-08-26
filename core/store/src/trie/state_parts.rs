@@ -185,10 +185,12 @@ impl Trie {
         part_id: u64,
         num_parts: u64,
         part: Vec<Vec<u8>>,
+        generate_state_changes: bool,
     ) -> Result<ApplyStatePartResult, StorageError> {
         if state_root == &CryptoHash::default() {
             return Ok(ApplyStatePartResult {
                 trie_changes: TrieChanges::empty(CryptoHash::default()),
+                state_changes: vec![],
                 contract_codes: vec![],
             });
         }
@@ -199,10 +201,14 @@ impl Trie {
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
+        let mut state_changes = vec![];
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
             if let Some(trie_key) = key {
+                if generate_state_changes {
+                    state_changes.push((trie_key.clone(), value.clone()));
+                }
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value, None));
                 }
@@ -216,6 +222,7 @@ impl Trie {
                 insertions,
                 deletions,
             },
+            state_changes,
             contract_codes,
         })
     }
@@ -227,8 +234,9 @@ impl Trie {
         part_id: u64,
         num_parts: u64,
         part: Vec<Vec<u8>>,
+        generate_state_changes: bool,
     ) -> ApplyStatePartResult {
-        Self::apply_state_part_impl(state_root, part_id, num_parts, part)
+        Self::apply_state_part_impl(state_root, part_id, num_parts, part, generate_state_changes)
             .expect("apply_state_part is guaranteed to succeed when each part is valid")
     }
 
@@ -269,7 +277,7 @@ mod tests {
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
             parts: &Vec<Vec<Vec<u8>>>,
-        ) -> Result<TrieChanges, StorageError> {
+        ) -> Result<(TrieChanges, Vec<(Vec<u8>, Vec<u8>)>), StorageError> {
             let nodes = parts
                 .iter()
                 .map(|part| part.iter())
@@ -287,6 +295,8 @@ mod tests {
                 }
                 Ok(())
             })?;
+            let changes: Vec<(Vec<u8>, Vec<u8>)> =
+                trie.iter(state_root)?.map(Result::unwrap).collect();
             let mut insertions = insertions
                 .into_iter()
                 .map(|(k, (v, rc))| TrieRefcountChange {
@@ -296,12 +306,21 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             insertions.sort();
-            Ok(TrieChanges {
+
+            let trie_changes = trie
+                .update(
+                    &StateRoot::default(),
+                    changes.iter().map(|(key, value)| (key.clone(), Some(value.clone()))),
+                )
+                .unwrap();
+            let trie_changes_from_insertions = TrieChanges {
                 old_root: Default::default(),
                 new_root: *state_root,
                 insertions,
                 deletions: vec![],
-            })
+            };
+            assert_eq!(trie_changes_from_insertions, trie_changes);
+            Ok((trie_changes, changes))
         }
 
         /// on_enter is applied for nodes as well as values
@@ -452,7 +471,7 @@ mod tests {
         let _ = Trie::combine_state_parts_naive(&state_root, &vec![]).unwrap();
         let _ =
             Trie::validate_trie_nodes_for_part(&state_root, 0, 1, PartialState(vec![])).unwrap();
-        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![]);
+        let _ = Trie::apply_state_part(&state_root, 0, 1, vec![], true);
     }
 
     fn construct_trie_for_big_parts_1(
@@ -657,23 +676,29 @@ mod tests {
         num_parts: u64,
         parts: &Vec<Vec<Vec<u8>>>,
     ) -> TrieChanges {
-        let trie_changes = Trie::combine_state_parts_naive(&state_root, &parts).unwrap();
+        let (trie_changes, raw_changes) =
+            Trie::combine_state_parts_naive(&state_root, &parts).unwrap();
 
-        let trie_changes_new = {
-            let changes = (0..num_parts)
-                .map(|part_id| {
-                    Trie::apply_state_part(
-                        &state_root,
-                        part_id,
-                        num_parts,
-                        parts[part_id as usize].clone(),
-                    )
-                    .trie_changes
-                })
-                .collect::<Vec<_>>();
-            merge_trie_changes(changes)
-        };
-        assert_eq!(trie_changes, trie_changes_new);
+        let mut trie_changes_vec = vec![];
+        let mut raw_changes_new = vec![];
+
+        (0..num_parts)
+            .map(|part_id| {
+                Trie::apply_state_part(
+                    &state_root,
+                    part_id,
+                    num_parts,
+                    parts[part_id as usize].clone(),
+                    true,
+                )
+            })
+            .for_each(|apply_result| {
+                trie_changes_vec.push(apply_result.trie_changes);
+                raw_changes_new.extend(apply_result.state_changes);
+            });
+
+        assert_eq!(trie_changes, merge_trie_changes(trie_changes_vec));
+        assert_eq!(raw_changes, raw_changes_new);
         trie_changes
     }
 
