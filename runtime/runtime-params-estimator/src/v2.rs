@@ -166,17 +166,7 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
             used_accounts.insert(sender.clone());
 
-            let receiver = sender.clone();
-
-            let public_key =
-                "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
-            let access_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
-
-            tb.transaction_from_actions(
-                sender,
-                receiver,
-                vec![Action::AddKey(AddKeyAction { public_key, access_key })],
-            )
+            add_key_transaction(tb, sender, AccessKeyPermission::FullAccess)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -195,23 +185,14 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
             used_accounts.insert(sender.clone());
 
-            let receiver = sender.clone();
-
-            let public_key =
-                "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
-            let access_key = AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            add_key_transaction(
+                tb,
+                sender,
+                AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
                     receiver_id: tb.account(0).to_string(),
                     method_names: vec!["method1".to_string()],
                 }),
-            };
-
-            tb.transaction_from_actions(
-                sender,
-                receiver,
-                vec![Action::AddKey(AddKeyAction { public_key, access_key })],
             )
         };
         testbed.average_transaction_cost(&mut make_transaction)
@@ -232,23 +213,14 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
             used_accounts.insert(sender.clone());
 
-            let receiver = sender.clone();
-
-            let public_key =
-                "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
-            let access_key = AccessKey {
-                nonce: 0,
-                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            add_key_transaction(
+                tb,
+                sender,
+                AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
                     receiver_id: tb.account(0).to_string(),
                     method_names: many_methods.clone(),
                 }),
-            };
-
-            tb.transaction_from_actions(
-                sender,
-                receiver,
-                vec![Action::AddKey(AddKeyAction { public_key, access_key })],
             )
         };
         testbed.average_transaction_cost(&mut make_transaction)
@@ -260,6 +232,23 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
     let bytes_per_transaction = 10 * 1000;
 
     (total_cost - base_cost) / bytes_per_transaction
+}
+
+fn add_key_transaction(
+    mut tb: TransactionBuilder<'_, '_>,
+    sender: AccountId,
+    permisson: AccessKeyPermission,
+) -> SignedTransaction {
+    let receiver = sender.clone();
+
+    let public_key = "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
+    let access_key = AccessKey { nonce: 0, permission };
+
+    tb.transaction_from_actions(
+        sender,
+        receiver,
+        vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+    )
 }
 
 #[test]
