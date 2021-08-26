@@ -95,9 +95,14 @@ pub struct Indexer {
 impl Indexer {
     /// Initialize Indexer by configuring `nearcore`
     pub fn new(indexer_config: IndexerConfig) -> Self {
-        tracing::info!(target: INDEXER, "Load config from {:?}...", &indexer_config.home_dir);
+        tracing::info!(
+            target: INDEXER,
+            "Load config from {}...",
+            indexer_config.home_dir.display()
+        );
 
-        let near_config = nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir);
+        let near_config =
+            nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir);
 
         assert!(
             !&near_config.client_config.tracked_shards.is_empty(),
