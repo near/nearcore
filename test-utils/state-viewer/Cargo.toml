@@ -5,10 +5,10 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-clap = "2.33"
 ansi_term = "0.12"
-
 borsh = "0.8.1"
+clap = "2.33"
+tracing = "0.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
