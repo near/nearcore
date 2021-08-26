@@ -462,12 +462,15 @@ impl TrieChanges {
     }
 }
 
+// Key and value of one item in the state
+pub type StateItem = (Vec<u8>, Vec<u8>);
+
 /// Result of applying state part to Trie.
 pub struct ApplyStatePartResult {
     /// Trie changes after applying state part.
     pub trie_changes: TrieChanges,
-    // State changes after applying state part, used for splitting states for resharding
-    pub state_changes: Vec<(Vec<u8>, Vec<u8>)>,
+    // State items included in this state part, used for splitting states for resharding
+    pub state_items: Vec<StateItem>,
     /// Contract codes belonging to the state part.
     pub contract_codes: Vec<ContractCode>,
 }

@@ -190,7 +190,7 @@ impl Trie {
         if state_root == &CryptoHash::default() {
             return Ok(ApplyStatePartResult {
                 trie_changes: TrieChanges::empty(CryptoHash::default()),
-                state_changes: vec![],
+                state_items: vec![],
                 contract_codes: vec![],
             });
         }
@@ -201,13 +201,13 @@ impl Trie {
         let trie_traversal_items = iterator.visit_nodes_interval(&path_begin, &path_end)?;
         let mut map = HashMap::new();
         let mut contract_codes = Vec::new();
-        let mut state_changes = vec![];
+        let mut state_items = vec![];
         for TrieTraversalItem { hash, key } in trie_traversal_items {
             let value = trie.retrieve_raw_bytes(&hash)?;
             map.entry(hash).or_insert_with(|| (value.clone(), 0)).1 += 1;
             if let Some(trie_key) = key {
                 if generate_state_changes {
-                    state_changes.push((trie_key.clone(), value.clone()));
+                    state_items.push((trie_key.clone(), value.clone()));
                 }
                 if is_contract_code_key(&trie_key) {
                     contract_codes.push(ContractCode::new(value, None));
@@ -222,13 +222,13 @@ impl Trie {
                 insertions,
                 deletions,
             },
-            state_changes,
+            state_items,
             contract_codes,
         })
     }
 
     /// Applies state part and returns the storage changes for the state part and all contract codes extracted from it.
-    /// Writing all storage changes gives the complete trie.
+    /// Writing all storage changes gives the complete trie
     pub fn apply_state_part(
         state_root: &StateRoot,
         part_id: u64,
@@ -261,7 +261,7 @@ mod tests {
 
     use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
     use crate::trie::iterator::CrumbStatus;
-    use crate::trie::{TrieRefcountChange, ValueHandle};
+    use crate::trie::{StateItem, TrieRefcountChange, ValueHandle};
 
     use super::*;
     use near_primitives::shard_layout::ShardUId;
@@ -277,7 +277,7 @@ mod tests {
         pub fn combine_state_parts_naive(
             state_root: &StateRoot,
             parts: &Vec<Vec<Vec<u8>>>,
-        ) -> Result<(TrieChanges, Vec<(Vec<u8>, Vec<u8>)>), StorageError> {
+        ) -> Result<(TrieChanges, Vec<StateItem>), StorageError> {
             let nodes = parts
                 .iter()
                 .map(|part| part.iter())
@@ -295,8 +295,7 @@ mod tests {
                 }
                 Ok(())
             })?;
-            let changes: Vec<(Vec<u8>, Vec<u8>)> =
-                trie.iter(state_root)?.map(Result::unwrap).collect();
+            let items: Vec<StateItem> = trie.iter(state_root)?.map(Result::unwrap).collect();
             let mut insertions = insertions
                 .into_iter()
                 .map(|(k, (v, rc))| TrieRefcountChange {
@@ -310,7 +309,7 @@ mod tests {
             let trie_changes = trie
                 .update(
                     &StateRoot::default(),
-                    changes.iter().map(|(key, value)| (key.clone(), Some(value.clone()))),
+                    items.iter().map(|(key, value)| (key.clone(), Some(value.clone()))),
                 )
                 .unwrap();
             let trie_changes_from_insertions = TrieChanges {
@@ -320,7 +319,7 @@ mod tests {
                 deletions: vec![],
             };
             assert_eq!(trie_changes_from_insertions, trie_changes);
-            Ok((trie_changes, changes))
+            Ok((trie_changes, items))
         }
 
         /// on_enter is applied for nodes as well as values
@@ -680,7 +679,7 @@ mod tests {
             Trie::combine_state_parts_naive(&state_root, &parts).unwrap();
 
         let mut trie_changes_vec = vec![];
-        let mut raw_changes_new = vec![];
+        let mut raw_items = vec![];
 
         (0..num_parts)
             .map(|part_id| {
@@ -694,11 +693,11 @@ mod tests {
             })
             .for_each(|apply_result| {
                 trie_changes_vec.push(apply_result.trie_changes);
-                raw_changes_new.extend(apply_result.state_changes);
+                raw_items.extend(apply_result.state_items);
             });
 
         assert_eq!(trie_changes, merge_trie_changes(trie_changes_vec));
-        assert_eq!(raw_changes, raw_changes_new);
+        assert_eq!(raw_changes, raw_items);
         trie_changes
     }
 
