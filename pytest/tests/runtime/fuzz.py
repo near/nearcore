@@ -11,13 +11,14 @@ def run_fuzz():
                                env=env, cwd='../test-utils/runtime-tester/fuzz',
                                stderr=subprocess.PIPE)
     out, err = fuzzing.communicate()
-    print(err, file=sys.stderr)
 
-    re_expr = re.compile(r'Output of `std::fmt::Debug`:((.|\n)*)Reproduce', re.MULTILINE)
-    res = re_expr.search(err.decode('utf-8'))
+    sys.stderr.buffer.write(err)
+
+    re_expr = re.compile(rb'Output of `std::fmt::Debug`:(.*)Reproduce', re.DOTALL)
+    res = re_expr.search(err)
 
     if res:
-        print(res.group(1))
+        sys.stdout.buffer.write(res.group(1))
 
     if fuzzing.returncode != 0:
         raise Exception( f'Invalid result: { fuzzing.returncode }' )
