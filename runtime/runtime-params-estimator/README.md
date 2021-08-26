@@ -2,15 +2,14 @@
 
 Use this tool to measure the running time of elementary runtime operations that have associated fees.
 
-1. Create genesis config and generate state dump
+1. Initialize home folder for the estimator
     ```bash
     cargo run --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-    cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
     ```
 
 2. Run the estimator
     ```bash
-    cargo run --release --package runtime-params-estimator --features required --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
+    cargo run --release --package runtime-params-estimator --features required --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
     ```
 
     With the given parameters above estimator will run relatively fast.
@@ -18,7 +17,7 @@ Use this tool to measure the running time of elementary runtime operations that 
     To get more robust estimates, use these arguments:
 
     ```bash
-    --docker --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric icount
+    --docker --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric icount
     ```
 
     This will run and build the estimator inside a docker container, using QEMU to precisely count the number of executed instructions.

@@ -2006,6 +2006,9 @@ name = "hex"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "hex-literal"
@@ -3277,6 +3280,7 @@ dependencies = [
  "borsh 0.8.1",
  "bs58",
  "byteorder",
+ "hex",
  "near-account-id",
  "near-crypto",
  "near-primitives",
@@ -4408,6 +4412,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-store",
+ "near-test-contracts",
  "near-vm-logic",
  "near-vm-runner",
  "nearcore",
@@ -4430,14 +4435,18 @@ dependencies = [
 name = "runtime-tester"
 version = "0.1.0"
 dependencies = [
+ "byteorder",
  "libfuzzer-sys",
+ "log",
  "near-chain",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-logger-utils",
  "near-primitives",
  "near-store",
+ "near-test-contracts",
  "nearcore",
  "serde",
  "serde_json",
