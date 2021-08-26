@@ -1,6 +1,5 @@
 use crate::types::Gas;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -492,22 +491,8 @@ impl ExtCostsConfig {
 }
 
 /// Strongly-typed representation of the fees for counting.
-#[derive(
-    Copy,
-    Clone,
-    Hash,
-    PartialEq,
-    Eq,
-    Debug,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
-)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[allow(non_camel_case_types)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExtCosts {
     base,
     contract_compile_base,
@@ -581,22 +566,8 @@ pub enum ExtCosts {
 }
 
 // Type of an action, used in fees logic.
-#[derive(
-    Copy,
-    Clone,
-    Hash,
-    PartialEq,
-    Eq,
-    Debug,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    BorshSerialize,
-    BorshDeserialize,
-)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
 #[allow(non_camel_case_types)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ActionCosts {
     create_account,
     delete_account,

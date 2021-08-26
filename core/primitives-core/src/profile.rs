@@ -2,7 +2,6 @@ use std::fmt;
 use std::ops::{Index, IndexMut};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
 
 use crate::config::{ActionCosts, ExtCosts};
 
@@ -156,30 +155,10 @@ impl fmt::Debug for ProfileData {
     }
 }
 
-#[derive(
-    PartialOrd,
-    Ord,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    BorshSerialize,
-    BorshDeserialize,
-    Debug,
-)]
-#[serde(tag = "cost_category", rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Clone, Copy, Debug)]
 pub enum Cost {
-    ActionCost {
-        #[serde(rename = "cost")]
-        action_cost_kind: ActionCosts,
-    },
-    #[serde(rename = "WASM_HOST_COST")]
-    ExtCost {
-        #[serde(rename = "cost")]
-        ext_cost_kind: ExtCosts,
-    },
+    ActionCost { action_cost_kind: ActionCosts },
+    ExtCost { ext_cost_kind: ExtCosts },
 }
 
 impl Cost {

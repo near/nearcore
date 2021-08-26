@@ -27,7 +27,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
-use crate::profile::{Cost, ProfileData};
+use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
@@ -1003,46 +1003,38 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
 pub struct CostGasUsed {
-    #[serde(flatten)]
-    pub cost: Cost,
+    pub cost_category: String,
+    pub cost: String,
     #[serde(with = "u64_dec_format")]
     pub gas_used: Gas,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
-pub struct ProfileDataView {
-    gas_profile: Vec<CostGasUsed>,
-}
-
-impl From<ProfileData> for ProfileDataView {
-    fn from(profile: ProfileData) -> Self {
-        let mut gas_profile = Vec::new();
-        for i in Cost::ALL {
-            if profile[*i] > 0 {
-                gas_profile.push(CostGasUsed { cost: *i, gas_used: profile[*i] });
-            }
-        }
-        ProfileDataView { gas_profile }
-    }
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
-#[serde(tag = "version")]
-pub enum ExecutionMetadataView {
-    // serde doesn't support rename a variant as integer: https://github.com/serde-rs/serde/issues/745
-    // and the workaround is heavy, we choose a "version": "1" format.
-    #[serde(rename = "1")]
-    V1,
-    #[serde(rename = "2")]
-    V2(ProfileDataView),
+pub struct ExecutionMetadataView {
+    version: u32,
+    gas_profile: Option<Vec<CostGasUsed>>,
 }
 
 impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
-        match metadata {
-            ExecutionMetadata::V1 => Self::V1,
-            ExecutionMetadata::V2(profile_data) => Self::V2(profile_data.into()),
-        }
+        let gas_profile = match metadata {
+            ExecutionMetadata::V1 => None,
+            ExecutionMetadata::V2(profile_data) => Some(
+                Cost::ALL
+                    .iter()
+                    .map(|&cost| CostGasUsed {
+                        cost_category: match cost {
+                            Cost::ActionCost { .. } => "ACTION_COST",
+                            Cost::ExtCost { .. } => "EXT_COST",
+                        }
+                        .to_string(),
+                        cost: format!("{:?}", cost).to_ascii_uppercase(),
+                        gas_used: profile_data[cost],
+                    })
+                    .collect(),
+            ),
+        };
+        ExecutionMetadataView { version: 1, gas_profile }
     }
 }
 
