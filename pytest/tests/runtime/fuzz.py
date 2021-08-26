@@ -19,7 +19,8 @@ def run_fuzz():
     if res:
         print(res.group(1))
 
-    fuzzing.returncode
+    if fuzzing.returncode != 0:
+        raise Exception( f'Invalid result: { fuzzing.returncode }' )
 
 
 def main():
