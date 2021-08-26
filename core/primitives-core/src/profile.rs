@@ -6,7 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::config::{ActionCosts, ExtCosts};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct DataArray([u64; Self::LEN]);
+pub struct DataArray(Box<[u64; Self::LEN]>);
 
 impl DataArray {
     pub const LEN: usize = Cost::ALL.len();
