@@ -1,10 +1,17 @@
-use crate::borsh::maybestd::io::Cursor;
-use crate::types::{AccountId, NumShards};
+use std::cmp::Ordering::Greater;
+use std::convert::{TryFrom, TryInto};
+
 use byteorder::{LittleEndian, ReadBytesExt};
+use serde::{Deserialize, Serialize};
+
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::ShardId;
-use serde::{Deserialize, Serialize};
-use std::cmp::Ordering::Greater;
+
+use crate::borsh::maybestd::io::Cursor;
+use crate::hash::CryptoHash;
+use crate::types::{AccountId, NumShards};
+
+pub type ShardVersion = u32;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ShardLayout {
@@ -16,6 +23,8 @@ pub enum ShardLayout {
 pub struct ShardLayoutV0 {
     /// Map accounts evenly across all shards
     num_shards: NumShards,
+    /// Version of the shard layout, this is useful for uniquely identify the shard layout
+    version: ShardVersion,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -28,19 +37,26 @@ pub struct ShardLayoutV1 {
     /// Parent shards for the shards, useful for constructing states for the shards.
     /// None for the genesis shard layout
     parent_shards: Option<Vec<ShardId>>,
+    /// Version of the shard layout, this is useful for uniquely identify the shard layout
+    version: ShardVersion,
 }
 
 impl ShardLayout {
-    pub fn v0(num_shards: NumShards) -> Self {
-        Self::V0(ShardLayoutV0 { num_shards })
+    pub fn default() -> Self {
+        Self::v0(1, 0)
+    }
+
+    pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
+        Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
     pub fn v1(
         fixed_shards: Vec<AccountId>,
         boundary_accounts: Vec<AccountId>,
         parent_shards: Option<Vec<ShardId>>,
+        version: ShardVersion,
     ) -> Self {
-        Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, parent_shards })
+        Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, parent_shards, version })
     }
 
     #[inline]
@@ -48,6 +64,14 @@ impl ShardLayout {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => v1.parent_shards.as_ref(),
+        }
+    }
+
+    #[inline]
+    pub fn version(&self) -> ShardVersion {
+        match self {
+            Self::V0(v0) => v0.version,
+            Self::V1(v1) => v1.version,
         }
     }
 
@@ -101,6 +125,62 @@ fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
     }
 }
 
+#[derive(Hash, Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ShardUId {
+    pub version: ShardVersion,
+    pub shard_id: u32,
+}
+
+impl ShardUId {
+    pub fn default() -> Self {
+        Self { version: 0, shard_id: 0 }
+    }
+    pub fn to_bytes(&self) -> [u8; 8] {
+        let mut res = [0; 8];
+        res[0..4].copy_from_slice(&u32::to_le_bytes(self.version));
+        res[4..].copy_from_slice(&u32::to_le_bytes(self.shard_id));
+        res
+    }
+    pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
+        assert!(shard_id < shard_layout.num_shards());
+        Self { shard_id: shard_id as u32, version: shard_layout.version() }
+    }
+}
+
+impl TryFrom<&[u8]> for ShardUId {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != 8 {
+            return Err("incorrect length for ShardUId".into());
+        }
+        let version = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let shard_id = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        Ok(Self { version, shard_id })
+    }
+}
+pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: ShardUId) -> Vec<u8> {
+    let mut res = Vec::with_capacity(40);
+    res.extend_from_slice(block_hash.as_ref());
+    res.extend_from_slice(&shard_uid.to_bytes());
+    res
+}
+
+#[allow(unused)]
+pub fn get_block_shard_uid_rev(
+    key: &[u8],
+) -> Result<(CryptoHash, ShardUId), Box<dyn std::error::Error>> {
+    if key.len() != 40 {
+        return Err(
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid key length").into()
+        );
+    }
+    let block_hash_vec: Vec<u8> = key[0..32].iter().cloned().collect();
+    let block_hash = CryptoHash::try_from(block_hash_vec)?;
+    let shard_id = ShardUId::try_from(&key[32..])?;
+    Ok((block_hash, shard_id))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::shard_layout::{account_id_to_shard_id, ShardLayout};
@@ -112,7 +192,7 @@ mod tests {
     #[test]
     fn test_account_id_to_shard_id_v0() {
         let num_shards = 4;
-        let shard_layout = ShardLayout::v0(num_shards);
+        let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<_, _> =
             (0..num_shards).map(|x| (x, 0)).into_iter().collect();
         let mut rng = StdRng::from_seed([0; 32]);
@@ -137,6 +217,7 @@ mod tests {
                 .collect(),
             vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
             None,
+            0,
         );
         assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 0);
         assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 0);
