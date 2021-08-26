@@ -19,6 +19,8 @@ def run_fuzz():
     if res:
         print(res.group(1))
 
+    fuzzing.returncode
+
 
 def main():
     run_fuzz()
