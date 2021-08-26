@@ -318,9 +318,6 @@ impl Client {
     /// Produce block if we are block producer for given `next_height` block height.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, next_height: BlockHeight) -> Result<Option<Block>, Error> {
-        if next_height > 2 {
-            panic!("Intentional easy bug: height > 2");
-        }
         let known_height = self.chain.mut_store().get_latest_known()?.height;
 
         let validator_signer = self
