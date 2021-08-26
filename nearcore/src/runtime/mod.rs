@@ -24,9 +24,9 @@ use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
-use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
+use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
@@ -44,7 +44,7 @@ use near_primitives::views::{
 use near_vm_runner::precompile_contract;
 
 use near_store::{
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
+    get, get_genesis_hash, get_genesis_state_roots, set, set_genesis_hash, set_genesis_state_roots,
     ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
     StoreUpdate, Trie, WrappedTrieChanges,
 };
@@ -62,6 +62,8 @@ use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+use near_primitives::trie_key::TrieKey;
+use node_runtime::near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
@@ -569,10 +571,9 @@ impl NightshadeRuntime {
 
     fn precompile_contracts(
         &self,
-        epoch_id: &EpochId,
+        protocol_version: ProtocolVersion,
         contract_codes: Vec<ContractCode>,
-    ) -> Result<(), Error> {
-        let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
+    ) {
         let runtime_config = self.runtime_config.for_protocol_version(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
@@ -592,7 +593,6 @@ impl NightshadeRuntime {
                     .ok();
                 })
             });
-        Ok(())
     }
 }
 
@@ -1544,18 +1544,130 @@ impl RuntimeAdapter for NightshadeRuntime {
         part_id: u64,
         num_parts: u64,
         data: &[u8],
-        epoch_id: &EpochId,
-    ) -> Result<(), Error> {
+        protocol_version: ProtocolVersion,
+        shard_layout: &ShardLayout,
+        next_epoch_state_roots: Option<HashMap<ShardId, StateRoot>>,
+        next_epoch_shard_layout: Option<&ShardLayout>,
+    ) -> Result<HashMap<ShardId, StateRoot>, Error> {
         let part = BorshDeserialize::try_from_slice(data)
             .expect("Part was already validated earlier, so could never fail here");
-        let ApplyStatePartResult { trie_changes, contract_codes, .. } =
-            Trie::apply_state_part(&state_root, part_id, num_parts, part, false);
+        let ApplyStatePartResult { trie_changes, state_items, contract_codes } =
+            Trie::apply_state_part(
+                &state_root,
+                part_id,
+                num_parts,
+                part,
+                next_epoch_state_roots.is_some(),
+            );
         let tries = self.get_tries();
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let (store_update, _) =
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let (mut store_update, _) =
             tries.apply_all(&trie_changes, shard_uid).expect("TrieChanges::into never fails");
-        self.precompile_contracts(epoch_id, contract_codes)?;
-        Ok(store_update.commit()?)
+        let mut new_state_roots = HashMap::new();
+        if let Some(next_epoch_state_roots) = next_epoch_state_roots {
+            let next_epoch_shard_layout = next_epoch_shard_layout.unwrap();
+            let (update, state_roots) = self
+                .tries
+                .apply_changes_to_new_states(
+                    next_epoch_state_roots,
+                    state_items
+                        .into_iter()
+                        .map(|(key, value)| (key, Some(value.clone())))
+                        .collect(),
+                    Box::new(|raw_key| {
+                        /// Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
+                        /// This is because we cannot migrate delayed receipts part by part. They have to be
+                        /// reconstructed in the new states after all DelayedReceipts are ready in the original
+                        /// shard.
+                        if let Some(account_id) = parse_account_id_from_raw_key(&raw_key).unwrap() {
+                            Some(ShardUId::from_shard_id_and_layout(
+                                account_id_to_shard_id(&account_id, next_epoch_shard_layout),
+                                next_epoch_shard_layout,
+                            ))
+                        } else {
+                            None
+                        }
+                    }),
+                )
+                .expect(
+                    "apply_changes_to_new_states is guaranteed to succeed when each part is valid",
+                );
+            store_update.merge(update);
+            new_state_roots = state_roots;
+        }
+        self.precompile_contracts(protocol_version, contract_codes);
+        store_update.commit()?;
+        Ok(new_state_roots)
+    }
+
+    fn apply_delayed_receipts(
+        &self,
+        orig_shard_id: ShardId,
+        orig_state_root: StateRoot,
+        state_roots: HashMap<ShardId, StateRoot>,
+        current_shard_layout: &ShardLayout,
+        next_shard_layout: &ShardLayout,
+    ) -> HashMap<ShardId, StateRoot> {
+        let tries = self.get_tries();
+        let orig_shard_uid =
+            ShardUId::from_shard_id_and_layout(orig_shard_id, current_shard_layout);
+        let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
+
+        let mut delayed_receipts_indices: DelayedReceiptIndices =
+            get(&orig_trie_update, &TrieKey::DelayedReceiptIndices).unwrap().unwrap_or_default();
+        let mut delayed_receipts_indices_by_shard = HashMap::new();
+        let mut trie_updates = HashMap::new();
+
+        while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
+            let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
+            let receipt: Receipt = get(&orig_trie_update, &key)
+                .unwrap()
+                .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Delayed receipt #{} should be in the state",
+                        delayed_receipts_indices.first_index
+                    ))
+                })
+                .unwrap();
+            delayed_receipts_indices.first_index += 1;
+
+            let shard_uid: ShardUId = ShardUId::from_shard_id_and_layout(
+                account_id_to_shard_id(&receipt.receiver_id, next_shard_layout),
+                next_shard_layout,
+            );
+            let shard_id = shard_uid.shard_id();
+            assert!(
+                !state_roots.contains_key(&shard_id),
+                "Account {} is in new shard {:?} but original shard {:?} only contains {:?}. Check ShardLayout",
+                &receipt.receiver_id,
+                shard_uid,
+                orig_shard_uid,
+                state_roots.keys(),
+            );
+            let delayed_receipts_indices = delayed_receipts_indices_by_shard
+                .entry(shard_uid)
+                .or_insert_with(DelayedReceiptIndices::default);
+            let trie_update = trie_updates.entry(shard_uid).or_insert_with_key(|shard_uid| {
+                tries.new_trie_update(shard_uid.clone(), state_roots[&shard_uid.shard_id()])
+            });
+            Runtime::delay_receipt(trie_update, delayed_receipts_indices, &receipt).unwrap();
+        }
+
+        let mut merged_store_update = StoreUpdate::new_with_tries(tries.clone());
+        let mut new_state_roots = HashMap::new();
+        for (shard_uid, receipts_indices) in delayed_receipts_indices_by_shard {
+            let mut trie_update = trie_updates.remove(&shard_uid).unwrap();
+            set(&mut trie_update, TrieKey::DelayedReceiptIndices, &receipts_indices);
+            trie_update.commit(StateChangeCause::Resharding);
+            let (trie_changes, _) = trie_update.finalize().unwrap();
+
+            let (store_update, state_root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
+            new_state_roots.insert(shard_uid.shard_id(), state_root);
+            merged_store_update.merge(store_update);
+        }
+        merged_store_update.commit().unwrap();
+
+        new_state_roots
     }
 
     /// `block_hash` is a block whose `prev_state_root` is `state_root`
@@ -2464,10 +2576,19 @@ mod test {
         assert!(!new_env.runtime.validate_state_root_node(&root_node_wrong, &env.state_roots[0]));
         assert!(!new_env.runtime.validate_state_part(&StateRoot::default(), 0, 1, &state_part));
         new_env.runtime.validate_state_part(&env.state_roots[0], 0, 1, &state_part);
-        let epoch_id = &new_env.head.epoch_id;
         new_env
             .runtime
-            .apply_state_part(0, &env.state_roots[0], 0, 1, &state_part, epoch_id)
+            .apply_state_part(
+                0,
+                &env.state_roots[0],
+                0,
+                1,
+                &state_part,
+                new_env.runtime.genesis_config.protocol_version,
+                &new_env.runtime.genesis_config.shard_layout,
+                None,
+                None,
+            )
             .unwrap();
         new_env.state_roots[0] = env.state_roots[0].clone();
         for _ in 3..=5 {

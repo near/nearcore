@@ -36,7 +36,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId,
+    NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -1777,20 +1777,52 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        let sync_header = self.get_block_header(&sync_hash)?;
+        let epoch_id = sync_header.epoch_id().clone();
+        let next_epoch_id = sync_header.next_epoch_id().clone();
 
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
+        let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+        let mut new_state_roots: HashMap<_, _> = HashMap::new();
+        let split_states = shard_layout != next_shard_layout;
+        if split_states {
+            for (new_shard_id, parent_shard_id) in
+                next_shard_layout.parent_shards().unwrap().iter().enumerate()
+            {
+                if *parent_shard_id == shard_id {
+                    new_state_roots.insert(new_shard_id as ShardId, StateRoot::default());
+                }
+            }
+        }
+
+        let protocol_version = self.runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
         for part_id in 0..num_parts {
             let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
             let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
 
-            self.runtime_adapter.apply_state_part(
+            new_state_roots = self.runtime_adapter.apply_state_part(
                 shard_id,
                 &state_root,
                 part_id,
                 num_parts,
                 &part,
-                &epoch_id,
+                protocol_version,
+                &shard_layout,
+                if split_states { Some(new_state_roots) } else { None },
+                if split_states { Some(&next_shard_layout) } else { None },
             )?;
+        }
+
+        // apply delayed receipts in new states
+        // and store chunk extra
+        if shard_layout != next_shard_layout {
+            self.runtime_adapter.apply_delayed_receipts(
+                shard_id,
+                state_root,
+                new_state_roots,
+                &shard_layout,
+                &next_shard_layout,
+            );
         }
 
         // Applying the chunk starts here

@@ -649,8 +649,22 @@ pub trait RuntimeAdapter: Send + Sync {
         part_id: u64,
         num_parts: u64,
         part: &[u8],
-        epoch_id: &EpochId,
-    ) -> Result<(), Error>;
+        protocol_version: ProtocolVersion,
+        shard_layout: &ShardLayout,
+        next_epoch_state_roots: Option<HashMap<ShardId, StateRoot>>,
+        next_epoch_shard_layout: Option<&ShardLayout>,
+    ) -> Result<HashMap<ShardId, StateRoot>, Error>;
+
+    /// Only used for building states for new shards split from the current state
+    /// Applied after `apply_state_part` is finished for all states
+    fn apply_delayed_receipts(
+        &self,
+        orig_shard_id: ShardId,
+        orig_state_root: StateRoot,
+        state_roots: HashMap<ShardId, StateRoot>,
+        current_shard_layout: &ShardLayout,
+        next_shard_layout: &ShardLayout,
+    ) -> HashMap<ShardId, StateRoot>;
 
     /// Returns StateRootNode of a state.
     /// `block_hash` is a block whose `prev_state_root` is `state_root`

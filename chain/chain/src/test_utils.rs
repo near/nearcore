@@ -936,17 +936,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         part_id: u64,
         _num_parts: u64,
         data: &[u8],
-        _epoch_id: &EpochId,
-    ) -> Result<(), Error> {
+        _protocol_version: ProtocolVersion,
+        _shard_layout: &ShardLayout,
+        _state_roots: Option<HashMap<ShardId, StateRoot>>,
+        _new_shard_layout: Option<&ShardLayout>,
+    ) -> Result<HashMap<ShardId, StateRoot>, Error> {
         if part_id != 0 {
-            return Ok(());
+            return Ok(HashMap::new());
         }
         let state = KVState::try_from_slice(data).unwrap();
         self.state.write().unwrap().insert(state_root.clone(), state.clone());
         let data = state.try_to_vec()?;
         let state_size = data.len() as u64;
         self.state_size.write().unwrap().insert(state_root.clone(), state_size);
-        Ok(())
+        Ok(HashMap::new())
     }
 
     fn get_state_root_node(
@@ -1153,6 +1156,17 @@ impl RuntimeAdapter for KeyValueRuntime {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
             }
         }
+    }
+
+    fn apply_delayed_receipts(
+        &self,
+        _orig_shard_id: u64,
+        _orig_state_root: StateRoot,
+        _state_roots: HashMap<u64, StateRoot>,
+        _current_shard_layout: &ShardLayout,
+        _next_shard_layout: &ShardLayout,
+    ) -> HashMap<u64, StateRoot> {
+        HashMap::new()
     }
 }
 

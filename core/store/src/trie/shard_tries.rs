@@ -8,13 +8,14 @@ use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    NumShards, RawStateChange, RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
 };
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::TrieRefcountChange;
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
+use std::str::from_utf8;
 
 #[derive(Clone)]
 pub struct ShardTries {
@@ -45,6 +46,18 @@ impl ShardTries {
             caches: Self::get_new_cache(&shards),
             view_caches: Self::get_new_cache(&shards),
         }
+    }
+
+    pub fn add_new_shards(&mut self, shard_version: ShardVersion, num_shards: NumShards) {
+        let shards = (0..num_shards)
+            .map(|shard_id| ShardUId { version: shard_version, shard_id: shard_id as u32 })
+            .collect();
+        Arc::get_mut(&mut self.caches)
+            .unwrap()
+            .extend(Self::get_new_cache(&shards).as_ref().clone());
+        Arc::get_mut(&mut self.view_caches)
+            .unwrap()
+            .extend(Self::get_new_cache(&shards).as_ref().clone());
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
@@ -229,6 +242,46 @@ impl ShardTries {
         ShardTries::apply_all_inner(trie_changes, self.clone(), shard_uid, true)
     }
 
+    /// Apply `changes` to build states for new shards
+    /// `state_roots` contains state roots for the new shards
+    /// Ignore changes on DelayedReceipts or DelayedReceiptsIndices
+    /// Update `store_update` and return new state_roots
+    /// used for building states for new shards in resharding
+    pub fn apply_changes_to_new_states<'a>(
+        &self,
+        state_roots: HashMap<ShardId, StateRoot>,
+        changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+        key_to_shard_id: Box<dyn Fn(&Vec<u8>) -> Option<ShardUId> + 'a>,
+    ) -> Result<(StoreUpdate, HashMap<ShardId, StateRoot>), StorageError> {
+        let mut changes_by_shard = HashMap::new();
+        for (raw_key, value) in changes.into_iter() {
+            if let Some(new_shard_uid) = key_to_shard_id(&raw_key) {
+                assert!(
+                    state_roots.contains_key(&new_shard_uid.shard_id()),
+                    "Cannot find state roots for shard {:?} for key {}. Only has state roots for shards {:?}",
+                    new_shard_uid,
+                    from_utf8(&raw_key).unwrap(),
+                    state_roots.keys(),
+                );
+                changes_by_shard
+                    .entry(new_shard_uid)
+                    .or_insert_with(Vec::new)
+                    .push((raw_key, value));
+            }
+        }
+        let mut new_state_roots = state_roots.clone();
+        let mut store_update = StoreUpdate::new_with_tries(self.clone());
+        for (shard_uid, changes) in changes_by_shard.into_iter() {
+            let shard_id = shard_uid.shard_id();
+            let trie = self.get_trie_for_shard(shard_uid.clone());
+            let trie_changes = trie.update(&state_roots[&shard_id], changes.into_iter())?;
+            let (update, state_root) = self.apply_all(&trie_changes, shard_uid.clone())?;
+            new_state_roots.insert(shard_id, state_root);
+            store_update.merge(update);
+        }
+        Ok((store_update, new_state_roots))
+    }
+
     // apply_all with less memory overhead
     pub fn apply_genesis(
         &self,
@@ -396,5 +449,63 @@ impl KeyForStateChanges {
                 Some(Ok(state_changes))
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::{create_tries, gen_changes, test_populate_trie};
+    use crate::{ShardUId, Trie};
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::types::NumShards;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_apply_changes_to_new_states() {
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..20 {
+            let mut tries = create_tries();
+            // add 4 new shards for version 1
+            let num_shards = 4;
+            tries.add_new_shards(1, num_shards);
+            let mut state_root = Trie::empty_root();
+            let mut state_roots: HashMap<_, _> =
+                (0..num_shards).map(|x| (x, CryptoHash::default())).collect();
+            for _ in 0..10 {
+                let trie = tries.get_trie_for_shard(ShardUId::default());
+                let changes = gen_changes(&mut rng, 100);
+                state_root =
+                    test_populate_trie(&tries, &state_root, ShardUId::default(), changes.clone());
+
+                let (store_update, new_state_roots) = tries
+                    .apply_changes_to_new_states(
+                        state_roots,
+                        changes,
+                        Box::new(|raw_key| {
+                            Some(ShardUId {
+                                version: 1,
+                                shard_id: (hash(raw_key).0[0] as NumShards % num_shards) as u32,
+                            })
+                        }),
+                    )
+                    .unwrap();
+                store_update.commit().unwrap();
+                state_roots = new_state_roots;
+
+                // check that the 4 tries combined to the orig trie
+                let trie_items: HashMap<_, _> =
+                    trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
+                let mut combined_trie_items: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+                state_roots.iter().for_each(|(shard_id, state_root)| {
+                    let trie = tries.get_view_trie_for_shard(ShardUId {
+                        version: 1,
+                        shard_id: *shard_id as u32,
+                    });
+                    combined_trie_items.extend(trie.iter(state_root).unwrap().map(Result::unwrap));
+                });
+                assert_eq!(trie_items, combined_trie_items);
+            }
+        }
     }
 }

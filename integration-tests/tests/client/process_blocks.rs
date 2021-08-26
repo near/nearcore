@@ -1575,7 +1575,7 @@ fn test_process_block_after_state_sync() {
     let epoch_id = env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
     env.clients[0]
         .runtime_adapter
-        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+        .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id, None, None)
         .unwrap();
     let block = env.clients[0].produce_block(sync_height + 1).unwrap().unwrap();
     let (_, res) = env.clients[0].process_block(block, Provenance::PRODUCED);
@@ -3468,7 +3468,7 @@ mod contract_precompilation_tests {
             .unwrap();
         env.clients[1]
             .runtime_adapter
-            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id)
+            .apply_state_part(0, chunk_extra.state_root(), 0, 1, &state_part, &epoch_id, None, None)
             .unwrap();
     }
 

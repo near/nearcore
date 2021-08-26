@@ -189,6 +189,9 @@ fn convert_block_changes_to_transactions(
             StateChangeCauseView::Migration => {
                 format!("migration:{}", block_hash)
             }
+            StateChangeCauseView::Resharding => {
+                format!("resharding:{}", block_hash)
+            }
         };
 
         let current_transaction =

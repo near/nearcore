@@ -1381,7 +1381,7 @@ impl Runtime {
     }
 
     // Adds the given receipt into the end of the delayed receipt queue in the state.
-    fn delay_receipt(
+    pub fn delay_receipt(
         state_update: &mut TrieUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         receipt: &Receipt,
