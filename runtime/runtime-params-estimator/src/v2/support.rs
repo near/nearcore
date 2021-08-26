@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use std::{fmt, iter, ops};
 
@@ -34,7 +34,12 @@ impl<'c> Ctx<'c> {
 
     pub(crate) fn test_bed(&mut self) -> TestBed<'_> {
         let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
-        TestBed { config: &self.config, inner, nonces: HashMap::new() }
+        TestBed {
+            config: &self.config,
+            inner,
+            nonces: HashMap::new(),
+            used_accounts: HashSet::new(),
+        }
     }
 }
 
@@ -45,6 +50,7 @@ pub(crate) struct TestBed<'c> {
     config: &'c Config,
     inner: RuntimeTestbed,
     nonces: HashMap<AccountId, u64>,
+    used_accounts: HashSet<AccountId>,
 }
 
 impl<'c> TestBed<'c> {
@@ -122,21 +128,29 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
         rand::thread_rng()
     }
 
-    pub(crate) fn account(&mut self, idx: usize) -> AccountId {
-        get_account_id(idx)
+    pub(crate) fn account(&mut self, account_index: usize) -> AccountId {
+        get_account_id(account_index)
     }
-
     pub(crate) fn random_account(&mut self) -> AccountId {
-        self.random_accounts().next().unwrap()
+        let account_index = self.rng().gen_range(0, self.testbed.config.active_accounts);
+        self.account(account_index)
     }
-
-    pub(crate) fn random_accounts<'b>(&'b mut self) -> impl Iterator<Item = AccountId> + 'b {
-        let active_accounts = self.testbed.config.active_accounts;
-        let mut rng = self.rng();
-        iter::repeat_with(move || {
-            let account_index = rng.gen_range(0, active_accounts);
-            get_account_id(account_index)
-        })
+    pub(crate) fn random_unused_account(&mut self) -> AccountId {
+        loop {
+            let account = self.random_account();
+            if self.testbed.used_accounts.insert(account.clone()) {
+                return account;
+            }
+        }
+    }
+    pub(crate) fn random_account_pair(&mut self) -> (AccountId, AccountId) {
+        let first = self.random_account();
+        loop {
+            let second = self.random_account();
+            if first != second {
+                return (first, second);
+            }
+        }
     }
 }
 

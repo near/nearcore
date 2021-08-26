@@ -1,10 +1,9 @@
 mod support;
 
-use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::time::Instant;
 
-use near_crypto::{KeyType, PublicKey, SecretKey};
+use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -63,8 +62,8 @@ fn action_receipt_creation(ctx: &mut Ctx) -> GasCost {
     let mut testbed = ctx.test_bed();
 
     let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-        let sender = tb.random_account();
-        let receiver = tb.random_account();
+        let (sender, receiver) = tb.random_account_pair();
+
         tb.transaction_from_actions(sender, receiver, vec![])
     };
     let cost = testbed.average_transaction_cost(&mut make_transaction);
@@ -83,6 +82,7 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
     let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
         let sender = tb.random_account();
         let receiver = sender.clone();
+
         tb.transaction_from_actions(sender, receiver, vec![])
     };
     let cost = testbed.average_transaction_cost(&mut make_transaction);
@@ -96,13 +96,10 @@ fn action_transfer(ctx: &mut Ctx) -> GasCost {
         let mut testbed = ctx.test_bed();
 
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_account();
-            let receiver = tb.random_account();
-            tb.transaction_from_actions(
-                sender,
-                receiver,
-                vec![Action::Transfer(TransferAction { deposit: 1 })],
-            )
+            let (sender, receiver) = tb.random_account_pair();
+
+            let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
+            tb.transaction_from_actions(sender, receiver, actions)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -117,19 +114,15 @@ fn action_create_account(ctx: &mut Ctx) -> GasCost {
         let mut testbed = ctx.test_bed();
 
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let existing_account = tb.random_account();
+            let sender = tb.random_account();
             let new_account =
-                AccountId::try_from(format!("{}_{}", existing_account, tb.rng().gen::<u64>()))
-                    .unwrap();
+                AccountId::try_from(format!("{}_{}", sender, tb.rng().gen::<u64>())).unwrap();
 
-            tb.transaction_from_actions(
-                existing_account,
-                new_account,
-                vec![
-                    Action::CreateAccount(CreateAccountAction {}),
-                    Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
-                ],
-            )
+            let actions = vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: 10u128.pow(26) }),
+            ];
+            tb.transaction_from_actions(sender, new_account, actions)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -143,24 +136,13 @@ fn action_delete_account(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut deleted_accounts = HashSet::new();
-        let mut beneficiaries = HashSet::new();
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let existing_account = tb
-                .random_accounts()
-                .find(|it| !deleted_accounts.contains(it) && !beneficiaries.contains(it))
-                .unwrap();
-            deleted_accounts.insert(existing_account.clone());
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+            let beneficiary_id = tb.random_unused_account();
 
-            let beneficiary_id =
-                tb.random_accounts().find(|it| !deleted_accounts.contains(it)).unwrap();
-            beneficiaries.insert(beneficiary_id.clone());
-
-            tb.transaction_from_actions(
-                existing_account.clone(),
-                existing_account,
-                vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
-            )
+            let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })];
+            tb.transaction_from_actions(sender, receiver, actions)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -174,10 +156,8 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut used_accounts = HashSet::new();
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
-            used_accounts.insert(sender.clone());
+            let sender = tb.random_unused_account();
 
             add_key_transaction(tb, sender, AccessKeyPermission::FullAccess)
         };
@@ -197,22 +177,16 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut used_accounts = HashSet::new();
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
-            used_accounts.insert(sender.clone());
-
+            let sender = tb.random_unused_account();
             let receiver_id = tb.account(0).to_string();
 
-            add_key_transaction(
-                tb,
-                sender,
-                AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(100),
-                    receiver_id,
-                    method_names: vec!["method1".to_string()],
-                }),
-            )
+            let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: Some(100),
+                receiver_id,
+                method_names: vec!["method1".to_string()],
+            });
+            add_key_transaction(tb, sender, permission)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -229,22 +203,16 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
         let mut testbed = ctx.test_bed();
 
         let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
-        let mut used_accounts = HashSet::new();
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
-            used_accounts.insert(sender.clone());
-
+            let sender = tb.random_unused_account();
             let receiver_id = tb.account(0).to_string();
 
-            add_key_transaction(
-                tb,
-                sender,
-                AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(100),
-                    receiver_id,
-                    method_names: many_methods.clone(),
-                }),
-            )
+            let permission = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                allowance: Some(100),
+                receiver_id,
+                method_names: many_methods.clone(),
+            });
+            add_key_transaction(tb, sender, permission)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -278,20 +246,14 @@ fn action_delete_key(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut deleted_accounts = HashSet::new();
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let existing_account =
-                tb.random_accounts().find(|it| !deleted_accounts.contains(it)).unwrap();
-            deleted_accounts.insert(existing_account.clone());
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
 
-            let public_key =
-                SecretKey::from_seed(KeyType::ED25519, existing_account.as_ref()).public_key();
-
-            tb.transaction_from_actions(
-                existing_account.clone(),
-                existing_account,
-                vec![Action::DeleteKey(DeleteKeyAction { public_key })],
-            )
+            let actions = vec![Action::DeleteKey(DeleteKeyAction {
+                public_key: SecretKey::from_seed(KeyType::ED25519, sender.as_ref()).public_key(),
+            })];
+            tb.transaction_from_actions(sender, receiver, actions)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -306,17 +268,14 @@ fn action_stake(ctx: &mut Ctx) -> GasCost {
         let mut testbed = ctx.test_bed();
 
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_account();
+            let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let public_key: PublicKey =
-                "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
-
-            tb.transaction_from_actions(
-                sender,
-                receiver,
-                vec![Action::Stake(StakeAction { stake: 1, public_key })],
-            )
+            let actions = vec![Action::Stake(StakeAction {
+                stake: 1,
+                public_key: "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap(),
+            })];
+            tb.transaction_from_actions(sender, receiver, actions)
         };
         testbed.average_transaction_cost(&mut make_transaction)
     };
@@ -339,7 +298,7 @@ fn smoke() {
         state_dump_path: get_default_home().into(),
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
-        metrics_to_measure: Some(vec!["ActionStake".to_string()]),
+        metrics_to_measure: None,
     };
     let table = run(config);
     eprintln!("{}", table);
