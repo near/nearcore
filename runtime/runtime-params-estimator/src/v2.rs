@@ -2,6 +2,7 @@ mod support;
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
+use std::time::Instant;
 
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
@@ -41,8 +42,11 @@ pub fn run(config: Config) -> CostTable {
             continue;
         }
 
+        let start = Instant::now();
+        eprint!("{:<40} ", format!("{:?} ...", cost));
         let value = f(&mut ctx);
-        res.add(cost, value.to_gas())
+        res.add(cost, value.to_gas());
+        eprintln!("{:.2?}", start.elapsed());
     }
 
     res
@@ -85,18 +89,24 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
 }
 
 fn action_transfer(ctx: &mut Ctx) -> GasCost {
-    let mut testbed = ctx.test_bed();
+    let total_cost = {
+        let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-        let sender = tb.random_account();
-        let receiver = tb.random_account();
-        tb.transaction_from_actions(
-            sender,
-            receiver,
-            vec![Action::Transfer(TransferAction { deposit: 1 })],
-        )
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_account();
+            let receiver = tb.random_account();
+            tb.transaction_from_actions(
+                sender,
+                receiver,
+                vec![Action::Transfer(TransferAction { deposit: 1 })],
+            )
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
     };
-    testbed.average_transaction_cost(&mut make_transaction)
+
+    let base_cost = action_receipt_creation(ctx);
+
+    total_cost - base_cost
 }
 
 fn action_create_account(ctx: &mut Ctx) -> GasCost {
@@ -185,12 +195,14 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
             used_accounts.insert(sender.clone());
 
+            let receiver_id = tb.account(0).to_string();
+
             add_key_transaction(
                 tb,
                 sender,
                 AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: tb.account(0).to_string(),
+                    receiver_id,
                     method_names: vec!["method1".to_string()],
                 }),
             )
@@ -213,12 +225,14 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
             used_accounts.insert(sender.clone());
 
+            let receiver_id = tb.account(0).to_string();
+
             add_key_transaction(
                 tb,
                 sender,
                 AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: tb.account(0).to_string(),
+                    receiver_id,
                     method_names: many_methods.clone(),
                 }),
             )
@@ -226,7 +240,7 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
         testbed.average_transaction_cost(&mut make_transaction)
     };
 
-    let base_cost = action_sir_receipt_creation(ctx);
+    let base_cost = action_add_function_access_key_base(ctx);
 
     // 1k methods for 10 bytes each
     let bytes_per_transaction = 10 * 1000;
@@ -235,9 +249,9 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 fn add_key_transaction(
-    mut tb: TransactionBuilder<'_, '_>,
+    tb: TransactionBuilder<'_, '_>,
     sender: AccountId,
-    permisson: AccessKeyPermission,
+    permission: AccessKeyPermission,
 ) -> SignedTransaction {
     let receiver = sender.clone();
 
