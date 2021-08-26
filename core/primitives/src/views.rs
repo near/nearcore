@@ -1022,13 +1022,20 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
             ExecutionMetadata::V2(profile_data) => Some(
                 Cost::ALL
                     .iter()
+                    .filter(|&cost| profile_data[*cost] > 0)
                     .map(|&cost| CostGasUsed {
                         cost_category: match cost {
                             Cost::ActionCost { .. } => "ACTION_COST",
-                            Cost::ExtCost { .. } => "EXT_COST",
+                            Cost::ExtCost { .. } => "WASM_HOST_COST",
                         }
                         .to_string(),
-                        cost: format!("{:?}", cost).to_ascii_uppercase(),
+                        cost: match cost {
+                            Cost::ActionCost { action_cost_kind: action_cost } => {
+                                format!("{:?}", action_cost)
+                            }
+                            Cost::ExtCost { ext_cost_kind: ext_cost } => format!("{:?}", ext_cost),
+                        }
+                        .to_ascii_uppercase(),
                         gas_used: profile_data[cost],
                     })
                     .collect(),
