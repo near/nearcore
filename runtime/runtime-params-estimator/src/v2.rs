@@ -3,8 +3,10 @@ mod support;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::transaction::{
-    Action, CreateAccountAction, DeleteAccountAction, SignedTransaction, TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, SignedTransaction,
+    TransferAction,
 };
 use near_primitives::types::AccountId;
 use rand::Rng;
@@ -19,6 +21,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionTransfer, action_transfer),
     (Cost::ActionCreateAccount, action_create_account),
     (Cost::ActionDeleteAccount, action_delete_account),
+    (Cost::ActionAddFullAccessKey, action_add_full_access_key),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -140,6 +143,35 @@ fn action_delete_account(ctx: &mut Ctx) -> GasCost {
                 existing_account.clone(),
                 existing_account,
                 vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
+            )
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    total_cost - base_cost
+}
+
+fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed();
+
+        let mut used_accounts = HashSet::new();
+        let mut make_transaction = |tb: &mut TestBed<'_>| -> SignedTransaction {
+            let sender = tb.random_accounts().find(|it| !used_accounts.contains(it)).unwrap();
+            used_accounts.insert(sender.clone());
+
+            let receiver = sender.clone();
+
+            let public_key =
+                "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847".parse().unwrap();
+            let access_key = AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess };
+
+            tb.transaction_from_actions(
+                sender,
+                receiver,
+                vec![Action::AddKey(AddKeyAction { public_key, access_key })],
             )
         };
         testbed.average_transaction_cost(&mut make_transaction)
