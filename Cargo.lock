@@ -4432,11 +4432,13 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "libfuzzer-sys",
+ "log",
  "near-chain",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
  "near-crypto",
+ "near-logger-utils",
  "near-primitives",
  "near-store",
  "near-test-contracts",

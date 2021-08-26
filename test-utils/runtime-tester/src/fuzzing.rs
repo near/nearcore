@@ -56,8 +56,8 @@ impl BlockConfig {
         scope.inc_height();
         let mut block_config = BlockConfig::at_height(scope.height());
 
-        let lower_bound = scope.last_tx_num.checked_sub(MAX_TX_DIFF).or(Some(0)).unwrap();
-        let upper_bound = scope.last_tx_num.checked_add(MAX_TX_DIFF).or(Some(MAX_TXS)).unwrap();
+        let lower_bound = scope.last_tx_num.saturating_sub(MAX_TX_DIFF);
+        let upper_bound = scope.last_tx_num.saturating_add(MAX_TX_DIFF);
         let max_tx_num = u.int_in_range(lower_bound..=std::cmp::min(MAX_TXS, upper_bound))?;
         scope.last_tx_num = max_tx_num;
 
@@ -90,18 +90,10 @@ impl TransactionConfig {
             let receiver_account = scope.random_account(u)?;
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
 
-            scope.accounts[signer_account.usize_id()].balance = scope.accounts
-                [signer_account.usize_id()]
-            .balance
-            .checked_sub(amount)
-            .or(Some(0))
-            .unwrap();
-            scope.accounts[receiver_account.usize_id()].balance = scope.accounts
-                [receiver_account.usize_id()]
-            .balance
-            .checked_add(amount)
-            .or(Some(Balance::MAX))
-            .unwrap();
+            scope.accounts[signer_account.usize_id()].balance =
+                scope.accounts[signer_account.usize_id()].balance.saturating_sub(amount);
+            scope.accounts[receiver_account.usize_id()].balance =
+                scope.accounts[receiver_account.usize_id()].balance.saturating_add(amount);
 
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
@@ -446,79 +438,45 @@ impl Account {
 
 impl Function {
     pub fn arbitrary(&self, u: &mut Unstructured) -> Result<FunctionCallAction> {
+        let mut res =
+            FunctionCallAction { method_name: String::new(), args: vec![], gas: GAS_1, deposit: 0 };
         match self {
-            Function::StorageUsage => Ok(FunctionCallAction {
-                method_name: "ext_storage_usage".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::BlockIndex => Ok(FunctionCallAction {
-                method_name: "ext_block_index".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::BlockTimestamp => Ok(FunctionCallAction {
-                method_name: "ext_block_timestamp".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::PrepaidGas => Ok(FunctionCallAction {
-                method_name: "ext_prepaid_gas".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::RandomSeed => Ok(FunctionCallAction {
-                method_name: "ext_random_seed".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::PredecessorAccountId => Ok(FunctionCallAction {
-                method_name: "ext_predecessor_account_id".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::SignerAccountPk => Ok(FunctionCallAction {
-                method_name: "ext_signer_account_pk".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::SignerAccountId => Ok(FunctionCallAction {
-                method_name: "ext_signer_account_id".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::CurrentAccountId => Ok(FunctionCallAction {
-                method_name: "ext_current_account_id".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::AccountBalance => Ok(FunctionCallAction {
-                method_name: "ext_account_balance".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::AttachedDeposit => Ok(FunctionCallAction {
-                method_name: "ext_attached_deposit".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-            Function::ValidatorTotalStake => Ok(FunctionCallAction {
-                method_name: "ext_validators_total_stake".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
+            Function::StorageUsage => {
+                res.method_name = "ext_storage_usage".to_string();
+            }
+            Function::BlockIndex => {
+                res.method_name = "ext_block_index".to_string();
+            }
+            Function::BlockTimestamp => {
+                res.method_name = "ext_block_timestamp".to_string();
+            }
+            Function::PrepaidGas => {
+                res.method_name = "ext_prepaid_gas".to_string();
+            }
+            Function::RandomSeed => {
+                res.method_name = "ext_random_seed".to_string();
+            }
+            Function::PredecessorAccountId => {
+                res.method_name = "ext_predecessor_account_id".to_string();
+            }
+            Function::SignerAccountPk => {
+                res.method_name = "ext_signer_account_pk".to_string();
+            }
+            Function::SignerAccountId => {
+                res.method_name = "ext_signer_account_id".to_string();
+            }
+            Function::CurrentAccountId => {
+                res.method_name = "ext_current_account_id".to_string();
+            }
+            Function::AccountBalance => {
+                res.method_name = "ext_account_balance".to_string();
+            }
+            Function::AttachedDeposit => {
+                res.method_name = "ext_attached_deposit".to_string();
+            }
+            Function::ValidatorTotalStake => {
+                res.method_name = "ext_validators_total_stake".to_string();
+            }
             Function::ExtSha256 => {
                 const VALUES_LEN: usize = 20;
                 let mut args = [0u8; VALUES_LEN * size_of::<u64>()];
@@ -527,38 +485,25 @@ impl Function {
                     values.push(u.arbitrary::<u64>()?);
                 }
                 LittleEndian::write_u64_into(&values, &mut args);
-                Ok(FunctionCallAction {
-                    method_name: "ext_sha256".to_string(),
-                    args: args.to_vec(),
-                    gas: GAS_1,
-                    deposit: 0,
-                })
+                res.method_name = "ext_sha256".to_string();
+                res.args = args.to_vec();
             }
-            Function::UsedGas => Ok(FunctionCallAction {
-                method_name: "ext_used_gas".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
+            Function::UsedGas => {
+                res.method_name = "ext_used_gas".to_string();
+            }
             Function::WriteKeyValue => {
                 let key = u.int_in_range::<u64>(0..=1_000)?;
                 let value = u.int_in_range::<u64>(0..=1_000)?;
                 let mut args = [0u8; 2 * size_of::<u64>()];
                 LittleEndian::write_u64_into(&[key, value], &mut args);
-                Ok(FunctionCallAction {
-                    method_name: "write_key_value".to_string(),
-                    args: args.to_vec(),
-                    gas: GAS_1,
-                    deposit: 1,
-                })
+                res.method_name = "write_key_value".to_string();
+                res.args = args.to_vec();
             }
-            Function::WriteBlockHeight => Ok(FunctionCallAction {
-                method_name: "write_block_height".to_string(),
-                args: vec![],
-                gas: GAS_1,
-                deposit: 0,
-            }),
-        }
+            Function::WriteBlockHeight => {
+                res.method_name = "write_block_height".to_string();
+            }
+        };
+        Ok(res)
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
