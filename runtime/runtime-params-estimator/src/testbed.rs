@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub struct RuntimeTestbed {
     /// Directory where we temporarily keep the storage.
     #[allow(dead_code)]
-    workdir: tempfile::TempDir,
+    pub(crate) workdir: tempfile::TempDir,
     tries: ShardTries,
     root: MerkleHash,
     runtime: Runtime,

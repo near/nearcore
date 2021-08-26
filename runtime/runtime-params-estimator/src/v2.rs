@@ -7,7 +7,7 @@ use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
 use rand::Rng;
@@ -31,6 +31,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionStake, action_stake),
     (Cost::ActionDeployContractBase, action_deploy_contract_base),
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
+    (Cost::ActionFunctionCallBase, action_function_call_base),
+    (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -288,6 +290,10 @@ fn action_stake(ctx: &mut Ctx) -> GasCost {
 }
 
 fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
+    if let Some(cost) = ctx.cached.action_deploy_contract_base.clone() {
+        return cost;
+    }
+
     let total_cost = {
         let code = ctx.read_resource("test-contract/res/smallest_contract.wasm");
         deploy_contract(ctx, code)
@@ -295,7 +301,9 @@ fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
 
     let base_cost = action_sir_receipt_creation(ctx);
 
-    total_cost - base_cost
+    let cost = total_cost - base_cost;
+    ctx.cached.action_deploy_contract_base = Some(cost.clone());
+    cost
 }
 
 fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
@@ -308,7 +316,7 @@ fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
         deploy_contract(ctx, code)
     };
 
-    let base_cost = action_sir_receipt_creation(ctx);
+    let base_cost = action_deploy_contract_base(ctx);
 
     let bytes_per_transaction = 1024 * 1024;
 
@@ -328,6 +336,62 @@ fn deploy_contract(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
     testbed.average_transaction_cost(&mut make_transaction)
 }
 
+fn action_function_call_base(ctx: &mut Ctx) -> GasCost {
+    if let Some(cost) = ctx.cached.action_function_call_base.clone() {
+        return cost;
+    }
+
+    let total_cost = {
+        let mut testbed = ctx.test_bed_with_contracts();
+
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+
+            let actions = vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "noop".to_string(),
+                args: vec![],
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    let cost = total_cost - base_cost;
+    ctx.cached.action_function_call_base = Some(cost.clone());
+    cost
+}
+
+fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed_with_contracts();
+
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+
+            let actions = vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "noop".to_string(),
+                args: vec![0; 1024 * 1024],
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = action_function_call_base(ctx);
+
+    let bytes_per_transaction = 1024 * 1024;
+
+    (total_cost - base_cost) / bytes_per_transaction
+}
+
 #[test]
 fn smoke() {
     use crate::testbed_runners::GasMetric;
@@ -342,8 +406,8 @@ fn smoke() {
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
         metrics_to_measure: Some(vec![
-            "ActionDeployContractBase".to_string(),
-            "ActionDeployContractPerByte".to_string(),
+            "ActionFunctionCallBase".to_string(),
+            "ActionFunctionCallPerByte".to_string(),
         ]),
     };
     let table = run(config);

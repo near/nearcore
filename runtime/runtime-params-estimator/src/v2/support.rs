@@ -5,7 +5,7 @@ use std::{fmt, iter, ops};
 
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, Gas};
 use rand::prelude::ThreadRng;
 use rand::Rng;
@@ -19,18 +19,27 @@ pub(crate) struct CachedCosts {
     pub(crate) action_receipt_creation: Option<GasCost>,
     pub(crate) action_sir_receipt_creation: Option<GasCost>,
     pub(crate) action_add_function_access_key_base: Option<GasCost>,
+    pub(crate) action_deploy_contract_base: Option<GasCost>,
+    pub(crate) action_function_call_base: Option<GasCost>,
 }
 
 /// Global context shared by all cost calculating functions.
 pub(crate) struct Ctx<'c> {
     pub(crate) config: &'c Config,
     pub(crate) cached: CachedCosts,
+    contracts_testbed: Option<ContractTestbedProto>,
+}
+
+struct ContractTestbedProto {
+    accounts: Vec<AccountId>,
+    state_dump: tempfile::TempDir,
+    nonces: HashMap<AccountId, u64>,
 }
 
 impl<'c> Ctx<'c> {
     pub(crate) fn new(config: &'c Config) -> Self {
         let cached = CachedCosts::default();
-        Self { cached, config }
+        Self { cached, config, contracts_testbed: None }
     }
 
     pub(crate) fn test_bed(&mut self) -> TestBed<'_> {
@@ -38,7 +47,38 @@ impl<'c> Ctx<'c> {
         TestBed {
             config: &self.config,
             inner,
+            accounts: (0..self.config.active_accounts).map(get_account_id).collect(),
             nonces: HashMap::new(),
+            used_accounts: HashSet::new(),
+        }
+    }
+
+    pub(crate) fn test_bed_with_contracts(&mut self) -> TestBed<'_> {
+        if self.contracts_testbed.is_none() {
+            let code = self.read_resource(if cfg!(feature = "nightly_protocol_features") {
+                "test-contract/res/nightly_small_contract.wasm"
+            } else {
+                "test-contract/res/stable_small_contract.wasm"
+            });
+
+            let mut tb = self.test_bed();
+            let accounts = deploy_contracts(&mut tb, code);
+            tb.inner.dump_state().unwrap();
+
+            self.contracts_testbed = Some(ContractTestbedProto {
+                accounts,
+                state_dump: tb.inner.workdir,
+                nonces: tb.nonces,
+            });
+        }
+        let proto = self.contracts_testbed.as_ref().unwrap();
+
+        let inner = RuntimeTestbed::from_state_dump(proto.state_dump.path());
+        TestBed {
+            config: &self.config,
+            inner,
+            accounts: proto.accounts.clone(),
+            nonces: proto.nonces.clone(),
             used_accounts: HashSet::new(),
         }
     }
@@ -52,12 +92,29 @@ impl<'c> Ctx<'c> {
     }
 }
 
+fn deploy_contracts(tb: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
+    let mut accounts_with_code = Vec::new();
+    for _ in 0..3 {
+        tb.average_transaction_cost(&mut |mut tb| {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+
+            accounts_with_code.push(sender.clone());
+
+            let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
+            tb.transaction_from_actions(sender, receiver, actions)
+        });
+    }
+    accounts_with_code
+}
+
 /// A single isolated instance of near.
 ///
 /// We use it to time processing a bunch of blocks.
 pub(crate) struct TestBed<'c> {
     config: &'c Config,
     inner: RuntimeTestbed,
+    accounts: Vec<AccountId>,
     nonces: HashMap<AccountId, u64>,
     used_accounts: HashSet<AccountId>,
 }
@@ -141,8 +198,8 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
         get_account_id(account_index)
     }
     pub(crate) fn random_account(&mut self) -> AccountId {
-        let account_index = self.rng().gen_range(0, self.testbed.config.active_accounts);
-        self.account(account_index)
+        let account_index = self.rng().gen_range(0, self.testbed.accounts.len());
+        self.testbed.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
         loop {
