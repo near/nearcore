@@ -387,9 +387,20 @@ fn run_method_inner(
     if let GasMode::Paid(_) = gas_mode {
         logic.sync_from_wasm_counter();
     }
-    //    let _ = wasmer0_pay_gas(&instance, logic, gas_mode)?;
-    call_result.map_err(|err| err.into_vm_error())?;
 
+    let r = call_result.map_err(|err| err.into_vm_error());
+    match r {
+        Err(VMError::FunctionCallError(FunctionCallError::HostError(
+            near_vm_errors::HostError::GasExceeded,
+        ))) => {
+            // if this came from wasmer counter, than wasmer counter is unable to deduct avialable ops to below zero
+            // and just deduct it exactly to zero is also not correct, because that results in portion of gas left.
+            // to keep consistent with old gas counter, correct behavior is use up all prepaid gas
+            logic.use_up_remaining_for_wasm();
+        }
+        _ => {}
+    }
+    r?;
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
         drop(instance)

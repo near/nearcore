@@ -200,6 +200,10 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.remaining_prepaid_gas()
     }
 
+    pub fn use_up_remaining_for_wasm(&mut self) {
+        let _ = self.gas_counter.pay_wasm_gas(self.remaining_prepaid_gas());
+    }
+
     // ###########################
     // # Memory helper functions #
     // ###########################
