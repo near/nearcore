@@ -1,6 +1,5 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
-use crate::vm_kind::VMKind::Wasmer0;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -385,7 +384,7 @@ fn run_method_inner(
     };
 
     if let GasMode::Paid(_) = gas_mode {
-        logic.sync_from_wasm_counter();
+        logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
     }
 
     let r = call_result.map_err(|err| err.into_vm_error());
