@@ -30,6 +30,8 @@ def test_deploy_contract():
             'log_something', [], 100000000000, 100000000000, 20,
             last_block_hash)
     res = nodes[1].send_tx_and_wait(tx, 20)
+    import json
+    print(json.dumps(res, indent=2))
     assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
 
