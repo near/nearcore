@@ -172,11 +172,6 @@ fn main() {
     let mut results = script.run();
     let (outcome, err) = results.outcomes.pop().unwrap();
 
-    let _all_gas = match &outcome {
-        Some(outcome) => outcome.burnt_gas,
-        _ => 1,
-    };
-
     println!(
         "{}",
         serde_json::to_string(&StandaloneOutput {
