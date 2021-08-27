@@ -27,7 +27,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::types::{AccountId, EpochId, StateRoot};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -478,9 +478,13 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
     // But everyone who doesn't track this shard have accepted.
-    let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
+    let shard_layout =
+        env.clients[0].runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
+    let receipts_hashes =
+        env.clients[0].runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
-    let receipts_by_shard = env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone());
+    let receipts_by_shard =
+        env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone(), &shard_layout);
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
         Vec::default(),

@@ -314,16 +314,20 @@ mod tests {
 
     use near_primitives::hash::CryptoHash;
 
-    use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
+    use crate::test_utils::{
+        create_tries, create_tries_complex, gen_changes, simplify_changes, test_populate_trie,
+    };
     use crate::trie::iterator::IterStep;
     use crate::Trie;
+    use near_primitives::shard_layout::ShardUId;
 
     #[test]
     fn test_iterator() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let tries = create_tries_complex(1, 2);
+            let shard_uid = ShardUId { version: 1, shard_id: 0 };
+            let trie = tries.get_trie_for_shard(shard_uid);
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
 
@@ -334,7 +338,7 @@ mod tests {
                 }
             }
             let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+                test_populate_trie(&tries, &Trie::empty_root(), shard_uid, trie_changes.clone());
 
             {
                 let result1: Vec<_> = trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
@@ -375,11 +379,15 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let trie = tries.get_trie_for_shard(ShardUId::default());
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
-            let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::empty_root(),
+                ShardUId::default(),
+                trie_changes.clone(),
+            );
             let mut iterator = trie.iter(&state_root).unwrap();
             loop {
                 let iter_step = match iterator.iter_step() {

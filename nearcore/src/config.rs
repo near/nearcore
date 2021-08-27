@@ -25,6 +25,7 @@ use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -465,7 +466,8 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &PathBuf) -> Self {
-        let mut file = File::open(path).expect("Could not open config file.");
+        let mut file = File::open(path)
+            .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
         Config::from(content.as_str())
@@ -508,6 +510,7 @@ impl Genesis {
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
+        shard_layout: ShardLayout,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
@@ -556,18 +559,28 @@ impl Genesis {
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
             min_gas_price: MIN_GAS_PRICE,
+            shard_layout,
             ..Default::default()
         };
         Genesis::new(config, records.into())
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        Self::test_with_seeds(accounts, num_validator_seats, vec![num_validator_seats])
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            vec![num_validator_seats],
+            ShardLayout::default(),
+        )
     }
 
     pub fn test_free(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        let mut genesis =
-            Self::test_with_seeds(accounts, num_validator_seats, vec![num_validator_seats]);
+        let mut genesis = Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            vec![num_validator_seats],
+            ShardLayout::default(),
+        );
         genesis.config.runtime_config = RuntimeConfig::free();
         genesis
     }
@@ -577,7 +590,27 @@ impl Genesis {
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
     ) -> Self {
-        Self::test_with_seeds(accounts, num_validator_seats, num_validator_seats_per_shard)
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 0),
+        )
+    }
+
+    pub fn test_sharded_new_version(
+        accounts: Vec<AccountId>,
+        num_validator_seats: NumSeats,
+        num_validator_seats_per_shard: Vec<NumSeats>,
+    ) -> Self {
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 1),
+        )
     }
 }
 

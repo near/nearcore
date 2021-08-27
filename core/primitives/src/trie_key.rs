@@ -35,6 +35,17 @@ pub(crate) mod col {
     pub const DELAYED_RECEIPT: &[u8] = &[8];
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: &[u8] = &[9];
+    /// All columns
+    pub const NON_DELAYED_RECEIPT_COLUMNS: &[(&[u8], &str)] = &[
+        (ACCOUNT, "Account"),
+        (CONTRACT_CODE, "ContractCode"),
+        (ACCESS_KEY, "AccessKey"),
+        (RECEIVED_DATA, "ReceivedData"),
+        (POSTPONED_RECEIPT_ID, "PostponedReceiptId"),
+        (PENDING_DATA_COUNT, "PendingDataCount"),
+        (POSTPONED_RECEIPT, "PostponedReceipt"),
+        (CONTRACT_DATA, "ContractData"),
+    ];
 }
 
 /// Describes the key of a specific key-value record in a state trie.
@@ -224,6 +235,29 @@ pub mod trie_key_parsers {
         Ok(&raw_key[column.len()..])
     }
 
+    fn parse_account_id_from_slice(
+        data: &[u8],
+        trie_key: &str,
+    ) -> Result<AccountId, std::io::Error> {
+        std::str::from_utf8(data)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "raw key AccountId has invalid UTF-8 format to be TrieKey::{}",
+                        trie_key
+                    ),
+                )
+            })?
+            .parse()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("raw key does not have a valid AccountId to be TrieKey::{}", trie_key),
+                )
+            })
+    }
+
     pub fn parse_account_id_from_contract_data_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
@@ -243,39 +277,13 @@ pub mod trie_key_parsers {
                 "raw key does not have ACCOUNT_DATA_SEPARATOR to be TrieKey::ContractData",
             ));
         };
-        let account_id_prefix = &account_id_prefix[..account_data_separator_position];
-        std::str::from_utf8(account_id_prefix)
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key AccountId has invalid UTF-8 format to be TrieKey::ContractData",
-                )
-            })?
-            .parse()
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key does not have a valid AccountId to be TrieKey::ContractData",
-                )
-            })
+        let account_id = &account_id_prefix[..account_data_separator_position];
+        parse_account_id_from_slice(account_id, "ContractData")
     }
 
     pub fn parse_account_id_from_account_key(raw_key: &[u8]) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::ACCOUNT, raw_key)?;
-        std::str::from_utf8(account_id)
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key AccountId has invalid UTF-8 format to be TrieKey::Account",
-                )
-            })?
-            .parse()
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key does not have a valid AccountId to be TrieKey::Account",
-                )
-            })
+        parse_account_id_from_slice(account_id, "Account")
     }
 
     pub fn parse_account_id_from_access_key_key(
@@ -298,40 +306,14 @@ pub mod trie_key_parsers {
             ));
         };
         let account_id = &account_id_prefix[..public_key_position];
-        std::str::from_utf8(account_id)
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key AccountId has invalid UTF-8 format to be TrieKey::AccessKey",
-                )
-            })?
-            .parse()
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key does not have a valid AccountId to be TrieKey::AccessKey",
-                )
-            })
+        parse_account_id_from_slice(account_id, "AccessKey")
     }
 
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
         let account_id = parse_account_id_prefix(col::CONTRACT_CODE, raw_key)?;
-        std::str::from_utf8(account_id)
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key AccountId has invalid UTF-8 format to be TrieKey::ContractCode",
-                )
-            })?
-            .parse()
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key does not have a valid AccountId to be TrieKey::ContractCode",
-                )
-            })
+        parse_account_id_from_slice(account_id, "ContractCode")
     }
 
     pub fn parse_trie_key_access_key_from_raw_key(
@@ -342,11 +324,31 @@ pub mod trie_key_parsers {
         Ok(TrieKey::AccessKey { account_id, public_key })
     }
 
-    pub fn parse_account_id_from_received_data_key(
+    #[allow(unused)]
+    pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
+    ) -> Result<Option<AccountId>, std::io::Error> {
+        for (col, col_name) in col::NON_DELAYED_RECEIPT_COLUMNS.into_iter() {
+            if parse_account_id_prefix(col, raw_key).is_err() {
+                continue;
+            }
+            let account_id = match *col {
+                col::ACCOUNT => parse_account_id_from_account_key(raw_key)?,
+                col::CONTRACT_CODE => parse_account_id_from_contract_code_key(raw_key)?,
+                col::ACCESS_KEY => parse_account_id_from_access_key_key(raw_key)?,
+                _ => parse_account_id_from_trie_key_with_separator(col, raw_key, col_name)?,
+            };
+            return Ok(Some(account_id));
+        }
+        Ok(None)
+    }
+
+    fn parse_account_id_from_trie_key_with_separator(
+        col: &[u8],
+        raw_key: &[u8],
+        col_name: &str,
     ) -> Result<AccountId, std::io::Error> {
-        let account_id_prefix = parse_account_id_prefix(col::RECEIVED_DATA, raw_key)?;
-        // To simplify things, we assume that the data separator is a single byte.
+        let account_id_prefix = parse_account_id_prefix(col, raw_key)?;
         debug_assert_eq!(ACCOUNT_DATA_SEPARATOR.len(), 1);
         let account_data_separator_position = if let Some(index) = account_id_prefix
             .iter()
@@ -358,24 +360,17 @@ pub mod trie_key_parsers {
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "raw key does not have ACCOUNT_DATA_SEPARATOR to be TrieKey::ReceivedData",
+                format!("raw key does not have ACCOUNT_DATA_SEPARATOR to be TrieKey::{}", col_name),
             ));
         };
-        let account_id_prefix = &account_id_prefix[..account_data_separator_position];
-        std::str::from_utf8(account_id_prefix)
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key AccountId has invalid UTF-8 format to be TrieKey::ReceivedData",
-                )
-            })?
-            .parse()
-            .map_err(|_| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "raw key does not have a valid AccountId to be TrieKey::ReceivedData",
-                )
-            })
+        let account_id = &account_id_prefix[..account_data_separator_position];
+        parse_account_id_from_slice(account_id, col_name)
+    }
+
+    pub fn parse_account_id_from_received_data_key(
+        raw_key: &[u8],
+    ) -> Result<AccountId, std::io::Error> {
+        parse_account_id_from_trie_key_with_separator(col::RECEIVED_DATA, raw_key, "ReceivedData")
     }
 
     pub fn parse_data_id_from_received_data_key(
@@ -464,6 +459,10 @@ mod tests {
                 trie_key_parsers::parse_account_id_from_account_key(&raw_key).unwrap(),
                 account_id
             );
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
         }
     }
 
@@ -478,6 +477,10 @@ mod tests {
             let raw_key = key.to_vec();
             assert_eq!(raw_key.len(), key.len());
             assert_eq!(
+                trie_key_parsers::parse_trie_key_access_key_from_raw_key(&raw_key).unwrap(),
+                key
+            );
+            assert_eq!(
                 trie_key_parsers::parse_account_id_from_access_key_key(&raw_key).unwrap(),
                 account_id
             );
@@ -485,6 +488,10 @@ mod tests {
                 trie_key_parsers::parse_public_key_from_access_key_key(&raw_key, &account_id)
                     .unwrap(),
                 public_key
+            );
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
             );
         }
     }
@@ -506,6 +513,10 @@ mod tests {
                     .unwrap(),
                 data_key
             );
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
         }
     }
 
@@ -519,6 +530,93 @@ mod tests {
                 trie_key_parsers::parse_account_id_from_contract_code_key(&raw_key).unwrap(),
                 account_id
             );
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
         }
+    }
+
+    #[test]
+    fn test_key_for_received_data_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let key = TrieKey::ReceivedData {
+                receiver_id: account_id.clone(),
+                data_id: CryptoHash::default(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_received_data_key(&raw_key).unwrap(),
+                account_id
+            );
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
+            assert_eq!(
+                trie_key_parsers::parse_data_id_from_received_data_key(&raw_key, &account_id)
+                    .unwrap(),
+                CryptoHash::default(),
+            );
+        }
+    }
+
+    #[test]
+    fn test_key_for_postponed_receipt_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let key = TrieKey::PostponedReceipt {
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_key_for_postponed_receipt_id_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let key = TrieKey::PostponedReceiptId {
+                receiver_id: account_id.clone(),
+                data_id: CryptoHash::default(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_key_for_pending_data_count_consistency() {
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let key = TrieKey::PendingDataCount {
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_key_for_delayed_receipts_consistency() {
+        let key = TrieKey::DelayedReceiptIndices;
+        let raw_key = key.to_vec();
+        assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+        let key = TrieKey::DelayedReceipt { index: 0 };
+        let raw_key = key.to_vec();
+        assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
     }
 }

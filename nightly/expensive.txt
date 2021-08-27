@@ -138,8 +138,8 @@ expensive --timeout=700 near-chain gc tests::test_gc_star_large --features night
 # expensive integration-tests client process_blocks::test_gc_after_state_sync --features nightly_protocol,nightly_protocol_features
 
 # other tests
-expensive near-chunks near-chunks test::test_seal_removal
-expensive --timeout=300 near-chain near-chain store::tests::test_clear_old_data_too_many_heights
+expensive near-chunks near_chunks test::test_seal_removal
+expensive --timeout=300 near-chain near_chain store::tests::test_clear_old_data_too_many_heights
 
 expensive integration-tests test_simple test::test_2_10_multiple_nodes
 expensive integration-tests test_simple test::test_2_10_multiple_nodes --features nightly_protocol,nightly_protocol_features

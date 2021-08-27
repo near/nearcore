@@ -31,7 +31,8 @@ near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = true }
 
 [dev-dependencies]
-serde_json = {version= "1", features= ["preserve_order"]}
+hex = { version = "0.4", features = ["serde"] }
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [features]
 default = []

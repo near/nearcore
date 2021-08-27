@@ -14,6 +14,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -2007,15 +2008,18 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_uid))?
                         .map(|trie_changes: TrieChanges| {
                             tries
-                                .revert_insertions(&trie_changes, shard_id, &mut store_update)
+                                .revert_insertions(&trie_changes, shard_uid, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, shard_uid),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2027,15 +2031,18 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Canonical(tries) => {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_uid))?
                         .map(|trie_changes: TrieChanges| {
                             tries
-                                .apply_deletions(&trie_changes, shard_id, &mut store_update)
+                                .apply_deletions(&trie_changes, shard_uid, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, shard_uid),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2048,8 +2055,11 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GCMode::StateSync { .. } => {
                 // Not apply the data from ColTrieChanges
+                // TODO: pass in the actual shard version that this block uses
+                // https://github.com/near/nearcore/issues/4710
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
-                    self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+                    self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, shard_uid));
                 }
             }
         }

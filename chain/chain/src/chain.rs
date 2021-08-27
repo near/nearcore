@@ -219,7 +219,7 @@ impl Chain {
         let store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(),
+            runtime_adapter.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -257,7 +257,7 @@ impl Chain {
         let mut store = ChainStore::new(store, chain_genesis.height);
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            runtime_adapter.num_shards(),
+            runtime_adapter.num_shards(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -1180,7 +1180,8 @@ impl Chain {
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Vec<ShardId> {
-        (0..self.runtime_adapter.num_shards())
+        let epoch_id = self.runtime_adapter().get_epoch_id_from_prev_block(parent_hash).unwrap();
+        (0..self.runtime_adapter.num_shards(&epoch_id).unwrap())
             .filter(|shard_id| {
                 self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
@@ -1355,6 +1356,7 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("ShardId out of bounds".into()).into());
         }
         // Chunk header here is the same chunk header as at the `current` height.
+        let sync_prev_hash = sync_prev_block.hash().clone();
         let chunk_header = sync_prev_block.chunks()[shard_id as usize].clone();
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
@@ -1453,8 +1455,11 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        let state_root_node =
-            self.runtime_adapter.get_state_root_node(shard_id, &chunk_header.prev_state_root())?;
+        let state_root_node = self.runtime_adapter.get_state_root_node(
+            shard_id,
+            &sync_prev_hash,
+            &chunk_header.prev_state_root(),
+        )?;
 
         let shard_state_header = match chunk {
             ShardChunk::V1(chunk) => {
@@ -1528,9 +1533,10 @@ impl Chain {
             return Err(ErrorKind::InvalidStateRequest("shard_id out of bounds".into()).into());
         }
         let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
+        let sync_prev_hash = sync_prev_block.hash().clone();
         let state_root_node = self
             .runtime_adapter
-            .get_state_root_node(shard_id, &state_root)
+            .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
 
@@ -1539,7 +1545,7 @@ impl Chain {
         }
         let state_part = self
             .runtime_adapter
-            .obtain_state_part(shard_id, &state_root, part_id, num_parts)
+            .obtain_state_part(shard_id, &sync_prev_hash, &state_root, part_id, num_parts)
             .log_storage_error("obtain_state_part fail")?;
 
         // Before saving State Part data, we need to make sure we can calculate and save State Header
@@ -2600,7 +2606,8 @@ impl<'a> ChainUpdate<'a> {
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
-        for shard_id in 0..self.runtime_adapter.num_shards() {
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
+        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
             if self.runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.runtime_adapter.will_care_about_shard(
                     me.as_ref(),
@@ -3113,7 +3120,15 @@ impl<'a> ChainUpdate<'a> {
     {
         debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header().height(), block.header().num_approvals(), me);
 
-        if block.chunks().len() != self.runtime_adapter.num_shards() as usize {
+        // Check that we know the epoch of the block before we try to get the header
+        // (so that a block from unknown epoch doesn't get marked as an orphan)
+        if !self.runtime_adapter.epoch_exists(&block.header().epoch_id()) {
+            return Err(ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone()).into());
+        }
+
+        if block.chunks().len()
+            != self.runtime_adapter.num_shards(&block.header().epoch_id())? as usize
+        {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
         }
 
@@ -3123,12 +3138,6 @@ impl<'a> ChainUpdate<'a> {
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
         let is_next = block.header().prev_hash() == &head.last_block_hash;
-
-        // Check that we know the epoch of the block before we try to get the header
-        // (so that a block from unknown epoch doesn't get marked as an orphan)
-        if !self.runtime_adapter.epoch_exists(&block.header().epoch_id()) {
-            return Err(ErrorKind::EpochOutOfBounds(block.header().epoch_id().clone()).into());
-        }
 
         // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
         // overflow-related problems
@@ -3460,7 +3469,9 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        if header.chunk_mask().len() as u64 != self.runtime_adapter.num_shards() {
+        if header.chunk_mask().len() as u64
+            != self.runtime_adapter.num_shards(&header.epoch_id())?
+        {
             return Err(ErrorKind::InvalidChunkMask.into());
         }
 
