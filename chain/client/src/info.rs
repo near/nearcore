@@ -248,7 +248,8 @@ fn display_sync_status(
                             ShardSyncStatus::StateDownloadHeader => format!("header"),
                             ShardSyncStatus::StateDownloadParts => format!("parts"),
                             ShardSyncStatus::StateDownloadFinalize => format!("finalization"),
-                            ShardSyncStatus::StateDownloadComplete => format!("done"),
+                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
+                            ShardSyncStatus::StateSplit => format!("split"),
                         }
                     )
                     .as_str();

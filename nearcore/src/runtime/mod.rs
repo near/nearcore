@@ -1650,6 +1650,14 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
         }
     }
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager
+            .get_split_shards_if_shards_will_change(parent_hash, vec![])
+            .map_err(Error::from)?
+            .is_some())
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {

@@ -674,6 +674,9 @@ impl StateSync {
             status: ShardSyncStatus::StateDownloadHeader,
         };
 
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let split_states = runtime_adapter.will_shard_layout_change(&prev_hash).unwrap();
+
         for shard_id in tracking_shards {
             let mut download_timeout = false;
             let mut need_shard = false;
@@ -768,11 +771,24 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadComplete => {
-                    this_done = true;
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    if split_states {
+                        *shard_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateSplit,
+                        }
+                    } else {
+                        this_done = true;
+                    }
+                }
+                ShardSyncStatus::StateSplit => {
+                    assert!(split_states);
+                    // TODO: split states
+                    debug!(target: "sync", "State sync split: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
+                    this_done = true;
                 }
             }
             all_done &= this_done;

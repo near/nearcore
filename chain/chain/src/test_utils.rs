@@ -1154,6 +1154,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
     }
+
+    fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
+        Ok(false)
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {

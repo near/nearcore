@@ -747,6 +747,9 @@ impl EpochManager {
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout will change next epoch, returns true if it cares about any shard
+    // that `shard_id` will split to
     pub fn cares_about_shard_next_epoch_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
@@ -754,6 +757,19 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        if let Some(split_shards) =
+            self.get_split_shards_if_shards_will_change(parent_hash, vec![shard_id])?
+        {
+            for next_shard_id in split_shards.get(&shard_id).unwrap() {
+                if self.cares_about_shard_in_epoch(
+                    next_epoch_id.clone(),
+                    account_id,
+                    *next_shard_id,
+                )? {
+                    return Ok(true);
+                }
+            }
+        }
         self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
     }
 
@@ -1199,6 +1215,29 @@ impl EpochManager {
         let shard_version =
             self.config.for_protocol_version(protocol_version).shard_layout.version();
         Ok(shard_version)
+    }
+
+    pub fn get_split_shards_if_shards_will_change(
+        &mut self,
+        parent_hash: &CryptoHash,
+        shards: Vec<ShardId>,
+    ) -> Result<Option<HashMap<ShardId, Vec<ShardId>>>, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?.clone();
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?.clone();
+        if shard_layout == next_shard_layout {
+            Ok(None)
+        } else {
+            Ok(Some(
+                shards
+                    .into_iter()
+                    .map(|shard_id| {
+                        (shard_id, next_shard_layout.get_split_shards(shard_id).unwrap())
+                    })
+                    .collect(),
+            ))
+        }
     }
 
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
@@ -3622,7 +3661,7 @@ mod tests {
         let shard_layout = ShardLayout::v1(
             vec!["aurora".parse().unwrap()],
             vec!["hhhh", "oooo"].into_iter().map(|x| x.parse().unwrap()).collect(),
-            Some(vec![0, 0, 0, 0]),
+            Some(vec![vec![0, 0, 0, 0]]),
             1,
         );
         let shard_config = ShardConfig {
