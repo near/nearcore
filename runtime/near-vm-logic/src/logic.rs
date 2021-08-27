@@ -177,6 +177,9 @@ impl<'a> VMLogic<'a> {
     }
 
     pub fn sync_from_wasm_counter(&mut self) -> Result<()> {
+        if self.config.regular_op_cost == 0 {
+            return Ok(());
+        }
         let remaining_gas_before = self.gas_counter.remaining_prepaid_gas();
         let remaining_ops_before = remaining_gas_before / self.config.regular_op_cost as u64;
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
@@ -185,6 +188,9 @@ impl<'a> VMLogic<'a> {
     }
 
     pub fn sync_to_wasm_counter(&self) {
+        if self.config.regular_op_cost == 0 {
+            return;
+        }
         let remaining_gas_now = self.gas_counter.remaining_prepaid_gas();
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
         instance.set_remaining_ops(remaining_gas_now / self.config.regular_op_cost as u64);
