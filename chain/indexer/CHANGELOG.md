@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0
+
+* Add additional logs on Indexer Framework start
+* Avoid double genesis validation by removing the explicit validation on Indexer instantiation
+* Replaced the method how genesis is being read to optimize memory usage
+
+## Breaking changes
+
+Since the change of reading genesis method to optimize memory usage. You'd be able to iterate over genesis records with `near_config.genesis.for_each_record(|record| {...})`. Nothing is changed for you your indexer does nothing about genesis records.
+
 ## 0.9.2
 
 * Optimize the delayed receipts tracking process introduced in previous version to avoid indexer stuck.
