@@ -41,7 +41,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
                 vec![],
                 None,
                 None,
-                RuntimeConfigStore::default(),
+                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()

@@ -37,6 +37,13 @@ impl RuntimeConfigStore {
         }
     }
 
+    /// Constructs test store.
+    pub fn test() -> Self {
+        Self {
+            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
+        }
+    }
+
     /// Constructs store with a single config with zero costs.
     pub fn free() -> Self {
         Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::free()))].iter().cloned()) }
@@ -51,15 +58,6 @@ impl RuntimeConfigStore {
                 panic!("Not found RuntimeConfig for protocol version {}", protocol_version)
             })
             .1
-    }
-}
-
-impl Default for RuntimeConfigStore {
-    /// Constructs test store.
-    fn default() -> Self {
-        Self {
-            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
-        }
     }
 }
 

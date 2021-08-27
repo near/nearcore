@@ -39,7 +39,7 @@ impl Scenario {
                 vec![],
                 None,
                 None,
-                RuntimeConfigStore::default(),
+                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>],
         );
 

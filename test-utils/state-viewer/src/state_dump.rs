@@ -110,7 +110,7 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::default(),
+            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -160,7 +160,7 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::default(),
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -198,7 +198,7 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::default(),
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -236,7 +236,7 @@ mod test {
                 vec![],
                 None,
                 None,
-                RuntimeConfigStore::default(),
+                RuntimeConfigStore::test(),
             )
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
@@ -294,7 +294,7 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::default(),
+            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -335,7 +335,7 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::default(),
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
