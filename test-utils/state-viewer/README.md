@@ -54,3 +54,14 @@ obtaining this whole history is the following:
 
 It's hard to know in advance which predicates will be of interest. If you want to check that none of function calls use
 more than X gas, feel free to add the check yourself.
+
+### `view_chain`
+
+If called without arguments this command will print the block header of tip of the chain, and chunk extras for that
+block.
+
+Flags:
+
+* `--height` gets the block header and chunk extras for a block at a certain height.
+* `--block` displays contents of the block itself, such as timestamp, outcome_root, challenges, and many more.
+* `--chunk` displays contents of the chunk, such as transactions and receipts.
