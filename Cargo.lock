@@ -3945,7 +3945,7 @@ dependencies = [
 [[package]]
 name = "pwasm-utils"
 version = "0.12.0"
-source = "git+https://github.com/near/wasm-utils?rev=3dc572b7ff69bbb51c6dc54626ca9981fab8e715#3dc572b7ff69bbb51c6dc54626ca9981fab8e715"
+source = "git+https://github.com/near/wasm-utils?rev=5871860d2c48a21092c17d24ad8bfddda8e04c2f#5871860d2c48a21092c17d24ad8bfddda8e04c2f"
 dependencies = [
  "byteorder",
  "log",

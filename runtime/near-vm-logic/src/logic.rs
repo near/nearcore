@@ -1124,11 +1124,9 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * Returns `GasExceeded` or `GasLimitExceeded`;
-    pub fn out_of_gas_callback(&mut self) -> Result<()> {
-        // When wasm call this, gas is already used up. We do not know how much gas exceeded,
-        // but it doesn't matter, because deduct_gas will truncate to have final used gas same as
-        // original prepaid gas.
-        self.gas_counter.pay_wasm_gas(self.remaining_prepaid_gas() + 1)
+    pub fn out_of_gas_callback(&mut self, last_ops: u64) -> Result<()> {
+        let value = last_ops * Gas::from(self.config.regular_op_cost);
+        self.gas_counter.pay_wasm_gas(value)
     }
 
     // ################
