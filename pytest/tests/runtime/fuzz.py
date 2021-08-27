@@ -21,7 +21,7 @@ def run_fuzz():
         sys.stdout.buffer.write(res.group(1))
 
     if fuzzing.returncode != 0:
-        raise Exception( f'Invalid result: { fuzzing.returncode }' )
+        sys.exit(f'Invalid result: { fuzzing.returncode }')
 
 
 def main():
