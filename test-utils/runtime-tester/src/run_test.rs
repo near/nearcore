@@ -137,3 +137,34 @@ impl BlockStats {
         Self { height, block_production_time: Duration::default() }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use log::info;
+    use near_logger_utils::init_test_logger;
+
+    #[test]
+    #[ignore]
+    fn test_scenario_json() {
+        init_test_logger();
+        let path = Path::new("./fuzz/scenario.json");
+
+        let scenario = Scenario::from_file(path).expect("Failed to deserialize the scenario file.");
+        let starting_time = Instant::now();
+        let runtime_stats = scenario.run().expect("Error while running scenario");
+        info!("Time to run: {:?}", starting_time.elapsed());
+        for block_stats in runtime_stats.blocks_stats {
+            if block_stats.block_production_time > Duration::from_secs(1) {
+                info!(
+                    "Time to produce block {} is {:?}",
+                    block_stats.height, block_stats.block_production_time
+                );
+            }
+        }
+    }
+}
