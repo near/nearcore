@@ -181,12 +181,6 @@ impl<'a> VMLogic<'a> {
         let remaining_ops_before = remaining_gas_before / self.config.regular_op_cost as u64;
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
         let remaining_ops_after = instance.get_remaining_ops();
-        println!(
-            "ooo {} {} {}",
-            remaining_ops_before,
-            remaining_ops_after,
-            remaining_ops_before > remaining_ops_after
-        );
         self.pay_gas_for_wasm_ops(remaining_ops_before - remaining_ops_after)
     }
 
@@ -198,10 +192,6 @@ impl<'a> VMLogic<'a> {
 
     pub fn remaining_prepaid_gas(&self) -> Gas {
         self.gas_counter.remaining_prepaid_gas()
-    }
-
-    pub fn use_up_remaining_for_wasm(&mut self) {
-        let _ = self.gas_counter.pay_wasm_gas(self.remaining_prepaid_gas());
     }
 
     // ###########################
@@ -1127,9 +1117,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * Always returns `GasExceeded`;
+    /// * Returns `GasExceeded` or `GasLimitExceeded`;
     pub fn out_of_gas_callback(&mut self) -> Result<()> {
-        Err(VMLogicError::HostError(HostError::GasExceeded))
+        // When wasm call this, gas is already used up. We do not know how much gas exceeded,
+        // but it doesn't matter, because deduct_gas will truncate to have final used gas same as
+        // original prepaid gas.
+        self.gas_counter.pay_wasm_gas(self.remaining_prepaid_gas() + 1)
     }
 
     // ################
