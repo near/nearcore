@@ -3,7 +3,7 @@
 ## 0.10.0
 
 * Add additional logs on Indexer Framework start
-* Stop validating genesis explicitly on the Indexer Framework instantiation
+* Avoid double genesis validation by removing the explicit validation on Indexer instantiation
 * Replaced the method how genesis is being read to optimize memory usage
 
 ## Breaking changes
