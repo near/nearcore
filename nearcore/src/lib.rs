@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
@@ -46,7 +46,7 @@ pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
     fs::canonicalize(path).is_ok()
 }
 
-pub fn get_store_path(base_path: &Path) -> String {
+pub fn get_store_path(base_path: &Path) -> PathBuf {
     let mut store_path = base_path.to_owned();
     store_path.push(STORE_PATH);
     if store_path_exists(&store_path) {
@@ -54,24 +54,24 @@ pub fn get_store_path(base_path: &Path) -> String {
     } else {
         info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
     }
-    store_path.to_str().unwrap().to_owned()
+    store_path
 }
 
-pub fn get_default_home() -> String {
-    match std::env::var("NEAR_HOME") {
-        Ok(home) => home,
-        Err(_) => match dirs::home_dir() {
-            Some(mut home) => {
-                home.push(".near");
-                home.as_path().to_str().unwrap().to_string()
-            }
-            None => "".to_string(),
-        },
+pub fn get_default_home() -> PathBuf {
+    if let Ok(near_home) = std::env::var("NEAR_HOME") {
+        return near_home.into();
     }
+
+    if let Some(mut home) = dirs::home_dir() {
+        home.push(".near");
+        return home;
+    }
+
+    PathBuf::default()
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
+pub fn apply_store_migrations(path: &PathBuf, near_config: &NearConfig) {
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);

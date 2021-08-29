@@ -113,11 +113,8 @@ impl ProcessNode {
     /// Side effect: reset_storage
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
-        let work_dir = format!(
-            "{}/process_node_{}",
-            env::temp_dir().as_path().to_str().unwrap(),
-            rng.gen::<u64>()
-        );
+        let work_dir =
+            format!("{}/process_node_{}", env::temp_dir().to_str().unwrap(), rng.gen::<u64>());
         let signer = Arc::new(InMemorySigner::from_seed(
             config.validator_signer.as_ref().unwrap().validator_id().clone(),
             KeyType::ED25519,

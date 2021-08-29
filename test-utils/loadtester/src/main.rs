@@ -110,7 +110,7 @@ fn main() {
             Arg::with_name("home")
             .long("home")
             .takes_value(true)
-            .default_value(&default_home)
+            .default_value(default_home.to_str().unwrap())
         )
         .arg(
             Arg::with_name("state_dump")
@@ -141,7 +141,7 @@ fn main() {
                 Arg::with_name("home")
                     .long("home")
                     .takes_value(true)
-                    .default_value(&default_home))
+                    .default_value(default_home.to_str().unwrap()))
             .arg(
                 Arg::with_name("shards")
                     .long("shards")

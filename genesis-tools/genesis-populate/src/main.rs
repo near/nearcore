@@ -14,7 +14,7 @@ fn main() {
         .arg(
             Arg::with_name("home")
                 .long("home")
-                .default_value(&default_home)
+                .default_value(default_home.to_str().unwrap())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
