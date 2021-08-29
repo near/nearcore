@@ -13,11 +13,11 @@ impl ContractCode {
         ContractCode { code, hash }
     }
 
-    pub fn hash(&self) -> &CryptoHash {
-        &self.hash
-    }
-
     pub fn code(&self) -> &[u8] {
         self.code.as_slice()
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
     }
 }
