@@ -56,7 +56,7 @@ pub fn get_contract_cache_key(
 ) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version3 {
-        code_hash: code.hash,
+        code_hash: code.hash().clone(),
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind,
         vm_hash: vm_hash(vm_kind),
@@ -211,9 +211,9 @@ pub mod wasmer0_cache {
     ) -> Result<wasmer_runtime::Module, VMError> {
         let key = get_contract_cache_key(code, VMKind::Wasmer0, config);
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer(key, &code.code, config, cache);
+        return memcache_compile_module_cached_wasmer(key, code.code(), config, cache);
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer_impl(key, &code.code, config, cache);
+        return compile_module_cached_wasmer_impl(key, code.code(), config, cache);
     }
 }
 
@@ -316,9 +316,9 @@ pub mod wasmer1_cache {
     ) -> Result<wasmer::Module, VMError> {
         let key = get_contract_cache_key(code, VMKind::Wasmer1, config);
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer1(key, &code.code, config, cache, store);
+        return memcache_compile_module_cached_wasmer1(key, code.code(), config, cache, store);
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer1_impl(key, &code.code, config, cache, store);
+        return compile_module_cached_wasmer1_impl(key, code.code(), config, cache, store);
     }
 }
 
@@ -340,19 +340,17 @@ pub fn precompile_contract_vm(
         Ok(None) | Err(_) => {}
     };
     match vm_kind {
-        VMKind::Wasmer0 => match wasmer0_cache::compile_and_serialize_wasmer(
-            wasm_code.code.as_slice(),
-            config,
-            &key,
-            cache,
-        ) {
-            Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
-            Err(err) => Err(ContractPrecompilatonError::new(err)),
-        },
+        VMKind::Wasmer0 => {
+            match wasmer0_cache::compile_and_serialize_wasmer(wasm_code.code(), config, &key, cache)
+            {
+                Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
+                Err(err) => Err(ContractPrecompilatonError::new(err)),
+            }
+        }
         VMKind::Wasmer1 => {
             let store = default_wasmer1_store();
             match wasmer1_cache::compile_and_serialize_wasmer1(
-                wasm_code.code.as_slice(),
+                wasm_code.code(),
                 &key,
                 config,
                 cache,

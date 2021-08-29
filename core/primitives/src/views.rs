@@ -127,13 +127,13 @@ impl From<AccountView> for Account {
 
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        ContractCodeView { code: contract_code.code, hash: contract_code.hash }
+        ContractCodeView { code: contract_code.code().to_vec(), hash: contract_code.hash().clone() }
     }
 }
 
 impl From<ContractCodeView> for ContractCode {
     fn from(contract_code: ContractCodeView) -> Self {
-        ContractCode { code: contract_code.code, hash: contract_code.hash }
+        ContractCode::new(contract_code.code, Some(contract_code.hash))
     }
 }
 
