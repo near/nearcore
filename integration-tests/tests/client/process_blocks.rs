@@ -34,6 +34,7 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
+#[cfg(feature = "protocol_feature_simple_nightshade")]
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
@@ -59,7 +60,9 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::version::ProtocolFeature;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
