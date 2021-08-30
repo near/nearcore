@@ -17,6 +17,10 @@ impl ContractCode {
         self.code.as_slice()
     }
 
+    pub fn into_code(self) -> Vec<u8> {
+        self.code
+    }
+
     pub fn hash(&self) -> &CryptoHash {
         &self.hash
     }

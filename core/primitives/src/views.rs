@@ -127,7 +127,9 @@ impl From<AccountView> for Account {
 
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        ContractCodeView { code: contract_code.code().to_vec(), hash: *contract_code.hash() }
+        let hash = *contract_code.hash();
+        let code = contract_code.into_code();
+        ContractCodeView { code, hash }
     }
 }
 
