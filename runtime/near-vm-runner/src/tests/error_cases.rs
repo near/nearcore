@@ -6,10 +6,15 @@ use near_vm_logic::{ReturnData, VMOutcome};
 
 use crate::cache::MockCompiledContractCache;
 use crate::tests::{
-    make_cached_contract_call_vm, make_simple_contract_call_vm,
-    make_simple_contract_call_with_gas_vm, with_vm_variants,
+    create_context, make_cached_contract_call_vm, make_simple_contract_call_vm,
+    make_simple_contract_call_with_gas_vm, with_vm_variants, LATEST_PROTOCOL_VERSION,
 };
-use crate::VMKind;
+use crate::{run_vm, VMKind};
+use near_primitives::config::VMConfig;
+use near_primitives::contract::ContractCode;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_test_contracts::tiny_contract;
+use near_vm_logic::mocks::mock_external::MockedExternal;
 
 fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
     VMOutcome {
@@ -798,5 +803,40 @@ fn test_contract_error_caching() {
         let err2 =
             make_cached_contract_call_vm(&mut cache, &code, "method_name2", terragas, vm_kind);
         assert_eq!(err1, err2);
+    })
+}
+
+#[test]
+fn test_burn_gas_limit() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = tiny_contract();
+        let code = ContractCode::new(code.to_vec(), None);
+        let mut fake_external = MockedExternal::new();
+
+        let context = create_context(vec![8, 0, 0, 0]);
+        let mut config = VMConfig::default();
+        // Limit more than add_contract_compile_fee but not sufficient to finish function call
+        config.limit_config.max_gas_burnt = 4_000_000_000;
+        let fees = RuntimeFeesConfig::default();
+
+        let promise_results = vec![];
+        let result = run_vm(
+            &code,
+            "benchmark_storage_8b",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind,
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
+        assert_eq!(
+            result.1,
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                HostError::GasLimitExceeded
+            )))
+        );
     })
 }
