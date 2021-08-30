@@ -40,14 +40,14 @@ impl Arbitrary<'_> for Scenario {
 
         let mut blocks = vec![];
 
-        while blocks.len() < MAX_BLOCKS && u.len() > BlockConfig::size_hint(0).1.unwrap() {
+        while blocks.len() < MAX_BLOCKS && u.len() > BlockConfig::size_hint(0).0 {
             blocks.push(BlockConfig::arbitrary(u, &mut scope)?);
         }
         Ok(Scenario { network_config, blocks })
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
-        (0, Some(MAX_BLOCKS * BlockConfig::size_hint(0).1.unwrap()))
+        (1, Some(MAX_BLOCKS * BlockConfig::size_hint(0).1.unwrap()))
     }
 }
 
