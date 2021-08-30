@@ -194,7 +194,6 @@ pub fn compute_gas_metering_cost(
         ProtocolVersion::MAX,
         cache,
     );
-    println!("result: {:?}", result.1);
     assert!(result.1.is_none());
 
     // Run with gas metering.

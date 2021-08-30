@@ -213,41 +213,17 @@ pub struct Wasmer0Instance(pub wasmer_runtime_core::Instance);
 
 impl InstanceLike for Wasmer0Instance {
     fn get_remaining_ops(&self) -> u64 {
-        let remaining_ops: wasmer_runtime::Global = self.0.exports.get("remaining_ops").unwrap();
+        let remaining_ops: wasmer_runtime::Global =
+            self.0.exports.get("remaining_ops").expect("Global based gas meter is not injected");
         use std::convert::TryFrom;
-        i64::try_from(&remaining_ops.get()).unwrap() as u64
+        i64::try_from(&remaining_ops.get())
+            .expect("Unexpected type of gas meter global, expect i64") as u64
     }
 
     fn set_remaining_ops(&self, ops: u64) {
-        let remaining_ops: wasmer_runtime::Global = self.0.exports.get("remaining_ops").unwrap();
+        let remaining_ops: wasmer_runtime::Global =
+            self.0.exports.get("remaining_ops").expect("Global based gas meter is not injected");
         remaining_ops.set(wasmer_runtime::Value::I64(ops as i64));
-    }
-}
-
-fn wasmer0_set_remaining_ops(instance: &wasmer_runtime_core::Instance, ops: u64) {
-    let remaining_ops: wasmer_runtime::Global = instance.exports.get("remaining_ops").unwrap();
-    remaining_ops.set(wasmer_runtime::Value::I64(ops as i64));
-}
-
-fn wasmer0_get_remaining_ops(instance: &wasmer_runtime_core::Instance) -> u64 {
-    let remaining_ops: wasmer_runtime::Global = instance.exports.get("remaining_ops").unwrap();
-    use std::convert::TryFrom;
-    i64::try_from(&remaining_ops.get()).unwrap() as u64
-}
-
-fn wasmer0_pay_gas(
-    instance: &wasmer_runtime_core::Instance,
-    logic: &mut VMLogic,
-    gas_mode: GasMode,
-) -> Result<GasMode, VMError> {
-    if let GasMode::Paid(available_ops) = gas_mode {
-        let remaining_ops = wasmer0_get_remaining_ops(&instance);
-        logic
-            .pay_gas_for_wasm_ops(available_ops - remaining_ops)
-            .map_err(|err: VMLogicError| -> VMError { (&err).into() })?;
-        Ok(GasMode::Paid(remaining_ops))
-    } else {
-        Ok(GasMode::Free)
     }
 }
 
@@ -355,9 +331,18 @@ fn run_method(
     };
 
     let instance = Wasmer0Instance(instance);
+    if let GasMode::Paid(available_ops) = gas_mode {
+        instance.set_remaining_ops(available_ops);
+    }
+
     logic.set_instance(Some(&instance as *const dyn InstanceLike));
     let result = run_method_inner(&instance.0, method_name, gas_mode, logic);
     logic.set_instance(None);
+    {
+        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
+        drop(instance)
+    }
+
     result
 }
 
@@ -367,15 +352,13 @@ fn run_method_inner(
     gas_mode: GasMode,
     logic: &mut VMLogic,
 ) -> Result<(), VMError> {
-    if let GasMode::Paid(available_ops) = gas_mode {
-        wasmer0_set_remaining_ops(&instance, available_ops);
-    }
-
     let call_start_func_result = {
         let _span = tracing::debug_span!(target: "vm", "run_method/call_start_func").entered();
         instance.call_start_func()
     };
-    let gas_mode = wasmer0_pay_gas(&instance, logic, gas_mode)?;
+    if let GasMode::Paid(_) = gas_mode {
+        logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+    }
     call_start_func_result.map_err(|err| err.into_vm_error())?;
 
     let call_result = {
@@ -388,11 +371,6 @@ fn run_method_inner(
     }
 
     call_result.map_err(|err| err.into_vm_error())?;
-
-    {
-        let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();
-        drop(instance)
-    }
 
     Ok(())
 }
