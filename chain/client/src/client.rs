@@ -1577,10 +1577,9 @@ impl Client {
             let network_adapter1 = self.network_adapter.clone();
 
             let new_shard_sync = {
-                let prev_hash =
-                    self.chain.get_block(&sync_hash).unwrap().header().prev_hash().clone();
+                let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
                 let need_to_split_states =
-                    self.runtime_adapter.will_shard_layout_change(&prev_hash).unwrap();
+                    self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
                 if need_to_split_states {
                     // If the client already has the state for this epoch, skip the downloading phase
                     state_sync_info

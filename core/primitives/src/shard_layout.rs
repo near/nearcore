@@ -62,11 +62,11 @@ impl ShardLayout {
     }
 
     #[inline]
-    pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
+    pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<&Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
-                Some(shards_split_map) => Some(shards_split_map[parent_shard_id as usize].clone()),
+                Some(shards_split_map) => shards_split_map.get(parent_shard_id as usize),
                 None => None,
             },
         }

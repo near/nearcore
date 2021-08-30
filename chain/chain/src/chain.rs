@@ -1016,14 +1016,19 @@ impl Chain {
         if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
             // Currently, the state sync algorithm assumes that the number of chunks do not change
             // between the epoch being synced to and the last epoch.
+            // For example, if shard layout changes at the beginning of epoch T, validators
+            // will not be able to sync states at epoch T for epoch T+1
             // Fortunately, since all validators track all shards for now, this error will not be
             // triggered in live yet
-            let str = format!(
+            // Instead of propagating the error, we simply log the error here because the error
+            // do not affect processing blocks for this epoch. However, when the next epoch comes,
+            // the validator will not have the states ready so it will halt.
+            error!(
                 "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
                 block.header().epoch_id(),
                 me
             );
-            return Err(Error::from(ErrorKind::Other(str)));
+            debug_assert!(false);
         }
         debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
 
@@ -1212,8 +1217,13 @@ impl Chain {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
+        let will_shard_layout_change =
+            runtime_adapter.will_shard_layout_change(parent_hash).unwrap();
+        // if shard layout will change the next epoch, we should catch up the shard regardless
+        // whether we already have the shard's state this epoch, because we need to generate
+        // new states for shards split from the current shard for the next epoch
         runtime_adapter.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true)
-            && (runtime_adapter.will_shard_layout_change(parent_hash).unwrap()
+            && (will_shard_layout_change
                 || !runtime_adapter.cares_about_shard(me.as_ref(), parent_hash, shard_id, true))
     }
 

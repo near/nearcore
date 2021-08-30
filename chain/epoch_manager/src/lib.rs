@@ -1229,14 +1229,19 @@ impl EpochManager {
         if shard_layout == next_shard_layout {
             Ok(None)
         } else {
-            Ok(Some(
-                shards
-                    .into_iter()
-                    .map(|shard_id| {
-                        (shard_id, next_shard_layout.get_split_shards(shard_id).unwrap())
-                    })
-                    .collect(),
-            ))
+            let split_shards: Result<Vec<Vec<ShardId>>, String> = shards
+                .iter()
+                .map(|shard_id| {
+                    next_shard_layout.get_split_shards(*shard_id).cloned().ok_or(format!(
+                        "cannot find parent shard for shard {} in layout {:?}",
+                        *shard_id, next_shard_layout
+                    ))
+                })
+                .collect();
+            let split_shards = split_shards.map_err(|str| EpochError::ShardingError(str))?;
+            let split_shards: HashMap<_, _> =
+                shards.into_iter().zip(split_shards.into_iter()).collect();
+            Ok(Some(split_shards))
         }
     }
 
