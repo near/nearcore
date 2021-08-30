@@ -93,7 +93,6 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
-    use near_primitives::runtime::config_store::RuntimeConfigStore;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis =
@@ -110,7 +109,6 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -181,7 +179,6 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -219,7 +216,6 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -249,16 +245,7 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(
-                Path::new("."),
-                store,
-                &genesis,
-                vec![],
-                vec![],
-                None,
-                None,
-                RuntimeConfigStore::test(),
-            )
+            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![], None, None)
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
             Arc::new(create_runtime(store1.clone())),
@@ -315,7 +302,6 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -356,7 +342,6 @@ mod test {
             vec![],
             None,
             None,
-            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
