@@ -763,7 +763,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         gas_burnt: 0,
                         tokens_burnt: 0,
                         executor_id: to.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::V1,
                     },
                 });
             }

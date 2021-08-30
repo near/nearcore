@@ -8,6 +8,7 @@ use clap::{App, Arg, SubCommand};
 use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::create_store;
 use nearcore::{get_default_home, get_store_path, load_config};
 
@@ -39,6 +40,7 @@ fn main() {
         near_config.client_config.tracked_shards.clone(),
         None,
         None,
+        RuntimeConfigStore::new(),
     ));
 
     let mut store_validator = StoreValidator::new(

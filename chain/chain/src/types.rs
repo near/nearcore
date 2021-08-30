@@ -809,7 +809,7 @@ mod tests {
                 gas_burnt: 100,
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V1,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -821,7 +821,7 @@ mod tests {
                 gas_burnt: 0,
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V1,
             },
         };
         let outcomes = vec![outcome1, outcome2];
