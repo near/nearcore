@@ -813,11 +813,8 @@ fn generate_validator_key(account_id: AccountId, path: &Path) {
     signer.write_to_file(path);
 }
 
-pub fn mainnet_genesis() -> Genesis {
-    lazy_static_include::lazy_static_include_bytes! {
-        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
-    };
-    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
+lazy_static_include::lazy_static_include_bytes! {
+    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -874,7 +871,8 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let genesis = mainnet_genesis();
+            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
+                .expect("Failed to deserialize MainNet genesis");
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
