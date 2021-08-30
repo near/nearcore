@@ -1582,7 +1582,7 @@ impl Client {
                     self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
                 if need_to_split_states {
                     // If the client already has the state for this epoch, skip the downloading phase
-                    state_sync_info
+                    let new_shard_sync = state_sync_info
                         .shards
                         .iter()
                         .filter_map(|ShardInfo(shard_id, _)| {
@@ -1604,7 +1604,9 @@ impl Client {
                                 None
                             }
                         })
-                        .collect()
+                        .collect();
+                    debug!(target: "catchup", "need to split states for shards {:?}", new_shard_sync);
+                    new_shard_sync
                 } else {
                     HashMap::new()
                 }

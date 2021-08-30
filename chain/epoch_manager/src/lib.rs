@@ -354,7 +354,7 @@ impl EpochManager {
         block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
-    ) -> Result<EpochId, EpochError> {
+    ) -> Result<(), EpochError> {
         let epoch_summary = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(&block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
@@ -365,11 +365,11 @@ impl EpochManager {
         self.save_epoch_validator_info(store_update, &block_info.epoch_id(), &epoch_summary)?;
 
         let EpochSummary {
-            prev_epoch_last_block_hash,
             all_proposals,
             validator_kickout,
             validator_block_chunk_stats,
             next_version,
+            ..
         } = epoch_summary;
 
         let (validator_reward, minted_amount) = {
@@ -408,11 +408,14 @@ impl EpochManager {
             }
             Err(err) => return Err(err),
         };
+        let next_next_epoch_id = EpochId(*last_block_hash);
+        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {}", next_next_epoch_info.epoch_height(), 
+               &next_next_epoch_id,
+                   next_next_epoch_info.protocol_version());
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
-        self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
-        // Return next epoch (T+1) id as hash of last block in previous epoch (T-1).
-        Ok(EpochId(prev_epoch_last_block_hash))
+        self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;
+        Ok(())
     }
 
     pub fn record_block_info(
@@ -3666,7 +3669,7 @@ mod tests {
         let shard_layout = ShardLayout::v1(
             vec!["aurora".parse().unwrap()],
             vec!["hhhh", "oooo"].into_iter().map(|x| x.parse().unwrap()).collect(),
-            Some(vec![vec![0, 0, 0, 0]]),
+            Some(vec![vec![0, 1, 2, 3]]),
             1,
         );
         let shard_config = ShardConfig {

@@ -788,7 +788,8 @@ impl StateSync {
                     debug_assert!(split_states);
                     // TODO: split states
                     debug!(target: "sync", "State sync split: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
-                    this_done = true;
+                    // TODO: change this to true once we implement StateSplit
+                    this_done = false;
                 }
             }
             all_done &= this_done;
