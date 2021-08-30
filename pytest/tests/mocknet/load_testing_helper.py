@@ -77,8 +77,9 @@ def random_transaction(account_and_index, i0):
     elif choice == 1:
         account_and_index[0].send_call_contract_tx('do_work', [])
     elif choice == 2:
+        # min_allowed_top_level_account_length may be set to 32, and accounts creation shorter than it is disabled
         new_account_id = ''.join(
-            random.choice(string.ascii_lowercase) for _ in range(0, 10))
+            random.choice(string.ascii_lowercase) for _ in range(0, 40))
         account_and_index[0].send_create_account_tx(new_account_id)
     elif choice == 3:
         account_and_index[0].send_stake_tx(1)

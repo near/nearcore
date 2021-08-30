@@ -18,6 +18,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -70,6 +71,7 @@ impl GenesisBuilder {
             vec![],
             None,
             None,
+            RuntimeConfigStore::new(),
         );
         Self {
             home_dir: home_dir.to_path_buf(),

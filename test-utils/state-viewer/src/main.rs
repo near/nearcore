@@ -20,6 +20,7 @@ use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
@@ -67,6 +68,7 @@ fn load_trie_stop_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(),
     );
     let head = chain_store.head().unwrap();
     let last_block = match mode {
@@ -125,6 +127,7 @@ fn print_chain(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(),
     );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
@@ -196,6 +199,7 @@ fn replay_chain(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(),
     );
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
@@ -281,6 +285,7 @@ fn apply_chain_range(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(),
     ));
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
@@ -460,6 +465,7 @@ fn apply_block_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(),
     ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
