@@ -1406,7 +1406,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,

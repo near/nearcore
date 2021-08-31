@@ -21,7 +21,7 @@ pub struct RpcLightClientExecutionProofResponse {
     pub block_proof: near_primitives::merkle::MerklePath,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RpcLightClientNextBlockResponse {
     #[serde(flatten)]
     pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
