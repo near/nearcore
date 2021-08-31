@@ -34,7 +34,6 @@ use crate::migrations::{
     migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 pub mod config;
 pub mod migrations;
@@ -281,7 +280,6 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.tracked_shards.clone(),
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::new(),
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

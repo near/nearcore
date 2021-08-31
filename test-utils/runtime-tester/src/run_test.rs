@@ -13,7 +13,6 @@ use near_primitives::types::{AccountId, BlockHeight, Nonce};
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
 impl Scenario {
@@ -39,7 +38,6 @@ impl Scenario {
                 vec![],
                 None,
                 None,
-                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>],
         );
 
