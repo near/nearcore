@@ -27,6 +27,12 @@ pub struct ShardLayoutV0 {
     version: ShardVersion,
 }
 
+/// A map that maps shards from the last shard layout to shards that it splits to in this shard layout.
+/// Instead of using map, we just use a vec here because shard_id ranges from 0 to num_shards-1
+/// For example, if a shard layout with only shard 0 splits into shards 0, 1, 2, 3, the ShardsSplitMap
+/// will be `[[0, 1, 2, 3]]`
+type ShardSplitMap = Vec<Vec<ShardId>>;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
@@ -35,10 +41,9 @@ pub struct ShardLayoutV1 {
     /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
     boundary_accounts: Vec<AccountId>,
     /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
-    /// Instead of using map, we just use a vec here because shard_id ranges from 0 to num_shards-1
     /// Useful for constructing states for the shards.
     /// None for the genesis shard layout
-    shards_split_map: Option<Vec<Vec<ShardId>>>,
+    shards_split_map: Option<ShardSplitMap>,
     /// Version of the shard layout, this is useful for uniquely identify the shard layout
     version: ShardVersion,
 }
@@ -55,7 +60,7 @@ impl ShardLayout {
     pub fn v1(
         fixed_shards: Vec<AccountId>,
         boundary_accounts: Vec<AccountId>,
-        shards_split_map: Option<Vec<Vec<ShardId>>>,
+        shards_split_map: Option<ShardSplitMap>,
         version: ShardVersion,
     ) -> Self {
         Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, shards_split_map, version })

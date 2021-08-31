@@ -1239,8 +1239,8 @@ impl EpochManager {
                 .iter()
                 .map(|shard_id| {
                     next_shard_layout.get_split_shards(*shard_id).cloned().ok_or(format!(
-                        "cannot find parent shard for shard {} in layout {:?}",
-                        *shard_id, next_shard_layout
+                        "cannot find split shards for shard {} in layout {:?}, next_shard_layout: {:?}, epoch_id: {:?}, next_epoch_id: {:?}",
+                        *shard_id, shard_layout, next_shard_layout, epoch_id, next_epoch_id,
                     ))
                 })
                 .collect();
