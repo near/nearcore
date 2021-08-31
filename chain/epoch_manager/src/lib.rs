@@ -3697,7 +3697,7 @@ mod tests {
         .unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        for i in 1..6 {
+        for i in 1..8 {
             let mut block_info = block_info(
                 h[i],
                 i as u64,
@@ -3715,19 +3715,59 @@ mod tests {
             }
             epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
+        let epochs = vec![EpochId::default(), EpochId(h[2]), EpochId(h[4])];
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
             new_protocol_version - 1
         );
+        assert_eq!(*epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::default(),);
         assert_eq!(
-            *epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(),
-            ShardLayout::default(),
-        );
-        assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
             new_protocol_version
         );
-        assert_eq!(*epoch_manager.get_shard_layout(&EpochId(h[4])).unwrap(), shard_layout);
+        assert_eq!(*epoch_manager.get_shard_layout(&epochs[2]).unwrap(), shard_layout);
+
+        // Check split shards
+        // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+        assert_eq!(
+            epoch_manager.get_split_shards_if_shards_will_change(&h[3], vec![]).unwrap(),
+            None
+        );
+        assert_eq!(
+            epoch_manager.get_split_shards_if_shards_will_change(&h[6], vec![]).unwrap(),
+            None
+        );
+        for i in 4..=5 {
+            assert_eq!(
+                epoch_manager
+                    .get_split_shards_if_shards_will_change(&h[i], vec![])
+                    .unwrap()
+                    .unwrap(),
+                HashMap::new(),
+            );
+            assert_eq!(
+                epoch_manager
+                    .get_split_shards_if_shards_will_change(&h[i], vec![0])
+                    .unwrap()
+                    .unwrap(),
+                vec![(0, vec![0, 1, 2, 3])].into_iter().collect::<HashMap<_, _>>(),
+            );
+            assert!(epoch_manager.get_split_shards_if_shards_will_change(&h[i], vec![1]).is_err());
+        }
+
+        let account2 = "test2".parse().unwrap();
+        // check that even though "test2" does not track shard 0 in epochs[2], it still cares about shard 0 at epochs[1] because
+        // it will split to some shards that it cares about
+        assert_eq!(
+            epoch_manager.cares_about_shard_in_epoch(epochs[2].clone(), &account2, 0).unwrap(),
+            false
+        );
+        assert_eq!(
+            epoch_manager
+                .cares_about_shard_next_epoch_from_prev_block(&h[4], &account2, 0)
+                .unwrap(),
+            true
+        );
     }
 
     #[test]
