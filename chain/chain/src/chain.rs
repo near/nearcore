@@ -1204,11 +1204,11 @@ impl Chain {
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
-        (0..self.runtime_adapter.num_shards(&epoch_id)?)
+        Ok((0..self.runtime_adapter.num_shards(&epoch_id)?)
             .filter(|shard_id| {
                 Self::should_catch_up_shard(self.runtime_adapter(), me, parent_hash, *shard_id)
             })
-            .collect()
+            .collect())
     }
 
     fn should_catch_up_shard(
