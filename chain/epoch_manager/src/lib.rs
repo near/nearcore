@@ -773,8 +773,10 @@ impl EpochManager {
                     return Ok(true);
                 }
             }
+            Ok(false)
+        } else {
+            self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
         }
-        self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
     }
 
     /// Returns true if next block after given block hash is in the new epoch.
