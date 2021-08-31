@@ -9,7 +9,7 @@ pub enum BlockReference {
     SyncCheckpoint(near_primitives::types::SyncCheckpoint),
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcBlockError {
     #[error("Block not found: {error_message}")]
