@@ -126,7 +126,7 @@ impl GenesisStateApplier {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(&mut state_update, account_id, &code);
-                    assert_eq!(code.hash().clone(), acc.code_hash());
+                    assert_eq!(*code.hash(), acc.code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(&mut state_update, account_id, public_key, &access_key);

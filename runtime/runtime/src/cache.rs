@@ -10,7 +10,7 @@ pub(crate) fn get_code(
 ) -> Result<Option<Arc<ContractCode>>, StorageError> {
     let code = f()?;
     Ok(code.map(|code| {
-        assert_eq!(code_hash, code.hash().clone());
+        assert_eq!(code_hash, *code.hash());
         Arc::new(code)
     }))
 }
