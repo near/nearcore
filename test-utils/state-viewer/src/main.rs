@@ -15,12 +15,14 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_epoch_manager::EpochManager;
 use near_logger_utils::init_integration_logger;
 use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -309,6 +311,8 @@ fn apply_chain_range(
             continue;
         };
         let block = chain_store.get_block(&block_hash).unwrap().clone();
+        let shard_uid =
+            runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
             info!(target:"state-viewer", "Skipping the genesis block #{}.", height);
             skipped_blocks += 1;
@@ -369,8 +373,10 @@ fn apply_chain_range(
                 )
                 .unwrap()
         } else {
-            let chunk_extra =
-                chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            let chunk_extra = chain_store
+                .get_chunk_extra(block.header().prev_hash(), &shard_uid)
+                .unwrap()
+                .clone();
 
             runtime_adapter
                 .apply_transactions(
@@ -408,7 +414,7 @@ fn apply_chain_range(
         if verbose {
             println!("block_height: {}, block_hash: {}", height, block_hash);
             println!("chunk_extra: {:#?}", chunk_extra);
-            let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, shard_id);
+            let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
             println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
             println!("outcomes: {:#?}", apply_result.outcomes);
         }
@@ -463,6 +469,7 @@ fn apply_block_at_height(
     ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk =
             chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
@@ -507,7 +514,7 @@ fn apply_block_at_height(
             .unwrap()
     } else {
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
 
         runtime_adapter
             .apply_transactions(
@@ -544,7 +551,7 @@ fn apply_block_at_height(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, chunk_extra
     );
-    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, shard_id) {
+    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
         println!("Existing chunk extra: {:?}", chunk_extra);
     } else {
         println!("no existing chunk extra available");
@@ -572,15 +579,18 @@ fn view_chain(
             }
         }
     };
+    let mut epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .expect("Failed to start Epoch Manager");
+    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
     for (i, chunk_header) in block.chunks().iter().enumerate() {
         if chunk_header.height_included() == block.header().height() {
-            chunk_extras.push((
-                i,
-                chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone(),
-            ));
+            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+            chunk_extras
+                .push((i, chain_store.get_chunk_extra(&block.hash(), &shard_uid).unwrap().clone()));
             chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
         }
     }
@@ -590,7 +600,8 @@ fn view_chain(
         .enumerate()
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
-                Some((i, chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone()))
+                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+                Some((i, chain_store.get_chunk_extra(&block.hash(), &shard_uid).unwrap().clone()))
             } else {
                 None
             }
@@ -941,13 +952,12 @@ fn main() {
             let account_id = args.value_of("account").expect("account is required");
             let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
             let epoch_id = &runtime.get_epoch_id(&header.hash()).unwrap();
-            let shard_layout = runtime.get_shard_layout(epoch_id).unwrap();
 
             for (shard_id, state_root) in state_roots.iter().enumerate() {
                 let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
+                let shard_uid = runtime.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
                 if let Ok(contract_code) = runtime.view_contract_code(
-                    shard_id as u64,
-                    &shard_layout,
+                    &shard_uid,
                     CryptoHash::try_from(state_root_vec).unwrap(),
                     &account_id.parse().unwrap(),
                 ) {

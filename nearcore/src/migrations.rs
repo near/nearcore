@@ -10,6 +10,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::{
     ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
@@ -230,6 +231,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
             None,
         );
         let shard_id = 0;
+        let shard_uid = ShardUId::default();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let start_height = 34691244;
         for block_height in start_height..=head.height {
@@ -238,7 +240,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                 if block.chunks()[shard_id as usize].height_included() != block.header().height() {
                     let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
                     let new_extra = chain_store_update
-                        .get_chunk_extra(block.header().prev_hash(), shard_id)
+                        .get_chunk_extra(block.header().prev_hash(), &shard_uid)
                         .unwrap()
                         .clone();
 

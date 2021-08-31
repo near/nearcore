@@ -223,7 +223,10 @@ impl GenesisBuilder {
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
-                chunk_header.shard_id(),
+                &ShardUId::from_shard_id_and_layout(
+                    chunk_header.shard_id(),
+                    &self.genesis.config.shard_layout,
+                ),
                 ChunkExtra::new(
                     state_root,
                     CryptoHash::default(),

@@ -548,9 +548,10 @@ impl Client {
             validator_signer.validator_id()
         );
 
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
         let chunk_extra = self
             .chain
-            .get_chunk_extra(&prev_block_hash, shard_id)
+            .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
@@ -1476,7 +1477,8 @@ impl Client {
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
-            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
+            let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
+            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't

@@ -474,6 +474,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
+    }
+
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -832,7 +836,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardUId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
