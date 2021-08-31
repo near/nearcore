@@ -21,11 +21,9 @@ import nayduck
 # List of globs of Python scripts in the pytest/tests directory which are not
 # test but rather helper scripts and libraries.
 HELPER_SCRIPTS = [
-    'companion.py',
     'delete_remote_nodes.py',
     'mocknet/load_testing_helper.py',
     'stress/hundred_nodes/*',
-    'tests/delete_remote_nodes.py',
 ]
 
 

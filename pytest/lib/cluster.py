@@ -557,7 +557,7 @@ class AzureNode(BaseNode):
             self.wait_for_rpc(timeout=30)
 
         def kill(self):
-            cmd = ('killall -9 neard; pkill -9 -e -f companion.py')
+            cmd = 'killall -9 neard'
             post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
             res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
             json_res = json.loads(res.text)
@@ -570,14 +570,6 @@ class AzureNode(BaseNode):
 
         def rpc_addr(self):
             return (self.ip, self.rpc_port)
-
-        def companion(self, *args):
-            post = {'ip': self.ip, 'args': ' '.join(map(str, args)), 'token': self.token}
-            res = requests.post('http://40.112.59.229:5000/companion', json=post)
-            json_res = json.loads(res.text)
-            if json_res['stderr'] != '':
-                logger.info(json_res['stderr'])
-                sys.exit()
 
 
 def spin_up_node(config,
