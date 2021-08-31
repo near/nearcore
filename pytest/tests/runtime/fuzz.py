@@ -6,11 +6,13 @@ import sys
 def run_fuzz():
     env = os.environ.copy()
     env["RUSTC_BOOTSTRAP"] = "1"
-    fuzzing = subprocess.Popen(('cargo', 'fuzz', 'run', 'runtime-fuzzer',
-                                '--', '-len_control=0' '-prefer_small=0', '-max_len=4000000'),
+    cpus = len(os.sched_getaffinity(0))
+    fuzzing = subprocess.Popen(('cargo', 'fuzz', 'run', '--jobs', str(cpus),
+                                'runtime-fuzzer', '--', '-len_control=0'
+                                '-prefer_small=0', '-max_len=4000000'),
                                env=env, cwd='../test-utils/runtime-tester/fuzz',
                                stderr=subprocess.PIPE)
-    out, err = fuzzing.communicate()
+    _, err = fuzzing.communicate()
 
     sys.stderr.buffer.write(err)
 
