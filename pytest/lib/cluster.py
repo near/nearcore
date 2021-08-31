@@ -384,10 +384,6 @@ class LocalNode(BaseNode):
         network.resume_network(self.pid.value)
 
 
-class BotoNode(BaseNode):
-    pass
-
-
 class GCloudNode(BaseNode):
 
     def __init__(self, *args):
