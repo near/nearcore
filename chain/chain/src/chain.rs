@@ -1010,7 +1010,7 @@ impl Chain {
         block: &Block,
     ) -> Result<(), Error> {
         let prev_hash = *block.header().prev_hash();
-        let shards_to_dl = self.get_shards_to_dl_state(me, &prev_hash);
+        let shards_to_dl = self.get_shards_to_dl_state(me, &prev_hash)?;
         let prev_block = self.get_block(&prev_hash)?;
 
         if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
@@ -1202,9 +1202,9 @@ impl Chain {
         &self,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
-    ) -> Vec<ShardId> {
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        (0..self.runtime_adapter.num_shards(&epoch_id).unwrap())
+    ) -> Result<Vec<ShardId>, Error> {
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
+        (0..self.runtime_adapter.num_shards(&epoch_id)?)
             .filter(|shard_id| {
                 Self::should_catch_up_shard(self.runtime_adapter(), me, parent_hash, *shard_id)
             })
@@ -1218,7 +1218,7 @@ impl Chain {
         shard_id: ShardId,
     ) -> bool {
         let will_shard_layout_change =
-            runtime_adapter.will_shard_layout_change(parent_hash).unwrap();
+            runtime_adapter.will_shard_layout_change(parent_hash).unwrap_or(false);
         // if shard layout will change the next epoch, we should catch up the shard regardless
         // whether we already have the shard's state this epoch, because we need to generate
         // new states for shards split from the current shard for the next epoch

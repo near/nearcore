@@ -763,6 +763,7 @@ impl EpochManager {
         if let Some(split_shards) =
             self.get_split_shards_if_shards_will_change(parent_hash, vec![shard_id])?
         {
+            // we can safely unwrap here because split_shards will always has `shard_id` in there
             for next_shard_id in split_shards.get(&shard_id).unwrap() {
                 if self.cares_about_shard_in_epoch(
                     next_epoch_id.clone(),
