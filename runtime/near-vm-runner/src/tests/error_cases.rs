@@ -840,3 +840,32 @@ fn test_burn_gas_limit() {
         );
     })
 }
+
+fn attempt_to_modify_gas_counter() -> Vec<u8> {
+    wat::parse_str(
+        r#"
+            (module
+              (import "env" "prepaid_gas" (func (;0;) (result i64)))
+              (export "hello" (func 1))
+              (func (;1;)
+                (i64.const 0)
+                (global.set 0)
+              )
+            )"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn test_attempt_to_modify_gas_counter() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let (_, err) =
+            make_simple_contract_call_vm(&attempt_to_modify_gas_counter(), "hello", vm_kind);
+        assert_eq!(
+            err,
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Deserialization)
+            )))
+        );
+    });
+}
