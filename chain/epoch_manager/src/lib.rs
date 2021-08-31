@@ -1241,7 +1241,7 @@ impl EpochManager {
                     ))
                 })
                 .collect();
-            let split_shards = split_shards.map_err(|str| EpochError::ShardingError(str))?;
+            let split_shards = split_shards.map_err(|s| EpochError::ShardingError(s))?;
             let split_shards: HashMap<_, _> =
                 shards.into_iter().zip(split_shards.into_iter()).collect();
             Ok(Some(split_shards))
