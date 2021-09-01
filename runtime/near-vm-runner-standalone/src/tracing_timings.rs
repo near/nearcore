@@ -54,6 +54,7 @@ where
 
     fn on_close(&self, id: Id, ctx: Context<S>) {
         let span = ctx.span(&id).unwrap();
+        #[allow(deprecated)]
         let level = ctx.scope().count();
 
         let ext = span.extensions();

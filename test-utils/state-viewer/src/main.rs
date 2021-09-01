@@ -599,20 +599,20 @@ fn view_chain(
 
     if height.is_none() {
         let head = chain_store.head().unwrap();
-        println!("head: {:?}", head);
+        println!("head: {:#?}", head);
     } else {
         println!("block height {}, hash {}", block.header().height(), block.hash());
     }
 
     for (shard_id, chunk_extra) in chunk_extras {
-        println!("shard {}, chunk extra: {:?}", shard_id, chunk_extra);
+        println!("shard {}, chunk extra: {:#?}", shard_id, chunk_extra);
     }
     if view_block {
-        println!("last block: {:?}", block);
+        println!("last block: {:#?}", block);
     }
     if view_chunks {
         for (shard_id, chunk) in chunks {
-            println!("shard {}, chunk: {:?}", shard_id, chunk);
+            println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
     }
 }
