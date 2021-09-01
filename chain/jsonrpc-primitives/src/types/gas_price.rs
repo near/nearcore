@@ -15,7 +15,7 @@ pub struct RpcGasPriceResponse {
     pub gas_price_view: near_primitives::views::GasPriceView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcGasPriceError {
     #[error("Internal error: {error_message}")]

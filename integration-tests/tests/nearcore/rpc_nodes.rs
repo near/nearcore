@@ -247,10 +247,9 @@ fn test_protocol_config_rpc() {
         let config_response = client
             .EXPERIMENTAL_protocol_config(
                 near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                    block_reference:
-                        near_jsonrpc_primitives::types::blocks::BlockReference::Finality(
-                            Finality::None,
-                        ),
+                    block_reference: near_primitives::types::BlockReference::Finality(
+                        Finality::None,
+                    ),
                 },
             )
             .await
