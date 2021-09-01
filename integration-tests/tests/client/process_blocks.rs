@@ -34,11 +34,15 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
@@ -55,6 +59,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
@@ -2503,6 +2509,76 @@ fn test_refund_receipts_processing() {
         assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     }
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
+}
+
+#[test]
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+fn test_shard_layout_upgrade() {
+    init_test_logger();
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
+    let simple_nightshade_protocol_version = ProtocolFeature::SimpleNightshade.protocol_version();
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = simple_nightshade_protocol_version - 1;
+    let new_num_shards = 4;
+    genesis.config.simple_nightshade_shard_config = Some(ShardConfig {
+        num_block_producer_seats_per_shard: vec![2; new_num_shards],
+        avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
+        shard_layout: ShardLayout::v1(
+            vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        ),
+    });
+    let genesis_height = genesis.config.genesis_height;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 2, create_nightshade_runtimes(&genesis, 2));
+    // ShardLayout changes at epoch 2
+    // Test that state is caught up correctly at epoch 1 (block height 6-10)
+    // TODO: change this number to 16 once splitting states is fully implemented
+    for i in 1..=10 {
+        let head = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
+        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+        let (encoded_chunk, merkle_paths, receipts) =
+            create_chunk_on_height(&mut env.clients[index], i);
+
+        for j in 0..2 {
+            let mut chain_store =
+                ChainStore::new(env.clients[j].chain.store().owned_store(), genesis_height);
+            env.clients[j]
+                .shards_mgr
+                .distribute_encoded_chunk(
+                    encoded_chunk.clone(),
+                    merkle_paths.clone(),
+                    receipts.clone(),
+                    &mut chain_store,
+                )
+                .unwrap();
+        }
+
+        let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
+        // upgrade to new protocol version but in the second epoch one node vote for the old version.
+        if i != 10 {
+            set_block_protocol_version(
+                &mut block,
+                block_producer.clone(),
+                simple_nightshade_protocol_version,
+            );
+        }
+        for j in 0..2 {
+            let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
+            assert!(res.is_ok());
+            env.clients[j].run_catchup(&vec![]).unwrap();
+        }
+    }
 }
 
 #[test]

@@ -31,7 +31,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
-    ShardChunkHeader,
+    ShardChunkHeader, ShardInfo,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -46,7 +46,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
-use near_client_primitives::types::{Error, ShardSyncDownload};
+use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -1578,10 +1578,45 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
+            let new_shard_sync = {
+                let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
+                let need_to_split_states =
+                    self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
+                if need_to_split_states {
+                    // If the client already has the state for this epoch, skip the downloading phase
+                    let new_shard_sync = state_sync_info
+                        .shards
+                        .iter()
+                        .filter_map(|ShardInfo(shard_id, _)| {
+                            let shard_id = *shard_id;
+                            if self.runtime_adapter.cares_about_shard(
+                                me.as_ref(),
+                                &prev_hash,
+                                shard_id,
+                                true,
+                            ) {
+                                Some((
+                                    shard_id,
+                                    ShardSyncDownload {
+                                        downloads: vec![],
+                                        status: ShardSyncStatus::StateSplit,
+                                    },
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    debug!(target: "catchup", "need to split states for shards {:?}", new_shard_sync);
+                    new_shard_sync
+                } else {
+                    HashMap::new()
+                }
+            };
             let state_sync_timeout = self.config.state_sync_timeout;
             let (state_sync, new_shard_sync) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
-                    (StateSync::new(network_adapter1, state_sync_timeout), HashMap::new())
+                    (StateSync::new(network_adapter1, state_sync_timeout), new_shard_sync)
                 });
 
             debug!(

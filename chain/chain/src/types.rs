@@ -430,6 +430,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client is tracking the shard
@@ -445,6 +447,9 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Whether the client cares about some shard in the next epoch.
+    //  Note that `shard_id` always refers to a shard in the current epoch
+    //  If shard layout will change next epoch,
+    //  returns true if it cares about any shard that `shard_id` will split to
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client will track the shard
     /// * If `account_id` is not None, it is supposed to be a validator

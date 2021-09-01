@@ -370,7 +370,7 @@ impl EpochManager {
         block_info: &BlockInfo,
         last_block_hash: &CryptoHash,
         rng_seed: RngSeed,
-    ) -> Result<EpochId, EpochError> {
+    ) -> Result<(), EpochError> {
         let epoch_summary = self.collect_blocks_info(&block_info, last_block_hash)?;
         let epoch_info = self.get_epoch_info(&block_info.epoch_id())?;
         let epoch_protocol_version = epoch_info.protocol_version();
@@ -381,11 +381,11 @@ impl EpochManager {
         self.save_epoch_validator_info(store_update, &block_info.epoch_id(), &epoch_summary)?;
 
         let EpochSummary {
-            prev_epoch_last_block_hash,
             all_proposals,
             validator_kickout,
             validator_block_chunk_stats,
             next_version,
+            ..
         } = epoch_summary;
 
         let (validator_reward, minted_amount) = {
@@ -424,11 +424,14 @@ impl EpochManager {
             }
             Err(err) => return Err(err),
         };
+        let next_next_epoch_id = EpochId(*last_block_hash);
+        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {}", next_next_epoch_info.epoch_height(), 
+               &next_next_epoch_id,
+                   next_next_epoch_info.protocol_version());
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
-        self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
-        // Return next epoch (T+1) id as hash of last block in previous epoch (T-1).
-        Ok(EpochId(prev_epoch_last_block_hash))
+        self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;
+        Ok(())
     }
 
     pub fn record_block_info(
@@ -763,6 +766,9 @@ impl EpochManager {
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout will change next epoch, returns true if it cares about any shard
+    // that `shard_id` will split to
     pub fn cares_about_shard_next_epoch_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
@@ -770,7 +776,23 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
+        if let Some(split_shards) =
+            self.get_split_shards_if_shards_will_change(parent_hash, vec![shard_id])?
+        {
+            // we can safely unwrap here because split_shards will always has `shard_id` in there
+            for next_shard_id in split_shards.get(&shard_id).unwrap() {
+                if self.cares_about_shard_in_epoch(
+                    next_epoch_id.clone(),
+                    account_id,
+                    *next_shard_id,
+                )? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        } else {
+            self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
+        }
     }
 
     /// Returns true if next block after given block hash is in the new epoch.
@@ -1208,6 +1230,34 @@ impl EpochManager {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         let shard_layout = &self.config.for_protocol_version(protocol_version).shard_layout;
         Ok(shard_layout)
+    }
+
+    pub fn get_split_shards_if_shards_will_change(
+        &mut self,
+        parent_hash: &CryptoHash,
+        shards: Vec<ShardId>,
+    ) -> Result<Option<HashMap<ShardId, Vec<ShardId>>>, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?.clone();
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?.clone();
+        if shard_layout == next_shard_layout {
+            Ok(None)
+        } else {
+            let split_shards: Result<Vec<Vec<ShardId>>, String> = shards
+                .iter()
+                .map(|shard_id| {
+                    next_shard_layout.get_split_shards(*shard_id).cloned().ok_or(format!(
+                        "cannot find split shards for shard {} in layout {:?}, next_shard_layout: {:?}, epoch_id: {:?}, next_epoch_id: {:?}",
+                        *shard_id, shard_layout, next_shard_layout, epoch_id, next_epoch_id,
+                    ))
+                })
+                .collect();
+            let split_shards = split_shards.map_err(|s| EpochError::ShardingError(s))?;
+            let split_shards: HashMap<_, _> =
+                shards.into_iter().zip(split_shards.into_iter()).collect();
+            Ok(Some(split_shards))
+        }
     }
 
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
@@ -3631,7 +3681,7 @@ mod tests {
         let shard_layout = ShardLayout::v1(
             vec!["aurora".parse().unwrap()],
             vec!["hhhh", "oooo"].into_iter().map(|x| x.parse().unwrap()).collect(),
-            Some(vec![0, 0, 0, 0]),
+            Some(vec![vec![0, 1, 2, 3]]),
             1,
         );
         let shard_config = ShardConfig {
@@ -3656,7 +3706,7 @@ mod tests {
         .unwrap();
         let h = hash_range(8);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
-        for i in 1..6 {
+        for i in 1..8 {
             let mut block_info = block_info(
                 h[i],
                 i as u64,
@@ -3674,19 +3724,59 @@ mod tests {
             }
             epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
         }
+        let epochs = vec![EpochId::default(), EpochId(h[2]), EpochId(h[4])];
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
             new_protocol_version - 1
         );
+        assert_eq!(*epoch_manager.get_shard_layout(&epochs[1]).unwrap(), ShardLayout::default(),);
         assert_eq!(
-            *epoch_manager.get_shard_layout(&EpochId(h[2])).unwrap(),
-            ShardLayout::default(),
-        );
-        assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[4])).unwrap().protocol_version(),
+            epoch_manager.get_epoch_info(&epochs[2]).unwrap().protocol_version(),
             new_protocol_version
         );
-        assert_eq!(*epoch_manager.get_shard_layout(&EpochId(h[4])).unwrap(), shard_layout);
+        assert_eq!(*epoch_manager.get_shard_layout(&epochs[2]).unwrap(), shard_layout);
+
+        // Check split shards
+        // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+        assert_eq!(
+            epoch_manager.get_split_shards_if_shards_will_change(&h[3], vec![]).unwrap(),
+            None
+        );
+        assert_eq!(
+            epoch_manager.get_split_shards_if_shards_will_change(&h[6], vec![]).unwrap(),
+            None
+        );
+        for i in 4..=5 {
+            assert_eq!(
+                epoch_manager
+                    .get_split_shards_if_shards_will_change(&h[i], vec![])
+                    .unwrap()
+                    .unwrap(),
+                HashMap::new(),
+            );
+            assert_eq!(
+                epoch_manager
+                    .get_split_shards_if_shards_will_change(&h[i], vec![0])
+                    .unwrap()
+                    .unwrap(),
+                vec![(0, vec![0, 1, 2, 3])].into_iter().collect::<HashMap<_, _>>(),
+            );
+            assert!(epoch_manager.get_split_shards_if_shards_will_change(&h[i], vec![1]).is_err());
+        }
+
+        let account2 = "test2".parse().unwrap();
+        // check that even though "test2" does not track shard 0 in epochs[2], it still cares about shard 0 at epochs[1] because
+        // it will split to some shards that it cares about
+        assert_eq!(
+            epoch_manager.cares_about_shard_in_epoch(epochs[2].clone(), &account2, 0).unwrap(),
+            false
+        );
+        assert_eq!(
+            epoch_manager
+                .cares_about_shard_next_epoch_from_prev_block(&h[4], &account2, 0)
+                .unwrap(),
+            true
+        );
     }
 
     #[test]
