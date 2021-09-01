@@ -351,7 +351,7 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes" => {
                 let rpc_state_changes_request =
-                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest::parse(
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest::parse(
                         request.params,
                     )?;
                 let state_changes =
@@ -361,7 +361,7 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes_in_block" => {
                 let rpc_state_changes_request =
-                    near_jsonrpc_primitives::types::changes::RpcStateChangesRequest::parse(
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest::parse(
                         request.params,
                     )?;
                 let state_changes = self.changes_in_block(rpc_state_changes_request).await?;
@@ -840,9 +840,9 @@ impl JsonRpcHandler {
 
     async fn changes_in_block(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesRequest,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
         let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
@@ -850,7 +850,7 @@ impl JsonRpcHandler {
         let block_hash = block.header.hash.clone();
         let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
 
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
             block_hash: block.header.hash,
             changes,
         })
@@ -858,9 +858,9 @@ impl JsonRpcHandler {
 
     async fn changes_in_block_by_type(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
         let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
@@ -874,7 +874,7 @@ impl JsonRpcHandler {
             })
             .await??;
 
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesResponse {
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
             block_hash: block.header.hash,
             changes,
         })

@@ -16,7 +16,7 @@ impl RpcSandboxPatchStateRequest {
 #[derive(Deserialize, Serialize)]
 pub struct RpcSandboxPatchStateResponse {}
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcSandboxPatchStateError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

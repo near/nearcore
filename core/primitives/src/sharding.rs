@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
@@ -21,6 +21,7 @@ use std::sync::Arc;
     BorshSerialize,
     BorshDeserialize,
     Serialize,
+    Deserialize,
     Hash,
     Eq,
     PartialEq,

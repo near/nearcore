@@ -76,4 +76,5 @@ if len(validator_info['result']['next_validators']) < 2:
 for i in range(2):
     account0 = nodes[0].get_account("test%s" % i)['result']
     account1 = nodes[1].get_account("test%s" % i)['result']
+    print(account0, account1)
     assert account0 == account1, "state diverged"
