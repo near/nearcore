@@ -107,7 +107,7 @@ impl std::error::Error for StorageError {}
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
-    /// TX signer_id is not in a valid format or not satisfy requirements see `near_runtime_utils::utils::is_valid_account_id`
+    /// TX signer_id is not a valid AccountId
     InvalidSignerId { signer_id: String },
     /// TX signer_id is not found in a storage
     SignerDoesNotExist { signer_id: AccountId },
@@ -115,7 +115,7 @@ pub enum InvalidTxError {
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
     /// Transaction nonce is larger than the upper bound given by the block height
     NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
-    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
+    /// TX receiver_id is not a valid AccountId
     InvalidReceiverId { receiver_id: String },
     /// TX signature is not valid
     InvalidSignature,
