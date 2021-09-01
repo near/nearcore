@@ -749,6 +749,8 @@ pub enum EpochError {
     IOErr(String),
     /// Given account ID is not a validator in the given epoch ID.
     NotAValidator(AccountId, EpochId),
+    /// Error getting information for a shard
+    ShardingError(String),
 }
 
 impl std::error::Error for EpochError {}
@@ -769,6 +771,7 @@ impl Display for EpochError {
             EpochError::NotAValidator(account_id, epoch_id) => {
                 write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
             }
+            EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
         }
     }
 }
@@ -785,6 +788,7 @@ impl Debug for EpochError {
             EpochError::NotAValidator(account_id, epoch_id) => {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
             }
+            EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
         }
     }
 }
