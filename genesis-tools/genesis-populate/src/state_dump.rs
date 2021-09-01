@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use near_primitives::types::StateRoot;
 use near_store::db::DBCol::ColState;
@@ -17,11 +17,11 @@ pub struct StateDump {
 }
 
 impl StateDump {
-    pub fn from_dir<P: AsRef<std::path::Path>>(dir: P, target_store_path: P) -> Self {
+    pub fn from_dir(dir: &Path, target_store_path: &Path) -> Self {
         let store = create_store(target_store_path);
-        let state_file = dir.as_ref().join(STATE_DUMP_FILE);
+        let state_file = dir.join(STATE_DUMP_FILE);
         store.load_from_file(ColState, state_file.as_path()).expect("Failed to read state dump");
-        let roots_files = dir.as_ref().join(GENESIS_ROOTS_FILE);
+        let roots_files = dir.join(GENESIS_ROOTS_FILE);
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");

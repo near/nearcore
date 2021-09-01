@@ -39,11 +39,12 @@ use crate::migrations::v8_to_v9::{
 };
 use crate::trie::{TrieCache, TrieCachingStorage};
 use crate::{create_store, Store, StoreUpdate, Trie, TrieUpdate, FINAL_HEAD_KEY, HEAD_KEY};
+use std::path::Path;
 
 pub mod v6_to_v7;
 pub mod v8_to_v9;
 
-pub fn get_store_version<P: AsRef<std::path::Path>>(path: P) -> DbVersion {
+pub fn get_store_version(path: &Path) -> DbVersion {
     RocksDB::get_version(path).expect("Failed to open the database")
 }
 
@@ -120,7 +121,7 @@ pub fn fill_col_transaction_refcount(store: &Store) {
     store_update.commit().expect("Failed to migrate");
 }
 
-pub fn migrate_6_to_7<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_6_to_7(path: &Path) {
     let db = Arc::pin(RocksDB::new_v6(path).expect("Failed to open the database"));
     let store = Store::new(db);
     let mut store_update = store.store_update();
@@ -131,7 +132,7 @@ pub fn migrate_6_to_7<P: AsRef<std::path::Path>>(path: P) {
     store_update.commit().expect("Failed to migrate")
 }
 
-pub fn migrate_7_to_8<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_7_to_8(path: &Path) {
     let store = create_store(path);
     let mut store_update = store.store_update();
     for (key, _) in store.iter_without_rc_logic(ColStateParts) {
@@ -142,14 +143,14 @@ pub fn migrate_7_to_8<P: AsRef<std::path::Path>>(path: P) {
 }
 
 // No format change. Recompute ColTransactions and ColReceiptIdToShardId because they could be inconsistent.
-pub fn migrate_8_to_9<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_8_to_9(path: &Path) {
     let store = create_store(path);
     repair_col_transactions(&store);
     repair_col_receipt_id_to_shard_id(&store);
     set_store_version(&store, 9);
 }
 
-pub fn migrate_9_to_10<P: AsRef<std::path::Path>>(path: P, is_archival: bool) {
+pub fn migrate_9_to_10(path: &Path, is_archival: bool) {
     let store = create_store(path);
     let protocol_version = 38; // protocol_version at the time this migration was written
     if is_archival {
@@ -245,7 +246,7 @@ pub fn migrate_9_to_10<P: AsRef<std::path::Path>>(path: P, is_archival: bool) {
     set_store_version(&store, 10);
 }
 
-pub fn migrate_10_to_11<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_10_to_11(path: &Path) {
     let store = create_store(path);
     let mut store_update = store.store_update();
     let head = store.get_ser::<Tip>(ColBlockMisc, HEAD_KEY).unwrap().expect("head must exist");
@@ -275,7 +276,7 @@ pub fn migrate_10_to_11<P: AsRef<std::path::Path>>(path: P) {
     set_store_version(&store, 11);
 }
 
-pub fn migrate_11_to_12<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_11_to_12(path: &Path) {
     let store = create_store(path);
     recompute_col_rc(
         &store,
@@ -387,7 +388,7 @@ where
 }
 
 /// Lift all chunks to the versioned structure
-pub fn migrate_13_to_14<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_13_to_14(path: &Path) {
     let store = create_store(path);
 
     map_col(&store, DBCol::ColPartialChunks, |pec: PartialEncodedChunkV1| {
@@ -408,7 +409,7 @@ pub fn migrate_13_to_14<P: AsRef<std::path::Path>>(path: P) {
 }
 
 /// Make execution outcome ids in `ColOutcomeIds` ordered by replaying the chunks.
-pub fn migrate_14_to_15<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_14_to_15(path: &Path) {
     let store = create_store(path);
     let trie_store =
         Box::new(TrieCachingStorage::new(store.clone(), TrieCache::new(), ShardUId::default()));
@@ -563,7 +564,7 @@ pub fn migrate_14_to_15<P: AsRef<std::path::Path>>(path: P) {
     set_store_version(&store, 15);
 }
 
-pub fn migrate_17_to_18<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_17_to_18(path: &Path) {
     use std::convert::TryFrom;
 
     use near_primitives::challenge::SlashedValidator;
@@ -635,7 +636,7 @@ pub fn migrate_17_to_18<P: AsRef<std::path::Path>>(path: P) {
     set_store_version(&store, 18);
 }
 
-pub fn migrate_20_to_21<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_20_to_21(path: &Path) {
     let store = create_store(path);
     let mut store_update = store.store_update();
     store_update.delete(DBCol::ColBlockMisc, GENESIS_JSON_HASH_KEY);
@@ -644,7 +645,7 @@ pub fn migrate_20_to_21<P: AsRef<std::path::Path>>(path: P) {
     set_store_version(&store, 21);
 }
 
-pub fn migrate_21_to_22<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_21_to_22(path: &Path) {
     use near_primitives::epoch_manager::BlockInfoV1;
     use near_primitives::epoch_manager::SlashState;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
@@ -709,7 +710,7 @@ pub fn migrate_21_to_22<P: AsRef<std::path::Path>>(path: P) {
     set_store_version(&store, 22);
 }
 
-pub fn migrate_25_to_26<P: AsRef<std::path::Path>>(path: P) {
+pub fn migrate_25_to_26(path: &Path) {
     let store = create_store(path);
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::ColCachedContractCode);

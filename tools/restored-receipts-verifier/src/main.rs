@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     let matches = App::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
-                .default_value(default_home.to_str().unwrap())
+                .default_value_os(default_home.as_os_str())
                 .about("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
