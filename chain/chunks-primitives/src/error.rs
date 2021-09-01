@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidPartMessage,
@@ -10,12 +12,12 @@ pub enum Error {
     DuplicateChunkHeight,
     UnknownChunk,
     KnownPart,
-    ChainError(near_chain::Error),
+    ChainError(near_chain_primitives::Error),
     IOError(std::io::Error),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{:?}", self)
     }
 }
@@ -26,8 +28,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<near_chain::Error> for Error {
-    fn from(err: near_chain::Error) -> Self {
+impl From<near_chain_primitives::Error> for Error {
+    fn from(err: near_chain_primitives::Error) -> Self {
         Error::ChainError(err)
     }
 }

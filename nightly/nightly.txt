@@ -1,10 +1,9 @@
-# TODO(#4552): Those tests were identified as missing from any of the test list
-# files.  It’s not clear why so some investigation is necessary.  The tests need
-# to either be enabled or removed completely if they are no longer needed/valid.
-#./TODO-disabled-4552.txt
-
 ./sandbox.txt
 ./pytest.txt
 ./expensive.txt
 ./mocknet.txt
-./bridge.txt
+./fuzzing.txt
+
+# TODO(#4618): Those tests are currently broken.  Comment out while we’re
+# working on a fix / deciding whether to remove them.
+#./bridge.txt

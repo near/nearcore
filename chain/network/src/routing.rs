@@ -734,22 +734,6 @@ impl RoutingTable {
                 })
         }
     }
-
-    #[cfg(feature = "metric_recorder")]
-    pub fn get_raw_graph(&self) -> HashMap<PeerId, HashSet<PeerId>> {
-        let mut res = HashMap::with_capacity(self.raw_graph.adjacency.len());
-        for (key, neighbors) in self.raw_graph.adjacency.iter().enumerate() {
-            if self.raw_graph.used[key] {
-                let key = self.raw_graph.id2p[key].clone();
-                let neighbors = neighbors
-                    .iter()
-                    .map(|&node| self.raw_graph.id2p[node as usize].clone())
-                    .collect::<HashSet<_>>();
-                res.insert(key, neighbors);
-            }
-        }
-        res
-    }
 }
 
 pub struct ProcessEdgeResult {

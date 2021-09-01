@@ -8,10 +8,13 @@ use chrono::Utc;
 use num_rational::Rational;
 use tracing::debug;
 
+use near_chain_configs::ProtocolConfig;
 use near_chain_primitives::{Error, ErrorKind};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -19,7 +22,10 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
+use near_primitives::shard_layout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -49,10 +55,6 @@ use crate::types::{
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
-use near_chain_configs::ProtocolConfig;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::state_record::StateRecord;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -87,7 +89,8 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
-    u64::from((hash(account_id.as_ref().as_bytes()).0)[0]) % num_shards
+    let shard_layout = ShardLayout::v0(num_shards, 0);
+    shard_layout::account_id_to_shard_id(account_id, &shard_layout)
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -137,7 +140,7 @@ impl KeyValueRuntime {
         epoch_length: u64,
         no_gc: bool,
     ) -> Self {
-        let tries = ShardTries::new(store.clone(), num_shards);
+        let tries = ShardTries::new(store.clone(), 0, num_shards);
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
@@ -296,19 +299,27 @@ impl KeyValueRuntime {
 
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
-        (self.store.clone(), ((0..self.num_shards()).map(|_| StateRoot::default()).collect()))
+        (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
     }
 
     fn get_tries(&self) -> ShardTries {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        _block_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        Ok(self.tries.get_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_view_trie_for_shard(shard_id)
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        _block_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        Ok(self.tries.get_view_trie_for_shard(ShardUId { version: 0, shard_id: shard_id as u32 }))
     }
 
     fn verify_block_vrf(
@@ -446,17 +457,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id().clone())
     }
 
-    fn num_shards(&self) -> ShardId {
-        self.num_shards
+    fn num_shards(&self, _epoch_id: &EpochId) -> Result<ShardId, Error> {
+        Ok(self.num_shards)
+    }
+
+    fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
     fn num_total_parts(&self) -> usize {
@@ -473,8 +488,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        _epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        Ok(account_id_to_shard_id(account_id, self.num_shards))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -497,10 +516,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[epoch_valset.1];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
         if let Some(account_id) = account_id {
@@ -525,10 +544,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
-        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!((validators.len() as u64) % self.num_shards, 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
-        let coef = validators.len() as ShardId / self.num_shards();
+        let coef = validators.len() as ShardId / self.num_shards;
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         if let Some(account_id) = account_id {
             for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
@@ -546,6 +565,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_update: Option<StateRoot>,
         _transaction: &SignedTransaction,
         _verify_signature: bool,
+        _epoch_id: &EpochId,
         _current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
         Ok(None)
@@ -555,6 +575,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _gas_price: Balance,
         _gas_limit: Gas,
+        _epoch_id: &EpochId,
         _shard_id: ShardId,
         _state_root: StateRoot,
         _next_block_height: BlockHeight,
@@ -621,7 +642,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
-                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
+                assert_eq!(
+                    self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())?,
+                    shard_id
+                );
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
@@ -642,7 +666,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         for transaction in transactions {
-            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            assert_eq!(
+                self.account_id_to_shard_id(
+                    &transaction.transaction.signer_id,
+                    &EpochId::default()
+                )?,
+                shard_id
+            );
             if transaction.transaction.actions.is_empty() {
                 continue;
             }
@@ -682,7 +712,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
-            if self.account_id_to_shard_id(&from) != shard_id {
+            if self.account_id_to_shard_id(&from, &EpochId::default())? != shard_id {
                 // This is a receipt, was already debited
                 good_to_go = true;
             } else if let Some(balance) = state.amounts.get(&from) {
@@ -694,7 +724,9 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
 
             if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+                let new_receipt_hashes = if self.account_id_to_shard_id(&to, &EpochId::default())?
+                    == shard_id
+                {
                     state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
                     vec![]
                 } else {
@@ -714,7 +746,9 @@ impl RuntimeAdapter for KeyValueRuntime {
                     };
                     let receipt_hash = receipt.get_hash();
                     new_receipts
-                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                        .entry(
+                            self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())?,
+                        )
                         .or_insert_with(|| vec![])
                         .push(receipt);
                     vec![receipt_hash]
@@ -729,7 +763,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         gas_burnt: 0,
                         tokens_burnt: 0,
                         executor_id: to.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::V1,
                     },
                 });
             }
@@ -759,7 +793,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                shard_id,
+                ShardUId { version: 0, shard_id: shard_id as u32 },
                 TrieChanges::empty(state_root),
                 Default::default(),
                 block_hash.clone(),
@@ -869,6 +903,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn obtain_state_part(
         &self,
         _shard_id: ShardId,
+        _block_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -917,6 +952,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_state_root_node(
         &self,
         _shard_id: ShardId,
+        _block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
         Ok(StateRootNode {
@@ -1323,7 +1359,7 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::types::{AccountId, NumShards};
+    use near_primitives::types::{AccountId, EpochId, NumShards};
     use near_store::test_utils::create_test_store;
 
     use crate::RuntimeAdapter;
@@ -1333,11 +1369,13 @@ mod test {
     impl KeyValueRuntime {
         fn naive_build_receipt_hashes(&self, receipts: &[Receipt]) -> Vec<CryptoHash> {
             let mut receipts_hashes = vec![];
-            for shard_id in 0..self.num_shards() {
+            for shard_id in 0..self.num_shards {
                 let shard_receipts: Vec<Receipt> = receipts
                     .iter()
                     .filter(|&receipt| {
-                        self.account_id_to_shard_id(&receipt.receiver_id) == shard_id
+                        self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())
+                            .unwrap()
+                            == shard_id
                     })
                     .cloned()
                     .collect();
@@ -1374,7 +1412,8 @@ mod test {
         let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
         let naive_duration = start.elapsed();
         let start = Instant::now();
-        let prod_result = runtime_adapter.build_receipts_hashes(&receipts);
+        let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
+        let prod_result = runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster

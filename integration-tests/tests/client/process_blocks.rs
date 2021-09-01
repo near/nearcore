@@ -24,8 +24,6 @@ use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
-#[cfg(feature = "metric_recorder")]
-use near_network::recorder::MetricRecorder;
 use near_network::routing::EdgeInfo;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
 use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
@@ -41,6 +39,7 @@ use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
@@ -916,8 +915,6 @@ fn client_sync_headers() {
             sent_bytes_per_sec: 0,
             received_bytes_per_sec: 0,
             known_producers: vec![],
-            #[cfg(feature = "metric_recorder")]
-            metric_recorder: MetricRecorder::default(),
             peer_counter: 0,
         }));
         wait_or_panic(2000);
@@ -1547,7 +1544,12 @@ fn test_gc_after_state_sync() {
 #[test]
 fn test_process_block_after_state_sync() {
     let epoch_length = 1024;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    // test with shard_version > 0
+    let mut genesis = Genesis::test_sharded_new_version(
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
+        1,
+        vec![1],
+    );
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
@@ -1562,7 +1564,7 @@ fn test_process_block_after_state_sync() {
     let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
     let state_part = env.clients[0]
         .runtime_adapter
-        .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+        .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
         .unwrap();
     // reset cache
     for i in epoch_length * 3 - 1..sync_height - 1 {
@@ -2274,7 +2276,7 @@ fn test_catchup_gas_price_change() {
     };
     //let state_root = state_sync_header.chunk.header.inner.prev_state_root;
     let state_root_node =
-        env.clients[0].runtime_adapter.get_state_root_node(0, &state_root).unwrap();
+        env.clients[0].runtime_adapter.get_state_root_node(0, &sync_hash, &state_root).unwrap();
     let num_parts = get_num_state_parts(state_root_node.memory_usage);
     let state_sync_parts = (0..num_parts)
         .map(|i| env.clients[0].chain.get_state_response_part(0, i, sync_hash).unwrap())
@@ -2383,7 +2385,11 @@ fn test_refund_receipts_processing() {
 
     let epoch_length = 5;
     let min_gas_price = 10000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test_sharded_new_version(
+        vec!["test0".parse().unwrap(), "test1".parse().unwrap()],
+        1,
+        vec![1],
+    );
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     // set gas limit to be small
@@ -2422,7 +2428,7 @@ fn test_refund_receipts_processing() {
         let state_update = env.clients[0]
             .runtime_adapter
             .get_tries()
-            .new_trie_update(0, *chunk_extra.state_root());
+            .new_trie_update(ShardUId { version: 1, shard_id: 0 }, *chunk_extra.state_root());
         let delayed_indices =
             get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
@@ -2937,8 +2943,10 @@ fn test_congestion_receipt_execution() {
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
     let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
-    let state_update =
-        env.clients[0].runtime_adapter.get_tries().new_trie_update(0, *chunk_extra.state_root());
+    let state_update = env.clients[0]
+        .runtime_adapter
+        .get_tries()
+        .new_trie_update(ShardUId::default(), *chunk_extra.state_root());
     let delayed_indices =
         get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices)
             .unwrap()
@@ -3342,7 +3350,12 @@ mod storage_usage_fix_tests {
 
             let root =
                 env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().state_root().clone();
-            let trie = Rc::new(env.clients[0].runtime_adapter.get_trie_for_shard(0));
+            let trie = Rc::new(
+                env.clients[0]
+                    .runtime_adapter
+                    .get_trie_for_shard(0, block.header().prev_hash())
+                    .unwrap(),
+            );
             let state_update = TrieUpdate::new(trie.clone(), root);
             use near_primitives::account::Account;
             let mut account_test1_raw = state_update
@@ -3451,7 +3464,7 @@ mod contract_precompilation_tests {
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
             .runtime_adapter
-            .obtain_state_part(0, chunk_extra.state_root(), 0, 1)
+            .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
             .unwrap();
         env.clients[1]
             .runtime_adapter
@@ -3529,7 +3542,12 @@ mod contract_precompilation_tests {
         let state_root = chunk_extra.state_root().clone();
 
         let viewer = TrieViewer::default();
-        let trie = Rc::new(env.clients[1].runtime_adapter.get_trie_for_shard(0));
+        let trie = Rc::new(
+            env.clients[1]
+                .runtime_adapter
+                .get_trie_for_shard(0, block.header().prev_hash())
+                .unwrap(),
+        );
         let state_update = TrieUpdate::new(trie, state_root);
 
         let mut logs = vec![];

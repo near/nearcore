@@ -1,16 +1,22 @@
 use anyhow::Context;
 use clap::Clap;
+use genesis_populate::GenesisBuilder;
+use near_store::create_store;
 use near_vm_runner::VMKind;
-use nearcore::get_default_home;
+use nearcore::{get_default_home, get_store_path, load_config};
 use runtime_params_estimator::cases::run;
+use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
+use runtime_params_estimator::CostTable;
 use std::env;
 use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
+use std::time;
 
 #[derive(Clap)]
 struct CliArgs {
@@ -23,9 +29,12 @@ struct CliArgs {
     /// How many iterations per block are we going to try.
     #[clap(long, default_value = "10")]
     iters: usize,
-    /// How many accounts were generated with `genesis-populate`.
-    #[clap(long, default_value = "10000")]
+    /// Number of active accounts in the state (accounts used for estimation).
+    #[clap(long, default_value = "20000")]
     accounts_num: usize,
+    /// Number of additional accounts to add to the state, among which active accounts are selected.
+    #[clap(long, default_value = "200000")]
+    additional_accounts_num: usize,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -35,18 +44,63 @@ struct CliArgs {
     /// Only test contract compilation costs.
     #[clap(long)]
     compile_only: bool,
+    /// Render existing `costs.txt` as `RuntimeConfig`.
+    #[clap(long)]
+    costs_file: Option<PathBuf>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
 }
 
 fn main() -> anyhow::Result<()> {
+    let start = time::Instant::now();
+
     let cli_args = CliArgs::parse();
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
+    let additional_accounts_num = cli_args.additional_accounts_num as u64;
+    if additional_accounts_num > 0 {
+        let near_config = load_config(&state_dump_path);
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(additional_accounts_num)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+    }
+
     if cli_args.docker {
         return main_docker(&state_dump_path);
+    }
+
+    if let Some(path) = cli_args.costs_file {
+        let cost_table = fs::read_to_string(&path)
+            .ok()
+            .and_then(|it| it.parse::<CostTable>().ok())
+            .with_context(|| format!("Failed to parse {}", path.display()))?;
+
+        let runtime_config = costs_to_runtime_config(&cost_table)?;
+
+        println!("Generated RuntimeConfig:\n");
+        println!("{:#?}", runtime_config);
+
+        let str = serde_json::to_string_pretty(&runtime_config)
+            .expect("Failed serializing the runtime config");
+
+        let output_path = state_dump_path.join("runtime_config.json");
+        fs::write(&output_path, &str)
+            .with_context(|| format!("failed to write runtime config to file"))?;
+        println!("\nOutput saved to:\n\n    {}", output_path.display());
+
+        return Ok(());
     }
 
     let warmup_iters_per_block = cli_args.warmup_iters;
@@ -63,7 +117,8 @@ fn main() -> anyhow::Result<()> {
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
-    let runtime_config = run(
+
+    let cost_table = run(
         Config {
             warmup_iters_per_block,
             iter_per_block,
@@ -76,13 +131,21 @@ fn main() -> anyhow::Result<()> {
         cli_args.compile_only,
     );
 
-    println!("Generated RuntimeConfig:");
-    println!("{:#?}", runtime_config);
+    let output_path = {
+        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let commit =
+            exec("git rev-parse --short HEAD").map(|hash| format!("-{}", hash)).unwrap_or_default();
+        let file_name = format!("costs-{}{}.txt", timestamp, commit);
 
-    let str = serde_json::to_string_pretty(&runtime_config)
-        .expect("Failed serializing the runtime config");
-    fs::write(state_dump_path.join("runtime_config.json"), &str)
-        .context("Failed to write runtime config to file")?;
+        env::current_dir()?.join(file_name)
+    };
+    fs::write(&output_path, &cost_table.to_string())?;
+    println!(
+        "\nFinished in {:.2?}, output saved to:\n\n    {}",
+        start.elapsed(),
+        output_path.display()
+    );
+
     Ok(())
 }
 
@@ -107,6 +170,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
+        buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
 cargo build --manifest-path /host/nearcore/Cargo.toml \
@@ -128,6 +192,11 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
+                "--additional-accounts-num" => {
+                    args.next();
+                    write!(buf, " {:?} 0", arg).unwrap();
+                    continue;
+                }
                 "--home" => {
                     args.next();
                     continue;
@@ -141,7 +210,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         buf
     };
 
-    let nearcore = format!("type=bind,source={},target=/nearcore", project_root.to_str().unwrap());
+    let nearcore =
+        format!("type=bind,source={},target=/host/nearcore", project_root.to_str().unwrap());
     let nearhome = format!("type=bind,source={},target=/.near", state_dump_path.to_str().unwrap());
 
     let mut cmd = Command::new("docker");
