@@ -429,7 +429,7 @@ pub fn migrate_24_to_25(path: &String) {
                         tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
                         executor_id: self.outcome_with_id.outcome.executor_id,
                         status: self.outcome_with_id.outcome.status,
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::V1,
                     },
                 },
             }

@@ -763,7 +763,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         gas_burnt: 0,
                         tokens_burnt: 0,
                         executor_id: to.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::V1,
                     },
                 });
             }
@@ -1153,6 +1153,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
             }
         }
+    }
+
+    fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
+        Ok(false)
     }
 }
 

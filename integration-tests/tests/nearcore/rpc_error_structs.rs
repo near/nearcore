@@ -171,7 +171,7 @@ fn test_protocol_config_unknown_block_error() {
                                 client
                                     .EXPERIMENTAL_protocol_config(
                                         near_jsonrpc_primitives::types::config::RpcProtocolConfigRequest {
-                                            block_reference: near_jsonrpc_primitives::types::blocks::BlockReference::BlockId(BlockId::Height(block.header.height + 100))
+                                            block_reference: near_primitives::types::BlockReference::BlockId(BlockId::Height(block.header.height + 100))
                                         }
                                     )
                                     .map_err(|err| {

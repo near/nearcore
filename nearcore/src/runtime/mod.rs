@@ -473,6 +473,11 @@ impl NightshadeRuntime {
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
+        debug!(target: "runtime",
+               "epoch height: {:?}, epoch id: {:?}, current_protocol_version: {:?}, is_first_block_of_version: {}",
+               epoch_height, &epoch_id, current_protocol_version, is_first_block_of_version,
+        );
+
         let apply_state = ApplyState {
             block_index: block_height,
             prev_block_hash: *prev_block_hash,
@@ -1649,6 +1654,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else {
             epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
         }
+    }
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_split_shards_if_shards_will_change(parent_hash, vec![])?.is_some())
     }
 }
 

@@ -32,7 +32,6 @@ Start container and build estimator with:
     host> ./run.sh
     docker> cd /host/nearcore
     docker> cargo run -j2 --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-    docker> cargo run -j2 --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
     docker> cd /host/nearcore/runtime/runtime-params-estimator
     docker> pushd ./test-contract && ./build.sh && popd
     docker> cargo build --release --package runtime-params-estimator --features required
@@ -40,7 +39,7 @@ Start container and build estimator with:
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
 
     docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
-         ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+         ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1
 
 ### Notes
 

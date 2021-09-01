@@ -23,13 +23,13 @@ pub use self::types::{
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
+use crate::INDEXER;
 
 mod errors;
 mod fetchers;
 mod types;
 mod utils;
 
-const INDEXER: &str = "indexer";
 const INTERVAL: Duration = Duration::from_millis(500);
 
 /// This function supposed to return the entire `StreamerMessage`.

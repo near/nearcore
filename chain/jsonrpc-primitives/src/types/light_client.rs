@@ -27,7 +27,7 @@ pub struct RpcLightClientNextBlockResponse {
     pub light_client_block: Option<near_primitives::views::LightClientBlockView>,
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
     #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
@@ -53,7 +53,7 @@ pub enum RpcLightClientProofError {
     InternalError { error_message: String },
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]
