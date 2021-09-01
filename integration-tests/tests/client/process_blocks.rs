@@ -1561,8 +1561,11 @@ fn test_process_block_after_state_sync() {
     let sync_height = epoch_length * 4 + 1;
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
     let sync_hash = *sync_block.hash();
-    let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(&sync_hash, &ShardUId::default()).unwrap().clone();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(&sync_hash, &ShardUId { version: 1, shard_id: 0 })
+        .unwrap()
+        .clone();
     let state_part = env.clients[0]
         .runtime_adapter
         .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
@@ -2426,6 +2429,7 @@ fn test_refund_receipts_processing() {
     env.produce_block(0, 3);
     env.produce_block(0, 4);
     let mut block_height = 5;
+    let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
     loop {
         env.produce_block(0, block_height);
         let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
@@ -2433,13 +2437,13 @@ fn test_refund_receipts_processing() {
             env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
         let chunk_extra = env.clients[0]
             .chain
-            .get_chunk_extra(prev_block.hash(), &ShardUId::default())
+            .get_chunk_extra(prev_block.hash(), &test_shard_uid)
             .unwrap()
             .clone();
         let state_update = env.clients[0]
             .runtime_adapter
             .get_tries()
-            .new_trie_update(ShardUId { version: 1, shard_id: 0 }, *chunk_extra.state_root());
+            .new_trie_update(test_shard_uid.clone(), *chunk_extra.state_root());
         let delayed_indices =
             get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
@@ -2493,11 +2497,8 @@ fn test_refund_receipts_processing() {
         execution_outcomes_from_block.iter().for_each(|outcome| {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
         });
-        let chunk_extra = env.clients[0]
-            .chain
-            .get_chunk_extra(block.hash(), &ShardUId::default())
-            .unwrap()
-            .clone();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);
         assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     }
