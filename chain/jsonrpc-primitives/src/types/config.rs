@@ -1,18 +1,17 @@
-use crate::types::blocks::BlockReference;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize)]
 pub struct RpcProtocolConfigRequest {
     #[serde(flatten)]
-    pub block_reference: BlockReference,
+    pub block_reference: near_primitives::types::BlockReference,
 }
 
 impl RpcProtocolConfigRequest {
     pub fn parse(
         value: Option<Value>,
     ) -> Result<RpcProtocolConfigRequest, crate::errors::RpcParseError> {
-        crate::utils::parse_params::<BlockReference>(value)
+        crate::utils::parse_params::<near_primitives::types::BlockReference>(value)
             .map(|block_reference| RpcProtocolConfigRequest { block_reference })
     }
 }

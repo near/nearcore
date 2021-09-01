@@ -4,7 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcStateChangesRequest {
     #[serde(flatten)]
-    pub block_reference: crate::types::blocks::BlockReference,
+    pub block_reference: near_primitives::types::BlockReference,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,7 +16,7 @@ pub struct RpcStateChangesResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcStateChangesInBlockRequest {
     #[serde(flatten)]
-    pub block_reference: crate::types::blocks::BlockReference,
+    pub block_reference: near_primitives::types::BlockReference,
     #[serde(flatten)]
     pub state_changes_request: near_primitives::views::StateChangesRequestView,
 }
