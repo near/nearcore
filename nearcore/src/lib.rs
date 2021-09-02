@@ -28,6 +28,7 @@ use near_store::migrations::{
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
+use crate::config::create_runtime_config_store;
 pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
 use crate::migrations::{
     migrate_12_to_13, migrate_18_to_19, migrate_19_to_20, migrate_22_to_23, migrate_23_to_24,
@@ -281,7 +282,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.tracked_shards.clone(),
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::new(),
+        create_runtime_config_store(&config.genesis.config.chain_id),
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

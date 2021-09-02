@@ -27,11 +27,16 @@ pub struct RuntimeConfigStore {
 
 impl RuntimeConfigStore {
     /// Constructs a new store.
-    pub fn new() -> Self {
+    pub fn new(min_allowed_top_level_account_length: Option<u8>) -> Self {
         Self {
             store: BTreeMap::from_iter(CONFIGS.iter().cloned().map(
                 |(protocol_version, config_bytes)| {
-                    (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
+                    let mut config: RuntimeConfig = serde_json::from_slice(config_bytes).unwrap();
+                    if let Some(length) = min_allowed_top_level_account_length {
+                        config.account_creation_config.min_allowed_top_level_account_length =
+                            length;
+                    }
+                    (protocol_version, Arc::new(config));
                 },
             )),
         }
@@ -73,7 +78,7 @@ mod tests {
 
     fn check_config(protocol_version: ProtocolVersion, config_bytes: &[u8]) {
         assert_eq!(
-            RuntimeConfigStore::new().get_config(protocol_version).as_ref(),
+            RuntimeConfigStore::new(None).get_config(protocol_version).as_ref(),
             &serde_json::from_slice::<RuntimeConfig>(config_bytes).unwrap()
         );
     }
@@ -101,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_max_prepaid_gas() {
-        let store = RuntimeConfigStore::new();
+        let store = RuntimeConfigStore::new(None);
         for (protocol_version, config) in store.store.iter() {
             assert!(
                 config.wasm_config.limit_config.max_total_prepaid_gas
@@ -116,9 +121,22 @@ mod tests {
 
     #[test]
     fn test_lower_cost() {
-        let store = RuntimeConfigStore::new();
+        let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
         let new_cfg = store.get_config(LowerStorageCost.protocol_version());
         assert!(base_cfg.storage_amount_per_byte > new_cfg.storage_amount_per_byte);
+    }
+
+    #[test]
+    fn test_min_allowed_top_level_account_length() {
+        // Check that default value is 32.
+        let base_store = RuntimeConfigStore::new(None);
+        let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
+        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 32);
+
+        // Check that length was changed.
+        let new_store = RuntimeConfigStore::new(Some(0));
+        let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
+        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 }

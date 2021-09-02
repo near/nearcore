@@ -25,6 +25,7 @@ use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -1235,4 +1236,11 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)
+}
+
+pub fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+    match chain_id {
+        "testnet" => RuntimeConfigStore::new(Some(0)),
+        _ => RuntimeConfigStore::new(None),
+    }
 }
