@@ -42,6 +42,10 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ReadMemoryByte, read_memory_byte),
     (Cost::WriteMemoryBase, write_memory_base),
     (Cost::WriteMemoryByte, write_memory_byte),
+    (Cost::ReadRegisterBase, read_register_base),
+    (Cost::ReadRegisterByte, read_register_byte),
+    (Cost::WriteRegisterBase, write_register_base),
+    (Cost::WriteRegisterByte, write_register_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -398,6 +402,23 @@ fn write_memory_byte(ctx: &mut Ctx) -> GasCost {
     host_fn_cost(ctx, "write_memory_1Mib_10k", ExtCosts::write_memory_byte, 1024 * 1024 * 10_000)
 }
 
+fn read_register_base(ctx: &mut Ctx) -> GasCost {
+    host_fn_cost(ctx, "read_register_10b_10k", ExtCosts::read_register_base, 10_000)
+}
+
+fn read_register_byte(ctx: &mut Ctx) -> GasCost {
+    host_fn_cost(ctx, "read_register_1Mib_10k", ExtCosts::read_register_byte, 1024 * 1024 * 10_000)
+}
+
+fn write_register_base(ctx: &mut Ctx) -> GasCost {
+    host_fn_cost(ctx, "write_register_10b_10k", ExtCosts::write_register_base, 10_000)
+}
+
+fn write_register_byte(ctx: &mut Ctx) -> GasCost {
+    host_fn_cost(ctx, "write_register_1Mib_10k", ExtCosts::write_register_byte, 1024 * 1024 * 10_000)
+}
+
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -464,6 +485,10 @@ fn smoke() {
         "ReadMemoryByte",
         "WriteMemoryBase",
         "WriteMemoryByte",
+        "ReadRegisterBase",
+        "ReadRegisterByte",
+        "WriteRegisterBase",
+        "WriteRegisterByte",
     ];
     let config = Config {
         warmup_iters_per_block: 1,
