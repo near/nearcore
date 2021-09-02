@@ -2078,7 +2078,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColChunkPerHeightShard, &block_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &block_shard_id);
 
-            // TODO: use the real shard version
+            // TODO: use the real shard version https://github.com/near/nearcore/issues/4710
             let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
             let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
             self.gc_col(ColChunkExtra, &block_shard_uid);
