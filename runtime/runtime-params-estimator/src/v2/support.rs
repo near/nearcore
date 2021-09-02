@@ -5,8 +5,11 @@ use std::{fmt, iter, ops};
 
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+};
 use near_primitives::types::{AccountId, Gas};
+use near_vm_logic::ExtCosts;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 
@@ -20,7 +23,7 @@ pub(crate) struct CachedCosts {
     pub(crate) action_sir_receipt_creation: Option<GasCost>,
     pub(crate) action_add_function_access_key_base: Option<GasCost>,
     pub(crate) action_deploy_contract_base: Option<GasCost>,
-    pub(crate) action_function_call_base: Option<GasCost>,
+    pub(crate) noop_host_function_call_cost: Option<GasCost>,
 }
 
 /// Global context shared by all cost calculating functions.
@@ -132,10 +135,18 @@ impl<'c> TestBed<'c> {
         &'a mut self,
         make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
     ) -> GasCost {
+        self.average_transaction_cost_with_ext(make_transaction).0
+    }
+
+    pub(crate) fn average_transaction_cost_with_ext<'a>(
+        &'a mut self,
+        make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
+    ) -> (GasCost, HashMap<ExtCosts, u64>) {
         let allow_failures = false;
 
         let total_iters = self.config.warmup_iters_per_block + self.config.iter_per_block;
 
+        let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
         let mut total = 0;
         let mut n = 0;
         for iter in 0..total_iters {
@@ -147,6 +158,7 @@ impl<'c> TestBed<'c> {
             .take(block_size)
             .collect();
 
+            node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let start = start_count(self.config.metric);
             self.inner.process_block(&block, allow_failures);
             self.inner.process_blocks_until_no_receipts(allow_failures);
@@ -157,10 +169,20 @@ impl<'c> TestBed<'c> {
             if !is_warmup {
                 total += measured;
                 n += block_size as u64;
+                node_runtime::with_ext_cost_counter(|cc| {
+                    for (c, v) in cc.drain() {
+                        *ext_costs.entry(c).or_default() += v;
+                    }
+                });
             }
         }
 
-        GasCost { value: total / n, metric: self.config.metric }
+        for v in ext_costs.values_mut() {
+            *v /= n;
+        }
+
+        let gas_cost = GasCost { value: total / n, metric: self.config.metric };
+        (gas_cost, ext_costs)
     }
 
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
@@ -196,6 +218,22 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
             actions,
             CryptoHash::default(),
         )
+    }
+
+    pub(crate) fn transaction_from_function_call(
+        self,
+        sender: AccountId,
+        method: &str,
+        args: Vec<u8>,
+    ) -> SignedTransaction {
+        let receiver = sender.clone();
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: method.to_string(),
+            args,
+            gas: 10u64.pow(18),
+            deposit: 0,
+        })];
+        self.transaction_from_actions(sender, receiver, actions)
     }
 
     pub(crate) fn rng(&mut self) -> ThreadRng {
