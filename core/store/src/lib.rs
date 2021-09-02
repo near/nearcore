@@ -420,7 +420,7 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code.clone());
+    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
 }
 
 pub fn get_code(
