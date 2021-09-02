@@ -146,9 +146,9 @@ impl RpcError {
     }
 }
 
-impl std::string::ToString for RpcError {
-    fn to_string(&self) -> String {
-        format!("{:?}", self)
+impl fmt::Display for RpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

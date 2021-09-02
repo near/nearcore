@@ -7,7 +7,9 @@ use serde::Serialize;
 
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{from_slice, Message};
-use near_jsonrpc_primitives::types::changes::{RpcStateChangesRequest, RpcStateChangesResponse};
+use near_jsonrpc_primitives::types::changes::{
+    RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
+};
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId, ShardId};
@@ -228,8 +230,8 @@ impl JsonRpcClient {
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_changes(
         &self,
-        request: RpcStateChangesRequest,
-    ) -> RpcRequest<RpcStateChangesResponse> {
+        request: RpcStateChangesInBlockByTypeRequest,
+    ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
     }
 

@@ -1,15 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BlockReference {
-    BlockId(near_primitives::types::BlockId),
-    Finality(near_primitives::types::Finality),
-    SyncCheckpoint(near_primitives::types::SyncCheckpoint),
-}
-
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcBlockError {
     #[error("Block not found: {error_message}")]
@@ -29,27 +21,13 @@ pub enum RpcBlockError {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcBlockRequest {
     #[serde(flatten)]
-    pub block_reference: BlockReference,
+    pub block_reference: near_primitives::types::BlockReference,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RpcBlockResponse {
     #[serde(flatten)]
     pub block_view: near_primitives::views::BlockView,
-}
-
-// near_client_primitives::types::GetBlock wants BlockReference from near_primitives
-// that's why this impl exists
-impl From<BlockReference> for near_primitives::types::BlockReference {
-    fn from(block_reference: BlockReference) -> Self {
-        match block_reference {
-            BlockReference::BlockId(block_id) => Self::BlockId(block_id),
-            BlockReference::Finality(finality) => Self::Finality(finality),
-            BlockReference::SyncCheckpoint(sync_checkpoint) => {
-                Self::SyncCheckpoint(sync_checkpoint)
-            }
-        }
-    }
 }
 
 impl From<near_client_primitives::types::GetBlockError> for RpcBlockError {
@@ -111,9 +89,9 @@ impl RpcBlockRequest {
         let block_reference = if let Ok((block_id,)) =
             crate::utils::parse_params::<(near_primitives::types::BlockId,)>(value.clone())
         {
-            BlockReference::BlockId(block_id)
+            near_primitives::types::BlockReference::BlockId(block_id)
         } else {
-            crate::utils::parse_params::<BlockReference>(value)?
+            crate::utils::parse_params::<near_primitives::types::BlockReference>(value)?
         };
         Ok(RpcBlockRequest { block_reference })
     }
