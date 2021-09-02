@@ -46,6 +46,7 @@ impl<'c> Ctx<'c> {
         let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
         TestBed {
             config: &self.config,
+            block_size: 100,
             inner,
             accounts: (0..self.config.active_accounts).map(get_account_id).collect(),
             nonces: HashMap::new(),
@@ -76,6 +77,7 @@ impl<'c> Ctx<'c> {
         let inner = RuntimeTestbed::from_state_dump(proto.state_dump.path());
         TestBed {
             config: &self.config,
+            block_size: 100,
             inner,
             accounts: proto.accounts.clone(),
             nonces: proto.nonces.clone(),
@@ -113,6 +115,7 @@ fn deploy_contracts(tb: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
 /// We use it to time processing a bunch of blocks.
 pub(crate) struct TestBed<'c> {
     config: &'c Config,
+    block_size: usize,
     inner: RuntimeTestbed,
     accounts: Vec<AccountId>,
     nonces: HashMap<AccountId, u64>,
@@ -120,10 +123,9 @@ pub(crate) struct TestBed<'c> {
 }
 
 impl<'c> TestBed<'c> {
-    fn nonce(&mut self, account_id: &AccountId) -> u64 {
-        let nonce = self.nonces.entry(account_id.clone()).or_default();
-        *nonce += 1;
-        *nonce
+    pub(crate) fn block_size(mut self, block_size: usize) -> TestBed<'c> {
+        self.block_size = block_size;
+        self
     }
 
     pub(crate) fn average_transaction_cost<'a>(
@@ -137,7 +139,7 @@ impl<'c> TestBed<'c> {
         let mut total = 0;
         let mut n = 0;
         for iter in 0..total_iters {
-            let block_size = 100;
+            let block_size = self.block_size;
             let block: Vec<_> = iter::repeat_with(|| {
                 let tb = TransactionBuilder { testbed: self };
                 make_transaction(tb)
@@ -159,6 +161,12 @@ impl<'c> TestBed<'c> {
         }
 
         GasCost { value: total / n, metric: self.config.metric }
+    }
+
+    fn nonce(&mut self, account_id: &AccountId) -> u64 {
+        let nonce = self.nonces.entry(account_id.clone()).or_default();
+        *nonce += 1;
+        *nonce
     }
 }
 

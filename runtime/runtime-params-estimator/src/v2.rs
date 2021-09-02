@@ -395,7 +395,7 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
 
 fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
-        let mut testbed = ctx.test_bed_with_contracts();
+        let mut testbed = ctx.test_bed_with_contracts().block_size(2);
 
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
             let sender = tb.random_unused_account();
@@ -413,7 +413,7 @@ fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
     };
 
     let base_cost = {
-        let mut testbed = ctx.test_bed_with_contracts();
+        let mut testbed = ctx.test_bed_with_contracts().block_size(2);
 
         let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
             let sender = tb.random_unused_account();
@@ -430,7 +430,7 @@ fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
         testbed.average_transaction_cost(&mut make_transaction)
     };
 
-    (total_cost - base_cost)
+    total_cost - base_cost
 }
 
 #[test]
