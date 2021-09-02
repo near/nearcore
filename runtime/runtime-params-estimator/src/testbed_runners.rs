@@ -28,7 +28,7 @@ fn warmup_total_transactions(config: &Config) -> usize {
     config.block_sizes.iter().sum::<usize>() * config.warmup_iters_per_block
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GasMetric {
     // If we measure gas in number of executed instructions, must run under simulator.
     ICount,

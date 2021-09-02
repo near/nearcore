@@ -48,6 +48,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::WriteRegisterByte, write_register_byte),
     (Cost::LogBase, log_base),
     (Cost::LogByte, log_byte),
+    (Cost::Utf8DecodingBase, utf8_decoding_base),
+    (Cost::Utf8DecodingByte, utf8_decoding_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -391,7 +393,6 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
 fn read_memory_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "read_memory_10b_10k", ExtCosts::read_memory_base, 10_000)
 }
-
 fn read_memory_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "read_memory_1Mib_10k", ExtCosts::read_memory_byte, 1024 * 1024 * 10_000)
 }
@@ -399,7 +400,6 @@ fn read_memory_byte(ctx: &mut Ctx) -> GasCost {
 fn write_memory_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "write_memory_10b_10k", ExtCosts::write_memory_base, 10_000)
 }
-
 fn write_memory_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "write_memory_1Mib_10k", ExtCosts::write_memory_byte, 1024 * 1024 * 10_000)
 }
@@ -407,7 +407,6 @@ fn write_memory_byte(ctx: &mut Ctx) -> GasCost {
 fn read_register_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "read_register_10b_10k", ExtCosts::read_register_base, 10_000)
 }
-
 fn read_register_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "read_register_1Mib_10k", ExtCosts::read_register_byte, 1024 * 1024 * 10_000)
 }
@@ -415,7 +414,6 @@ fn read_register_byte(ctx: &mut Ctx) -> GasCost {
 fn write_register_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "write_register_10b_10k", ExtCosts::write_register_base, 10_000)
 }
-
 fn write_register_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "write_register_1Mib_10k", ExtCosts::write_register_byte, 1024 * 1024 * 10_000)
 }
@@ -423,10 +421,24 @@ fn write_register_byte(ctx: &mut Ctx) -> GasCost {
 fn log_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::log_base, 10_000)
 }
-
 fn log_byte(ctx: &mut Ctx) -> GasCost {
-    // FIXE: note: we are paying for the output byte here
+    // NOTE: we are paying for the output byte here
     fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, 10 * 1024 * 10_000 * 3 / 2)
+}
+
+fn utf8_decoding_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "utf8_log_10b_10k", ExtCosts::utf8_decoding_base, 10_000)
+}
+fn utf8_decoding_byte(ctx: &mut Ctx) -> GasCost {
+    let no_nul =
+        fn_cost(ctx, "utf8_log_10kib_10k", ExtCosts::utf8_decoding_byte, 10 * 1024 * 10_000);
+    let nul = fn_cost(
+        ctx,
+        "nul_utf8_log_10kib_10k",
+        ExtCosts::utf8_decoding_byte,
+        (10 * 1024 - 1) * 10_000,
+    );
+    nul.max(no_nul)
 }
 
 // Helpers
@@ -489,7 +501,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["HostFunctionCall", "LogBase", "LogByte"];
+    let metrics = ["Utf8DecodingBase", "Utf8DecodingByte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,

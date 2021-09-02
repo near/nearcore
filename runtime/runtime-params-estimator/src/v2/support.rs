@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
@@ -266,7 +267,7 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct GasCost {
     value: u64,
     metric: GasMetric,
@@ -295,6 +296,18 @@ impl ops::Div<u64> for GasCost {
 
     fn div(self, rhs: u64) -> Self::Output {
         GasCost { value: self.value / rhs, metric: self.metric }
+    }
+}
+
+impl PartialOrd for GasCost {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for GasCost {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.cmp(&other.value)
     }
 }
 
