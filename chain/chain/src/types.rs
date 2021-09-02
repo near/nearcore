@@ -428,6 +428,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client is tracking the shard
@@ -443,6 +445,9 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Whether the client cares about some shard in the next epoch.
+    //  Note that `shard_id` always refers to a shard in the current epoch
+    //  If shard layout will change next epoch,
+    //  returns true if it cares about any shard that `shard_id` will split to
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client will track the shard
     /// * If `account_id` is not None, it is supposed to be a validator
@@ -804,7 +809,7 @@ mod tests {
                 gas_burnt: 100,
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V1,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -816,7 +821,7 @@ mod tests {
                 gas_burnt: 0,
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V1,
             },
         };
         let outcomes = vec![outcome1, outcome2];

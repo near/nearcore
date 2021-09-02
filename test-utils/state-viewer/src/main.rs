@@ -599,20 +599,20 @@ fn view_chain(
 
     if height.is_none() {
         let head = chain_store.head().unwrap();
-        println!("head: {:?}", head);
+        println!("head: {:#?}", head);
     } else {
         println!("block height {}, hash {}", block.header().height(), block.hash());
     }
 
     for (shard_id, chunk_extra) in chunk_extras {
-        println!("shard {}, chunk extra: {:?}", shard_id, chunk_extra);
+        println!("shard {}, chunk extra: {:#?}", shard_id, chunk_extra);
     }
     if view_block {
-        println!("last block: {:?}", block);
+        println!("last block: {:#?}", block);
     }
     if view_chunks {
         for (shard_id, chunk) in chunks {
-            println!("shard {}, chunk: {:?}", shard_id, chunk);
+            println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
     }
 }
@@ -645,7 +645,7 @@ fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
 
 fn dump_code(account: &str, contract_code: ContractCode, output: &str) {
     let mut file = File::create(output).unwrap();
-    file.write_all(&contract_code.code).unwrap();
+    file.write_all(contract_code.code()).unwrap();
     println!("Dump contract of account {} into file {}", account, output);
 }
 

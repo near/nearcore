@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Debug)]
 pub struct RpcNetworkInfoResponse {
@@ -6,7 +6,7 @@ pub struct RpcNetworkInfoResponse {
     pub network_info_response: near_client_primitives::types::NetworkInfoResponse,
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcNetworkInfoError {
     #[error("Internal error: {error_message}")]

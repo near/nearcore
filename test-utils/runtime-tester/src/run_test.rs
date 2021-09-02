@@ -10,6 +10,7 @@ use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
+use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
@@ -26,13 +27,24 @@ impl Scenario {
             1,
         );
 
+        let tempdir;
+        let store = if self.use_in_memory_store {
+            create_test_store()
+        } else {
+            tempdir = tempfile::tempdir().map_err(|err| {
+                Error::Other(format!("failed to create temporary directory: {}", err))
+            })?;
+            let path = tempdir.path().to_str().unwrap();
+            create_store(path)
+        };
+
         let mut env = TestEnv::new_with_runtime(
             ChainGenesis::from(&genesis),
             1,
             1,
             vec![Arc::new(NightshadeRuntime::new(
                 Path::new("."),
-                create_test_store(),
+                store,
                 &genesis,
                 vec![],
                 vec![],
@@ -72,6 +84,7 @@ impl Scenario {
 pub struct Scenario {
     pub network_config: NetworkConfig,
     pub blocks: Vec<BlockConfig>,
+    pub use_in_memory_store: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -133,5 +146,36 @@ impl TransactionConfig {
 impl BlockStats {
     fn at_height(height: BlockHeight) -> Self {
         Self { height, block_production_time: Duration::default() }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use log::info;
+    use near_logger_utils::init_test_logger;
+
+    #[test]
+    #[ignore]
+    fn test_scenario_json() {
+        init_test_logger();
+        let path = Path::new("./fuzz/scenario.json");
+
+        let scenario = Scenario::from_file(path).expect("Failed to deserialize the scenario file.");
+        let starting_time = Instant::now();
+        let runtime_stats = scenario.run().expect("Error while running scenario");
+        info!("Time to run: {:?}", starting_time.elapsed());
+        for block_stats in runtime_stats.blocks_stats {
+            if block_stats.block_production_time > Duration::from_secs(1) {
+                info!(
+                    "Time to produce block {} is {:?}",
+                    block_stats.height, block_stats.block_production_time
+                );
+            }
+        }
     }
 }
