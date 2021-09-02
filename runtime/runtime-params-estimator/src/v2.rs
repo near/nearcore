@@ -34,6 +34,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionFunctionCallBase, action_function_call_base),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
+    (Cost::DataReceiptCreationPerByte, data_receipt_creation_per_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -394,43 +395,37 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
-    let total_cost = {
-        let mut testbed = ctx.test_bed_with_contracts().block_size(2);
-
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            let receiver = sender.clone();
-
-            let actions = vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "data_receipt_10b_1000".to_string(),
-                args: vec![],
-                gas: 10u64.pow(18),
-                deposit: 0,
-            })];
-            tb.transaction_from_actions(sender, receiver, actions)
-        };
-        testbed.average_transaction_cost(&mut make_transaction)
-    };
-
-    let base_cost = {
-        let mut testbed = ctx.test_bed_with_contracts().block_size(2);
-
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            let receiver = sender.clone();
-
-            let actions = vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "data_receipt_base_10b_1000".to_string(),
-                args: vec![],
-                gas: 10u64.pow(18),
-                deposit: 0,
-            })];
-            tb.transaction_from_actions(sender, receiver, actions)
-        };
-        testbed.average_transaction_cost(&mut make_transaction)
-    };
+    let total_cost = function_call_cost(ctx, "data_receipt_10b_1000");
+    let base_cost = function_call_cost(ctx, "data_receipt_base_10b_1000");
 
     total_cost - base_cost
+}
+
+fn data_receipt_creation_per_byte(ctx: &mut Ctx) -> GasCost {
+    let total_cost = function_call_cost(ctx, "data_receipt_100kib_1000");
+    let base_cost = function_call_cost(ctx, "data_receipt_10b_1000");
+
+    let bytes_per_transaction = 1000 * 100 * 1024;
+
+    (total_cost - base_cost) / bytes_per_transaction
+}
+
+fn function_call_cost(ctx: &mut Ctx, method: &str) -> GasCost {
+    let mut testbed = ctx.test_bed_with_contracts().block_size(2);
+
+    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let receiver = sender.clone();
+
+        let actions = vec![Action::FunctionCall(FunctionCallAction {
+            method_name: method.to_string(),
+            args: vec![],
+            gas: 10u64.pow(18),
+            deposit: 0,
+        })];
+        tb.transaction_from_actions(sender, receiver, actions)
+    };
+    testbed.average_transaction_cost(&mut make_transaction)
 }
 
 #[test]
@@ -438,6 +433,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
+    let metrics = ["DataReceiptCreationBase", "DataReceiptCreationPerByte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
@@ -446,7 +442,8 @@ fn smoke() {
         state_dump_path: get_default_home().into(),
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
-        metrics_to_measure: Some(vec!["DataReceiptCreationBase".to_string()]),
+        metrics_to_measure: Some(metrics.iter().map(|it| it.to_string()).collect::<Vec<_>>())
+            .filter(|it| !it.is_empty()),
     };
     let table = run(config);
     eprintln!("{}", table);
