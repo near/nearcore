@@ -46,6 +46,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ReadRegisterByte, read_register_byte),
     (Cost::WriteRegisterBase, write_register_base),
     (Cost::WriteRegisterByte, write_register_byte),
+    (Cost::LogBase, log_base),
+    (Cost::LogByte, log_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -362,15 +364,15 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
-    let (total_cost, _) = host_fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
-    let (base_cost, _) = host_fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base);
+    let (total_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
+    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base);
 
     total_cost - base_cost
 }
 
 fn data_receipt_creation_per_byte(ctx: &mut Ctx) -> GasCost {
-    let (total_cost, _) = host_fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base);
-    let (base_cost, _) = host_fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
+    let (total_cost, _) = fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base);
+    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
 
     let bytes_per_transaction = 1000 * 100 * 1024;
 
@@ -378,7 +380,7 @@ fn data_receipt_creation_per_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 fn host_function_call(ctx: &mut Ctx) -> GasCost {
-    let (total_cost, count) = host_fn_cost_count(ctx, "base_1M", ExtCosts::base);
+    let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base);
     assert_eq!(count, 1_000_000);
 
     let base_cost = noop_host_function_call_cost(ctx);
@@ -387,37 +389,45 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
 }
 
 fn read_memory_base(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "read_memory_10b_10k", ExtCosts::read_memory_base, 10_000)
+    fn_cost(ctx, "read_memory_10b_10k", ExtCosts::read_memory_base, 10_000)
 }
 
 fn read_memory_byte(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "read_memory_1Mib_10k", ExtCosts::read_memory_byte, 1024 * 1024 * 10_000)
+    fn_cost(ctx, "read_memory_1Mib_10k", ExtCosts::read_memory_byte, 1024 * 1024 * 10_000)
 }
 
 fn write_memory_base(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "write_memory_10b_10k", ExtCosts::write_memory_base, 10_000)
+    fn_cost(ctx, "write_memory_10b_10k", ExtCosts::write_memory_base, 10_000)
 }
 
 fn write_memory_byte(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "write_memory_1Mib_10k", ExtCosts::write_memory_byte, 1024 * 1024 * 10_000)
+    fn_cost(ctx, "write_memory_1Mib_10k", ExtCosts::write_memory_byte, 1024 * 1024 * 10_000)
 }
 
 fn read_register_base(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "read_register_10b_10k", ExtCosts::read_register_base, 10_000)
+    fn_cost(ctx, "read_register_10b_10k", ExtCosts::read_register_base, 10_000)
 }
 
 fn read_register_byte(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "read_register_1Mib_10k", ExtCosts::read_register_byte, 1024 * 1024 * 10_000)
+    fn_cost(ctx, "read_register_1Mib_10k", ExtCosts::read_register_byte, 1024 * 1024 * 10_000)
 }
 
 fn write_register_base(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "write_register_10b_10k", ExtCosts::write_register_base, 10_000)
+    fn_cost(ctx, "write_register_10b_10k", ExtCosts::write_register_base, 10_000)
 }
 
 fn write_register_byte(ctx: &mut Ctx) -> GasCost {
-    host_fn_cost(ctx, "write_register_1Mib_10k", ExtCosts::write_register_byte, 1024 * 1024 * 10_000)
+    fn_cost(ctx, "write_register_1Mib_10k", ExtCosts::write_register_byte, 1024 * 1024 * 10_000)
 }
 
+fn log_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::log_base, 10_000)
+}
+
+fn log_byte(ctx: &mut Ctx) -> GasCost {
+    // FIXE: note: we are paying for the output byte here
+    fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, 10 * 1024 * 10_000 * 3 / 2)
+}
 
 // Helpers
 
@@ -453,8 +463,8 @@ fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
     cost
 }
 
-fn host_fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> GasCost {
-    let (total_cost, measured_count) = host_fn_cost_count(ctx, method, ext_cost);
+fn fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> GasCost {
+    let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
     assert_eq!(measured_count, count);
 
     let base_cost = noop_host_function_call_cost(ctx);
@@ -462,7 +472,7 @@ fn host_fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> 
     (total_cost - base_cost) / count
 }
 
-fn host_fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
+fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
     let mut testbed = ctx.test_bed_with_contracts().block_size(2);
 
     let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
@@ -479,17 +489,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = [
-        "HostFunctionCall",
-        "ReadMemoryBase",
-        "ReadMemoryByte",
-        "WriteMemoryBase",
-        "WriteMemoryByte",
-        "ReadRegisterBase",
-        "ReadRegisterByte",
-        "WriteRegisterBase",
-        "WriteRegisterByte",
-    ];
+    let metrics = ["HostFunctionCall", "LogBase", "LogByte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
