@@ -217,7 +217,6 @@ where
     };
 
     if config.should_skip(metric) {
-        println!("skipped");
         return testbed;
     }
 
