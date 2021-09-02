@@ -33,6 +33,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
     (Cost::ActionFunctionCallBase, action_function_call_base),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
+    (Cost::DataReceiptCreationBase, data_receipt_creation_base),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -392,6 +393,46 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
     (total_cost - base_cost) / bytes_per_transaction
 }
 
+fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
+    let total_cost = {
+        let mut testbed = ctx.test_bed_with_contracts();
+
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+
+            let actions = vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "data_receipt_10b_1000".to_string(),
+                args: vec![],
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    let base_cost = {
+        let mut testbed = ctx.test_bed_with_contracts();
+
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = sender.clone();
+
+            let actions = vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "data_receipt_base_10b_1000".to_string(),
+                args: vec![],
+                gas: 10u64.pow(18),
+                deposit: 0,
+            })];
+            tb.transaction_from_actions(sender, receiver, actions)
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    (total_cost - base_cost)
+}
+
 #[test]
 fn smoke() {
     use crate::testbed_runners::GasMetric;
@@ -405,10 +446,7 @@ fn smoke() {
         state_dump_path: get_default_home().into(),
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
-        metrics_to_measure: Some(vec![
-            "ActionFunctionCallBase".to_string(),
-            "ActionFunctionCallPerByte".to_string(),
-        ]),
+        metrics_to_measure: Some(vec!["DataReceiptCreationBase".to_string()]),
     };
     let table = run(config);
     eprintln!("{}", table);
