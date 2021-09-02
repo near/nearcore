@@ -1010,9 +1010,26 @@ impl Chain {
         block: &Block,
     ) -> Result<(), Error> {
         let prev_hash = *block.header().prev_hash();
-        let shards_to_dl = self.get_shards_to_dl_state(me, &prev_hash);
+        let shards_to_dl = self.get_shards_to_dl_state(me, &prev_hash)?;
         let prev_block = self.get_block(&prev_hash)?;
 
+        if prev_block.chunks().len() != block.chunks().len() && !shards_to_dl.is_empty() {
+            // Currently, the state sync algorithm assumes that the number of chunks do not change
+            // between the epoch being synced to and the last epoch.
+            // For example, if shard layout changes at the beginning of epoch T, validators
+            // will not be able to sync states at epoch T for epoch T+1
+            // Fortunately, since all validators track all shards for now, this error will not be
+            // triggered in live yet
+            // Instead of propagating the error, we simply log the error here because the error
+            // do not affect processing blocks for this epoch. However, when the next epoch comes,
+            // the validator will not have the states ready so it will halt.
+            error!(
+                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
+                block.header().epoch_id(),
+                me
+            );
+            debug_assert!(false);
+        }
         debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
 
         let state_dl_info = StateSyncInfo {
@@ -1175,27 +1192,39 @@ impl Chain {
         Ok(!self.store.get_blocks_to_catchup(prev_prev_hash)?.contains(&prev_hash))
     }
 
+    /// Return all shards that whose states need to be caught up
+    /// That has two cases:
+    /// 1) Shard layout will change in the next epoch. In this case, the method returns all shards
+    ///    in the current epoch that will be split into a future shard that `me` will track.
+    /// 2) Shard layout will be the same. In this case, the method returns all shards that `me` will
+    ///    track in the next epoch but not this epoch
     fn get_shards_to_dl_state(
         &self,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
-    ) -> Vec<ShardId> {
-        let epoch_id = self.runtime_adapter().get_epoch_id_from_prev_block(parent_hash).unwrap();
-        (0..self.runtime_adapter.num_shards(&epoch_id).unwrap())
+    ) -> Result<Vec<ShardId>, Error> {
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash)?;
+        Ok((0..self.runtime_adapter.num_shards(&epoch_id)?)
             .filter(|shard_id| {
-                self.runtime_adapter.will_care_about_shard(
-                    me.as_ref(),
-                    parent_hash,
-                    *shard_id,
-                    true,
-                ) && !self.runtime_adapter.cares_about_shard(
-                    me.as_ref(),
-                    parent_hash,
-                    *shard_id,
-                    true,
-                )
+                Self::should_catch_up_shard(self.runtime_adapter(), me, parent_hash, *shard_id)
             })
-            .collect()
+            .collect())
+    }
+
+    fn should_catch_up_shard(
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        me: &Option<AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        let will_shard_layout_change =
+            runtime_adapter.will_shard_layout_change(parent_hash).unwrap_or(false);
+        // if shard layout will change the next epoch, we should catch up the shard regardless
+        // whether we already have the shard's state this epoch, because we need to generate
+        // new states for shards split from the current shard for the next epoch
+        runtime_adapter.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true)
+            && (will_shard_layout_change
+                || !runtime_adapter.cares_about_shard(me.as_ref(), parent_hash, shard_id, true))
     }
 
     /// Check if any block with missing chunk is ready to be processed
@@ -2851,19 +2880,12 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     true,
                 ),
-                ApplyChunksMode::NextEpoch => {
-                    self.runtime_adapter.will_care_about_shard(
-                        me.as_ref(),
-                        &block.header().prev_hash(),
-                        shard_id,
-                        true,
-                    ) && !self.runtime_adapter.cares_about_shard(
-                        me.as_ref(),
-                        &block.header().prev_hash(),
-                        shard_id,
-                        true,
-                    )
-                }
+                ApplyChunksMode::NextEpoch => Chain::should_catch_up_shard(
+                    self.runtime_adapter.clone(),
+                    me,
+                    &block.header().prev_hash(),
+                    shard_id,
+                ),
             };
             if care_about_shard {
                 if chunk_header.height_included() == block.header().height() {

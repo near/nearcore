@@ -115,8 +115,9 @@ impl ShardTracker {
         }
     }
 
-    // If ShardLayout will change in the next epoch, `shard_id` refers to shard in the new
-    // ShardLayout
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout will change next epoch, returns true if it cares about any shard
+    // that `shard_id` will split to
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,

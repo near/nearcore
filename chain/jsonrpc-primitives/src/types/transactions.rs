@@ -22,12 +22,12 @@ pub enum TransactionInfo {
     },
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
     InvalidTransaction {
-        #[serde(skip)]
+        #[serde(skip_serializing)]
         context: near_primitives::errors::InvalidTxError,
     },
     #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
