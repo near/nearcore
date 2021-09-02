@@ -41,7 +41,7 @@ impl RuntimeConfigStore {
                         config.account_creation_config.min_allowed_top_level_account_length =
                             length;
                     }
-                    (protocol_version, Arc::new(config));
+                    (protocol_version, Arc::new(config))
                 },
             )),
         }
@@ -142,6 +142,6 @@ mod tests {
         // Check that length was changed.
         let new_store = RuntimeConfigStore::new(Some(0));
         let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
-        assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
+        assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
 }
