@@ -34,9 +34,14 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
     (Cost::ActionFunctionCallBase, action_function_call_base),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
+    //
     (Cost::HostFunctionCall, host_function_call),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
     (Cost::DataReceiptCreationPerByte, data_receipt_creation_per_byte),
+    (Cost::ReadMemoryBase, read_memory_base),
+    (Cost::ReadMemoryByte, read_memory_byte),
+    (Cost::WriteMemoryBase, write_memory_base),
+    (Cost::WriteMemoryByte, write_memory_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -327,43 +332,11 @@ fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
     (total_cost - base_cost) / bytes_per_transaction
 }
 
-fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
-    let mut testbed = ctx.test_bed();
-
-    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-        let sender = tb.random_unused_account();
-        let receiver = sender.clone();
-
-        let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
-        tb.transaction_from_actions(sender, receiver, actions)
-    };
-    testbed.average_transaction_cost(&mut make_transaction)
-}
-
 fn action_function_call_base(ctx: &mut Ctx) -> GasCost {
     let total_cost = noop_host_function_call_cost(ctx);
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost - base_cost
-}
-
-fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
-    if let Some(cost) = ctx.cached.noop_host_function_call_cost.clone() {
-        return cost;
-    }
-
-    let cost = {
-        let mut testbed = ctx.test_bed_with_contracts();
-
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            tb.transaction_from_function_call(sender, "noop", Vec::new())
-        };
-        testbed.average_transaction_cost(&mut make_transaction)
-    };
-
-    ctx.cached.noop_host_function_call_cost = Some(cost.clone());
-    cost
 }
 
 fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
@@ -409,6 +382,80 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
     (total_cost - base_cost) / count
 }
 
+fn read_memory_base(ctx: &mut Ctx) -> GasCost {
+    let (total_cost, count) =
+        host_function_cost(ctx, "read_memory_10b_10k", ExtCosts::read_memory_base);
+    assert_eq!(count, 10_000);
+
+    let base_cost = noop_host_function_call_cost(ctx);
+
+    (total_cost - base_cost) / count
+}
+
+fn read_memory_byte(ctx: &mut Ctx) -> GasCost {
+    let (total_cost, count) =
+        host_function_cost(ctx, "read_memory_1Mib_10k", ExtCosts::read_memory_byte);
+    assert_eq!(count, 1024 * 1024 * 10_000);
+
+    let base_cost = noop_host_function_call_cost(ctx);
+
+    (total_cost - base_cost) / count
+}
+
+fn write_memory_base(ctx: &mut Ctx) -> GasCost {
+    let (total_cost, count) =
+        host_function_cost(ctx, "write_memory_10b_10k", ExtCosts::write_memory_base);
+    assert_eq!(count, 10_000);
+
+    let base_cost = noop_host_function_call_cost(ctx);
+
+    (total_cost - base_cost) / count
+}
+
+fn write_memory_byte(ctx: &mut Ctx) -> GasCost {
+    let (total_cost, count) =
+        host_function_cost(ctx, "write_memory_1Mib_10k", ExtCosts::write_memory_byte);
+    assert_eq!(count, 1024 * 1024 * 10_000);
+
+    let base_cost = noop_host_function_call_cost(ctx);
+
+    (total_cost - base_cost) / count
+}
+
+// Helpers
+
+fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
+    let mut testbed = ctx.test_bed();
+
+    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let receiver = sender.clone();
+
+        let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
+        tb.transaction_from_actions(sender, receiver, actions)
+    };
+    testbed.average_transaction_cost(&mut make_transaction)
+}
+
+fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
+    if let Some(cost) = ctx.cached.noop_host_function_call_cost.clone() {
+        return cost;
+    }
+
+    let cost = {
+        let mut testbed = ctx.test_bed_with_contracts();
+
+        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            tb.transaction_from_function_call(sender, "noop", Vec::new())
+        };
+        testbed.average_transaction_cost(&mut make_transaction)
+    };
+
+    ctx.cached.noop_host_function_call_cost = Some(cost.clone());
+    cost
+}
+
 fn host_function_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
     let mut testbed = ctx.test_bed_with_contracts().block_size(2);
 
@@ -426,7 +473,13 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["HostFunctionCall"];
+    let metrics = [
+        "HostFunctionCall",
+        "ReadMemoryBase",
+        "ReadMemoryByte",
+        "WriteMemoryBase",
+        "WriteMemoryByte",
+    ];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
