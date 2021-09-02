@@ -27,6 +27,11 @@ pub struct RuntimeConfigStore {
 
 impl RuntimeConfigStore {
     /// Constructs a new store.
+    ///
+    /// If min_allowed_top_level_account_length is Some, overrides the value in
+    /// account_creation_config in all runtime configs in resulting store.
+    /// TODO #4775: disable this override for future protocol versions, because it is needed only
+    /// for old testnet versions.
     pub fn new(min_allowed_top_level_account_length: Option<u8>) -> Self {
         Self {
             store: BTreeMap::from_iter(CONFIGS.iter().cloned().map(
