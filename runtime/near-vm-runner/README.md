@@ -66,10 +66,10 @@ tracing_subscriber::fmt::Subscriber::builder()
 code_to_profile_here();
 ```
 
-Alternatively, in the `standalone` crate we have a more compact hierarchical subscriber
+Alternatively, there's an alternative hierarchical profiler
 
 ```rust
-crate::tracing_timings::enable();
+tracing_span_tree::span_tree().enable();;
 
 code_to_profile_here();
 ```
