@@ -230,7 +230,7 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         migrate_25_to_26(&path);
     }
     if db_version <= 26 {
-        info!(target: "near", "Migrate DB from version 25 to 26");
+        info!(target: "near", "Migrate DB from version 26 to 27");
         migrate_26_to_27(&path, near_config.client_config.archive);
     }
     #[cfg(feature = "nightly_protocol")]
