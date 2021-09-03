@@ -28,10 +28,11 @@ pub struct RuntimeConfigStore {
 impl RuntimeConfigStore {
     /// Constructs a new store.
     ///
-    /// If min_allowed_top_level_account_length is Some, overrides the value in
-    /// account_creation_config in all runtime configs in resulting store.
-    /// TODO #4775: disable this override for future protocol versions, because it is needed only
-    /// for old testnet versions.
+    /// If genesis_runtime_config is Some, configs for protocol versions 0 and 42 are overridden by
+    /// this config and config with lowered storage cost, respectively.
+    /// This is done to preserve compatibility with previous implementation, where we updated
+    /// runtime config by sequential modifications to the genesis runtime config.
+    /// TODO #4775: introduce new protocol version to have the same runtime config for all chains
     pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
         let mut store =
             BTreeMap::from_iter(CONFIGS.iter().cloned().map(|(protocol_version, config_bytes)| {
