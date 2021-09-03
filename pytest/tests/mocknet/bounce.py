@@ -1,7 +1,8 @@
 # Stop all mocknet nodes, wait 1s, then start all nodes again.
 # Nodes should be responsive again after this operation.
 
-import sys, time
+import sys
+import time
 from rc import pmap
 
 sys.path.append('lib')
@@ -15,8 +16,10 @@ pmap(mocknet.stop_node, nodes)
 # wait 30s
 time.sleep(30)
 
+mocknet.create_and_upload_genesis(nodes, '../nearcore/res/genesis_config.json')
+
 # start nodes
-pmap(mocknet.start_node, nodes)
+mocknet.start_nodes(nodes)
 
 # give some time to come back up
 time.sleep(60)
