@@ -10,27 +10,34 @@ import os
 import statistics
 import time
 
-from rc import run, pmap
+from rc import run, pmap, gcloud
 
-NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
-NUM_NODES = 54
-NODE_BASE_NAME = 'mocknet-node'
-NODE_USERNAME = 'ubuntu'
-NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
-KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 DEFAULT_KEY_TARGET = '/tmp/mocknet'
+KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
+NODE_BASE_NAME = 'mocknet'
+# NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
+NODE_SSH_KEY_PATH = None
+NODE_USERNAME = 'ubuntu'
+NUM_NODES = 2
+NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
+RPC_PORT=3030
+PROJECT = 'near-mocknet'
+PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
 TX_OUT_FILE = '/home/ubuntu/tx_events'
+
 
 TMUX_STOP_SCRIPT = '''
 while tmux has-session -t near; do
 tmux kill-session -t near || true
 done
+sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1
+sudo rm -rf /home/ubuntu/.near/data
 '''
 
 TMUX_START_SCRIPT = '''
-sudo rm -rf /tmp/near.log
+sudo rm -rf /home/ubuntu/near.log
 tmux new -s near -d bash
-tmux send-keys -t near 'RUST_BACKTRACE=full /home/ubuntu/near run 2>&1 | tee /home/ubuntu/near.log' C-m
+tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info /home/ubuntu/neard run 2>&1 | tee /home/ubuntu/near.log' C-m
 '''
 
 PYTHON_DIR = '/home/ubuntu/.near/pytest/'
@@ -50,16 +57,18 @@ cd {PYTHON_DIR}
 '''
 
 
-# set prefix = 'sharded-' to access sharded mocknet nodes
-def get_node(i, prefix=''):
-    n = GCloudNode(f'{prefix}{NODE_BASE_NAME}{i}')
-    n.machine.username = NODE_USERNAME
-    n.machine.ssh_key_path = NODE_SSH_KEY_PATH
+def get_node(hostname):
+    instance_name = hostname
+    n = GCloudNode(instance_name=instance_name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH, rpc_port=RPC_PORT)
     return n
 
 
-def get_nodes(prefix=''):
-    return pmap(lambda i: get_node(i, prefix=prefix), range(NUM_NODES))
+def get_nodes():
+    machines = gcloud.list(project=PROJECT, username=NODE_USERNAME, ssh_key_path=NODE_SSH_KEY_PATH)
+    nodes = []
+    for machine in machines:
+        nodes.append(GCloudNode(instance_name=machine.name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH, rpc_port=RPC_PORT))
+    return nodes
 
 
 def create_target_dir(machine):
@@ -70,6 +79,7 @@ def create_target_dir(machine):
 
 
 def get_validator_account(node):
+    print('get_validator_account', node)
     m = node.machine
     target_dir = create_target_dir(m)
     m.download(f'/home/ubuntu/.near/validator_key.json', target_dir)
@@ -250,7 +260,9 @@ def transfer_between_nodes(nodes):
     logger.info('Testing transfer between mocknet validators')
     node = nodes[0]
     alice = get_validator_account(nodes[1])
+    print('alice: ', alice)
     bob = get_validator_account(nodes[0])
+    print('bob: ', bob)
     transfer_amount = 100
     get_balance = lambda account: int(
         node.get_account(account.account_id)['result']['amount'])
@@ -327,12 +339,95 @@ def stop_node(node):
         m.run('sudo -u ubuntu -i', input=TMUX_STOP_SCRIPT)
 
 
+def create_and_upload_genesis(nodes, genesis_template_filename):
+    mocknet_genesis_filename = '/tmp/mocknet_genesis.json'
+    create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_filename)
+    # We assume that the nodes already have the .near directory with the files
+    # node_key.json, validator_key.json and config.json.
+    pmap(lambda node: node.machine.upload(mocknet_genesis_filename, '/home/ubuntu/.near/genesis.json'), nodes)
+    update_boot_nodes(nodes)
+
+
+def node_account_name(instance_name):
+    return f'{instance_name}.near'
+
+
+def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_filename):
+    with open(genesis_template_filename) as f:
+        MASTER_BALANCE = "1000000000000000000000000000000000"
+        TREASURY_BALANCE = MASTER_BALANCE
+        VALIDATOR_BALANCE = "20000000000000000000000000000000"
+        STAKED_BALANCE = "15000000000000000000000000000000"
+        MASTER_ACCOUNT = "near"
+        TREASURY_ACCOUNT = "test.near"
+
+        genesis_config = json.loads(f.read())
+        print(genesis_config)
+        genesis_config['chain_id'] = "mocknet"
+        genesis_config['total_supply'] = str(int(MASTER_BALANCE) + int(TREASURY_BALANCE) + len(nodes)*(int(VALIDATOR_BALANCE) + int(STAKED_BALANCE)))
+        genesis_config['records'] = []
+        genesis_config['validators'] = []
+        genesis_config['records'].append({"Account":{"account_id":TREASURY_ACCOUNT,"account":{"amount":TREASURY_BALANCE,"locked":"0","code_hash":"11111111111111111111111111111111","storage_usage":0,"version":"V1"}}})
+        genesis_config['records'].append({"AccessKey":{"account_id":TREASURY_ACCOUNT,"public_key":PUBLIC_KEY,"access_key":{"nonce":0,"permission":"FullAccess"}}})
+        genesis_config['records'].append({"Account":{"account_id":MASTER_ACCOUNT,"account":{"amount":MASTER_BALANCE,"locked":"0","code_hash":"11111111111111111111111111111111","storage_usage":0,"version":"V1"}}})
+        genesis_config['records'].append({"AccessKey":{"account_id":MASTER_ACCOUNT,"public_key":PUBLIC_KEY,"access_key":{"nonce":0,"permission":"FullAccess"}}})
+        for node in nodes:
+            genesis_config['records'].append({"Account":{"account_id":node_account_name(node.instance_name),"account":{"amount":VALIDATOR_BALANCE,"locked":STAKED_BALANCE,"code_hash":"11111111111111111111111111111111","storage_usage":0,"version":"V1"}}})
+            genesis_config['records'].append({"AccessKey":{"account_id":node_account_name(node.instance_name),"public_key":PUBLIC_KEY,"access_key":{"nonce":0,"permission":"FullAccess"}}})
+            genesis_config['validators'].append({"account_id":node_account_name(node.instance_name),"public_key":PUBLIC_KEY,"amount":STAKED_BALANCE})
+    with open(mocknet_genesis_filename, 'w') as f:
+        f.write(json.dumps(genesis_config, indent=2))
+
+def update_boot_nodes(nodes):
+    assert(len(nodes)>0)
+    first_node = nodes[0]
+    mocknet_config_filename = '/tmp/mocknet_config.json'
+    first_node_key_filename = '/tmp/mocknet_node_key.json'
+    first_node.machine.download(f'/home/ubuntu/.near/config.json', mocknet_config_filename)
+    first_node.machine.download(f'/home/ubuntu/.near/node_key.json', first_node_key_filename)
+
+    with open(mocknet_config_filename) as f:
+        config_json = json.loads(f.read())
+
+    with open(first_node_key_filename) as f:
+        node_key_json = json.loads(f.read())
+
+    port = '24567' # TODO: Get the port value from the config.
+    config_json['network']['boot_nodes'] = f'{node_key_json["public_key"]}@{first_node.ip}:{port}'
+    with open(mocknet_config_filename, 'w') as f:
+        f.write(json.dumps(config_json, indent=2))
+
+    pmap(lambda node: node.machine.upload(mocknet_config_filename, '/home/ubuntu/.near/config.json'), nodes)
+
+
+def apply_genesis_changes(node_dir, genesis_config_changes):
+    # apply genesis.json changes
+    fname = os.path.join(node_dir, 'genesis.json')
+    with open(fname) as f:
+        genesis_config = json.loads(f.read())
+    for change in genesis_config_changes:
+        cur = genesis_config
+        for s in change[:-2]:
+            cur = cur[s]
+        assert change[-2] in cur
+        cur[change[-2]] = change[-1]
+    with open(fname, 'w') as f:
+        f.write(json.dumps(genesis_config, indent=2))
+
+
+def start_nodes(nodes):
+    pmap(start_node, nodes)
+
+
 def start_node(node):
     m = node.machine
     logger.info(f'Starting node {m.name}')
     pid = get_near_pid(m)
+    print('pid',pid)
     if pid == '':
+        print(TMUX_START_SCRIPT)
         start_process = m.run('sudo -u ubuntu -i', input=TMUX_START_SCRIPT)
+        print(start_process.returncode)
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
 
 
@@ -342,7 +437,7 @@ def reset_data(node, retries=0):
         stop_node(node)
         logger.info(f'Clearing data directory of node {m.name}')
         start_process = m.run('bash',
-                              input='/home/ubuntu/near unsafe_reset_data')
+                              input='/home/ubuntu/neard unsafe_reset_data')
         assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
     except:
         if retries < 3:

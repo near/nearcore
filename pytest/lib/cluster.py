@@ -101,16 +101,21 @@ class BaseNode(object):
         nretry(lambda: self.get_status(), timeout=timeout)
 
     def json_rpc(self, method, params, timeout=2):
+        print('BaseNode::json_rpc',method,params,timeout)
         j = {
             'method': method,
             'params': params,
             'id': 'dontcare',
             'jsonrpc': '2.0'
         }
+        print(j)
+        print("http://%s:%s" % self.rpc_addr())
         r = requests.post("http://%s:%s" % self.rpc_addr(),
                           json=j,
                           timeout=timeout)
+        print(r)
         r.raise_for_status()
+        print(r.content)
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
@@ -156,11 +161,12 @@ class BaseNode(object):
         return self.json_rpc('validators', [None])
 
     def get_account(self, acc, finality='optimistic'):
+        print('get_account',acc,finality)
         return self.json_rpc('query', {
             "request_type": "view_account",
             "account_id": acc,
             "finality": finality
-        })
+        }, timeout=30)
 
     def call_function(self, acc, method, args, finality='optimistic', timeout=2):
         return self.json_rpc('query', {
@@ -384,16 +390,19 @@ class LocalNode(BaseNode):
         network.resume_network(self.pid.value)
 
 
+class BotoNode(BaseNode):
+    pass
+
+
 class GCloudNode(BaseNode):
 
-    def __init__(self, *args):
-        if len(args) == 1:
+    def __init__(self, instance_name=None, username=None, project=None, ssh_key_path=None, rpc_port=3030, *args):
+        if len(args) == 0:
             # Get existing instance assume it's ready to run
-            name = args[0]
-            self.instance_name = name
+            self.instance_name = instance_name 
             self.port = 24567
             self.rpc_port = 3030
-            self.machine = gcloud.get(name)
+            self.machine = gcloud.get(instance_name, username=username, project=project, ssh_key_path=ssh_key_path)
             self.ip = self.machine.ip
         elif len(args) == 4:
             # Create new instance from scratch
@@ -413,7 +422,7 @@ class GCloudNode(BaseNode):
                 min_cpu_platform='Intel Skylake',
                 preemptible=False,
             )
-            self.ip = self.machine.ip
+            # self.ip = self.machine.ip
             self._upload_config_files(node_dir)
             self._download_binary(binary)
             with remote_nodes_lock:
@@ -439,8 +448,8 @@ class GCloudNode(BaseNode):
     def _download_binary(self, binary):
         p = self.machine.run('bash',
                              input=f'''
-/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} near
-chmod +x near
+/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} neard
+chmod +x neard
 ''')
         if p.returncode != 0:
             raise DownloadException(p.stderr)
@@ -553,7 +562,7 @@ class AzureNode(BaseNode):
             self.wait_for_rpc(timeout=30)
 
         def kill(self):
-            cmd = 'killall -9 neard'
+            cmd = ('killall -9 neard; pkill -9 -e -f companion.py')
             post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
             res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
             json_res = json.loads(res.text)
@@ -566,6 +575,14 @@ class AzureNode(BaseNode):
 
         def rpc_addr(self):
             return (self.ip, self.rpc_port)
+
+        def companion(self, *args):
+            post = {'ip': self.ip, 'args': ' '.join(map(str, args)), 'token': self.token}
+            res = requests.post('http://40.112.59.229:5000/companion', json=post)
+            json_res = json.loads(res.text)
+            if json_res['stderr'] != '':
+                logger.info(json_res['stderr'])
+                sys.exit()
 
 
 def spin_up_node(config,
