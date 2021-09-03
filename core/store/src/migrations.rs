@@ -5,6 +5,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
     ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
@@ -12,7 +13,10 @@ use near_primitives::sharding::{
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
+use crate::db::DBCol::{
+    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
+    ColPartialChunks, ColStateParts,
+};
 use crate::db::{DBCol, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
@@ -715,6 +719,22 @@ pub fn migrate_25_to_26(path: &String) {
     store_update.commit().unwrap();
 
     set_store_version(&store, 26);
+}
+
+pub fn migrate_26_to_27(path: &String, is_archival: bool) {
+    let store = create_store(path);
+    if is_archival {
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        for (_, value) in store.iter(ColBlockHeight) {
+            let block_merkle_tree =
+                store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
+            store_update
+                .set_ser(ColBlockOrdinal, &block_merkle_tree.size().to_le_bytes(), &value)
+                .unwrap();
+        }
+        store_update.finish().unwrap();
+    }
+    set_store_version(&store, 27);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

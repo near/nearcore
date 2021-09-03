@@ -64,6 +64,7 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
+use rand::Rng;
 
 fn set_block_protocol_version(
     block: &mut Block,
@@ -1909,10 +1910,27 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let mut blocks = vec![genesis_block.clone()];
-    for i in 1..n {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        blocks.push(block.clone());
-        env.process_block(0, block, Provenance::PRODUCED);
+    let mut rng = rand::thread_rng();
+    let mut cur_height = genesis_block.header().height() + 1;
+    while cur_height < n {
+        let should_fork = rng.gen_bool(0.5);
+        if should_fork {
+            let block = env.clients[0].produce_block(cur_height).unwrap().unwrap();
+            let fork_block = env.clients[0].produce_block(cur_height + 1).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            let next_block = env.clients[0].produce_block(cur_height + 2).unwrap().unwrap();
+            assert_eq!(next_block.header().prev_hash(), block.hash());
+            env.process_block(0, fork_block, Provenance::PRODUCED);
+            env.process_block(0, next_block.clone(), Provenance::PRODUCED);
+            blocks.push(block);
+            blocks.push(next_block);
+            cur_height += 3;
+        } else {
+            let block = env.clients[0].produce_block(cur_height).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
+            cur_height += 1;
+        }
     }
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
@@ -2897,15 +2915,24 @@ fn test_block_ordinal() {
     let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block.clone(), Provenance::NONE);
+    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
+    assert_eq!(next_block.header().prev_hash(), fork1_block.header().hash());
     env.process_block(0, fork2_block.clone(), Provenance::NONE);
     ordinal += 1;
+    let fork_ordinal = ordinal - 1;
     assert_eq!(fork1_block.header().block_ordinal(), ordinal);
     assert_eq!(fork2_block.header().block_ordinal(), ordinal);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, fork2_block.header().height());
     // Next block on top of fork
-    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
     env.process_block(0, next_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
+    assert_eq!(env.clients[0].chain.head().unwrap().height, next_block.header().height());
     assert_eq!(next_block.header().block_ordinal(), ordinal);
+
+    // make sure that the old ordinal maps to what is on the canonical chain
+    let fork_ordinal_block_hash =
+        env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap().clone();
+    assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
 }
 
 fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
