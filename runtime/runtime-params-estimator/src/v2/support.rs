@@ -269,8 +269,8 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct GasCost {
-    value: u64,
-    metric: GasMetric,
+    pub value: u64,
+    pub metric: GasMetric,
 }
 
 impl fmt::Debug for GasCost {

@@ -5,16 +5,21 @@ use std::time::Instant;
 
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
+use near_primitives::contract::ContractCode;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
-use near_vm_logic::ExtCosts;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::{ExtCosts, VMConfig};
 use rand::Rng;
 
-use crate::testbed_runners::Config;
+use crate::testbed_runners::{end_count, start_count, Config};
 use crate::v2::support::{Ctx, GasCost};
+use crate::vm_estimator::create_context;
 use crate::{Cost, CostTable};
 
 use self::support::TransactionBuilder;
@@ -36,6 +41,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
     //
     (Cost::HostFunctionCall, host_function_call),
+    (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
     (Cost::DataReceiptCreationPerByte, data_receipt_creation_per_byte),
     (Cost::ReadMemoryBase, read_memory_base),
@@ -390,6 +396,57 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
     (total_cost - base_cost) / count
 }
 
+fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
+    let code = ctx.read_resource(if cfg!(feature = "nightly_protocol_features") {
+        "test-contract/res/nightly_large_contract.wasm"
+    } else {
+        "test-contract/res/stable_large_contract.wasm"
+    });
+
+    let n_iters = 10;
+
+    let code = ContractCode::new(code.to_vec(), None);
+    let mut fake_external = MockedExternal::new();
+    let config = VMConfig::default();
+    let fees = RuntimeFeesConfig::default();
+    let promise_results = vec![];
+
+    let mut run = || {
+        let context = create_context(vec![]);
+        let (outcome, err) = near_vm_runner::run(
+            &code,
+            "cpu_ram_soak_test",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            PROTOCOL_VERSION,
+            None,
+        );
+        match (outcome, err) {
+            (Some(it), Some(_)) => it,
+            _ => panic!(),
+        }
+    };
+
+    let warmup_outcome = run();
+
+    let start = start_count(ctx.config.metric);
+    for _ in 0..n_iters {
+        run();
+    }
+    let total = end_count(ctx.config.metric, &start);
+
+    let instructions_per_iter = {
+        let op_cost = config.regular_op_cost as u64;
+        warmup_outcome.burnt_gas / op_cost
+    };
+
+    let per_instruction = total / (instructions_per_iter * n_iters);
+    GasCost { value: per_instruction, metric: ctx.config.metric }
+}
+
 fn read_memory_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "read_memory_10b_10k", ExtCosts::read_memory_base, 10_000)
 }
@@ -501,7 +558,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["Utf8DecodingBase", "Utf8DecodingByte"];
+    let metrics = ["WasmInstruction"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
