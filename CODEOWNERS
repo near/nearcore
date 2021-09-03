@@ -20,9 +20,12 @@
 /tools/rpctypegen/ @frol
 /tools/indexer/ @khorolets @frol
 
-/core/  @bowenwang1996 @frol @nearmax
+/core/  @bowenwang1996 @frol @matklad
+/core/store/src/trie @mzhangmzz @longarithm
 /neard/ @bowenwang1996 @frol
 /nearcore/ @bowenwang1996 @frol
+/test-utils/state-viewer @nikurt
+/test-utils/runtime-tester @posvyatokum
 
 /.buildkite/ @chefsale @mhalambek
 /scripts/ @chefsale @mhalambek
