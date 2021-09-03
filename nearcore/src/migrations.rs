@@ -1,4 +1,3 @@
-use crate::config::create_runtime_config_store;
 use crate::{NearConfig, NightshadeRuntime};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
@@ -119,7 +118,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
-            create_runtime_config_store(&near_config.genesis.config.chain_id),
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
@@ -231,7 +230,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
-            create_runtime_config_store(&near_config.genesis.config.chain_id),
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -299,7 +298,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
-            create_runtime_config_store(&near_config.genesis.config.chain_id),
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.

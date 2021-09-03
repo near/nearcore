@@ -32,19 +32,21 @@ impl RuntimeConfigStore {
     /// account_creation_config in all runtime configs in resulting store.
     /// TODO #4775: disable this override for future protocol versions, because it is needed only
     /// for old testnet versions.
-    pub fn new(min_allowed_top_level_account_length: Option<u8>) -> Self {
-        Self {
-            store: BTreeMap::from_iter(CONFIGS.iter().cloned().map(
-                |(protocol_version, config_bytes)| {
-                    let mut config: RuntimeConfig = serde_json::from_slice(config_bytes).unwrap();
-                    if let Some(length) = min_allowed_top_level_account_length {
-                        config.account_creation_config.min_allowed_top_level_account_length =
-                            length;
-                    }
-                    (protocol_version, Arc::new(config))
-                },
-            )),
+    pub fn new(genesis_runtime_config: Option<&RuntimeConfig>) -> Self {
+        let mut store =
+            BTreeMap::from_iter(CONFIGS.iter().cloned().map(|(protocol_version, config_bytes)| {
+                (protocol_version, Arc::new(serde_json::from_slice(config_bytes).unwrap()))
+            }));
+
+        if let Some(runtime_config) = genesis_runtime_config {
+            let mut config = runtime_config.clone();
+            store[0] = Arc::new(config.clone());
+
+            config.storage_amount_per_byte = 10u128.pow(19);
+            store[42] = Arc::new(config.clone());
         }
+
+        Self { store }
     }
 
     /// Constructs test store.
@@ -133,14 +135,17 @@ mod tests {
     }
 
     #[test]
-    fn test_min_allowed_top_level_account_length() {
+    fn test_override_account_length() {
         // Check that default value is 32.
         let base_store = RuntimeConfigStore::new(None);
         let base_cfg = base_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(base_cfg.account_creation_config.min_allowed_top_level_account_length, 32);
 
+        let mut cfg = base_cfg.as_ref().clone();
+        cfg.account_creation_config.min_allowed_top_level_account_length = 0;
+
         // Check that length was changed.
-        let new_store = RuntimeConfigStore::new(Some(0));
+        let new_store = RuntimeConfigStore::new(Some(cfg));
         let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }

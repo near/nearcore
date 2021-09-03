@@ -28,7 +28,6 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, TrieIterator};
-use nearcore::config::create_runtime_config_store;
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
@@ -69,7 +68,7 @@ fn load_trie_stop_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
-        create_runtime_config_store(&near_config.genesis.config.chain_id),
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     );
     let head = chain_store.head().unwrap();
     let last_block = match mode {
@@ -128,7 +127,7 @@ fn print_chain(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
-        create_runtime_config_store(&near_config.genesis.config.chain_id),
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
@@ -200,7 +199,7 @@ fn replay_chain(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
-        create_runtime_config_store(&near_config.genesis.config.chain_id),
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     );
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
@@ -286,7 +285,7 @@ fn apply_chain_range(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
-        create_runtime_config_store(&near_config.genesis.config.chain_id),
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     ));
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
@@ -466,7 +465,7 @@ fn apply_block_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
-        create_runtime_config_store(&near_config.genesis.config.chain_id),
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();

@@ -1784,7 +1784,7 @@ mod test {
     };
     use near_store::create_store;
 
-    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{mainnet_genesis, GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
@@ -3271,5 +3271,19 @@ mod test {
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake(), 0);
+    }
+
+    #[test]
+    fn test_runtime_configs_similarity_mainnet() {
+        let genesis = mainnet_genesis();
+        let genesis_runtime_config = genesis.config.runtime_config;
+
+        let overridden_store = RuntimeConfigStore::new(Some(&genesis_runtime_config));
+        let store = RuntimeConfigStore::new(None);
+        for protocol_version in [29u32, 34u32, 42u32, 50u32].iter() {
+            let old_config = overridden_store.get_config(protocol_version.clone());
+            let new_config = store.get_config(protocol_version.clone());
+            assert_eq!(old_config, new_config);
+        }
     }
 }
