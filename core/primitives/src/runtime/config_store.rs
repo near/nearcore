@@ -40,10 +40,10 @@ impl RuntimeConfigStore {
 
         if let Some(runtime_config) = genesis_runtime_config {
             let mut config = runtime_config.clone();
-            store[0] = Arc::new(config.clone());
+            store.insert(0, Arc::new(config.clone()));
 
             config.storage_amount_per_byte = 10u128.pow(19);
-            store[42] = Arc::new(config.clone());
+            store.insert(42, Arc::new(config.clone()));
         }
 
         Self { store }
@@ -145,7 +145,7 @@ mod tests {
         cfg.account_creation_config.min_allowed_top_level_account_length = 0;
 
         // Check that length was changed.
-        let new_store = RuntimeConfigStore::new(Some(cfg));
+        let new_store = RuntimeConfigStore::new(Some(&cfg));
         let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
     }
