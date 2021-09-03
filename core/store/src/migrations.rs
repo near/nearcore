@@ -12,7 +12,7 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfoV1;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{
@@ -29,7 +29,10 @@ use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::DbVersion;
 
-use crate::db::DBCol::{ColBlockHeader, ColBlockMisc, ColChunks, ColPartialChunks, ColStateParts};
+use crate::db::DBCol::{
+    ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
+    ColPartialChunks, ColStateParts,
+};
 use crate::db::{DBCol, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
     col_state_refcount_8byte, migrate_col_transaction_refcount, migrate_receipts_refcount,
@@ -716,6 +719,22 @@ pub fn migrate_25_to_26(path: &String) {
     store_update.commit().unwrap();
 
     set_store_version(&store, 26);
+}
+
+pub fn migrate_26_to_27(path: &String, is_archival: bool) {
+    let store = create_store(path);
+    if is_archival {
+        let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+        for (_, value) in store.iter(ColBlockHeight) {
+            let block_merkle_tree =
+                store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
+            store_update
+                .set_ser(ColBlockOrdinal, &block_merkle_tree.size().to_le_bytes(), &value)
+                .unwrap();
+        }
+        store_update.finish().unwrap();
+    }
+    set_store_version(&store, 27);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
