@@ -47,6 +47,9 @@ struct CliArgs {
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
+    /// Only measure the specified metrics, computing a subset of costs.
+    #[clap(long)]
+    metrics_to_measure: Option<String>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
@@ -117,6 +120,8 @@ fn main() -> anyhow::Result<()> {
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
+    let metrics_to_measure =
+        cli_args.metrics_to_measure.map(|it| it.split(',').map(str::to_string).collect());
 
     let cost_table = run(
         Config {
@@ -127,6 +132,7 @@ fn main() -> anyhow::Result<()> {
             state_dump_path: state_dump_path.clone(),
             metric,
             vm_kind,
+            metrics_to_measure,
         },
         cli_args.compile_only,
     );
