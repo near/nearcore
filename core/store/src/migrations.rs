@@ -40,7 +40,9 @@ use near_primitives::trie_key::TrieKey;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::{create_receipt_id_from_transaction, get_block_shard_id};
+use near_primitives::utils::{
+    create_receipt_id_from_transaction, get_block_shard_id, index_to_bytes,
+};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use std::rc::Rc;
 
@@ -728,8 +730,9 @@ pub fn migrate_26_to_27(path: &String, is_archival: bool) {
         for (_, value) in store.iter(ColBlockHeight) {
             let block_merkle_tree =
                 store.get_ser::<PartialMerkleTree>(ColBlockMerkleTree, &value).unwrap().unwrap();
+            let block_hash = CryptoHash::try_from_slice(&value).unwrap();
             store_update
-                .set_ser(ColBlockOrdinal, &block_merkle_tree.size().to_le_bytes(), &value)
+                .set_ser(ColBlockOrdinal, &index_to_bytes(block_merkle_tree.size()), &block_hash)
                 .unwrap();
         }
         store_update.finish().unwrap();
