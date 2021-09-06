@@ -2,6 +2,7 @@ import base58
 import json
 import os
 import time
+import tempfile
 from rc import run, pmap, gcloud
 
 import data
@@ -19,6 +20,7 @@ NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
 NUM_NODES = 2
 NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
+NUM_SHARDS = 8
 RPC_PORT = 3030
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
@@ -28,12 +30,11 @@ TMUX_STOP_SCRIPT = '''
 while tmux has-session -t near; do
 tmux kill-session -t near || true
 done
-sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1
 sudo rm -rf /home/ubuntu/.near/data
 '''
 
 TMUX_START_SCRIPT = '''
-sudo rm -rf /home/ubuntu/near.log
+sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
 tmux new -s near -d bash
 tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info /home/ubuntu/neard run 2>&1 | tee /home/ubuntu/near.log' C-m
 '''
@@ -65,9 +66,7 @@ def get_node(hostname):
 def get_nodes():
     machines = gcloud.list(project=PROJECT, username=NODE_USERNAME, ssh_key_path=NODE_SSH_KEY_PATH)
     nodes = []
-    for machine in machines:
-        nodes.append(GCloudNode(instance_name=machine.name, username=NODE_USERNAME, project=PROJECT,
-                                ssh_key_path=NODE_SSH_KEY_PATH, rpc_port=RPC_PORT))
+    pmap(lambda machine: nodes.append(GCloudNode(instance_name=machine.name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH, rpc_port=RPC_PORT)) , machines)
     return nodes
 
 
@@ -147,8 +146,8 @@ def get_epoch_length_in_blocks(node):
     m.download(f'/home/ubuntu/.near/genesis.json', target_dir)
     with open(f'{target_dir}/genesis.json') as f:
         config = json.load(f)
-        epoch_length_in_blocks = config['epoch_length']
-        return epoch_length_in_blocks
+    epoch_length_in_blocks = config['epoch_length']
+    return epoch_length_in_blocks
 
 
 def get_metrics(node):
@@ -337,96 +336,108 @@ def stop_node(node):
 
 
 def create_and_upload_genesis(nodes, genesis_template_filename):
-    mocknet_genesis_filename = '/tmp/mocknet_genesis.json'
-    create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_filename)
+    mocknet_genesis_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix='.mocknet.genesis')
+    create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file)
     # We assume that the nodes already have the .near directory with the files
     # node_key.json, validator_key.json and config.json.
-    pmap(lambda node: node.machine.upload(mocknet_genesis_filename, '/home/ubuntu/.near/genesis.json'), nodes)
-    update_boot_nodes(nodes)
+    pmap(lambda node: node.machine.upload(mocknet_genesis_file.name, '/home/ubuntu/.near/genesis.json'), nodes)
+    update_config_file(nodes)
 
 
 def node_account_name(instance_name):
     return f'{instance_name}.near'
 
 
-def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_filename):
+def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
     with open(genesis_template_filename) as f:
-        MASTER_BALANCE = "1000000000000000000000000000000000"
-        TREASURY_BALANCE = MASTER_BALANCE
-        VALIDATOR_BALANCE = "20000000000000000000000000000000"
-        STAKED_BALANCE = "15000000000000000000000000000000"
-        MASTER_ACCOUNT = "near"
-        TREASURY_ACCOUNT = "test.near"
+        genesis_config = json.load(f)
 
-        genesis_config = json.loads(f.read())
-        genesis_config['chain_id'] = "mocknet"
-        genesis_config['total_supply'] = str(
-            int(MASTER_BALANCE) + int(TREASURY_BALANCE) + len(nodes) * (int(VALIDATOR_BALANCE) + int(STAKED_BALANCE)))
-        genesis_config['records'] = []
-        genesis_config['validators'] = []
-        genesis_config['records'].append({"Account": {"account_id": TREASURY_ACCOUNT,
-                                                      "account": {"amount": TREASURY_BALANCE, "locked": "0",
+    ONE_NEAR = 10**24
+    TOTAL_SUPPLY = (10**9) * ONE_NEAR
+    TREASURY_BALANCE = (10**7) * ONE_NEAR
+    VALIDATOR_BALANCE = 5 * (10**5) * ONE_NEAR
+    STAKED_BALANCE = 15 * (10**5) * ONE_NEAR
+    MASTER_ACCOUNT = "near"
+    TREASURY_ACCOUNT = "test.near"
+
+    genesis_config['chain_id'] = "mocknet"
+    genesis_config['total_supply'] = str(TOTAL_SUPPLY)
+    master_balance = TOTAL_SUPPLY - (TREASURY_BALANCE + len(nodes) * (VALIDATOR_BALANCE + STAKED_BALANCE))
+    assert master_balance > 0 
+    genesis_config['records'] = []
+    genesis_config['validators'] = []
+    genesis_config['records'].append({"Account": {"account_id": TREASURY_ACCOUNT,
+                                                  "account": {"amount": str(TREASURY_BALANCE), "locked": "0",
+                                                              "code_hash": "11111111111111111111111111111111",
+                                                              "storage_usage": 0, "version": "V1"}}})
+    genesis_config['records'].append({"AccessKey": {"account_id": TREASURY_ACCOUNT, "public_key": PUBLIC_KEY,
+                                                    "access_key": {"nonce": 0, "permission": "FullAccess"}}})
+    genesis_config['records'].append({"Account": {"account_id": MASTER_ACCOUNT,
+                                                  "account": {"amount": str(master_balance), "locked": "0",
+                                                              "code_hash": "11111111111111111111111111111111",
+                                                              "storage_usage": 0, "version": "V1"}}})
+    genesis_config['records'].append({"AccessKey": {"account_id": MASTER_ACCOUNT, "public_key": PUBLIC_KEY,
+                                                    "access_key": {"nonce": 0, "permission": "FullAccess"}}})
+    for node in nodes:
+        genesis_config['records'].append({"Account": {"account_id": node_account_name(node.instance_name),
+                                                      "account": {"amount": str(VALIDATOR_BALANCE),
+                                                                  "locked": str(STAKED_BALANCE),
                                                                   "code_hash": "11111111111111111111111111111111",
                                                                   "storage_usage": 0, "version": "V1"}}})
-        genesis_config['records'].append({"AccessKey": {"account_id": TREASURY_ACCOUNT, "public_key": PUBLIC_KEY,
+        genesis_config['records'].append({"AccessKey": {"account_id": node_account_name(node.instance_name),
+                                                        "public_key": PUBLIC_KEY,
                                                         "access_key": {"nonce": 0, "permission": "FullAccess"}}})
-        genesis_config['records'].append({"Account": {"account_id": MASTER_ACCOUNT,
-                                                      "account": {"amount": MASTER_BALANCE, "locked": "0",
-                                                                  "code_hash": "11111111111111111111111111111111",
-                                                                  "storage_usage": 0, "version": "V1"}}})
-        genesis_config['records'].append({"AccessKey": {"account_id": MASTER_ACCOUNT, "public_key": PUBLIC_KEY,
-                                                        "access_key": {"nonce": 0, "permission": "FullAccess"}}})
-        for node in nodes:
-            genesis_config['records'].append({"Account": {"account_id": node_account_name(node.instance_name),
-                                                          "account": {"amount": VALIDATOR_BALANCE,
-                                                                      "locked": STAKED_BALANCE,
-                                                                      "code_hash": "11111111111111111111111111111111",
-                                                                      "storage_usage": 0, "version": "V1"}}})
-            genesis_config['records'].append({"AccessKey": {"account_id": node_account_name(node.instance_name),
-                                                            "public_key": PUBLIC_KEY,
-                                                            "access_key": {"nonce": 0, "permission": "FullAccess"}}})
-            genesis_config['validators'].append(
-                {"account_id": node_account_name(node.instance_name), "public_key": PUBLIC_KEY,
-                 "amount": STAKED_BALANCE})
-    with open(mocknet_genesis_filename, 'w') as f:
-        f.write(json.dumps(genesis_config, indent=2))
+        genesis_config['validators'].append(
+            {"account_id": node_account_name(node.instance_name), "public_key": PUBLIC_KEY,
+             "amount": str(STAKED_BALANCE)})
+    genesis_config["num_block_producer_seats"] = len(nodes)
+    genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)]*NUM_SHARDS
+    genesis_config["avg_hidden_validator_seats_per_shard"] = [0]*NUM_SHARDS
+    genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
+    genesis_config["simple_nightshade_shard_config"] = {}
+    genesis_config["simple_nightshade_shard_config"]["num_block_producer_seats_per_shard"] = [len(nodes)]*NUM_SHARDS
+    genesis_config["simple_nightshade_shard_config"]["avg_hidden_validator_seats_per_shard"] = [0]*NUM_SHARDS
+    genesis_config["simple_nightshade_shard_config"]["shard_layout"] = {}
+    genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"] = {}
+    genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
+    genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"]["version"] = 0
+    # The json object gets truncated if I don't close and reopen the file.
+    mocknet_genesis_file.close()
+    with open(mocknet_genesis_file.name,'w') as f:
+        json.dump(genesis_config, f, indent=2)
 
 
-def update_boot_nodes(nodes):
+def get_node_addr(node, port):
+    node_key_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix=f'.mocknet.node_key.{node.instance_name}')
+    node_key_file.close()
+    node.machine.download(f'/home/ubuntu/.near/node_key.json', node_key_file.name)
+    with open(node_key_file.name,'r') as f:
+        node_key_json = json.load(f)
+    return f'{node_key_json["public_key"]}@{node.ip}:{port}'
+
+def update_config_file(nodes):
     assert (len(nodes) > 0)
     first_node = nodes[0]
-    mocknet_config_filename = '/tmp/mocknet_config.json'
-    first_node_key_filename = '/tmp/mocknet_node_key.json'
-    first_node.machine.download(f'/home/ubuntu/.near/config.json', mocknet_config_filename)
-    first_node.machine.download(f'/home/ubuntu/.near/node_key.json', first_node_key_filename)
 
-    with open(mocknet_config_filename) as f:
-        config_json = json.loads(f.read())
+    # Create temporary files and close them because we'll download files using their filenames.
+    mocknet_config_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix='.mocknet.config')
+    mocknet_config_file.close()
+    # Download and read.
+    first_node.machine.download(f'/home/ubuntu/.near/config.json', mocknet_config_file.name)
+    with open(mocknet_config_file.name,'r') as f:
+        config_json = json.load(f)
+    port = config_json["network"]["addr"].split(':')[1] # Usually the port is 24567
+    node_addresses = []
+    pmap(lambda node: node_addresses.append(get_node_addr(node, port)), nodes)
 
-    with open(first_node_key_filename) as f:
-        node_key_json = json.loads(f.read())
+    config_json["tracked_shards"] = list(range(0,NUM_SHARDS))
 
-    port = '24567'  # TODO: Get the port value from the config.
-    config_json['network']['boot_nodes'] = f'{node_key_json["public_key"]}@{first_node.ip}:{port}'
-    with open(mocknet_config_filename, 'w') as f:
-        f.write(json.dumps(config_json, indent=2))
+    # Update the config and save it to the file.
+    config_json['network']['boot_nodes'] = ','.join(node_addresses)
+    with open(mocknet_config_file.name,'w') as f:
+        json.dump(config_json, f, indent=2)
 
-    pmap(lambda node: node.machine.upload(mocknet_config_filename, '/home/ubuntu/.near/config.json'), nodes)
-
-
-def apply_genesis_changes(node_dir, genesis_config_changes):
-    # apply genesis.json changes
-    fname = os.path.join(node_dir, 'genesis.json')
-    with open(fname) as f:
-        genesis_config = json.loads(f.read())
-    for change in genesis_config_changes:
-        cur = genesis_config
-        for s in change[:-2]:
-            cur = cur[s]
-        assert change[-2] in cur
-        cur[change[-2]] = change[-1]
-    with open(fname, 'w') as f:
-        f.write(json.dumps(genesis_config, indent=2))
+    pmap(lambda node: node.machine.upload(mocknet_config_file.name, '/home/ubuntu/.near/config.json'), nodes)
 
 
 def start_nodes(nodes):
@@ -436,10 +447,18 @@ def start_nodes(nodes):
 def start_node(node):
     m = node.machine
     logger.info(f'Starting node {m.name}')
-    pid = get_near_pid(m)
-    if pid == '':
+    attempt = 0
+    while attempt < 3:
+        pid = get_near_pid(m)
+        if pid != '':
+            break
         start_process = m.run('sudo -u ubuntu -i', input=TMUX_START_SCRIPT)
-        assert start_process.returncode == 0, m.name + '\n' + start_process.stderr
+        if start_process.returncode == 0:
+            break
+        else:
+            print(f"Failed to start process, returncode: {returncode}\n{m.name}\n{start_process.stderr}")
+            attempt += 1
+            time.sleep(1)
 
 
 def reset_data(node, retries=0):
