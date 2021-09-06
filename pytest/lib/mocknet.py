@@ -1,8 +1,8 @@
 import base58
 import json
 import os
-import time
 import tempfile
+import time
 from rc import run, pmap, gcloud
 
 import data
@@ -66,7 +66,9 @@ def get_node(hostname):
 def get_nodes():
     machines = gcloud.list(project=PROJECT, username=NODE_USERNAME, ssh_key_path=NODE_SSH_KEY_PATH)
     nodes = []
-    pmap(lambda machine: nodes.append(GCloudNode(instance_name=machine.name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH, rpc_port=RPC_PORT)) , machines)
+    pmap(lambda machine: nodes.append(
+        GCloudNode(instance_name=machine.name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH,
+                   rpc_port=RPC_PORT)), machines)
     return nodes
 
 
@@ -352,18 +354,18 @@ def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
 
-    ONE_NEAR = 10**24
-    TOTAL_SUPPLY = (10**9) * ONE_NEAR
-    TREASURY_BALANCE = (10**7) * ONE_NEAR
-    VALIDATOR_BALANCE = 5 * (10**5) * ONE_NEAR
-    STAKED_BALANCE = 15 * (10**5) * ONE_NEAR
+    ONE_NEAR = 10 ** 24
+    TOTAL_SUPPLY = (10 ** 9) * ONE_NEAR
+    TREASURY_BALANCE = (10 ** 7) * ONE_NEAR
+    VALIDATOR_BALANCE = 5 * (10 ** 5) * ONE_NEAR
+    STAKED_BALANCE = 15 * (10 ** 5) * ONE_NEAR
     MASTER_ACCOUNT = "near"
     TREASURY_ACCOUNT = "test.near"
 
     genesis_config['chain_id'] = "mocknet"
     genesis_config['total_supply'] = str(TOTAL_SUPPLY)
     master_balance = TOTAL_SUPPLY - (TREASURY_BALANCE + len(nodes) * (VALIDATOR_BALANCE + STAKED_BALANCE))
-    assert master_balance > 0 
+    assert master_balance > 0
     genesis_config['records'] = []
     genesis_config['validators'] = []
     genesis_config['records'].append({"Account": {"account_id": TREASURY_ACCOUNT,
@@ -391,29 +393,31 @@ def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
             {"account_id": node_account_name(node.instance_name), "public_key": PUBLIC_KEY,
              "amount": str(STAKED_BALANCE)})
     genesis_config["num_block_producer_seats"] = len(nodes)
-    genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)]*NUM_SHARDS
-    genesis_config["avg_hidden_validator_seats_per_shard"] = [0]*NUM_SHARDS
+    genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)] * NUM_SHARDS
+    genesis_config["avg_hidden_validator_seats_per_shard"] = [0] * NUM_SHARDS
     genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
     genesis_config["simple_nightshade_shard_config"] = {}
-    genesis_config["simple_nightshade_shard_config"]["num_block_producer_seats_per_shard"] = [len(nodes)]*NUM_SHARDS
-    genesis_config["simple_nightshade_shard_config"]["avg_hidden_validator_seats_per_shard"] = [0]*NUM_SHARDS
+    genesis_config["simple_nightshade_shard_config"]["num_block_producer_seats_per_shard"] = [len(nodes)] * NUM_SHARDS
+    genesis_config["simple_nightshade_shard_config"]["avg_hidden_validator_seats_per_shard"] = [0] * NUM_SHARDS
     genesis_config["simple_nightshade_shard_config"]["shard_layout"] = {}
     genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"] = {}
     genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
     genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"]["version"] = 0
     # The json object gets truncated if I don't close and reopen the file.
     mocknet_genesis_file.close()
-    with open(mocknet_genesis_file.name,'w') as f:
+    with open(mocknet_genesis_file.name, 'w') as f:
         json.dump(genesis_config, f, indent=2)
 
 
 def get_node_addr(node, port):
-    node_key_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix=f'.mocknet.node_key.{node.instance_name}')
+    node_key_file = tempfile.NamedTemporaryFile(mode='r+', delete=False,
+                                                suffix=f'.mocknet.node_key.{node.instance_name}')
     node_key_file.close()
     node.machine.download(f'/home/ubuntu/.near/node_key.json', node_key_file.name)
-    with open(node_key_file.name,'r') as f:
+    with open(node_key_file.name, 'r') as f:
         node_key_json = json.load(f)
     return f'{node_key_json["public_key"]}@{node.ip}:{port}'
+
 
 def update_config_file(nodes):
     assert (len(nodes) > 0)
@@ -424,17 +428,17 @@ def update_config_file(nodes):
     mocknet_config_file.close()
     # Download and read.
     first_node.machine.download(f'/home/ubuntu/.near/config.json', mocknet_config_file.name)
-    with open(mocknet_config_file.name,'r') as f:
+    with open(mocknet_config_file.name, 'r') as f:
         config_json = json.load(f)
-    port = config_json["network"]["addr"].split(':')[1] # Usually the port is 24567
+    port = config_json["network"]["addr"].split(':')[1]  # Usually the port is 24567
     node_addresses = []
     pmap(lambda node: node_addresses.append(get_node_addr(node, port)), nodes)
 
-    config_json["tracked_shards"] = list(range(0,NUM_SHARDS))
+    config_json["tracked_shards"] = list(range(0, NUM_SHARDS))
 
     # Update the config and save it to the file.
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
-    with open(mocknet_config_file.name,'w') as f:
+    with open(mocknet_config_file.name, 'w') as f:
         json.dump(config_json, f, indent=2)
 
     pmap(lambda node: node.machine.upload(mocknet_config_file.name, '/home/ubuntu/.near/config.json'), nodes)
