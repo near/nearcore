@@ -645,7 +645,7 @@ fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
 
 fn dump_code(account: &str, contract_code: ContractCode, output: &str) {
     let mut file = File::create(output).unwrap();
-    file.write_all(&contract_code.code).unwrap();
+    file.write_all(contract_code.code()).unwrap();
     println!("Dump contract of account {} into file {}", account, output);
 }
 

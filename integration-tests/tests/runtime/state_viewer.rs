@@ -3,6 +3,7 @@ use integration_tests::runtime_utils::{
 };
 use near_primitives::{
     account::Account,
+    hash::hash as sha256,
     hash::CryptoHash,
     views::{StateItem, ViewApplyState},
 };
@@ -168,15 +169,13 @@ fn test_view_state_too_large() {
 fn test_view_state_with_large_contract() {
     let (_, tries, root) = get_runtime_and_trie();
     let mut state_update = tries.new_trie_update(TEST_SHARD_UID, root);
+    let contract_code = [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec();
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, CryptoHash::default(), 50_001),
+        &Account::new(0, 0, sha256(&contract_code), 50_001),
     );
-    state_update.set(
-        TrieKey::ContractCode { account_id: alice_account() },
-        [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec(),
-    );
+    state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
     assert!(result.is_ok());
