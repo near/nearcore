@@ -81,7 +81,9 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    use crate::version::ProtocolFeature::{LowerDataReceiptCost, LowerStorageCost};
+    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    use crate::version::ProtocolFeature::LowerDataReceiptCost;
+    use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
