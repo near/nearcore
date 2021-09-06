@@ -66,6 +66,7 @@ pub struct ActualRuntimeConfig {
     with_lower_storage_cost: Arc<RuntimeConfig>,
 }
 
+#[allow(deprecated)]
 impl ActualRuntimeConfig {
     /// Constructs a new object from specified genesis runtime config.
     ///
