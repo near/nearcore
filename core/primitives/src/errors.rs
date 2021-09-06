@@ -521,7 +521,7 @@ impl Display for InvalidAccessKeyError {
                 method_name
             ),
             InvalidAccessKeyError::RequiresFullAccess => {
-                write!(f, "Invalid access key type. Full access keys are required for multi-action or non-function-call transactions")
+                write!(f, "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions")
             }
             InvalidAccessKeyError::NotEnoughAllowance {
                 account_id,
