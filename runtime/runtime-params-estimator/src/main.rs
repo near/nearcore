@@ -189,6 +189,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
+        buf.push_str("export CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS");
         buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
@@ -240,6 +241,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
         .args(&["--interactive", "--tty"])
+        .arg(&["--env", "CARGO_PROFILE_RELEASE_LTO"])
+        .arg(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS"])
         .arg("rust-emu")
         .args(&["/usr/bin/env", "bash", "-c", &init]);
 
