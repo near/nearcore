@@ -80,6 +80,19 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
+    let build_test_contract = {
+        // Build test contract for later usage in metrics computation.
+
+        let mut buf = String::new();
+        let estimator_root =
+            project_root().join("runtime/runtime-params-estimator").to_str().unwrap();
+        buf.push_str(format!("cd {};\n", estimator_root).as_str());
+        buf.push_str("pushd ./test-contract && ./build.sh && popd");
+
+        buf
+    };
+    exec(&build_test_contract).context("could not build test contract")?;
+
     if cli_args.docker {
         return main_docker(&state_dump_path);
     }
