@@ -30,7 +30,8 @@ impl BorshDeserialize for DataArray {
     fn deserialize(buf: &mut &[u8]) -> Result<Self, std::io::Error> {
         let data_vec: Vec<u64> = BorshDeserialize::deserialize(buf)?;
         let mut data_array = [0; Self::LEN];
-        data_array.copy_from_slice(&data_vec[..Self::LEN.min(data_vec.len())]);
+        let len = Self::LEN.min(data_vec.len());
+        data_array[0..len].copy_from_slice(&data_vec[0..len]);
         Ok(Self(Box::new(data_array)))
     }
 }
