@@ -15,8 +15,11 @@ macro_rules! include_config {
 /// the new runtime config in bytes.
 /// Protocol versions are given in increasing order. First one is always 0, so that each version is
 /// mapped to some config.
-static CONFIGS: [(ProtocolVersion, &[u8]); 2] =
-    [(0, include_config!("29.json")), (42, include_config!("42.json"))];
+static CONFIGS: [(ProtocolVersion, &[u8]); 3] = [
+    (0, include_config!("29.json")),
+    (42, include_config!("42.json")),
+    (115, include_config!("115.json")),
+];
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -78,7 +81,7 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    use crate::version::ProtocolFeature::LowerStorageCost;
+    use crate::version::ProtocolFeature::{LowerDataReceiptCost, LowerStorageCost};
     use near_primitives_core::hash::hash;
 
     const GENESIS_PROTOCOL_VERSION: ProtocolVersion = 29;
@@ -106,6 +109,7 @@ mod tests {
         let expected_hashes = vec![
             "9T3VNaNdGTiZZvuWiymSxtPdwWKNoJmqoTAaZ4JkuSoL",
             "E82ThZS7KFjpdKmogbMGPwv8nTztxqgSbuCTPRH73XFh",
+            "DMor89RAXPyCyyYRhY1CaHHV6PunLVE2DS397XjAq4o3",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
             assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
@@ -128,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lower_cost() {
+    fn test_lower_storage_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
         let new_cfg = store.get_config(LowerStorageCost.protocol_version());
@@ -149,5 +153,21 @@ mod tests {
         let new_store = RuntimeConfigStore::new(Some(&cfg));
         let new_cfg = new_store.get_config(GENESIS_PROTOCOL_VERSION);
         assert_eq!(new_cfg.account_creation_config.min_allowed_top_level_account_length, 0);
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    fn test_lower_data_receipt_cost() {
+        let store = RuntimeConfigStore::new(None);
+        let base_cfg = store.get_config(LowerStorageCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptCost.protocol_version());
+        assert!(
+            base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
+                > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
+        );
+        assert!(
+            base_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+                > new_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+        );
     }
 }

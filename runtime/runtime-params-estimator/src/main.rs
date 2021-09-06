@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap()
         .dump_state()
         .unwrap();
-    }
+    }z
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
