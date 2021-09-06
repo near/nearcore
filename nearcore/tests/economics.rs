@@ -14,6 +14,7 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use primitive_types::U256;
 
 fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
@@ -33,6 +34,7 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ))];
     let env = TestEnv::new_with_runtime(ChainGenesis::from(&genesis), 1, 1, runtimes);
     (env, fee_helper)
