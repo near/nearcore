@@ -9,6 +9,7 @@ use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::{
@@ -117,6 +118,7 @@ pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
@@ -228,6 +230,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -295,6 +298,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.

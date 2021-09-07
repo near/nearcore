@@ -57,7 +57,7 @@ def main():
     block_hash = base58.b58decode(
         status['sync_info']['latest_block_hash'].encode('utf-8'))
 
-    new_account_id = 'test_account'
+    new_account_id = 'test_account.test0'
     new_signer_key = cluster.Key(new_account_id, stable_node.signer_key.pk,
                                  stable_node.signer_key.sk)
     create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(
@@ -95,7 +95,7 @@ def main():
 
     data = json.dumps([{
         "create": {
-            "account_id": "test_account",
+            "account_id": "test_account.test0",
             "method_name": "call_promise",
             "arguments": [],
             "amount": "0",
