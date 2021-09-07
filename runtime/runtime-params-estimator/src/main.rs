@@ -242,8 +242,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
         .args(&["--interactive", "--tty"])
-        .arg(&["--env", "CARGO_PROFILE_RELEASE_LTO"])
-        .arg(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS"])
+        .args(&["--env", "CARGO_PROFILE_RELEASE_LTO"])
+        .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS"])
         .arg("rust-emu")
         .args(&["/usr/bin/env", "bash", "-c", &init]);
 
