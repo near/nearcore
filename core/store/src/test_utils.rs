@@ -6,9 +6,12 @@ use rand::Rng;
 
 use crate::db::TestDB;
 use crate::{ShardTries, Store};
+use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
 use near_primitives::types::NumShards;
+use std::str::from_utf8;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
@@ -43,6 +46,26 @@ pub fn test_populate_trie(
         assert_eq!(trie.get(&root, &key), Ok(value));
     }
     root
+}
+
+pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
+    let size = rng.gen_range(0, max_size) + 1;
+
+    let mut receipts = vec![];
+    for _ in 0..size {
+        let str_length = rng.gen_range(4, 8);
+        let s: Vec<u8> = (0..str_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+        let account_id: AccountId = from_utf8(&s).unwrap().parse().unwrap();
+        let receipt = Receipt {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
+        };
+        receipts.push(receipt);
+    }
+    receipts
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {

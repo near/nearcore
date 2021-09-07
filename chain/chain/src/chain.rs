@@ -1845,6 +1845,35 @@ impl Chain {
         Ok(())
     }
 
+    pub fn build_state_for_split_shards(
+        &mut self,
+        sync_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<(), Error> {
+        let (epoch_id, next_epoch_id) = {
+            let block_header = self.get_block_header(sync_hash)?;
+            (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
+        };
+        let state_root = {
+            let block = self.get_block(&sync_hash)?;
+            block
+                .chunks()
+                .get(shard_id as usize)
+                .ok_or(ErrorKind::InvalidShardId(shard_id))?
+                .prev_state_root()
+        };
+
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
+        let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+        assert_ne!(shard_layout, next_shard_layout);
+        self.runtime_adapter.build_state_for_split_shards(
+            ShardUId::from_shard_id_and_layout(shard_id, &shard_layout),
+            &state_root,
+            &next_shard_layout,
+        )?;
+        Ok(())
+    }
+
     pub fn clear_downloaded_parts(
         &mut self,
         shard_id: ShardId,

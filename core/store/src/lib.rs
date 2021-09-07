@@ -23,7 +23,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceivedData};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -35,7 +35,7 @@ use crate::db::{
     DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::{
-    iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
+    iterator::TrieIterator, split_state, update::TrieUpdate, update::TrieUpdateIterator,
     update::TrieUpdateValuePtr, ApplyStatePartResult, KeyForStateChanges, PartialStorage,
     ShardTries, Trie, TrieChanges, WrappedTrieChanges,
 };
@@ -378,6 +378,12 @@ pub fn get_postponed_receipt(
     receipt_id: CryptoHash,
 ) -> Result<Option<Receipt>, StorageError> {
     get(state_update, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
+}
+
+pub fn get_delayed_receipt_indices(
+    state_update: &TrieUpdate,
+) -> Result<DelayedReceiptIndices, StorageError> {
+    Ok(get(state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
 }
 
 pub fn set_access_key(

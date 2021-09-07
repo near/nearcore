@@ -29,6 +29,7 @@ mod insert_delete;
 pub mod iterator;
 mod nibble_slice;
 mod shard_tries;
+pub mod split_state;
 mod state_parts;
 mod trie_storage;
 pub mod update;
