@@ -1854,16 +1854,17 @@ impl Chain {
             let block_header = self.get_block_header(sync_hash)?;
             (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
         };
-        let state_root = {
-            let prev_hash = self.get_block_header(sync_hash)?.prev_hash().clone();
-            self.get_chunk_extra(&prev_hash, shard_id)?.state_root().clone()
-        };
-
         let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
         let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let state_root = {
+            let prev_hash = self.get_block_header(sync_hash)?.prev_hash().clone();
+            self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root().clone()
+        };
+
         assert_ne!(shard_layout, next_shard_layout);
         self.runtime_adapter.build_state_for_split_shards(
-            ShardUId::from_shard_id_and_layout(shard_id, &shard_layout),
+            shard_uid,
             &state_root,
             &next_shard_layout,
         )?;
