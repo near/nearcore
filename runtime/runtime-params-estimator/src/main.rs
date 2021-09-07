@@ -56,6 +56,11 @@ struct CliArgs {
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
+    /// If docker is also set, run estimator in the fully production setting to get usable cost
+    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
+    /// Works only with enabled docker, because precise computations outside it doesn't make sense.
+    #[clap(long)]
+    full: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -83,7 +88,8 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
-    // TODO: consider implementing the same in Rust to reduce complexity
+    // TODO: consider implementing the same in Rust to reduce complexity.
+    // Good example: runtime/near-test-contracts/build.rs
     if !cli_args.skip_build_test_contract {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
@@ -95,7 +101,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if cli_args.docker {
-        return main_docker(&state_dump_path);
+        return main_docker(&state_dump_path, cli_args.full);
     }
 
     if let Some(path) = cli_args.costs_file {
@@ -169,7 +175,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
+fn main_docker(state_dump_path: &Path, full: bool) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -213,6 +219,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
+                "--full" => continue,
                 "--additional-accounts-num" => {
                     args.next();
                     write!(buf, " {:?} 0", arg).unwrap();
@@ -242,11 +249,12 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", &nearhome])
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--interactive", "--tty"])
-        .args(&["--env", "CARGO_PROFILE_RELEASE_LTO"])
-        .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS"])
-        .arg("rust-emu")
-        .args(&["/usr/bin/env", "bash", "-c", &init]);
+        .args(&["--interactive", "--tty"]);
+    if full {
+        cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
+            .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
+    }
+    cmd.arg("rust-emu").args(&["/usr/bin/env", "bash", "-c", &init]);
 
     cmd.status()?;
     Ok(())
