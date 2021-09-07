@@ -18,7 +18,7 @@ pub struct RpcReceiptResponse {
     pub receipt_view: near_primitives::views::ReceiptView,
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcReceiptError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

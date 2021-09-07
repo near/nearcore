@@ -270,7 +270,9 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        // TODO: profile data is only counted in apply_action, which only happened at process_receipt
+                        // VerificationResult needs updates to incorporate profile data to support profile data of txns
+                        metadata: ExecutionMetadata::V1,
                     },
                 };
                 Ok((receipt, outcome))
@@ -738,8 +740,7 @@ impl Runtime {
                 gas_burnt: result.gas_burnt,
                 tokens_burnt,
                 executor_id: account_id.clone(),
-                // TODO: in expose profile data in execution outcome, action result's profile data will go in metadata v2 here
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V2(result.profile),
             },
         })
     }
@@ -1420,7 +1421,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(state_update, account_id, &code);
-                    assert_eq!(code.get_hash(), acc.code_hash());
+                    assert_eq!(*code.hash(), acc.code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);

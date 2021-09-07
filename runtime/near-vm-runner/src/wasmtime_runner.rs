@@ -161,7 +161,7 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(&code.code, wasm_config) {
+        let prepared_code = match prepare::prepare_contract(code.code(), wasm_config) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
         };
@@ -182,7 +182,7 @@ pub mod wasmtime_runner {
             current_protocol_version,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-        if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+        if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
                 Some(logic.outcome()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
