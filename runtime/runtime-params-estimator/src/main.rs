@@ -196,7 +196,6 @@ fn main_docker(state_dump_path: &Path, full: bool) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
-        buf.push_str("export CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS;\n");
         buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
