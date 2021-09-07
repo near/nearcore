@@ -35,6 +35,9 @@ struct CliArgs {
     /// Number of additional accounts to add to the state, among which active accounts are selected.
     #[clap(long, default_value = "200000")]
     additional_accounts_num: usize,
+    /// Build test contract for later usage in metrics computation.
+    #[clap(long, default_value = true)]
+    build_test_contract: bool,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -80,20 +83,15 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
-    let build_test_contract = {
-        // Build test contract for later usage in metrics computation.
-
-        let mut buf = String::new();
+    if cli_args.build_test_contract {
+        let build_test_contract = "./build.sh";
         let project_root = project_root();
-        buf.push_str(&format!(
-            "cd {};\n",
-            project_root.join("runtime/runtime-params-estimator").to_str().unwrap()
-        ));
-        buf.push_str("pushd ./test-contract && ./build.sh && popd;");
-
-        buf
-    };
-    exec(&build_test_contract).context("could not build test contract")?;
+        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
+        std::process::Command::new(build_test_contract)
+            .current_dir(estimator_dir)
+            .output()
+            .context("could not build test contract")?;
+    }
 
     if cli_args.docker {
         return main_docker(&state_dump_path);
@@ -214,6 +212,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
+                "--build-test-contract" => continue,
                 "--additional-accounts-num" => {
                     args.next();
                     write!(buf, " {:?} 0", arg).unwrap();
