@@ -35,9 +35,9 @@ struct CliArgs {
     /// Number of additional accounts to add to the state, among which active accounts are selected.
     #[clap(long, default_value = "200000")]
     additional_accounts_num: usize,
-    /// Build test contract for later usage in metrics computation.
-    #[clap(long, default_value = true)]
-    build_test_contract: bool,
+    /// Skip building test contract which is used in metrics computation.
+    #[clap(long)]
+    skip_build_test_contract: bool,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -83,7 +83,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
-    if cli_args.build_test_contract {
+    if !cli_args.skip_build_test_contract {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
         let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
@@ -212,7 +212,6 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
-                "--build-test-contract" => continue,
                 "--additional-accounts-num" => {
                     args.next();
                     write!(buf, " {:?} 0", arg).unwrap();
@@ -227,6 +226,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
                 }
             }
         }
+        write!(buf, " --skip-build-test-contract").unwrap();
 
         buf
     };
