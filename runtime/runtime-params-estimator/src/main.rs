@@ -83,6 +83,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
+    // TODO: consider implementing the same in Rust to reduce complexity
     if !cli_args.skip_build_test_contract {
         let build_test_contract = "./build.sh";
         let project_root = project_root();
@@ -190,8 +191,6 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
         buf.push_str("export CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS;\n");
-        buf.push_str("echo $CARGO_PROFILE_RELEASE_LTO;\n");
-        buf.push_str("echo $CARGO_PROFILE_RELEASE_CODEGEN_UNITS;\n");
         buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
