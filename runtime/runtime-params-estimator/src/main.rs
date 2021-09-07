@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
         let project_root = project_root();
         buf.push_str(&format!(
             "cd {};\n",
-            project_root.join("runtime/runtime-params-estimator").as_str().unwrap()
+            project_root.join("runtime/runtime-params-estimator").to_str().unwrap()
         ));
         buf.push_str("pushd ./test-contract && ./build.sh && popd;");
 
