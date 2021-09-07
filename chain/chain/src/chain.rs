@@ -1855,12 +1855,8 @@ impl Chain {
             (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
         };
         let state_root = {
-            let block = self.get_block(&sync_hash)?;
-            block
-                .chunks()
-                .get(shard_id as usize)
-                .ok_or(ErrorKind::InvalidShardId(shard_id))?
-                .prev_state_root()
+            let prev_hash = self.get_block_header(sync_hash)?.prev_hash().clone();
+            self.get_chunk_extra(&prev_hash, shard_id)?.state_root().clone()
         };
 
         let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;

@@ -1570,22 +1570,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let trie = self.get_tries().get_view_trie_for_shard(shard_uid);
+        let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let shard_id = shard_uid.shard_id();
-        let mut state_roots = {
+        let new_shards: Vec<_> = {
             let split_shards = next_epoch_shard_layout
                 .get_split_shards(shard_id)
                 .ok_or(ErrorKind::InvalidShardId(shard_id))?;
             split_shards
                 .iter()
-                .map(|id| {
-                    (
-                        ShardUId::from_shard_id_and_layout(*id, &next_epoch_shard_layout),
-                        StateRoot::default(),
-                    )
-                })
+                .map(|id| ShardUId::from_shard_id_and_layout(*id, &next_epoch_shard_layout))
                 .collect()
         };
+        self.tries.add_new_shards(&new_shards);
+        let mut state_roots: HashMap<_, _> =
+            new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
 
         let state_root_node = trie.retrieve_root_node(state_root).map_err(|err| err.to_string())?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);

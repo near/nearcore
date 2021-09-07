@@ -181,13 +181,18 @@ fn convert_block_changes_to_transactions(
             StateChangeCauseView::UpdatedDelayedReceipts => {
                 format!("block-delayed-receipts:{}", block_hash)
             }
-            StateChangeCauseView::NotWritableToDisk | StateChangeCauseView::Resharding => {
+            StateChangeCauseView::NotWritableToDisk => {
                 return Err(crate::errors::ErrorKind::InternalInvariantError(
                     "State Change 'NotWritableToDisk' should never be observed".to_string(),
                 ));
             }
             StateChangeCauseView::Migration => {
                 format!("migration:{}", block_hash)
+            }
+            StateChangeCauseView::Resharding => {
+                return Err(crate::errors::ErrorKind::InternalInvariantError(
+                    "State Change 'Resharding' should never be observed".to_string(),
+                ));
             }
         };
 

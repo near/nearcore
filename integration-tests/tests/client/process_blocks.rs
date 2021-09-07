@@ -2563,7 +2563,7 @@ fn test_shard_layout_upgrade() {
         avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
         shard_layout: ShardLayout::v1(
             vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
             Some(vec![vec![0, 1, 2, 3]]),
             1,
         ),
