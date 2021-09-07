@@ -56,10 +56,10 @@ use node_runtime::{
 };
 
 use crate::shard_tracker::ShardTracker;
-use near_primitives::runtime::config::ActualRuntimeConfig;
 
 use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -125,10 +125,7 @@ impl EpochInfoProvider for SafeEpochManager {
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    /// Runtime configuration.  Note that it may be slightly different than
-    /// `genesis_config.runtime_config`.  Consider `max_gas_burnt_view` value
-    /// which may be configured per node.
-    runtime_config: ActualRuntimeConfig,
+    runtime_config_store: RuntimeConfigStore,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -149,6 +146,7 @@ impl NightshadeRuntime {
         initial_tracking_shards: Vec<ShardId>,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
+        runtime_config_store: RuntimeConfigStore,
     ) -> Self {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
@@ -160,7 +158,6 @@ impl NightshadeRuntime {
             genesis_config.shard_layout.num_shards(),
             genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
         );
-        let runtime_config = ActualRuntimeConfig::new(genesis_config.runtime_config.clone());
         let initial_epoch_config = EpochConfig::from(&genesis_config);
         let initial_shard_version = initial_epoch_config.shard_layout.version();
         let all_epoch_config = AllEpochConfig::new(
@@ -192,7 +189,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
-            runtime_config,
+            runtime_config_store,
             store,
             tries,
             runtime,
@@ -489,7 +486,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: self.runtime_config.for_protocol_version(current_protocol_version).clone(),
+            config: self.runtime_config_store.get_config(current_protocol_version).clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
@@ -578,7 +575,7 @@ impl NightshadeRuntime {
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config = self.runtime_config.for_protocol_version(protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
@@ -658,7 +655,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(state_root) = state_root {
             let shard_uid =
@@ -730,7 +727,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -1639,8 +1636,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
-        config.runtime_config =
-            (**self.runtime_config.for_protocol_version(protocol_version)).clone();
+        config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
         Ok(config)
     }
 
@@ -1780,7 +1776,6 @@ mod test {
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::receipt::ReceiptResult;
-    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -1789,7 +1784,7 @@ mod test {
     };
     use near_store::create_store;
 
-    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{mainnet_genesis, GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
@@ -1888,7 +1883,6 @@ mod test {
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
-            genesis.config.runtime_config = RuntimeConfig::free();
             genesis.config.epoch_length = epoch_length;
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
@@ -1905,6 +1899,7 @@ mod test {
                 initial_tracked_shards,
                 None,
                 None,
+                RuntimeConfigStore::free(),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
@@ -3276,5 +3271,19 @@ mod test {
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake(), 0);
+    }
+
+    #[test]
+    fn test_runtime_configs_similarity_mainnet() {
+        let genesis = mainnet_genesis();
+        let genesis_runtime_config = genesis.config.runtime_config;
+
+        let overridden_store = RuntimeConfigStore::new(Some(&genesis_runtime_config));
+        let store = RuntimeConfigStore::new(None);
+        for protocol_version in [29u32, 34u32, 42u32, 50u32].iter() {
+            let old_config = overridden_store.get_config(protocol_version.clone());
+            let new_config = store.get_config(protocol_version.clone());
+            assert_eq!(old_config, new_config);
+        }
     }
 }
