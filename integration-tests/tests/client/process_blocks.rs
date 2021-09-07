@@ -41,6 +41,7 @@ use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 #[cfg(feature = "protocol_feature_simple_nightshade")]
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -95,6 +96,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
                 vec![],
                 None,
                 None,
+                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
@@ -1896,6 +1898,7 @@ fn test_incorrect_validator_key_produce_block() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
@@ -3290,6 +3293,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         // TODO #4305: get directly from NightshadeRuntime
         let migration_data = load_migration_data(&genesis.config.chain_id);
@@ -3592,6 +3596,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
+                    RuntimeConfigStore::test(),
                 ))
             })
             .collect();
@@ -3695,6 +3700,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
+                    RuntimeConfigStore::test(),
                 ))
             })
             .collect();
@@ -3776,6 +3782,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
+                    RuntimeConfigStore::test(),
                 ))
             })
             .collect();
