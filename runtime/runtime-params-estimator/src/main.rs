@@ -58,7 +58,7 @@ struct CliArgs {
     docker: bool,
     /// If docker is also set, run estimator in the fully production setting to get usable cost
     /// table. See runtime-params-estimator/emu-cost/README.md for more details.
-    /// Works only with enabled docker, because precise computations outside it doesn't make sense.
+    /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
 }
