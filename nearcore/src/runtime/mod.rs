@@ -588,41 +588,39 @@ impl NightshadeRuntime {
             });
         Ok(())
     }
+}
 
-    fn apply_delayed_receipts(
-        &self,
-        orig_shard_uid: ShardUId,
-        orig_state_root: StateRoot,
-        state_roots: HashMap<ShardUId, StateRoot>,
-        next_shard_layout: &ShardLayout,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let tries = self.get_tries();
-        let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
+fn apply_delayed_receipts(
+    tries: &ShardTries,
+    orig_shard_uid: ShardUId,
+    orig_state_root: StateRoot,
+    state_roots: HashMap<ShardUId, StateRoot>,
+    next_shard_layout: &ShardLayout,
+) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
 
-        let mut start_index = None;
-        let mut new_state_roots = state_roots.clone();
-        while let Some((next_index, receipts)) =
-            get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)
-                .map_err(|e| e.to_string())?
-        {
-            let (store_update, updated_state_roots) = self
-                .tries
-                .apply_delayed_receipts_to_split_states(
-                    &new_state_roots,
-                    &receipts,
-                    Box::new(|account_id| {
-                        let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
-                        ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
-                    }),
-                )
-                .map_err(|err| err.to_string())?;
-            new_state_roots = updated_state_roots;
-            start_index = Some(next_index);
-            store_update.commit()?;
-        }
-
-        Ok(new_state_roots)
+    let mut start_index = None;
+    let mut new_state_roots = state_roots.clone();
+    while let Some((next_index, receipts)) =
+        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)
+            .map_err(|e| e.to_string())?
+    {
+        let (store_update, updated_state_roots) = tries
+            .apply_delayed_receipts_to_split_states(
+                &new_state_roots,
+                &receipts,
+                Box::new(|account_id| {
+                    let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
+                    ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
+                }),
+            )
+            .map_err(|err| err.to_string())?;
+        new_state_roots = updated_state_roots;
+        start_index = Some(next_index);
+        store_update.commit()?;
     }
+
+    Ok(new_state_roots)
 }
 
 pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
@@ -1570,7 +1568,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let trie = self.tries.get_view_trie_for_shard(shard_uid);
+        let mut tries = self.tries.write().expect(POISONED_LOCK_ERR);
+        let trie = tries.get_view_trie_for_shard(shard_uid);
         let shard_id = shard_uid.shard_id();
         let new_shards: Vec<_> = {
             let split_shards = next_epoch_shard_layout
@@ -1581,7 +1580,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .map(|id| ShardUId::from_shard_id_and_layout(*id, &next_epoch_shard_layout))
                 .collect()
         };
-        self.tries.add_new_shards(&new_shards);
+        tries.add_new_shards(&new_shards);
         let mut state_roots: HashMap<_, _> =
             new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
 
@@ -1596,8 +1595,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 );
                 e.to_string()
             })?;
-            let (store_update, new_state_roots) = self
-                .tries
+            let (store_update, new_state_roots) = tries
                 .apply_changes_to_new_states(
                     state_roots,
                     trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
@@ -1620,7 +1618,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             state_roots = new_state_roots;
             store_update.commit()?;
         }
-        state_roots = self.apply_delayed_receipts(
+        state_roots = apply_delayed_receipts(
+            &tries,
             shard_uid,
             state_root.clone(),
             state_roots,

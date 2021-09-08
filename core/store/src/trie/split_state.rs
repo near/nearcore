@@ -211,11 +211,10 @@ mod tests {
             let mut tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
-            tries.add_new_shards(
-                (0..num_shards)
-                    .map(|shard_id| ShardUID { shard_id: shard_id as u32, version: 1 })
-                    .collect(),
-            );
+            let shards = (0..num_shards)
+                .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
+                .collect();
+            tries.add_new_shards(&shards);
             let mut state_root = Trie::empty_root();
             let mut state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
@@ -348,11 +347,10 @@ mod tests {
 
         let mut tries = create_tries();
         let num_shards = 4;
-        tries.add_new_shards(
-            (0..num_shards)
-                .map(|shard_id| ShardUID { shard_id: shard_id as u32, version: 1 })
-                .collect(),
-        );
+        let shards = (0..num_shards)
+            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
+            .collect();
+        tries.add_new_shards(&shards);
 
         for _ in 0..10 {
             let mut state_roots: HashMap<_, _> = (0..num_shards)
