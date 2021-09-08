@@ -1,6 +1,7 @@
 use crate::trie::iterator::TrieItem;
 use crate::{get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieUpdate};
 use borsh::BorshDeserialize;
+use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::Receipt;
@@ -140,7 +141,7 @@ impl ShardTries {
 pub fn get_delayed_receipts(
     state_update: &TrieUpdate,
     start_index: Option<u64>,
-    memory_limit: u64,
+    memory_limit: ByteSize,
 ) -> Result<Option<(u64, Vec<Receipt>)>, StorageError> {
     let mut delayed_receipt_indices = get_delayed_receipt_indices(state_update)?;
     if let Some(start_index) = start_index {
@@ -152,7 +153,7 @@ pub fn get_delayed_receipts(
     let mut used_memory = 0;
     let mut receipts = vec![];
 
-    while used_memory < memory_limit
+    while used_memory < memory_limit.as_u64()
         && delayed_receipt_indices.first_index < delayed_receipt_indices.next_available_index
     {
         let key = TrieKey::DelayedReceipt { index: delayed_receipt_indices.first_index };

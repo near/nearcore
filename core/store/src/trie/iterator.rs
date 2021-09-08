@@ -217,7 +217,7 @@ impl<'a> TrieIterator<'a> {
     }
 
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
-    /// order and return TrieItem for each visited node with value stored
+    /// order and return key-value pairs for each visited node with value stored
     /// Used to generate split states for re-sharding
     pub(crate) fn get_trie_items(
         &mut self,
