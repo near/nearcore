@@ -21,7 +21,7 @@ near-rust-allocator-proxy = "0.2.9"
 bytesize = "1.0.1"
 conqueue = "0.4.0"
 
-borsh = "0.8.1"
+borsh = "0.9"
 cached = "0.23"
 
 near-network-primitives = { path = "../network-primitives" }

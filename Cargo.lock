@@ -1845,7 +1845,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "clap 2.33.3",
  "indicatif 0.15.0",
@@ -2244,7 +2244,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "funty",
@@ -2487,7 +2487,7 @@ checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
 name = "loadtester"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "clap 2.33.3",
  "env_logger",
@@ -2681,7 +2681,7 @@ dependencies = [
 name = "near-account-id"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "paperclip",
  "serde",
  "serde_json",
@@ -2699,7 +2699,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "delay-detector",
@@ -2757,7 +2757,7 @@ name = "near-chunks"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "futures",
@@ -2789,7 +2789,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "ansi_term 0.12.1",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "delay-detector",
@@ -2847,7 +2847,7 @@ version = "0.1.0"
 dependencies = [
  "arrayref",
  "blake2",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
@@ -2872,7 +2872,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "log",
@@ -2919,7 +2919,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "awc",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "easy-ext",
  "futures",
  "lazy_static",
@@ -3013,7 +3013,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "bencher",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "bytes",
  "bytesize",
@@ -3049,7 +3049,7 @@ name = "near-network-primitives"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "chrono",
  "near-crypto",
  "near-primitives",
@@ -3090,7 +3090,7 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "near-crypto",
  "near-primitives",
  "rand 0.7.3",
@@ -3102,7 +3102,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.13.0",
  "bencher",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "byteorder",
  "chrono",
@@ -3131,7 +3131,7 @@ name = "near-primitives-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.11.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "derive_more",
  "hex",
@@ -3216,7 +3216,7 @@ name = "near-store"
 version = "2.2.0"
 dependencies = [
  "bencher",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "bytesize",
  "cached",
@@ -3265,7 +3265,7 @@ dependencies = [
 name = "near-vm-errors"
 version = "3.0.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "hex",
  "near-account-id",
  "near-rpc-error-macro",
@@ -3277,7 +3277,7 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "byteorder",
  "hex",
@@ -3301,7 +3301,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "base64 0.13.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "near-primitives",
  "near-test-contracts",
@@ -3354,7 +3354,7 @@ dependencies = [
  "actix-web",
  "actix_derive",
  "awc",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "chrono",
  "delay-detector",
@@ -3434,7 +3434,7 @@ version = "3.0.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "hex",
  "indicatif 0.13.0",
@@ -4397,7 +4397,7 @@ name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
  "anyhow",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.0.0-beta.2",
@@ -4810,7 +4810,7 @@ name = "state-viewer"
 version = "0.1.0"
 dependencies = [
  "ansi_term 0.12.1",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "clap 2.33.3",
  "near-chain",
  "near-chain-configs",
@@ -5051,7 +5051,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "clap 2.33.3",
  "futures",

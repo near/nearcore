@@ -19,7 +19,7 @@ assert_matches = "1.3"
 num-rational = "0.3"
 hex = "0.4"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-actix-test-utils = { path = "../actix-test-utils" }
 near-logger-utils = { path = "../../test-utils/logger" }
