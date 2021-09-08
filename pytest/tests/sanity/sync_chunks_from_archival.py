@@ -45,8 +45,10 @@ class Handler(ProxyHandler):
                 hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'VersionedPartialEncodedChunk':
-                header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header()
-                header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version()
+                header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header(
+                )
+                header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version(
+                )
                 if header_version == 'V3':
                     height = header.V2.height_created
                     shard_id = header.V2.shard_id
@@ -65,7 +67,8 @@ class Handler(ProxyHandler):
             if msg_kind == 'PartialEncodedChunkRequest':
                 if fr == 4:
                     hash_ = msg.Routed.body.PartialEncodedChunkRequest.chunk_hash
-                    assert hash_ in hash_to_metadata, "chunk hash %s is not present" % base58.b58encode(hash_)
+                    assert hash_ in hash_to_metadata, "chunk hash %s is not present" % base58.b58encode(
+                        hash_)
                     (height, shard_id) = hash_to_metadata[hash_]
                     logger.info("REQ %s %s %s %s" % (height, shard_id, fr, to))
                     requests[(height, shard_id, to)] = 1
@@ -88,25 +91,56 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    2, 3, 2, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH],
-     ['num_block_producer_seats', 4],
-     ["block_producer_kickout_threshold", 20],
-     ["chunk_producer_kickout_threshold", 20],
-     ["validators", 0, "amount", "110000000000000000000000000000000"],
-     ["validators", 1, "amount", "110000000000000000000000000000000"],
-     [
-         "records", 0, "Account", "account", "locked",
-         "110000000000000000000000000000000"
-     ],
-     # each validator account is two records, thus the index of a record for the second is 2, not 1
-     [
-         "records", 2, "Account", "account", "locked",
-         "110000000000000000000000000000000"
-     ],
-     ["total_supply", "6120000000000000000000000000000000"]], {4: {
-         "tracked_shards": [0, 1], "archive": True
-         }, 3: {"archive": True, "tracked_shards": [1], "network": {"ttl_account_id_router": {"secs": 1, "nanos": 0}}}, 2: {"archive": True, "tracked_shards": [0], "network": {"ttl_account_id_router": {"secs": 1, "nanos": 0}}}})
+    2,
+    3,
+    2,
+    config,
+    [
+        ["min_gas_price", 0],
+        ["max_inflation_rate", [0, 1]],
+        ["epoch_length", EPOCH_LENGTH],
+        ['num_block_producer_seats', 4],
+        ["block_producer_kickout_threshold", 20],
+        ["chunk_producer_kickout_threshold", 20],
+        ["validators", 0, "amount", "110000000000000000000000000000000"],
+        ["validators", 1, "amount", "110000000000000000000000000000000"],
+        [
+            "records", 0, "Account", "account", "locked",
+            "110000000000000000000000000000000"
+        ],
+        # each validator account is two records, thus the index of a record for the second is 2, not 1
+        [
+            "records", 2, "Account", "account", "locked",
+            "110000000000000000000000000000000"
+        ],
+        ["total_supply", "6120000000000000000000000000000000"]
+    ],
+    {
+        4: {
+            "tracked_shards": [0, 1],
+            "archive": True
+        },
+        3: {
+            "archive": True,
+            "tracked_shards": [1],
+            "network": {
+                "ttl_account_id_router": {
+                    "secs": 1,
+                    "nanos": 0
+                }
+            }
+        },
+        2: {
+            "archive": True,
+            "tracked_shards": [0],
+            "network": {
+                "ttl_account_id_router": {
+                    "secs": 1,
+                    "nanos": 0
+                }
+            }
+        }
+    })
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [],
                          proxy)
@@ -189,7 +223,8 @@ while True:
     status = node4.get_status()
     new_height = status['sync_info']['latest_block_height']
     if not status['sync_info']['syncing']:
-        assert new_height > height_to_sync_to, "new height %s height to sync to %s" % (new_height, height_to_sync_to)
+        assert new_height > height_to_sync_to, "new height %s height to sync to %s" % (
+            new_height, height_to_sync_to)
         break
     time.sleep(1)
 

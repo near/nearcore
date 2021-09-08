@@ -107,7 +107,8 @@ class ShardChunkHeaderV3:
             dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
-        return hashlib.sha256(inner_hash + inner.V2.encoded_merkle_root).digest()
+        return hashlib.sha256(inner_hash +
+                              inner.V2.encoded_merkle_root).digest()
 
 
 class ShardChunkHeaderInner:
@@ -182,6 +183,7 @@ class ValidatorStake:
 
 class ValidatorStakeV1:
     pass
+
 
 class ValidatorStakeV2:
     pass
@@ -588,10 +590,7 @@ block_schema = [
         ValidatorStake, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [
-                ['V1', ValidatorStakeV1],
-                ['V2', ValidatorStakeV2]
-            ]
+            'values': [['V1', ValidatorStakeV1], ['V2', ValidatorStakeV2]]
         }
     ],
     [
@@ -607,13 +606,10 @@ block_schema = [
     ],
     [
         ValidatorStakeV2, {
-            'kind': 'struct',
-            'fields': [
-                ['account_id', 'string'],
-                ['public_key', PublicKey],
-                ['stake', 'u128'],
-                ['is_chunk_only', 'u8']
-            ]
+            'kind':
+                'struct',
+            'fields': [['account_id', 'string'], ['public_key', PublicKey],
+                       ['stake', 'u128'], ['is_chunk_only', 'u8']]
         }
     ],
     [

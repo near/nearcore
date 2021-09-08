@@ -14,7 +14,10 @@ from utils import load_test_contract
 
 nodes = start_cluster(
     4, 1, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {4: {"tracked_shards": [0, 1, 2, 3]}})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]],
+    {4: {
+        "tracked_shards": [0, 1, 2, 3]
+    }})
 
 # Deploy contract
 status = nodes[0].get_status()
