@@ -10,10 +10,9 @@ from utils import TxContext
 from transaction import sign_payment_tx
 
 nodes = start_cluster(
-    2, 1, 1, None,
-    [["min_gas_price", 0], ['max_inflation_rate', [0, 1]], ["epoch_length", 100],
-     ['transaction_validity_period', 200],
-     ["block_producer_kickout_threshold", 70]], {})
+    2, 1, 1, None, [["min_gas_price", 0], ['max_inflation_rate', [0, 1]],
+                    ["epoch_length", 100], ['transaction_validity_period', 200],
+                    ["block_producer_kickout_threshold", 70]], {})
 
 time.sleep(3)
 started = time.time()
@@ -57,18 +56,15 @@ tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1,
                      base58.b58decode(hash1.encode('utf8')))
 
 # tx status check should be idempotent
-res = nodes[0].json_rpc('tx',
-                        [base64.b64encode(tx).decode('utf8')], timeout=10)
+res = nodes[0].json_rpc('tx', [base64.b64encode(tx).decode('utf8')], timeout=10)
 assert 'error' not in res, res
 
 # broadcast_tx_commit should be idempotent
 res = nodes[0].send_tx_and_wait(tx, timeout=15)
 assert 'error' not in res, res
 
-
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 10,
                      base58.b58decode(hash_.encode('utf8')))
 # check a transaction that doesn't exist yet
-res = nodes[0].json_rpc('tx',
-                        [base64.b64encode(tx).decode('utf8')], timeout=10)
+res = nodes[0].json_rpc('tx', [base64.b64encode(tx).decode('utf8')], timeout=10)
 assert "doesn't exist" in res['error']['data'], res

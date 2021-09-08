@@ -42,7 +42,11 @@ def get_stakes():
 
 def get_expected_stakes():
     global all_stakes
-    return [max(fake_stakes[i], max([x[i] for x in all_stakes[-3:]])) for i in range(3)]
+    return [
+        max(fake_stakes[i], max([x[i]
+                                 for x in all_stakes[-3:]]))
+        for i in range(3)
+    ]
 
 
 def do_moar_stakes(last_block_hash, update_expected):
@@ -76,7 +80,7 @@ def do_moar_stakes(last_block_hash, update_expected):
         fake_stakes = stakes
 
     logger.info("Sent %s staking txs: %s" %
-          ("REAL" if update_expected else "fake", stakes))
+                ("REAL" if update_expected else "fake", stakes))
 
 
 def doit(seq=[]):
@@ -84,17 +88,48 @@ def doit(seq=[]):
     sequence = seq
 
     config = None
-    nodes = start_cluster(2, 1, 1, config,
-                          [["epoch_length", EPOCH_LENGTH],
-                           ["block_producer_kickout_threshold", 40],
-                           ["chunk_producer_kickout_threshold", 40]],
-                          {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-                           1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-                           2: {
-                              "tracked_shards": [0],
-                              "view_client_throttle_period": {"secs": 0, "nanos": 0},
-                              "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}
-                          }})
+    nodes = start_cluster(
+        2, 1, 1, config, [["epoch_length", EPOCH_LENGTH],
+                          ["block_producer_kickout_threshold", 40],
+                          ["chunk_producer_kickout_threshold", 40]], {
+                              0: {
+                                  "view_client_throttle_period": {
+                                      "secs": 0,
+                                      "nanos": 0
+                                  },
+                                  "consensus": {
+                                      "state_sync_timeout": {
+                                          "secs": 2,
+                                          "nanos": 0
+                                      }
+                                  }
+                              },
+                              1: {
+                                  "view_client_throttle_period": {
+                                      "secs": 0,
+                                      "nanos": 0
+                                  },
+                                  "consensus": {
+                                      "state_sync_timeout": {
+                                          "secs": 2,
+                                          "nanos": 0
+                                      }
+                                  }
+                              },
+                              2: {
+                                  "tracked_shards": [0],
+                                  "view_client_throttle_period": {
+                                      "secs": 0,
+                                      "nanos": 0
+                                  },
+                                  "consensus": {
+                                      "state_sync_timeout": {
+                                          "secs": 2,
+                                          "nanos": 0
+                                      }
+                                  }
+                              }
+                          })
 
     started = time.time()
     last_iter = started
@@ -138,7 +173,6 @@ def doit(seq=[]):
 
             send_reals = True
 
-
         if send_fakes or send_reals:
             cur_stakes = get_stakes()
             logger.info("Current stakes: %s" % cur_stakes)
@@ -151,7 +185,7 @@ def doit(seq=[]):
                     else:
                         assert expected <= cur <= expected * 1.1
 
-            do_moar_stakes(hash_, update_expected = send_reals)
+            do_moar_stakes(hash_, update_expected=send_reals)
 
         if send_fakes:
             last_fake_stakes_height += EPOCH_LENGTH
