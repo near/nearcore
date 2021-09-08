@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -7,18 +8,22 @@ use std::sync::Arc;
 
 use ansi_term::Color::Red;
 use clap::{App, AppSettings, Arg, SubCommand};
+use tracing::info;
 
 use borsh::BorshSerialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_epoch_manager::EpochManager;
 use near_logger_utils::init_integration_logger;
 use near_network::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -65,6 +70,7 @@ fn load_trie_stop_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     );
     let head = chain_store.head().unwrap();
     let last_block = match mode {
@@ -123,6 +129,7 @@ fn print_chain(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
@@ -194,10 +201,12 @@ fn replay_chain(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     );
     for height in start_height..=end_height {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            println!("Height: {}, header: {:#?}", height, header);
             runtime
                 .add_validator_proposals(BlockHeaderInfo::new(
                     &header,
@@ -208,6 +217,242 @@ fn replay_chain(
                 .unwrap();
         }
     }
+}
+
+/// Computes simple statistics about an integer metric: max, min, avg.
+/// Doesn't store metric sample values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stats {
+    min: u128,
+    max: u128,
+    sum: u128,
+    cnt: u64,
+}
+
+impl Stats {
+    fn new() -> Self {
+        Self { min: u128::MAX, max: u128::MIN, sum: 0, cnt: 0 }
+    }
+
+    fn add_u128(&mut self, x: u128) {
+        self.max = std::cmp::max(self.max, x);
+        self.min = std::cmp::min(self.min, x);
+        self.sum += x;
+        self.cnt += 1;
+    }
+
+    fn add_u64(&mut self, x: u64) {
+        let x = x as u128;
+        self.max = std::cmp::max(self.max, x);
+        self.min = std::cmp::min(self.min, x);
+        self.sum += x;
+        self.cnt += 1;
+    }
+}
+
+impl fmt::Display for Stats {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.cnt > 0 {
+            write!(
+                f,
+                "Max: {:>23}; Min: {:>23}; Sum: {:>30}; Count: {:>8}; Average: {:>30.3}",
+                self.max,
+                self.min,
+                self.sum,
+                self.cnt,
+                self.sum as f64 / self.cnt as f64,
+            )
+        } else {
+            write!(f, "Empty")
+        }
+    }
+}
+
+fn apply_chain_range(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_height: Option<BlockHeight>,
+    end_height: Option<BlockHeight>,
+    shard_id: ShardId,
+    verbose: bool,
+    progress: u64,
+) {
+    let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
+        &home_dir,
+        store,
+        &near_config.genesis,
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+        None,
+        near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
+    ));
+    let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
+    let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
+    println!(
+        "Applying chunks in the range {}..={} for shard_id {}",
+        start_height, end_height, shard_id
+    );
+
+    let mut chunk_gas_used_stats = Stats::new();
+    let mut chunk_balance_burnt_stats = Stats::new();
+    let mut receipts_gas_burnt_stats = Stats::new();
+    let mut receipts_tokens_burnt_stats = Stats::new();
+
+    if verbose {
+        println!("============================");
+        println!("Printing results including outcomes of applying receipts");
+    }
+    let mut applied_blocks = 0;
+    let mut skipped_blocks = 0;
+    for height in start_height..=end_height {
+        let block_hash = if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
+            block_hash
+        } else {
+            // Skipping block because it's not available in ChainStore.
+            skipped_blocks += 1;
+            continue;
+        };
+        let block = chain_store.get_block(&block_hash).unwrap().clone();
+        let shard_uid =
+            runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+        let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
+            info!(target:"state-viewer", "Skipping the genesis block #{}.", height);
+            skipped_blocks += 1;
+            continue;
+        } else if block.chunks()[shard_id as usize].height_included() == height {
+            let chunk = chain_store
+                .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
+                .unwrap()
+                .clone();
+
+            let prev_block = if let Ok(prev_block) =
+                chain_store.get_block(&block.header().prev_hash())
+            {
+                prev_block.clone()
+            } else {
+                info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                skipped_blocks += 1;
+                continue;
+            };
+
+            let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
+            let receipt_proof_response = chain_store_update
+                .get_incoming_receipts_for_shard(
+                    shard_id,
+                    block_hash,
+                    prev_block.chunks()[shard_id as usize].height_included(),
+                )
+                .unwrap();
+            let receipts = collect_receipts_from_response(&receipt_proof_response);
+
+            let chunk_inner = chunk.cloned_header().take_inner();
+            let is_first_block_with_chunk_of_version =
+                check_if_block_is_first_with_chunk_of_version(
+                    &mut chain_store,
+                    runtime_adapter.as_ref(),
+                    block.header().prev_hash(),
+                    shard_id,
+                )
+                .unwrap();
+            runtime_adapter
+                .apply_transactions(
+                    shard_id,
+                    chunk_inner.prev_state_root(),
+                    height,
+                    block.header().raw_timestamp(),
+                    block.header().prev_hash(),
+                    block.hash(),
+                    &receipts,
+                    chunk.transactions(),
+                    chunk_inner.validator_proposals(),
+                    prev_block.header().gas_price(),
+                    chunk_inner.gas_limit(),
+                    &block.header().challenges_result(),
+                    *block.header().random_value(),
+                    true,
+                    is_first_block_with_chunk_of_version,
+                    None,
+                )
+                .unwrap()
+        } else {
+            let chunk_extra = chain_store
+                .get_chunk_extra(block.header().prev_hash(), &shard_uid)
+                .unwrap()
+                .clone();
+
+            runtime_adapter
+                .apply_transactions(
+                    shard_id,
+                    chunk_extra.state_root(),
+                    block.header().height(),
+                    block.header().raw_timestamp(),
+                    block.header().prev_hash(),
+                    &block.hash(),
+                    &[],
+                    &[],
+                    chunk_extra.validator_proposals(),
+                    block.header().gas_price(),
+                    chunk_extra.gas_limit(),
+                    &block.header().challenges_result(),
+                    *block.header().random_value(),
+                    false,
+                    false,
+                    None,
+                )
+                .unwrap()
+        };
+
+        let (outcome_root, _) =
+            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+        let chunk_extra = ChunkExtra::new(
+            &apply_result.new_root,
+            outcome_root,
+            apply_result.validator_proposals,
+            apply_result.total_gas_burnt,
+            near_config.genesis.config.gas_limit,
+            apply_result.total_balance_burnt,
+        );
+
+        if verbose {
+            println!("block_height: {}, block_hash: {}", height, block_hash);
+            println!("chunk_extra: {:#?}", chunk_extra);
+            let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
+            println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
+            println!("outcomes: {:#?}", apply_result.outcomes);
+        }
+
+        chunk_gas_used_stats.add_u64(chunk_extra.gas_used());
+        chunk_balance_burnt_stats.add_u128(chunk_extra.balance_burnt());
+
+        for outcome in apply_result.outcomes {
+            receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
+            receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
+        }
+        applied_blocks += 1;
+        if progress > 0 && 0 == applied_blocks % progress {
+            println!("============================");
+            info!(target: "state-viewer",
+                "Progress: {:.2}%. Blocks done: {}, Blocks remaining: {}",
+                100. * applied_blocks as f64 / (end_height - start_height + 1) as f64,
+                applied_blocks,
+                end_height + 1 - height
+            );
+            info!(target: "state-viewer","Applied blocks up to #{}", height);
+            info!(target: "state-viewer","Chunk gas usage stats:      {}", chunk_gas_used_stats);
+            info!(target: "state-viewer","Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
+            info!(target: "state-viewer","Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
+            info!(target: "state-viewer","Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
+        }
+    }
+    println!("============================");
+    println!("Chunk gas usage stats:      {}", chunk_gas_used_stats);
+    println!("Chunk balance burnt stats:  {}", chunk_balance_burnt_stats);
+    println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
+    println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
+    println!("Applied blocks: {}. Skipped blocks: {}.", applied_blocks, skipped_blocks);
 }
 
 fn apply_block_at_height(
@@ -226,9 +471,11 @@ fn apply_block_at_height(
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
     ));
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let block = chain_store.get_block(&block_hash).unwrap().clone();
+    let shard_uid = runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
     let apply_result = if block.chunks()[shard_id as usize].height_included() == height {
         let chunk =
             chain_store.get_chunk(&block.chunks()[shard_id as usize].chunk_hash()).unwrap().clone();
@@ -273,7 +520,7 @@ fn apply_block_at_height(
             .unwrap()
     } else {
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
 
         runtime_adapter
             .apply_transactions(
@@ -310,7 +557,7 @@ fn apply_block_at_height(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, chunk_extra
     );
-    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, shard_id) {
+    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
         println!("Existing chunk extra: {:?}", chunk_extra);
     } else {
         println!("no existing chunk extra available");
@@ -338,15 +585,18 @@ fn view_chain(
             }
         }
     };
+    let mut epoch_manager =
+        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
+            .expect("Failed to start Epoch Manager");
+    let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
     for (i, chunk_header) in block.chunks().iter().enumerate() {
         if chunk_header.height_included() == block.header().height() {
-            chunk_extras.push((
-                i,
-                chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone(),
-            ));
+            let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+            chunk_extras
+                .push((i, chain_store.get_chunk_extra(&block.hash(), &shard_uid).unwrap().clone()));
             chunks.push((i, chain_store.get_chunk(&chunk_header.chunk_hash()).unwrap().clone()));
         }
     }
@@ -356,7 +606,8 @@ fn view_chain(
         .enumerate()
         .filter_map(|(i, chunk_header)| {
             if chunk_header.height_included() == block.header().height() {
-                Some((i, chain_store.get_chunk_extra(&block.hash(), i as ShardId).unwrap().clone()))
+                let shard_uid = ShardUId::from_shard_id_and_layout(i as ShardId, shard_layout);
+                Some((i, chain_store.get_chunk_extra(&block.hash(), &shard_uid).unwrap().clone()))
             } else {
                 None
             }
@@ -365,20 +616,20 @@ fn view_chain(
 
     if height.is_none() {
         let head = chain_store.head().unwrap();
-        println!("head: {:?}", head);
+        println!("head: {:#?}", head);
     } else {
         println!("block height {}, hash {}", block.header().height(), block.hash());
     }
 
     for (shard_id, chunk_extra) in chunk_extras {
-        println!("shard {}, chunk extra: {:?}", shard_id, chunk_extra);
+        println!("shard {}, chunk extra: {:#?}", shard_id, chunk_extra);
     }
     if view_block {
-        println!("last block: {:?}", block);
+        println!("last block: {:#?}", block);
     }
     if view_chunks {
         for (shard_id, chunk) in chunks {
-            println!("shard {}, chunk: {:?}", shard_id, chunk);
+            println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
     }
 }
@@ -411,7 +662,7 @@ fn check_block_chunk_existence(store: Arc<Store>, near_config: &NearConfig) {
 
 fn dump_code(account: &str, contract_code: ContractCode, output: &str) {
     let mut file = File::create(output).unwrap();
-    file.write_all(&contract_code.code).unwrap();
+    file.write_all(contract_code.code()).unwrap();
     println!("Dump contract of account {} into file {}", account, output);
 }
 
@@ -424,7 +675,7 @@ fn main() {
         .arg(
             Arg::with_name("home")
                 .long("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -473,6 +724,44 @@ fn main() {
                         .takes_value(true),
                 )
                 .help("replay headers from chain"),
+        )
+        .subcommand(
+            SubCommand::with_name("apply_range")
+                .arg(
+                    Arg::with_name("verbose")
+                        .long("verbose")
+                        .help("Whether to print individual outcomes")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("start_index")
+                        .long("start_index")
+                        .required(false)
+                        .help("Start index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end_index")
+                        .long("end_index")
+                        .required(false)
+                        .help("End index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("shard_id")
+                        .long("shard_id")
+                        .help("Id of the shard to apply")
+                        .default_value("0")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("progress")
+                        .long("progress")
+                        .help("Print stats every that many blocks")
+                        .default_value("0")
+                        .takes_value(true),
+                )
+                .help("apply blocks at a range of heights for a single shard"),
         )
         .subcommand(
             SubCommand::with_name("apply")
@@ -584,7 +873,8 @@ fn main() {
             let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
             println!("Storage roots are {:?}, block height is {}", state_roots, header.height());
             for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let trie =
+                    runtime.get_trie_for_shard(shard_id as u64, &header.prev_hash()).unwrap();
                 let trie = TrieIterator::new(&trie, &state_root).unwrap();
                 for item in trie {
                     let (key, value) = item.unwrap();
@@ -635,6 +925,26 @@ fn main() {
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
             apply_block_at_height(store, home_dir, &near_config, height, shard_id);
         }
+        ("apply_range", Some(args)) => {
+            let start_index = args.value_of("start_index").map(|s| s.parse::<u64>().unwrap());
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap());
+            let shard_id =
+                args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+            let verbose =
+                args.value_of("verbose").map(|s| s.parse::<bool>().unwrap()).unwrap_or_default();
+            let progress =
+                args.value_of("progress").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+            apply_chain_range(
+                store,
+                home_dir,
+                &near_config,
+                start_index,
+                end_index,
+                shard_id,
+                verbose,
+                progress,
+            );
+        }
         ("view_chain", Some(args)) => {
             let height = args.value_of("height").map(|s| s.parse::<u64>().unwrap());
             let view_block = args.is_present("block");
@@ -646,12 +956,14 @@ fn main() {
         }
         ("dump_code", Some(args)) => {
             let account_id = args.value_of("account").expect("account is required");
-            let (runtime, state_roots, _header) = load_trie(store, &home_dir, &near_config);
+            let (runtime, state_roots, header) = load_trie(store, &home_dir, &near_config);
+            let epoch_id = &runtime.get_epoch_id(&header.hash()).unwrap();
 
             for (shard_id, state_root) in state_roots.iter().enumerate() {
                 let state_root_vec: Vec<u8> = state_root.try_to_vec().unwrap();
+                let shard_uid = runtime.shard_id_to_uid(shard_id as u64, epoch_id).unwrap();
                 if let Ok(contract_code) = runtime.view_contract_code(
-                    shard_id as u64,
+                    &shard_uid,
                     CryptoHash::try_from(state_root_vec).unwrap(),
                     &account_id.parse().unwrap(),
                 ) {
@@ -676,10 +988,10 @@ fn main() {
             } else {
                 panic!("block_height shoulb be either number or \"latest\"")
             };
-            let (runtime, state_roots, _header) =
+            let (runtime, state_roots, header) =
                 load_trie_stop_at_height(store, &home_dir, &near_config, block_height);
             for (shard_id, state_root) in state_roots.iter().enumerate() {
-                let trie = runtime.get_trie_for_shard(shard_id as u64);
+                let trie = runtime.get_trie_for_shard(shard_id as u64, header.prev_hash()).unwrap();
                 let key = TrieKey::ContractData {
                     account_id: account_id.parse().unwrap(),
                     key: storage_key.as_bytes().to_vec(),

@@ -182,7 +182,7 @@ fn default_vm_context() -> VMContext {
         attached_deposit: 0,
         prepaid_gas: 10u64.pow(18),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: None,
         output_data_receivers: vec![],
         epoch_height: 1,
     }
@@ -227,18 +227,6 @@ fn profile_data_is_per_outcome() {
     script.step(contract, "write_key_value");
     let res = script.run();
     assert_eq!(res.outcomes.len(), 4);
-    assert!(
-        res.outcomes[0].0.as_ref().unwrap().profile.all_gas()
-            > res.outcomes[1].0.as_ref().unwrap().profile.all_gas()
-    );
-    assert!(
-        res.outcomes[0].0.as_ref().unwrap().profile.wasm_gas()
-            > res.outcomes[1].0.as_ref().unwrap().profile.wasm_gas()
-    );
-    assert_eq!(
-        res.outcomes[1].0.as_ref().unwrap().profile.all_gas(),
-        res.outcomes[2].0.as_ref().unwrap().profile.all_gas()
-    );
     assert_eq!(
         res.outcomes[1].0.as_ref().unwrap().profile.host_gas(),
         res.outcomes[2].0.as_ref().unwrap().profile.host_gas()

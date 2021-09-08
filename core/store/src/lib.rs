@@ -25,6 +25,7 @@ pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
+pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
@@ -295,7 +296,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-pub fn create_store(path: &str) -> Arc<Store> {
+pub fn create_store(path: &Path) -> Arc<Store> {
     let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
@@ -419,7 +420,7 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code.clone());
+    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
 }
 
 pub fn get_code(

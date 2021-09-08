@@ -14,6 +14,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
@@ -137,7 +138,7 @@ pub trait ChainStoreAccess {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error>;
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
@@ -853,16 +854,16 @@ impl ChainStoreAccess for ChainStore {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
                 ColChunkExtra,
                 &mut self.chunk_extras,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_uid(block_hash, shard_uid),
             ),
-            &format!("CHUNK EXTRA: {}:{}", block_hash, shard_id),
+            &format!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
     }
 
@@ -1107,7 +1108,7 @@ struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, BlockExtra>,
-    chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
+    chunk_extras: HashMap<(CryptoHash, ShardUId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
@@ -1328,14 +1329,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         if let Some(chunk_extra) =
-            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, shard_id))
+            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, *shard_uid))
         {
             Ok(chunk_extra)
         } else {
-            self.chain_store.get_chunk_extra(block_hash, shard_id)
+            self.chain_store.get_chunk_extra(block_hash, shard_uid)
         }
     }
 
@@ -1720,10 +1721,10 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         chunk_extra: ChunkExtra,
     ) {
-        self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
+        self.chain_store_cache_update.chunk_extras.insert((*block_hash, *shard_uid), chunk_extra);
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
@@ -2007,15 +2008,18 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
                         .map(|trie_changes: TrieChanges| {
                             tries
-                                .revert_insertions(&trie_changes, shard_id, &mut store_update)
+                                .revert_insertions(&trie_changes, shard_uid, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, &shard_uid),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2027,15 +2031,18 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Canonical(tries) => {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
                         .map(|trie_changes: TrieChanges| {
                             tries
-                                .apply_deletions(&trie_changes, shard_id, &mut store_update)
+                                .apply_deletions(&trie_changes, shard_uid, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, &shard_uid),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2048,8 +2055,11 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GCMode::StateSync { .. } => {
                 // Not apply the data from ColTrieChanges
+                // TODO: pass in the actual shard version that this block uses
+                // https://github.com/near/nearcore/issues/4710
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
-                    self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+                    self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
                 }
             }
         }
@@ -2067,7 +2077,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColIncomingReceipts, &block_shard_id);
             self.gc_col(ColChunkPerHeightShard, &block_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &block_shard_id);
-            self.gc_col(ColChunkExtra, &block_shard_id);
+
+            // TODO: use the real shard version https://github.com/near/nearcore/issues/4710
+            let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+            let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
+            self.gc_col(ColChunkExtra, &block_shard_uid);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
@@ -2474,12 +2488,12 @@ impl<'a> ChainStoreUpdate<'a> {
         for (height, hash_set) in header_hashes_by_height {
             store_update.set_ser(ColHeaderHashesByHeight, &index_to_bytes(height), &hash_set)?;
         }
-        for ((block_hash, shard_id), chunk_extra) in
+        for ((block_hash, shard_uid), chunk_extra) in
             self.chain_store_cache_update.chunk_extras.iter()
         {
             store_update.set_ser(
                 ColChunkExtra,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, shard_uid),
                 chunk_extra,
             )?;
         }
@@ -2759,8 +2773,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for (hash, block_extra) in block_extras {
             self.chain_store.block_extras.cache_set(hash.into(), block_extra);
         }
-        for ((block_hash, shard_id), chunk_extra) in chunk_extras {
-            let key = get_block_shard_id(&block_hash, shard_id);
+        for ((block_hash, shard_uid), chunk_extra) in chunk_extras {
+            let key = get_block_shard_uid(&block_hash, &shard_uid);
             self.chain_store.chunk_extras.cache_set(key, chunk_extra);
         }
         for (hash, chunk) in chunks {

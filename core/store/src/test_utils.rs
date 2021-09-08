@@ -7,7 +7,8 @@ use rand::Rng;
 use crate::db::TestDB;
 use crate::{ShardTries, Store};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::ShardId;
+use near_primitives::shard_layout::{ShardUId, ShardVersion};
+use near_primitives::types::NumShards;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
@@ -18,19 +19,24 @@ pub fn create_test_store() -> Arc<Store> {
 /// Creates a Trie using an in-memory database.
 pub fn create_tries() -> ShardTries {
     let store = create_test_store();
-    ShardTries::new(store, 1)
+    ShardTries::new(store, 0, 1)
+}
+
+pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
+    let store = create_test_store();
+    ShardTries::new(store, shard_version, num_shards)
 }
 
 pub fn test_populate_trie(
     tries: &ShardTries,
     root: &CryptoHash,
-    shard_id: ShardId,
+    shard_uid: ShardUId,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
-    let trie = tries.get_trie_for_shard(shard_id);
-    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
+    let trie = tries.get_trie_for_shard(shard_uid);
+    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_uid.shard_id, 0);
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
-    let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+    let (store_update, root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
     for (key, value) in deduped {

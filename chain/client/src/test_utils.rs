@@ -47,6 +47,7 @@ use near_chain::chain::StatePartsMessage;
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use num_rational::Rational;
 use std::mem::swap;
@@ -1207,7 +1208,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                0,
+                ShardUId::default(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -1230,7 +1231,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                0,
+                ShardUId::default(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),

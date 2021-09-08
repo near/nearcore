@@ -107,6 +107,7 @@ pub enum ShardSyncStatus {
     StateDownloadParts,
     StateDownloadFinalize,
     StateDownloadComplete,
+    StateSplit,
 }
 
 #[derive(Clone, Debug)]

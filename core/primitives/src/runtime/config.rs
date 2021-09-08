@@ -5,7 +5,7 @@ use crate::checked_feature;
 use crate::config::VMConfig;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
-use crate::types::{AccountId, Balance, Gas};
+use crate::types::{AccountId, Balance};
 use crate::version::ProtocolVersion;
 use std::sync::Arc;
 
@@ -55,6 +55,8 @@ impl RuntimeConfig {
 /// but i) may have it’s `max_gas_burnt_view` limit adjusted and ii) provides
 /// a method which returns configuration with adjustments done through protocol
 /// version upgrades.
+/// TODO #4649: deprecated after RuntimeConfigStore creation, remove it
+#[deprecated(since = "#4779", note = "All usages should be replaced with RuntimeConfigStore")]
 pub struct ActualRuntimeConfig {
     /// The runtime configuration taken from the genesis file but with possibly
     /// modified `max_gas_burnt_view` limit.
@@ -64,16 +66,14 @@ pub struct ActualRuntimeConfig {
     with_lower_storage_cost: Arc<RuntimeConfig>,
 }
 
+#[allow(deprecated)]
 impl ActualRuntimeConfig {
     /// Constructs a new object from specified genesis runtime config.
     ///
     /// If `max_gas_burnt_view` is provided, the property in wasm limit
     /// configuration will be adjusted to given value.
-    pub fn new(genesis_runtime_config: RuntimeConfig, max_gas_burnt_view: Option<Gas>) -> Self {
+    pub fn new(genesis_runtime_config: RuntimeConfig) -> Self {
         let mut config = genesis_runtime_config;
-        if let Some(gas) = max_gas_burnt_view {
-            config.wasm_config.limit_config.max_gas_burnt_view = gas;
-        }
         let runtime_config = Arc::new(config.clone());
 
         // Adjust as per LowerStorageCost protocol feature.
@@ -135,16 +135,11 @@ mod tests {
     fn test_lower_cost() {
         let config = RuntimeConfig::default();
         let default_amount = config.storage_amount_per_byte;
-        let config = ActualRuntimeConfig::new(config, None);
+        #[allow(deprecated)]
+        let config = ActualRuntimeConfig::new(config);
         let base_cfg = config.for_protocol_version(0);
         let new_cfg = config.for_protocol_version(ProtocolVersion::MAX);
         assert_eq!(default_amount, base_cfg.storage_amount_per_byte);
         assert!(default_amount > new_cfg.storage_amount_per_byte);
-    }
-
-    #[test]
-    fn test_max_gas_burnt_view() {
-        let config = ActualRuntimeConfig::new(RuntimeConfig::default(), Some(42));
-        assert_eq!(42, config.for_protocol_version(0).wasm_config.limit_config.max_gas_burnt_view);
     }
 }

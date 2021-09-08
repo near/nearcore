@@ -18,10 +18,9 @@ use sha2::digest::Digest;
 use smart_default::SmartDefault;
 
 use crate::genesis_validate::validate_genesis;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -50,6 +49,10 @@ fn default_minimum_stake_divisor() -> u64 {
 
 fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
+}
+
+fn default_shard_layout() -> ShardLayout {
+    ShardLayout::default()
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -130,6 +133,10 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
+    /// Layout information regarding how to split accounts to shards
+    #[serde(default = "default_shard_layout")]
+    #[default(ShardLayout::default())]
+    pub shard_layout: ShardLayout,
     #[default(None)]
     // TODO: add config for simple nightshade shards
     pub simple_nightshade_shard_config: Option<ShardConfig>,
@@ -152,10 +159,23 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
-            shard_layout: ShardLayout::v0(
-                config.num_block_producer_seats_per_shard.len() as NumShards
-            ),
+            shard_layout: config.shard_layout.clone(),
         }
+    }
+}
+
+impl From<&GenesisConfig> for AllEpochConfig {
+    fn from(genesis_config: &GenesisConfig) -> Self {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = Self::new(
+            initial_epoch_config.clone(),
+            genesis_config.simple_nightshade_shard_config.clone(),
+        );
+        debug_assert_eq!(
+            initial_epoch_config,
+            epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
+        );
+        epoch_config
     }
 }
 

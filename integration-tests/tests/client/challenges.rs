@@ -25,10 +25,11 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::types::{AccountId, EpochId, StateRoot};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -280,6 +281,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -479,9 +481,13 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 1);
     // But everyone who doesn't track this shard have accepted.
-    let receipts_hashes = env.clients[0].runtime_adapter.build_receipts_hashes(&receipts);
+    let shard_layout =
+        env.clients[0].runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
+    let receipts_hashes =
+        env.clients[0].runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
-    let receipts_by_shard = env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone());
+    let receipts_by_shard =
+        env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone(), &shard_layout);
     let one_part_receipt_proofs = env.clients[0].shards_mgr.receipts_recipient_filter(
         0,
         Vec::default(),
@@ -578,6 +584,7 @@ fn test_fishermen_challenge() {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         ))
     };
     let runtime1 = create_runtime();
@@ -641,6 +648,7 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
@@ -650,6 +658,7 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
     let networks = vec![network_adapter.clone(), network_adapter.clone()];

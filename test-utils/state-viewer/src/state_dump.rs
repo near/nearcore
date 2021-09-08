@@ -37,7 +37,8 @@ pub fn state_dump(
 
     let mut records = vec![];
     for (shard_id, state_root) in state_roots.iter().enumerate() {
-        let trie = runtime.get_trie_for_shard(shard_id as u64);
+        let trie =
+            runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
         let trie = TrieIterator::new(&trie, &state_root).unwrap();
         for item in trie {
             let (key, value) = item.unwrap();
@@ -67,6 +68,7 @@ pub fn state_dump(
     // `total_supply` is expected to change due to the natural processes of burning tokens and
     // minting tokens every epoch.
     genesis_config.total_supply = get_initial_supply(&records);
+    genesis_config.shard_layout = runtime.get_shard_layout(last_block_header.epoch_id()).unwrap();
     Genesis::new(genesis_config, records.into())
 }
 
@@ -91,6 +93,7 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
+    use near_primitives::runtime::config_store::RuntimeConfigStore;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis =
@@ -107,6 +110,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -156,6 +160,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -193,6 +198,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -222,7 +228,16 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![], None, None)
+            NightshadeRuntime::new(
+                Path::new("."),
+                store,
+                &genesis,
+                vec![],
+                vec![],
+                None,
+                None,
+                RuntimeConfigStore::test(),
+            )
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
             Arc::new(create_runtime(store1.clone())),
@@ -279,6 +294,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -319,6 +335,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);

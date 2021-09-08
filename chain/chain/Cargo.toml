@@ -20,7 +20,7 @@ thiserror = "1.0"
 strum = "0.20"
 rayon = "1.5"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }

@@ -38,7 +38,7 @@ impl ShardTracker {
     ) -> Self {
         let shard_layout = {
             let mut epoch_manager = epoch_manager.write().expect(POISONED_LOCK_ERR);
-            epoch_manager.get_shard_layout(&EpochId::default()).unwrap()
+            epoch_manager.get_shard_layout(&EpochId::default()).unwrap().clone()
         };
         let tracked_accounts = accounts.into_iter().fold(HashMap::new(), |mut acc, x| {
             let shard_id = account_id_to_shard_id(&x, &shard_layout);
@@ -115,8 +115,9 @@ impl ShardTracker {
         }
     }
 
-    // If ShardLayout will change in the next epoch, `shard_id` refers to shard in the new
-    // ShardLayout
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout will change next epoch, returns true if it cares about any shard
+    // that `shard_id` will split to
     pub fn will_care_about_shard(
         &self,
         account_id: Option<&AccountId>,
@@ -182,7 +183,7 @@ mod tests {
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Rational::new(80, 100),
             protocol_upgrade_num_epochs: 2,
-            shard_layout: ShardLayout::v0(num_shards),
+            shard_layout: ShardLayout::v0(num_shards, 0),
         };
         let reward_calculator = RewardCalculator {
             max_inflation_rate: Rational::from_integer(0),
@@ -266,6 +267,7 @@ mod tests {
             vec!["aurora".parse().unwrap()],
             vec!["h", "o"].into_iter().map(|x| x.parse().unwrap()).collect(),
             Some(vec![0, 0, 0, 0]),
+            1,
         );
         let shard_config = ShardConfig {
             num_block_producer_seats_per_shard: get_num_seats_per_shard(4, 2),

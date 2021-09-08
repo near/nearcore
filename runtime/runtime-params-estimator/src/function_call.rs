@@ -21,7 +21,7 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
         let contract = make_many_methods_contract(method_count);
         let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
         println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
-        xs.push(contract.get_code().len() as u64);
+        xs.push(contract.code().len() as u64);
         ys.push(cost / REPEATS);
     }
 

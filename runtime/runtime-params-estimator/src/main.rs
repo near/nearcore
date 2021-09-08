@@ -1,7 +1,9 @@
 use anyhow::Context;
 use clap::Clap;
+use genesis_populate::GenesisBuilder;
+use near_store::create_store;
 use near_vm_runner::VMKind;
-use nearcore::get_default_home;
+use nearcore::{get_default_home, get_store_path, load_config};
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
@@ -13,6 +15,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use std::time;
 
 #[derive(Clap)]
@@ -26,9 +29,15 @@ struct CliArgs {
     /// How many iterations per block are we going to try.
     #[clap(long, default_value = "10")]
     iters: usize,
-    /// How many accounts were generated with `genesis-populate`.
-    #[clap(long, default_value = "10000")]
+    /// Number of active accounts in the state (accounts used for estimation).
+    #[clap(long, default_value = "20000")]
     accounts_num: usize,
+    /// Number of additional accounts to add to the state, among which active accounts are selected.
+    #[clap(long, default_value = "200000")]
+    additional_accounts_num: usize,
+    /// Skip building test contract which is used in metrics computation.
+    #[clap(long)]
+    skip_build_test_contract: bool,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -41,9 +50,17 @@ struct CliArgs {
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
+    /// Only measure the specified metrics, computing a subset of costs.
+    #[clap(long)]
+    metrics_to_measure: Option<String>,
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
+    /// If docker is also set, run estimator in the fully production setting to get usable cost
+    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
+    /// Works only with enabled docker, because precise computations without it doesn't make sense.
+    #[clap(long)]
+    full: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,8 +70,38 @@ fn main() -> anyhow::Result<()> {
 
     let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
 
+    let additional_accounts_num = cli_args.additional_accounts_num as u64;
+    if additional_accounts_num > 0 {
+        let near_config = load_config(&state_dump_path);
+        let store = create_store(&get_store_path(&state_dump_path));
+        GenesisBuilder::from_config_and_store(
+            &state_dump_path,
+            Arc::new(near_config.genesis),
+            store,
+        )
+        .add_additional_accounts(additional_accounts_num)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+    }
+
+    // TODO: consider implementing the same in Rust to reduce complexity.
+    // Good example: runtime/near-test-contracts/build.rs
+    if !cli_args.skip_build_test_contract {
+        let build_test_contract = "./build.sh";
+        let project_root = project_root();
+        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
+        std::process::Command::new(build_test_contract)
+            .current_dir(estimator_dir)
+            .output()
+            .context("could not build test contract")?;
+    }
+
     if cli_args.docker {
-        return main_docker(&state_dump_path);
+        return main_docker(&state_dump_path, cli_args.full);
     }
 
     if let Some(path) = cli_args.costs_file {
@@ -93,6 +140,8 @@ fn main() -> anyhow::Result<()> {
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
+    let metrics_to_measure =
+        cli_args.metrics_to_measure.map(|it| it.split(',').map(str::to_string).collect());
 
     let cost_table = run(
         Config {
@@ -103,6 +152,7 @@ fn main() -> anyhow::Result<()> {
             state_dump_path: state_dump_path.clone(),
             metric,
             vm_kind,
+            metrics_to_measure,
         },
         cli_args.compile_only,
     );
@@ -125,7 +175,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
+fn main_docker(state_dump_path: &Path, full: bool) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -146,6 +196,7 @@ fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
 
         let mut buf = String::new();
         buf.push_str("set -ex;\n");
+        buf.push_str("cd /host/nearcore;\n");
         buf.push_str(
             "\
 cargo build --manifest-path /host/nearcore/Cargo.toml \
@@ -167,6 +218,12 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--docker" => continue,
+                "--full" => continue,
+                "--additional-accounts-num" => {
+                    args.next();
+                    write!(buf, " {:?} 0", arg).unwrap();
+                    continue;
+                }
                 "--home" => {
                     args.next();
                     continue;
@@ -176,6 +233,7 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
                 }
             }
         }
+        write!(buf, " --skip-build-test-contract").unwrap();
 
         buf
     };
@@ -190,9 +248,12 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", &nearhome])
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--interactive", "--tty"])
-        .arg("rust-emu")
-        .args(&["/usr/bin/env", "bash", "-c", &init]);
+        .args(&["--interactive", "--tty"]);
+    if full {
+        cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
+            .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
+    }
+    cmd.arg("rust-emu").args(&["/usr/bin/env", "bash", "-c", &init]);
 
     cmd.status()?;
     Ok(())
