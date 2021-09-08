@@ -95,7 +95,7 @@ fn apply_block_at_height(
     Ok(())
 }
 
-pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
+pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if !near_config.client_config.archive {
         // Non archival node. Perform a simply migration without necessarily fixing the inconsistencies
@@ -112,7 +112,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
         let runtime = NightshadeRuntime::new(
-            &Path::new(path),
+            path,
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
@@ -145,7 +145,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 13);
 }
 
-pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
+pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
     use near_primitives::types::EpochId;
     let store = create_store(path);
     if near_config.client_config.archive {
@@ -217,14 +217,14 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 19);
 }
 
-pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
+pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::new(
-            &Path::new(path),
+            path,
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
@@ -287,13 +287,13 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
 }
 
 /// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
-pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
+pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let runtime = NightshadeRuntime::new(
-            &Path::new(path),
+            path,
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
@@ -369,7 +369,7 @@ lazy_static_include::lazy_static_include_bytes! {
 }
 
 /// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
-pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
+pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
         let mut store_update = store.store_update();
@@ -384,10 +384,10 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 24);
 }
 
-pub fn migrate_24_to_25(path: &String) {
+pub fn migrate_24_to_25(path: &Path) {
     use smart_default::SmartDefault;
 
-    let store = create_store(&path);
+    let store = create_store(path);
 
     #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, SmartDefault, Eq, Debug)]
     pub struct OldExecutionOutcome {
