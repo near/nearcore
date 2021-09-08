@@ -1582,7 +1582,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let state_root_node = trie.retrieve_root_node(state_root).map_err(|err| err.to_string())?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-        debug!("splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
+        debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root).map_err(|e|{
                 error!(target: "runtime",

@@ -46,7 +46,7 @@ impl ShardTries {
         changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         key_to_shard_id: &(dyn Fn(&[u8]) -> Option<ShardUId> + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
-        let mut changes_by_shard = HashMap::new();
+        let mut changes_by_shard: HashMap<_, Vec<_>> = HashMap::new();
         for (raw_key, value) in changes.into_iter() {
             if let Some(new_shard_uid) = key_to_shard_id(&raw_key) {
                 assert!(
@@ -56,10 +56,7 @@ impl ShardTries {
                     from_utf8(&raw_key).unwrap(),
                     state_roots.keys(),
                 );
-                changes_by_shard
-                    .entry(new_shard_uid)
-                    .or_insert_with(Vec::new)
-                    .push((raw_key, value));
+                changes_by_shard.entry(new_shard_uid).or_default().push((raw_key, value));
             }
         }
         let mut new_state_roots = state_roots.clone();
@@ -80,7 +77,7 @@ impl ShardTries {
         receipts: &Vec<Receipt>,
         account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
-        let mut trie_updates: HashMap<_, _> = HashMap::new();
+        let mut trie_updates = HashMap::new();
         let mut delayed_receipts_indices_by_shard = HashMap::new();
         for (shard_uid, state_root) in state_roots {
             let trie_update = self.new_trie_update(shard_uid.clone(), state_root.clone());
