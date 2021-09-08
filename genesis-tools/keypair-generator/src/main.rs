@@ -19,7 +19,7 @@ fn main() {
         .arg(
             Arg::with_name("home")
                 .long("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
