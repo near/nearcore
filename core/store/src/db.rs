@@ -799,14 +799,14 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::new(tmp_dir.path().to_str().unwrap()).unwrap();
+        let store = RocksDB::new(tmp_dir).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let store = create_store(tmp_dir.path());
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -827,7 +827,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let store = create_store(tmp_dir.path());
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
