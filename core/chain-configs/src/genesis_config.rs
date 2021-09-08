@@ -18,7 +18,7 @@ use sha2::digest::Digest;
 use smart_default::SmartDefault;
 
 use crate::genesis_validate::validate_genesis;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
@@ -161,6 +161,21 @@ impl From<&GenesisConfig> for EpochConfig {
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
         }
+    }
+}
+
+impl From<&GenesisConfig> for AllEpochConfig {
+    fn from(genesis_config: &GenesisConfig) -> Self {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = Self::new(
+            initial_epoch_config.clone(),
+            genesis_config.simple_nightshade_shard_config.clone(),
+        );
+        debug_assert_eq!(
+            initial_epoch_config,
+            epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
+        );
+        epoch_config
     }
 }
 

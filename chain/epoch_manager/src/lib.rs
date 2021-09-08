@@ -29,7 +29,8 @@ pub use crate::types::RngSeed;
 
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 use near_chain::types::{BlockHeaderInfo, ValidatorInfoIdentifier};
-use near_primitives::shard_layout::{ShardLayout, ShardVersion};
+use near_chain_configs::GenesisConfig;
+use near_primitives::shard_layout::ShardLayout;
 use near_store::db::DBCol::ColEpochValidatorInfo;
 
 mod proposals;
@@ -68,6 +69,21 @@ pub struct EpochManager {
 }
 
 impl EpochManager {
+    pub fn new_from_genesis_config(
+        store: Arc<Store>,
+        genesis_config: &GenesisConfig,
+    ) -> Result<Self, EpochError> {
+        let reward_calculator = RewardCalculator::new(genesis_config);
+        let all_epoch_config = AllEpochConfig::from(genesis_config);
+        Self::new(
+            store,
+            all_epoch_config,
+            genesis_config.protocol_version,
+            reward_calculator,
+            genesis_config.validators(),
+        )
+    }
+
     pub fn new(
         store: Arc<Store>,
         config: AllEpochConfig,
@@ -1214,13 +1230,6 @@ impl EpochManager {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         let shard_layout = &self.config.for_protocol_version(protocol_version).shard_layout;
         Ok(shard_layout)
-    }
-
-    pub fn get_shard_version(&mut self, epoch_id: &EpochId) -> Result<ShardVersion, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let shard_version =
-            self.config.for_protocol_version(protocol_version).shard_layout.version();
-        Ok(shard_version)
     }
 
     pub fn get_split_shards_if_shards_will_change(

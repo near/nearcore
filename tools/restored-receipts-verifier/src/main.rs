@@ -85,9 +85,10 @@ fn main() -> Result<()> {
             eprintln!("{} included, skip", height);
             continue;
         }
+        let shard_uid = runtime.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
 
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
