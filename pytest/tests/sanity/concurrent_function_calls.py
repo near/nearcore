@@ -13,8 +13,11 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx
 from utils import load_test_contract
 
 nodes = start_cluster(
-    4, 0, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
+    4, 1, 4, None,
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]],
+    {4: {
+        "tracked_shards": [0, 1, 2, 3]
+    }})
 
 # Deploy contract
 status = nodes[0].get_status()
@@ -49,7 +52,7 @@ def process():
     for i in range(100):
         key = bytearray(8)
         key[0] = i % 10
-        res = nodes[1].call_function(
+        res = nodes[4].call_function(
             acc_id, 'read_value',
             base64.b64encode(bytes(key)).decode("ascii"))
         res = int.from_bytes(res["result"]["result"], byteorder='little')

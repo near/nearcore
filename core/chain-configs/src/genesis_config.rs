@@ -55,6 +55,21 @@ fn default_shard_layout() -> ShardLayout {
     ShardLayout::default()
 }
 
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn default_minimum_stake_ratio() -> Rational {
+    Rational::new(160, 1_000_000)
+}
+
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn default_minimum_validators_per_shard() -> u64 {
+    1
+}
+
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn default_num_chunk_only_producer_seats() -> u64 {
+    300
+}
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
@@ -70,6 +85,7 @@ pub struct GenesisConfig {
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
     /// Defines number of shards and number of block producer seats per each shard at genesis.
+    /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validators per shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
@@ -140,6 +156,27 @@ pub struct GenesisConfig {
     #[default(None)]
     // TODO: add config for simple nightshade shards
     pub simple_nightshade_shard_config: Option<ShardConfig>,
+    // For now we are skipping serialization/deserialization of the following
+    // fields. They are only needed with protocol_feature_chunk_only_producers,
+    // however the #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    // attribute seems to not work with the serde default attribute, so I cannot
+    // ignore them in that way. When the feature is stabilized then the serde skip
+    // should be removed.
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_num_chunk_only_producer_seats")]
+    #[default(300)]
+    pub num_chunk_only_producer_seats: NumSeats,
+    /// The minimum number of validators each shard must have
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_minimum_validators_per_shard")]
+    #[default(1)]
+    pub minimum_validators_per_shard: NumSeats,
+    /// The lowest ratio s/s_total any block producer can have.
+    /// See https://github.com/near/NEPs/pull/167 for details
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_minimum_stake_ratio")]
+    #[default(Rational::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
@@ -160,6 +197,12 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+                minimum_validators_per_shard: config.minimum_validators_per_shard,
+                minimum_stake_ratio: config.minimum_stake_ratio,
+            },
         }
     }
 }
@@ -255,6 +298,8 @@ impl GenesisConfig {
                         .try_into()
                         .expect("Failed to deserialize validator public key"),
                     account_info.amount,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
             })
             .collect()

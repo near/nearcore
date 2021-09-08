@@ -5,6 +5,7 @@
 # If `no_txs_in_parallel`, no txs will be executed in parallel.
 
 import sys, time
+
 sys.path.append('lib')
 from configured_logger import logger
 
