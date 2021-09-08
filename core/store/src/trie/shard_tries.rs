@@ -47,6 +47,17 @@ impl ShardTries {
         }
     }
 
+    // add new shards to ShardTries, only used when shard layout changes and we are building
+    // states for new shards
+    pub fn add_new_shards(&mut self, shards: Vec<ShardUId>) {
+        Arc::get_mut(&mut self.caches)
+            .unwrap()
+            .extend(Self::get_new_cache(&shards).as_ref().clone());
+        Arc::get_mut(&mut self.view_caches)
+            .unwrap()
+            .extend(Self::get_new_cache(&shards).as_ref().clone());
+    }
+
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
         TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid)), state_root)
     }
