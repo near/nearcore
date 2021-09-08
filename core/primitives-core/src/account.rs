@@ -199,6 +199,9 @@ pub struct FunctionCallPermission {
     #[serde(with = "option_u128_dec_format")]
     pub allowance: Option<Balance>,
 
+    // This isn't an AccountId because already existing records in testnet genesis have invalid
+    // values for this field (see: https://github.com/near/nearcore/pull/4621#issuecomment-892099860)
+    // we accomodate those by using a string, allowing us to read and parse genesis.
     /// The access key only allows transactions with the given receiver's account id.
     pub receiver_id: String,
 

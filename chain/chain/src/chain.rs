@@ -66,6 +66,7 @@ use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_primitives::shard_layout::ShardUId;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -323,7 +324,8 @@ impl Chain {
                     {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
-                            chunk_header.shard_id(),
+                            &runtime_adapter
+                                .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
                             ChunkExtra::new(
                                 state_root,
                                 CryptoHash::default(),
@@ -2397,9 +2399,9 @@ impl Chain {
     pub fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error> {
-        self.store.get_chunk_extra(block_hash, shard_id)
+        self.store.get_chunk_extra(block_hash, shard_uid)
     }
 
     /// Get destination shard id for a given receipt id.
@@ -2561,8 +2563,9 @@ struct SameHeightResult {
 }
 
 struct DifferentHeightResult {
-    shard_id: ShardId,
-    apply_result: ApplyTransactionResult,
+    // This is a vector because it may contains apply result for the split states as well
+    // if the validator is building states for the next epoch where shard layout will change
+    apply_results: Vec<ApplyTransactionResult>,
 }
 
 enum ApplyChunkResult {
@@ -2887,12 +2890,14 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                 ),
             };
+            let shard_uid =
+                self.runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id())?;
             if care_about_shard {
                 if chunk_header.height_included() == block.header().height() {
                     // Validate state root.
                     let prev_chunk_extra = self
                         .chain_store_update
-                        .get_chunk_extra(&block.header().prev_hash(), shard_id)?
+                        .get_chunk_extra(&block.header().prev_hash(), &shard_uid)?
                         .clone();
 
                     // Validate that all next chunk information matches previous chunk extra.
@@ -3017,7 +3022,7 @@ impl<'a> ChainUpdate<'a> {
                 } else {
                     let new_extra = self
                         .chain_store_update
-                        .get_chunk_extra(&prev_block.hash(), shard_id)?
+                        .get_chunk_extra(&prev_block.hash(), &shard_uid)?
                         .clone();
 
                     let runtime_adapter = self.runtime_adapter.clone();
@@ -3057,8 +3062,7 @@ impl<'a> ChainUpdate<'a> {
                         ) {
                             Ok(apply_result) => {
                                 Ok(ApplyChunkResult::DifferentHeight(DifferentHeightResult {
-                                    shard_id,
-                                    apply_result,
+                                    apply_results: vec![apply_result],
                                 }))
                             }
                             Err(err) => Err(ErrorKind::Other(err.to_string()).into()),
@@ -3087,11 +3091,10 @@ impl<'a> ChainUpdate<'a> {
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
 
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 // Save state root after applying transactions.
                 self.chain_store_update.save_chunk_extra(
                     &block_hash,
-                    shard_id,
+                    &apply_result.trie_changes.shard_uid,
                     ChunkExtra::new(
                         &apply_result.new_root,
                         outcome_root,
@@ -3101,6 +3104,7 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.total_balance_burnt,
                     ),
                 );
+                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     &block_hash,
                     shard_id,
@@ -3114,14 +3118,19 @@ impl<'a> ChainUpdate<'a> {
                     outcome_paths,
                 );
             }
-            ApplyChunkResult::DifferentHeight(DifferentHeightResult { shard_id, apply_result }) => {
-                let mut new_extra =
-                    self.chain_store_update.get_chunk_extra(&prev_block_hash, shard_id)?.clone();
+            ApplyChunkResult::DifferentHeight(DifferentHeightResult { apply_results }) => {
+                for apply_result in apply_results.into_iter() {
+                    let shard_uid = &apply_result.trie_changes.shard_uid;
+                    let mut new_extra = self
+                        .chain_store_update
+                        .get_chunk_extra(&prev_block_hash, shard_uid)?
+                        .clone();
 
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                *new_extra.state_root_mut() = apply_result.new_root;
+                    *new_extra.state_root_mut() = apply_result.new_root;
 
-                self.chain_store_update.save_chunk_extra(&block_hash, shard_id, new_extra);
+                    self.chain_store_update.save_chunk_extra(&block_hash, shard_uid, new_extra);
+                    self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                }
             }
         };
         Ok(())
@@ -3851,7 +3860,8 @@ impl<'a> ChainUpdate<'a> {
             gas_limit,
             apply_result.total_balance_burnt,
         );
-        self.chain_store_update.save_chunk_extra(block_header.hash(), shard_id, chunk_extra);
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
 
         self.chain_store_update.save_outgoing_receipt(
             &block_header.hash(),
@@ -3896,8 +3906,9 @@ impl<'a> ChainUpdate<'a> {
         let prev_block_header =
             self.chain_store_update.get_block_header(&block_header.prev_hash())?.clone();
 
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, block_header.epoch_id())?;
         let mut chunk_extra =
-            self.chain_store_update.get_chunk_extra(&prev_block_header.hash(), shard_id)?.clone();
+            self.chain_store_update.get_chunk_extra(&prev_block_header.hash(), &shard_uid)?.clone();
 
         let apply_result = self.runtime_adapter.apply_transactions(
             shard_id,
@@ -3921,7 +3932,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_trie_changes(apply_result.trie_changes);
         *chunk_extra.state_root_mut() = apply_result.new_root;
 
-        self.chain_store_update.save_chunk_extra(&block_header.hash(), shard_id, chunk_extra);
+        self.chain_store_update.save_chunk_extra(&block_header.hash(), &shard_uid, chunk_extra);
         Ok(true)
     }
 

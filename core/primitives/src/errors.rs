@@ -520,12 +520,9 @@ impl Display for InvalidAccessKeyError {
                 "Transaction method name {:?} isn't allowed by the access key",
                 method_name
             ),
-            InvalidAccessKeyError::RequiresFullAccess => write!(
-                f,
-                "The transaction contains more then one action, but it was signed \
-                 with an access key which allows transaction to apply only one specific action. \
-                 To apply more then one actions TX must be signed with a full access key"
-            ),
+            InvalidAccessKeyError::RequiresFullAccess => {
+                write!(f, "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions")
+            }
             InvalidAccessKeyError::NotEnoughAllowance {
                 account_id,
                 public_key,
