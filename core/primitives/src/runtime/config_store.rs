@@ -184,12 +184,14 @@ mod tests {
 
         let config = store.get_config(LowerStorageCost.protocol_version());
         assert_eq!(config.transaction_costs.action_creation_config.transfer_cost.send_sir, 0);
+        assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 0);
         assert_ne!(
             config.as_ref(),
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
         );
 
         let config = store.get_config(LowerDataReceiptCost.protocol_version());
+        assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
             config.as_ref(),
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[2].1).unwrap()
