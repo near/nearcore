@@ -22,14 +22,64 @@ config = load_config()
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 12],
-     ["block_producer_kickout_threshold", 20], ["chunk_producer_kickout_threshold", 20]],
-    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-     2: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-     3: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}}, 4: {
-        "tracked_shards": [0, 1, 2, 3],
-        "view_client_throttle_period": {"secs": 0, "nanos": 0}
-    }})
+     ["block_producer_kickout_threshold", 20],
+     ["chunk_producer_kickout_threshold", 20]], {
+         0: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         1: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         2: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         3: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         4: {
+             "tracked_shards": [0, 1, 2, 3],
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             }
+         }
+     })
 
 started = time.time()
 
@@ -48,7 +98,7 @@ initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
 logger.info("Initial balances: %s\nTotal supply: %s" %
-      (initial_balances, total_supply))
+            (initial_balances, total_supply))
 
 seen_boot_heights = set()
 sent_txs = False
@@ -119,7 +169,8 @@ logger.info("stage 2 done")
 #    receipts during the state sync from the observer.
 #    `max_inflation_rate` is set to zero, so the rewards do not mess up with the balances
 balances = ctx.get_balances()
-logger.info("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
+logger.info("New balances: %s\nNew total supply: %s" %
+            (balances, sum(balances)))
 
 assert (balances != initial_balances)
 assert (sum(balances) == total_supply)
@@ -191,11 +242,13 @@ while True:
     time.sleep(0.1)
 
 balances = ctx.get_balances()
-logger.info("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
+logger.info("New balances: %s\nNew total supply: %s" %
+            (balances, sum(balances)))
 
 ctx.nodes = [observer, node2]
 ctx.act_to_val = [0, 0, 0, 0, 0]
 logger.info("Observer sees: %s" % ctx.get_balances())
 
-assert balances != initial_balances, "current balance %s, initial balance %s" % (balances, initial_balances)
+assert balances != initial_balances, "current balance %s, initial balance %s" % (
+    balances, initial_balances)
 assert sum(balances) == total_supply

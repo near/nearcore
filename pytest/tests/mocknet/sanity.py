@@ -46,8 +46,8 @@ assert (initial_balances[1] + 100) % 1000 == new_balances[1] % 1000
 
 # Test contract deployment
 
-tx = sign_deploy_contract_tx(
-    accounts[2], load_test_contract(), nonces[2] + 1, last_block_hash_decoded)
+tx = sign_deploy_contract_tx(accounts[2], load_test_contract(), nonces[2] + 1,
+                             last_block_hash_decoded)
 nodes[0].send_tx_and_wait(tx, timeout=20)
 
 tx2 = sign_function_call_tx(accounts[2], accounts[2].account_id,

@@ -347,8 +347,7 @@ def reset_data(node, retries=0):
     except:
         if retries < 3:
             logger.warning(
-                f'And error occured while clearing data directory, retrying'
-            )
+                f'And error occured while clearing data directory, retrying')
             reset_data(node, retries=retries + 1)
         else:
             raise Exception(

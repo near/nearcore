@@ -17,7 +17,6 @@ import nacl.signing
 from cluster import start_cluster
 from peer import ED_PREFIX, connect, create_handshake, sign_handshake
 
-
 nodes = start_cluster(1, 0, 4, None, [], {})
 
 
@@ -34,7 +33,8 @@ async def main():
     response = await conn.recv()
 
     assert response.enum == 'HandshakeFailure', response.enum
-    assert response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
+    assert response.HandshakeFailure[
+        1].enum == 'ProtocolVersionMismatch', response.HandshakeFailure[1].enum
     pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
     handshake.Handshake.version = pvm
 
@@ -44,7 +44,8 @@ async def main():
     response = await conn.recv()
 
     assert response.enum == 'HandshakeFailure', response.enum
-    assert response.HandshakeFailure[1].enum == 'GenesisMismatch', response.HandshakeFailure[1].enum
+    assert response.HandshakeFailure[
+        1].enum == 'GenesisMismatch', response.HandshakeFailure[1].enum
     gm = response.HandshakeFailure[1].GenesisMismatch
     handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
     handshake.Handshake.chain_info.genesis_id.hash = gm.hash

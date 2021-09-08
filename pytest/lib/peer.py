@@ -68,7 +68,6 @@ class Connection:
 
             return response
 
-
     async def close(self):
         self.writer.close()
         await self.writer.wait_closed()
@@ -174,18 +173,21 @@ async def run_handshake(conn: Connection,
 
     response = await send_handshake()
 
-    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'ProtocolVersionMismatch':
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[
+            1].enum == 'ProtocolVersionMismatch':
         pvm = response.HandshakeFailure[1].ProtocolVersionMismatch.version
         handshake.Handshake.version = pvm
         response = await send_handshake()
 
-    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[1].enum == 'GenesisMismatch':
+    if response.enum == 'HandshakeFailure' and response.HandshakeFailure[
+            1].enum == 'GenesisMismatch':
         gm = response.HandshakeFailure[1].GenesisMismatch
         handshake.Handshake.chain_info.genesis_id.chain_id = gm.chain_id
         handshake.Handshake.chain_info.genesis_id.hash = gm.hash
         response = await send_handshake()
 
-    assert response.enum == 'Handshake', response.enum if response.enum != 'HandshakeFailure' else response.HandshakeFailure[1].enum
+    assert response.enum == 'Handshake', response.enum if response.enum != 'HandshakeFailure' else response.HandshakeFailure[
+        1].enum
 
 
 def create_and_sign_routed_peer_message(routed_msg_body, target_node,

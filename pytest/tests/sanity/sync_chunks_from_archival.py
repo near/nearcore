@@ -28,7 +28,9 @@ hash_to_metadata = manager.dict()
 requests = manager.dict()
 responses = manager.dict()
 
+
 class Handler(ProxyHandler):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -43,10 +45,12 @@ class Handler(ProxyHandler):
                 hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'VersionedPartialEncodedChunk':
-                header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header()
+                header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header(
+                )
                 height = header.height_created
                 shard_id = header.shard_id
-                header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version()
+                header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version(
+                )
                 if header_version == 'V1':
                     hash_ = ShardChunkHeaderV1.chunk_hash(header)
                 elif header_version == 'V2':
@@ -69,8 +73,8 @@ class Handler(ProxyHandler):
 
         return True
 
-proxy = NodesProxy(Handler)
 
+proxy = NodesProxy(Handler)
 
 started = time.time()
 
@@ -78,31 +82,53 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    4, 1, 2, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", EPOCH_LENGTH],
-     ["block_producer_kickout_threshold", 20],
-     ["chunk_producer_kickout_threshold", 20],
-     ["validators", 0, "amount", "110000000000000000000000000000000"],
-     ["validators", 1, "amount", "110000000000000000000000000000000"],
-     [
-         "records", 0, "Account", "account", "locked",
-         "110000000000000000000000000000000"
-     ],
-     # each validator account is two records, thus the index of a record for the second is 2, not 1
-     [
-         "records", 2, "Account", "account", "locked",
-         "110000000000000000000000000000000"
-     ],
-     ["total_supply", "6120000000000000000000000000000000"]], {4: {
-         "tracked_shards": [0, 1], "archive": True
-         }, 3: {"archive": True, "tracked_shards": [1]}, 2: {"archive": True, "tracked_shards": [0]}})
+    4,
+    1,
+    2,
+    config,
+    [
+        ["min_gas_price", 0],
+        ["max_inflation_rate", [0, 1]],
+        ["epoch_length", EPOCH_LENGTH],
+        ["block_producer_kickout_threshold", 20],
+        ["chunk_producer_kickout_threshold", 20],
+        ["validators", 0, "amount", "110000000000000000000000000000000"],
+        ["validators", 1, "amount", "110000000000000000000000000000000"],
+        [
+            "records", 0, "Account", "account", "locked",
+            "110000000000000000000000000000000"
+        ],
+        # each validator account is two records, thus the index of a record for the second is 2, not 1
+        [
+            "records", 2, "Account", "account", "locked",
+            "110000000000000000000000000000000"
+        ],
+        ["total_supply", "6120000000000000000000000000000000"]
+    ],
+    {
+        4: {
+            "tracked_shards": [0, 1],
+            "archive": True
+        },
+        3: {
+            "archive": True,
+            "tracked_shards": [1]
+        },
+        2: {
+            "archive": True,
+            "tracked_shards": [0]
+        }
+    })
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [], proxy)
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [],
+                         proxy)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
                      boot_node.addr(), [], proxy)
 
+
 def get_validators(node):
     return set([x['account_id'] for x in node.get_status()['validators']])
+
 
 logging.info("Getting to height %s" % HEIGHTS_BEFORE_ROTATE)
 while True:
@@ -123,14 +149,16 @@ hash_ = status['sync_info']['latest_block_hash']
 
 logging.info("Waiting for the new nodes to sync")
 while True:
-    if not node2.get_status()['sync_info']['syncing'] and not node3.get_status()['sync_info']['syncing']:
+    if not node2.get_status()['sync_info']['syncing'] and not node3.get_status(
+    )['sync_info']['syncing']:
         break
     time.sleep(1)
 
 for stake, nodes, expected_vals in [
-        (100000000000000000000000000000000, [node2, node3], ["test0", "test1", "test2", "test3"]),
-        (0, [boot_node, node1], ["test2", "test3"]),
-        ]:
+    (100000000000000000000000000000000, [node2, node3],
+     ["test0", "test1", "test2", "test3"]),
+    (0, [boot_node, node1], ["test2", "test3"]),
+]:
     logging.info("Rotating validators")
     for ord_, node in enumerate(reversed(nodes)):
         tx = sign_staking_tx(node.signer_key, node.validator_key, stake, 10,
@@ -166,7 +194,8 @@ logging.info("Spinning up one more node")
 node4 = spin_up_node(config, near_root, node_dirs[4], 4, node2.node_key.pk,
                      node2.addr())
 
-logging.info("Waiting for the new node to sync. We are %s seconds in" % (time.time() - started))
+logging.info("Waiting for the new node to sync. We are %s seconds in" %
+             (time.time() - started))
 while True:
     assert time.time() - started < TIMEOUT
     status = node4.get_status()
@@ -176,7 +205,7 @@ while True:
         break
     time.sleep(1)
 
-logging.info("Checking the messages sent and received");
+logging.info("Checking the messages sent and received")
 
 # The first two blocks are certainly more than two epochs in the
 # past compared to head, and thus should be requested from
