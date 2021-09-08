@@ -606,14 +606,10 @@ fn apply_delayed_receipts(
             .map_err(|e| e.to_string())?
     {
         let (store_update, updated_state_roots) = tries
-            .apply_delayed_receipts_to_split_states(
-                &new_state_roots,
-                &receipts,
-                Box::new(|account_id| {
-                    let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
-                    ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
-                }),
-            )
+            .apply_delayed_receipts_to_split_states(&new_state_roots, &receipts, &|account_id| {
+                let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
+                ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
+            })
             .map_err(|err| err.to_string())?;
         new_state_roots = updated_state_roots;
         start_index = Some(next_index);
@@ -1599,7 +1595,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .apply_changes_to_new_states(
                     state_roots,
                     trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
-                    Box::new(|raw_key| {
+                    &|raw_key| {
                         // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
                         // This is because we cannot migrate delayed receipts part by part. They have to be
                         // reconstructed in the new states after all DelayedReceipts are ready in the original
@@ -1612,7 +1608,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         } else {
                             None
                         }
-                    }),
+                    },
                 )
                 .map_err(|err| err.to_string())?;
             state_roots = new_state_roots;

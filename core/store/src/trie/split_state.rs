@@ -44,7 +44,7 @@ impl ShardTries {
         &self,
         state_roots: HashMap<ShardUId, StateRoot>,
         changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        key_to_shard_id: Box<dyn Fn(&Vec<u8>) -> Option<ShardUId> + 'a>,
+        key_to_shard_id: &(dyn Fn(&[u8]) -> Option<ShardUId> + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut changes_by_shard = HashMap::new();
         for (raw_key, value) in changes.into_iter() {
@@ -78,7 +78,7 @@ impl ShardTries {
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &Vec<Receipt>,
-        account_id_to_shard_id: Box<dyn Fn(&AccountId) -> ShardUId + 'a>,
+        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = HashMap::new();
         let mut delayed_receipts_indices_by_shard = HashMap::new();
@@ -211,7 +211,7 @@ mod tests {
             let mut tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
-            let shards = (0..num_shards)
+            let shards: Vec<_> = (0..num_shards)
                 .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
                 .collect();
             tries.add_new_shards(&shards);
@@ -226,16 +226,12 @@ mod tests {
                     test_populate_trie(&tries, &state_root, ShardUId::default(), changes.clone());
 
                 let (store_update, new_state_roots) = tries
-                    .apply_changes_to_new_states(
-                        state_roots,
-                        changes,
-                        Box::new(|raw_key| {
-                            Some(ShardUId {
-                                version: 1,
-                                shard_id: (hash(raw_key).0[0] as NumShards % num_shards) as u32,
-                            })
-                        }),
-                    )
+                    .apply_changes_to_new_states(state_roots, changes, &|raw_key| {
+                        Some(ShardUId {
+                            version: 1,
+                            shard_id: (hash(raw_key).0[0] as NumShards % num_shards) as u32,
+                        })
+                    })
                     .unwrap();
                 store_update.commit().unwrap();
                 state_roots = new_state_roots;
@@ -307,13 +303,13 @@ mod tests {
         new_receipts: &Vec<Receipt>,
         exsiting_receipts: &Vec<Receipt>,
         state_roots: HashMap<ShardUId, StateRoot>,
-        account_id_to_shard_id: Box<dyn Fn(&AccountId) -> ShardUId + 'a>,
+        account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> HashMap<ShardUId, StateRoot> {
         let (state_update, new_state_roots) = tries
             .apply_delayed_receipts_to_split_states(
                 &state_roots,
                 new_receipts,
-                Box::new(account_id_to_shard_id.as_ref()),
+                account_id_to_shard_id,
             )
             .unwrap();
         state_update.commit().unwrap();
@@ -347,7 +343,7 @@ mod tests {
 
         let mut tries = create_tries();
         let num_shards = 4;
-        let shards = (0..num_shards)
+        let shards: Vec<_> = (0..num_shards)
             .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
             .collect();
         tries.add_new_shards(&shards);
@@ -365,11 +361,11 @@ mod tests {
                     &receipts,
                     &existing_receipts,
                     state_roots,
-                    Box::new(|account_id| ShardUId {
+                    &|account_id| ShardUId {
                         shard_id: (hash(account_id.as_ref().as_bytes()).0[0] as NumShards
                             % num_shards) as u32,
                         version: 1,
-                    }),
+                    },
                 );
                 existing_receipts.extend_from_slice(&receipts);
             }
