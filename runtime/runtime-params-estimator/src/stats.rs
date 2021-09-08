@@ -113,7 +113,7 @@ impl Measurements {
                 &[Color(color.as_str()), PointSymbol('.'), Caption(metric_name.as_str())],
             );
         }
-        fg.save_to_svg(path.join("metrics.svg").to_str().unwrap(), 800, 800).unwrap();
+        fg.save_to_svg(path.join("metrics.svg"), 800, 800).unwrap();
     }
 }
 
