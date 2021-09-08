@@ -776,7 +776,7 @@ fn test_external_call_indirect() {
         let (outcome, err) =
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
         assert_eq!(err, None);
-        assert_eq!(outcome, Some(vm_outcome_with_gas(332374437)));
+        assert_eq!(outcome, Some(vm_outcome_with_gas(334541937)));
     });
 }
 

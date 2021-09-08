@@ -13,7 +13,7 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-borsh = "0.8.1"
+borsh = "0.9"
 serde = { version = "1", features = ["derive"] }
 wasmer-runtime = { version = "0.18.0", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near", optional = true}
@@ -38,7 +38,7 @@ threadpool = "1.8.1"
 [dev-dependencies]
 near-test-contracts = { path = "../near-test-contracts" }
 assert_matches = "1.3"
-wat = "1.0"
+wat = "1.0.40"
 base64 = "0.13"
 
 [features]
