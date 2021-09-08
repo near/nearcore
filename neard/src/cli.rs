@@ -50,7 +50,7 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path);
+                info!(target: "neard", "Removing all data from {}", store_path.display());
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
@@ -67,7 +67,7 @@ struct NeardOpts {
     #[clap(long)]
     verbose: Option<String>,
     /// Directory for config and data (default "~/.near").
-    #[clap(long, parse(from_os_str), default_value = &DEFAULT_HOME)]
+    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 }
 
