@@ -251,7 +251,7 @@ mod tests {
     fn test_get_delayed_receipts() {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
-            let memory_limit = rng.gen_range(200, 1000);
+            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200, 1000));
             let all_receipts = gen_receipts(&mut rng, 200);
 
             // push receipt to trie
@@ -289,9 +289,10 @@ mod tests {
                     });
 
                 assert!(
-                    total_memory_use >= memory_limit || next_index == all_receipts.len() as u64
+                    total_memory_use >= memory_limit.as_u64()
+                        || next_index == all_receipts.len() as u64
                 );
-                assert!(memory_use_without_last_receipt < memory_limit);
+                assert!(memory_use_without_last_receipt < memory_limit.as_u64());
             }
         }
     }

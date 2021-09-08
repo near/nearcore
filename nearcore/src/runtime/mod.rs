@@ -1581,17 +1581,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut state_roots: HashMap<_, _> =
             new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
 
-        let state_root_node = trie.retrieve_root_node(state_root).map_err(|err| err.to_string())?;
+        let state_root_node = trie.retrieve_root_node(state_root)?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
-            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root).map_err(|e|{
-                error!(target: "runtime",
-                       "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
-                       state_root, part_id, num_parts, e
-                );
-                e
-            })?;
+            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
             let (store_update, new_state_roots) = tries.apply_changes_to_new_states(
                 state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
