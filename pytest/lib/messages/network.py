@@ -3,6 +3,7 @@ from messages.tx import SignedTransaction, Receipt
 from messages.block import Block, Approval, PartialEncodedChunk, PartialEncodedChunkV1, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PartialEncodedChunkForwardMsg, BlockHeader, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1
 from messages.shard import StateRootNode
 
+
 class SocketAddr:
     pass
 
@@ -120,29 +121,31 @@ network_schema = [
         }
     ],
     [
-        PeerMessage, {
+        PeerMessage,
+        {
             'kind':
                 'enum',
             'field':
                 'enum',
-            'values': [['Handshake', Handshake],
-                       ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)],
-                       ['LastEdge', Edge],
-                       ['Sync', SyncData],
-                       ['RequestUpdateNonce', EdgeInfo],
-                       ['ResponseUpdateNonce', Edge],
-                       ['PeersRequest', ()],
-                       ['PeersResponse', [PeerInfo]],
-                       ['BlockHeadersRequest', [[32]]],
-                       ['BlockHeaders', [BlockHeader]],
-                       ['BlockRequest', [32]],
-                       ['Block', Block],
-                       ['Transaction', SignedTransaction],
-                       ['Routed', RoutedMessage],
-                       ['Disconnect', ()],
-                       ['Challenge', None], # TODO
-                       ['HandshakeV2', HandshakeV2],
-                       ]
+            'values': [
+                ['Handshake', Handshake],
+                ['HandshakeFailure', (PeerInfo, HandshakeFailureReason)],
+                ['LastEdge', Edge],
+                ['Sync', SyncData],
+                ['RequestUpdateNonce', EdgeInfo],
+                ['ResponseUpdateNonce', Edge],
+                ['PeersRequest', ()],
+                ['PeersResponse', [PeerInfo]],
+                ['BlockHeadersRequest', [[32]]],
+                ['BlockHeaders', [BlockHeader]],
+                ['BlockRequest', [32]],
+                ['Block', Block],
+                ['Transaction', SignedTransaction],
+                ['Routed', RoutedMessage],
+                ['Disconnect', ()],
+                ['Challenge', None],  # TODO
+                ['HandshakeV2', HandshakeV2],
+            ]
         }
     ],
     [
@@ -196,8 +199,7 @@ network_schema = [
     ],
     [
         ProtocolVersionMismatch, {
-            'kind':
-                'struct',
+            'kind': 'struct',
             'fields': [
                 ['version', 'u32'],
                 ['oldest_supported_version', 'u32'],
@@ -230,24 +232,24 @@ network_schema = [
         PeerChainInfoV2, {
             'kind':
                 'struct',
-            'fields': [
-                ['genesis_id', GenesisId],
-                ['height', 'u64'],
-                ['tracked_shards', ['u64']],
-                ['archival', 'bool']
-            ]
+            'fields': [['genesis_id', GenesisId], ['height', 'u64'],
+                       ['tracked_shards', ['u64']], ['archival', 'bool']]
         }
     ],
     [
         Edge, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['peer0', PublicKey],
                 ['peer1', PublicKey],
                 ['nonce', 'u64'],
                 ['signature0', Signature],
                 ['signature1', Signature],
-                ['removal_info', {'kind': 'option', 'type': ('u8', Signature)}],
+                ['removal_info', {
+                    'kind': 'option',
+                    'type': ('u8', Signature)
+                }],
             ]
         }
     ],
@@ -280,7 +282,8 @@ network_schema = [
     ],
     [
         AnnounceAccount, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['account_id', 'string'],
                 ['peer_id', PublicKey],
@@ -291,7 +294,8 @@ network_schema = [
     ],
     [
         RoutedMessage, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['target', PeerIdOrHash],
                 ['author', PublicKey],
@@ -312,18 +316,21 @@ network_schema = [
         }
     ],
     [
-        RoutedMessageBody, {
-            'kind': 'enum',
-            'field': 'enum',
+        RoutedMessageBody,
+        {
+            'kind':
+                'enum',
+            'field':
+                'enum',
             'values': [
                 ['BlockApproval', Approval],
                 ['ForwardTx', SignedTransaction],
                 ['TxStatusRequest', ('string', [32])],
-                ['TxStatusResponse', None], # TODO
-                ['QueryRequest', None], # TODO
-                ['QueryResponse', None], # TODO
+                ['TxStatusResponse', None],  # TODO
+                ['QueryRequest', None],  # TODO
+                ['QueryResponse', None],  # TODO
                 ['ReceiptOutcomeRequest', [32]],
-                ['ReceiptOutcomeResponse', None], # TODO
+                ['ReceiptOutcomeResponse', None],  # TODO
                 ['StateRequestHeader', ('u64', [32])],
                 ['StateRequestPart', ('u64', [32], 'u64')],
                 ['StateResponseInfo', StateResponseInfoV1],
@@ -348,82 +355,121 @@ network_schema = [
         StateResponseInfo, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [
-                ['V1', StateResponseInfoV1],
-                ['V2', StateResponseInfoV2]
-            ]
+            'values': [['V1', StateResponseInfoV1], ['V2', StateResponseInfoV2]]
         }
     ],
     [
         StateResponseInfoV1, {
-            'kind': 'struct',
-            'fields': [['shard_id', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponseV1]]
+            'kind':
+                'struct',
+            'fields': [['shard_id', 'u64'], ['sync_hash', [32]],
+                       ['state_response', ShardStateSyncResponseV1]]
         }
     ],
     [
         StateResponseInfoV2, {
-            'kind': 'struct',
-            'fields': [['shard_id', 'u64'], ['sync_hash', [32]], ['state_response', ShardStateSyncResponse]]
+            'kind':
+                'struct',
+            'fields': [['shard_id', 'u64'], ['sync_hash', [32]],
+                       ['state_response', ShardStateSyncResponse]]
         }
     ],
     [
         ShardStateSyncResponse, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['V1', ShardStateSyncResponseV1],
-                ['V2', ShardStateSyncResponseV2]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['V1', ShardStateSyncResponseV1],
+                       ['V2', ShardStateSyncResponseV2]]
         }
     ],
     [
         ShardStateSyncResponseV1, {
-            'kind': 'struct',
-            'fields': [['header', {'kind': 'option', 'type': ShardStateSyncResponseHeaderV1}], ['part', {'kind': 'option', 'type': ('u64', ['u8'])}]]
+            'kind':
+                'struct',
+            'fields': [[
+                'header', {
+                    'kind': 'option',
+                    'type': ShardStateSyncResponseHeaderV1
+                }
+            ], ['part', {
+                'kind': 'option',
+                'type': ('u64', ['u8'])
+            }]]
         }
     ],
     [
         ShardStateSyncResponseV2, {
-            'kind': 'struct',
-            'fields': [['header', {'kind': 'option', 'type': ShardStateSyncResponseHeaderV2}], ['part', {'kind': 'option', 'type': ('u64', ['u8'])}]]
+            'kind':
+                'struct',
+            'fields': [[
+                'header', {
+                    'kind': 'option',
+                    'type': ShardStateSyncResponseHeaderV2
+                }
+            ], ['part', {
+                'kind': 'option',
+                'type': ('u64', ['u8'])
+            }]]
         }
     ],
     [
         ShardStateSyncResponseHeader, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['V1', ShardStateSyncResponseHeaderV1],
-                ['V2', ShardStateSyncResponseHeaderV2]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['V1', ShardStateSyncResponseHeaderV1],
+                       ['V2', ShardStateSyncResponseHeaderV2]]
         }
     ],
     [
         ShardStateSyncResponseHeaderV1, {
-            'kind': 'struct',
-            'fields': [
-                ['chunk', ShardChunk],
-                ['chunk_proof', MerklePath],
-                ['prev_chunk_header', {'kind': 'option', 'type': ShardChunkHeaderV1}],
-                ['prev_chunk_proof', {'kind': 'option', 'type': MerklePath}],
-                ['incoming_receipts_proofs', [([32], [([Receipt], ShardProof)])]],
-                ['root_proofs', [[([32], MerklePath)]]],
-                ['state_root_node', StateRootNode]
-            ]
+            'kind':
+                'struct',
+            'fields': [['chunk', ShardChunk], ['chunk_proof', MerklePath],
+                       [
+                           'prev_chunk_header', {
+                               'kind': 'option',
+                               'type': ShardChunkHeaderV1
+                           }
+                       ],
+                       [
+                           'prev_chunk_proof', {
+                               'kind': 'option',
+                               'type': MerklePath
+                           }
+                       ],
+                       [
+                           'incoming_receipts_proofs',
+                           [([32], [([Receipt], ShardProof)])]
+                       ], ['root_proofs', [[([32], MerklePath)]]],
+                       ['state_root_node', StateRootNode]]
         }
     ],
     [
         ShardStateSyncResponseHeaderV2, {
-            'kind': 'struct',
-            'fields': [
-                ['chunk', ShardChunk],
-                ['chunk_proof', MerklePath],
-                ['prev_chunk_header', {'kind': 'option', 'type': ShardChunkHeader}],
-                ['prev_chunk_proof', {'kind': 'option', 'type': MerklePath}],
-                ['incoming_receipts_proofs', [([32], [([Receipt], ShardProof)])]],
-                ['root_proofs', [[([32], MerklePath)]]],
-                ['state_root_node', StateRootNode]
-            ]
+            'kind':
+                'struct',
+            'fields': [['chunk', ShardChunk], ['chunk_proof', MerklePath],
+                       [
+                           'prev_chunk_header', {
+                               'kind': 'option',
+                               'type': ShardChunkHeader
+                           }
+                       ],
+                       [
+                           'prev_chunk_proof', {
+                               'kind': 'option',
+                               'type': MerklePath
+                           }
+                       ],
+                       [
+                           'incoming_receipts_proofs',
+                           [([32], [([Receipt], ShardProof)])]
+                       ], ['root_proofs', [[([32], MerklePath)]]],
+                       ['state_root_node', StateRootNode]]
         }
     ],
 ]

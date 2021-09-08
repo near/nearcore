@@ -55,6 +55,8 @@ impl RuntimeConfig {
 /// but i) may have it’s `max_gas_burnt_view` limit adjusted and ii) provides
 /// a method which returns configuration with adjustments done through protocol
 /// version upgrades.
+/// TODO #4649: deprecated after RuntimeConfigStore creation, remove it
+#[deprecated(since = "#4779", note = "All usages should be replaced with RuntimeConfigStore")]
 pub struct ActualRuntimeConfig {
     /// The runtime configuration taken from the genesis file but with possibly
     /// modified `max_gas_burnt_view` limit.
@@ -64,6 +66,7 @@ pub struct ActualRuntimeConfig {
     with_lower_storage_cost: Arc<RuntimeConfig>,
 }
 
+#[allow(deprecated)]
 impl ActualRuntimeConfig {
     /// Constructs a new object from specified genesis runtime config.
     ///
@@ -132,6 +135,7 @@ mod tests {
     fn test_lower_cost() {
         let config = RuntimeConfig::default();
         let default_amount = config.storage_amount_per_byte;
+        #[allow(deprecated)]
         let config = ActualRuntimeConfig::new(config);
         let base_cfg = config.for_protocol_version(0);
         let new_cfg = config.for_protocol_version(ProtocolVersion::MAX);

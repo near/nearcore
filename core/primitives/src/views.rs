@@ -27,6 +27,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
+use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
@@ -126,13 +127,15 @@ impl From<AccountView> for Account {
 
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        ContractCodeView { code: contract_code.code, hash: contract_code.hash }
+        let hash = *contract_code.hash();
+        let code = contract_code.into_code();
+        ContractCodeView { code, hash }
     }
 }
 
 impl From<ContractCodeView> for ContractCode {
     fn from(contract_code: ContractCodeView) -> Self {
-        ContractCode { code: contract_code.code, hash: contract_code.hash }
+        ContractCode::new(contract_code.code, Some(contract_code.hash))
     }
 }
 
@@ -1014,6 +1017,50 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub struct CostGasUsed {
+    pub cost_category: String,
+    pub cost: String,
+    #[serde(with = "u64_dec_format")]
+    pub gas_used: Gas,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub struct ExecutionMetadataView {
+    version: u32,
+    gas_profile: Option<Vec<CostGasUsed>>,
+}
+
+impl From<ExecutionMetadata> for ExecutionMetadataView {
+    fn from(metadata: ExecutionMetadata) -> Self {
+        let gas_profile = match metadata {
+            ExecutionMetadata::V1 => None,
+            ExecutionMetadata::V2(profile_data) => Some(
+                Cost::ALL
+                    .iter()
+                    .filter(|&cost| profile_data[*cost] > 0)
+                    .map(|&cost| CostGasUsed {
+                        cost_category: match cost {
+                            Cost::ActionCost { .. } => "ACTION_COST",
+                            Cost::ExtCost { .. } => "WASM_HOST_COST",
+                        }
+                        .to_string(),
+                        cost: match cost {
+                            Cost::ActionCost { action_cost_kind: action_cost } => {
+                                format!("{:?}", action_cost)
+                            }
+                            Cost::ExtCost { ext_cost_kind: ext_cost } => format!("{:?}", ext_cost),
+                        }
+                        .to_ascii_uppercase(),
+                        gas_used: profile_data[cost],
+                    })
+                    .collect(),
+            ),
+        };
+        ExecutionMetadataView { version: 1, gas_profile }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
@@ -1033,8 +1080,7 @@ pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
     /// Execution metadata, versioned
-    #[serde(skip)]
-    pub metadata: ExecutionMetadata,
+    pub metadata: ExecutionMetadataView,
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
@@ -1046,7 +1092,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
-            metadata: outcome.metadata,
+            metadata: outcome.metadata.into(),
         }
     }
 }
@@ -1412,7 +1458,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,

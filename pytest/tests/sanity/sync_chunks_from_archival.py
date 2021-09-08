@@ -28,7 +28,9 @@ hash_to_metadata = manager.dict()
 requests = manager.dict()
 responses = manager.dict()
 
+
 class Handler(ProxyHandler):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -77,8 +79,8 @@ class Handler(ProxyHandler):
 
         return True
 
-proxy = NodesProxy(Handler)
 
+proxy = NodesProxy(Handler)
 
 started = time.time()
 
@@ -106,12 +108,15 @@ near_root, node_dirs = init_cluster(
          "tracked_shards": [0, 1], "archive": True
          }, 3: {"archive": True, "tracked_shards": [1], "network": {"ttl_account_id_router": {"secs": 1, "nanos": 0}}}, 2: {"archive": True, "tracked_shards": [0], "network": {"ttl_account_id_router": {"secs": 1, "nanos": 0}}}})
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [], proxy)
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [],
+                         proxy)
 node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
                      boot_node.addr(), [], proxy)
 
+
 def get_validators(node):
     return set([x['account_id'] for x in node.get_status()['validators']])
+
 
 logging.info("Getting to height %s" % HEIGHTS_BEFORE_ROTATE)
 while True:
@@ -132,14 +137,16 @@ hash_ = status['sync_info']['latest_block_hash']
 
 logging.info("Waiting for the new nodes to sync")
 while True:
-    if not node2.get_status()['sync_info']['syncing'] and not node3.get_status()['sync_info']['syncing']:
+    if not node2.get_status()['sync_info']['syncing'] and not node3.get_status(
+    )['sync_info']['syncing']:
         break
     time.sleep(1)
 
 for stake, nodes, expected_vals in [
-        (100000000000000000000000000000000, [node2, node3], ["test0", "test1", "test2", "test3"]),
-        (0, [boot_node, node1], ["test2", "test3"]),
-        ]:
+    (100000000000000000000000000000000, [node2, node3],
+     ["test0", "test1", "test2", "test3"]),
+    (0, [boot_node, node1], ["test2", "test3"]),
+]:
     logging.info("Rotating validators")
     for ord_, node in enumerate(reversed(nodes)):
         tx = sign_staking_tx(node.signer_key, node.validator_key, stake, 10,
@@ -175,7 +182,8 @@ logging.info("Spinning up one more node")
 node4 = spin_up_node(config, near_root, node_dirs[4], 4, node2.node_key.pk,
                      node2.addr())
 
-logging.info("Waiting for the new node to sync. We are %s seconds in" % (time.time() - started))
+logging.info("Waiting for the new node to sync. We are %s seconds in" %
+             (time.time() - started))
 while True:
     assert time.time() - started < TIMEOUT
     status = node4.get_status()

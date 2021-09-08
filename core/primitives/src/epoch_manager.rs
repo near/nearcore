@@ -22,7 +22,7 @@ pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
 
 /// Epoch config, determines validator assignment for given epoch.
 /// Can change from epoch to epoch depending on the sharding and other parameters, etc.
-#[derive(Clone)]
+#[derive(Clone, Eq, Debug, PartialEq)]
 pub struct EpochConfig {
     /// Epoch length in block heights.
     pub epoch_length: BlockHeightDelta,

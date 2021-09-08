@@ -26,7 +26,8 @@ nodes = start_cluster(
     2, 0, 2, None,
     [["num_block_producer_seats", 199],
      ["num_block_producer_seats_per_shard", [99, 100]], ["epoch_length", 10],
-     ["block_producer_kickout_threshold", 10], ["chunk_producer_kickout_threshold", 10]], {})
+     ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]], {})
 logger.info('cluster started')
 
 started = time.time()

@@ -31,7 +31,7 @@ use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
-    ShardChunkHeader,
+    ShardChunkHeader, ShardInfo,
 };
 use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
@@ -46,7 +46,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
-use near_client_primitives::types::{Error, ShardSyncDownload};
+use near_client_primitives::types::{Error, ShardSyncDownload, ShardSyncStatus};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 
@@ -548,9 +548,10 @@ impl Client {
             validator_signer.validator_id()
         );
 
+        let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
         let chunk_extra = self
             .chain
-            .get_chunk_extra(&prev_block_hash, shard_id)
+            .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
@@ -576,8 +577,9 @@ impl Client {
         // 2. anyone who just asks for one's incoming receipts
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
+        let shard_layout = self.runtime_adapter.get_shard_layout(epoch_id)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let protocol_version = self.runtime_adapter.get_epoch_protocol_version(epoch_id)?;
@@ -1087,11 +1089,11 @@ impl Client {
 
             if provenance != Provenance::SYNC && !self.sync_status.is_syncing() {
                 // Produce new chunks
-                for shard_id in 0..self.runtime_adapter.num_shards() {
-                    let epoch_id = self
-                        .runtime_adapter
-                        .get_epoch_id_from_prev_block(&block.header().hash())
-                        .unwrap();
+                let epoch_id = self
+                    .runtime_adapter
+                    .get_epoch_id_from_prev_block(&block.header().hash())
+                    .unwrap();
+                for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id).unwrap() {
                     let chunk_proposer = self
                         .runtime_adapter
                         .get_chunk_producer(&epoch_id, block.header().height() + 1, shard_id)
@@ -1346,7 +1348,8 @@ impl Client {
 
     /// Forwards given transaction to upcoming validators.
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let shard_id =
+            self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id, epoch_id)?;
         let head = self.chain.head()?;
         let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
 
@@ -1358,9 +1361,12 @@ impl Client {
                 self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id, horizon)?;
             validators.insert(validator);
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
+                let next_shard_id = self
+                    .runtime_adapter
+                    .account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
                 let validator = self.chain.find_chunk_producer_for_forwarding(
                     next_epoch_id,
-                    shard_id,
+                    next_shard_id,
                     horizon,
                 )?;
                 validators.insert(validator);
@@ -1440,7 +1446,9 @@ impl Client {
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let shard_id = self
+            .runtime_adapter
+            .account_id_to_shard_id(&tx.transaction.signer_id, &head.epoch_id)?;
         let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
@@ -1461,7 +1469,7 @@ impl Client {
 
         if let Some(err) = self
             .runtime_adapter
-            .validate_tx(gas_price, None, &tx, true, protocol_version)
+            .validate_tx(gas_price, None, &tx, true, &epoch_id, protocol_version)
             .expect("no storage errors")
         {
             debug!(target: "client", "Invalid tx during basic validation: {:?}", err);
@@ -1471,7 +1479,8 @@ impl Client {
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
-            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, shard_id) {
+            let shard_uid = self.runtime_adapter.shard_id_to_uid(shard_id, &epoch_id)?;
+            let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),
                 Err(_) => {
                     // Not being able to fetch a state root most likely implies that we haven't
@@ -1488,7 +1497,7 @@ impl Client {
             };
             if let Some(err) = self
                 .runtime_adapter
-                .validate_tx(gas_price, Some(state_root), &tx, false, protocol_version)
+                .validate_tx(gas_price, Some(state_root), &tx, false, &epoch_id, protocol_version)
                 .expect("no storage errors")
             {
                 debug!(target: "client", "Invalid tx: {:?}", err);
@@ -1571,10 +1580,45 @@ impl Client {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter1 = self.network_adapter.clone();
 
+            let new_shard_sync = {
+                let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
+                let need_to_split_states =
+                    self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
+                if need_to_split_states {
+                    // If the client already has the state for this epoch, skip the downloading phase
+                    let new_shard_sync = state_sync_info
+                        .shards
+                        .iter()
+                        .filter_map(|ShardInfo(shard_id, _)| {
+                            let shard_id = *shard_id;
+                            if self.runtime_adapter.cares_about_shard(
+                                me.as_ref(),
+                                &prev_hash,
+                                shard_id,
+                                true,
+                            ) {
+                                Some((
+                                    shard_id,
+                                    ShardSyncDownload {
+                                        downloads: vec![],
+                                        status: ShardSyncStatus::StateSplit,
+                                    },
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    debug!(target: "catchup", "need to split states for shards {:?}", new_shard_sync);
+                    new_shard_sync
+                } else {
+                    HashMap::new()
+                }
+            };
             let state_sync_timeout = self.config.state_sync_timeout;
             let (state_sync, new_shard_sync) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
-                    (StateSync::new(network_adapter1, state_sync_timeout), HashMap::new())
+                    (StateSync::new(network_adapter1, state_sync_timeout), new_shard_sync)
                 });
 
             debug!(

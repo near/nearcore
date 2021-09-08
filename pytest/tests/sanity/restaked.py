@@ -35,7 +35,8 @@ def start_restaked(node_dir, rpc_port, config):
     if node_dir:
         command.extend(['--home', node_dir])
     pid = subprocess.Popen(command).pid
-    logger.info("Starting restaked for %s, rpc = 0.0.0.0:%d" % (node_dir, rpc_port))
+    logger.info("Starting restaked for %s, rpc = 0.0.0.0:%d" %
+                (node_dir, rpc_port))
     atexit.register(atexit_stop_restaked, pid)
 
 

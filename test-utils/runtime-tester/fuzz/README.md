@@ -54,6 +54,11 @@ Writing Scenario to json:
 RUSTC_BOOTSTRAP=1 cargo fuzz fmt runtime-fuzzer artifacts/runtime-fuzzer/<id> 2>&1 | sed '1,3d' | tee scenario.json
 ```
 
+To run specific scenario.json use test from runtime-tester
+```bash
+cargo test test_scenario_json --release -- --ignored
+```
+
 
 
 

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,7 +26,7 @@ pub enum ProcessNodeState {
 }
 
 pub struct ProcessNode {
-    pub work_dir: String,
+    pub work_dir: PathBuf,
     pub config: NearConfig,
     pub state: ProcessNodeState,
     pub signer: Arc<InMemorySigner>,
@@ -113,11 +113,7 @@ impl ProcessNode {
     /// Side effect: reset_storage
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
-        let work_dir = format!(
-            "{}/process_node_{}",
-            env::temp_dir().as_path().to_str().unwrap(),
-            rng.gen::<u64>()
-        );
+        let work_dir = env::temp_dir().join(format!("process_node_{}", rng.gen::<u64>()));
         let signer = Arc::new(InMemorySigner::from_seed(
             config.validator_signer.as_ref().unwrap().validator_id().clone(),
             KeyType::ED25519,
@@ -130,8 +126,8 @@ impl ProcessNode {
 
     /// Clear storage directory and run keygen
     pub fn reset_storage(&self) {
-        Command::new("rm").args(&["-r", &self.work_dir]).spawn().unwrap().wait().unwrap();
-        self.config.save_to_dir(Path::new(&self.work_dir));
+        Command::new("rm").arg("-r").arg(&self.work_dir).spawn().unwrap().wait().unwrap();
+        self.config.save_to_dir(&self.work_dir);
     }
 
     /// Side effect: writes chain spec file
@@ -143,11 +139,15 @@ impl ProcessNode {
             command.args(&["--features", "nightly_protocol"]);
             #[cfg(feature = "nightly_protocol_features")]
             command.args(&["--features", "nightly_protocol_features"]);
-            command.args(&["--bin", "neard", "--", "--home", &self.work_dir, "run"]);
+            command.args(&["--bin", "neard", "--", "--home"]);
+            command.arg(&self.work_dir);
+            command.arg("run");
             command
         } else {
             let mut command = Command::new("target/debug/neard");
-            command.args(&["--home", &self.work_dir, "run"]);
+            command.arg("--home");
+            command.arg(&self.work_dir);
+            command.arg("run");
             command
         }
     }
@@ -158,7 +158,7 @@ impl Drop for ProcessNode {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
                 let _ = child.kill().map_err(|_| error!("child process died"));
-                std::fs::remove_dir_all(self.work_dir.clone()).unwrap();
+                std::fs::remove_dir_all(&self.work_dir).unwrap();
             }
             ProcessNodeState::Stopped => {}
         }

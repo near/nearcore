@@ -192,7 +192,7 @@ fn default_vm_context() -> VMContext {
 fn vm_script_smoke_test() {
     use near_vm_logic::ReturnData;
 
-    crate::tracing_timings::enable();
+    tracing_span_tree::span_tree().enable();
 
     let mut script = Script::default();
     script.contract_cache(true);
@@ -227,18 +227,6 @@ fn profile_data_is_per_outcome() {
     script.step(contract, "write_key_value");
     let res = script.run();
     assert_eq!(res.outcomes.len(), 4);
-    assert!(
-        res.outcomes[0].0.as_ref().unwrap().profile.all_gas()
-            > res.outcomes[1].0.as_ref().unwrap().profile.all_gas()
-    );
-    assert!(
-        res.outcomes[0].0.as_ref().unwrap().profile.wasm_gas()
-            > res.outcomes[1].0.as_ref().unwrap().profile.wasm_gas()
-    );
-    assert_eq!(
-        res.outcomes[1].0.as_ref().unwrap().profile.all_gas(),
-        res.outcomes[2].0.as_ref().unwrap().profile.all_gas()
-    );
     assert_eq!(
         res.outcomes[1].0.as_ref().unwrap().profile.host_gas(),
         res.outcomes[2].0.as_ref().unwrap().profile.host_gas()
@@ -254,7 +242,7 @@ fn profile_data_is_per_outcome() {
 fn test_evm_slow_deserialize_repro() {
     fn evm_slow_deserialize_repro(vm_kind: VMKind) {
         println!("evm_slow_deserialize_repro of {:?}", &vm_kind);
-        crate::tracing_timings::enable();
+        tracing_span_tree::span_tree().enable();
 
         let mut script = Script::default();
         script.vm_kind(vm_kind);

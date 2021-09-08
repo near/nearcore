@@ -66,7 +66,7 @@ while True:
 
     if ctx.get_balances() == ctx.expected_balances:
         logger.info("Balances caught up, took %s blocks, moving on" %
-              (height - sent_height))
+                    (height - sent_height))
         ctx.send_moar_txs(hash_, 10, use_routing=True)
         sent_height = height
         caught_up_times += 1
