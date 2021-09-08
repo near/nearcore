@@ -45,8 +45,8 @@ use near_vm_runner::precompile_contract;
 
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, WrappedTrieChanges,
+    ApplyStatePartResult, ColState, PartialStorage, ShardTries, StorageError, Store,
+    StoreCompiledContractCache, StoreUpdate, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -602,15 +602,16 @@ fn apply_delayed_receipts(
     let mut start_index = None;
     let mut new_state_roots = state_roots.clone();
     while let Some((next_index, receipts)) =
-        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)
-            .map_err(|e| e.to_string())?
+        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
     {
-        let (store_update, updated_state_roots) = tries
-            .apply_delayed_receipts_to_split_states(&new_state_roots, &receipts, &|account_id| {
+        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
+            &new_state_roots,
+            &receipts,
+            &|account_id| {
                 let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
                 ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
-            })
-            .map_err(|err| err.to_string())?;
+            },
+        )?;
         new_state_roots = updated_state_roots;
         start_index = Some(next_index);
         store_update.commit()?;
@@ -1589,28 +1590,34 @@ impl RuntimeAdapter for NightshadeRuntime {
                        "Can't get_trie_nodes_for_part for {:?}, part_id {:?}, num_parts {:?}, {:?}",
                        state_root, part_id, num_parts, e
                 );
-                e.to_string()
+                e
             })?;
-            let (store_update, new_state_roots) = tries
-                .apply_changes_to_new_states(
-                    state_roots,
-                    trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
-                    &|raw_key| {
-                        // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
-                        // This is because we cannot migrate delayed receipts part by part. They have to be
-                        // reconstructed in the new states after all DelayedReceipts are ready in the original
-                        // shard.
-                        if let Some(account_id) = parse_account_id_from_raw_key(&raw_key).unwrap() {
-                            Some(ShardUId::from_shard_id_and_layout(
-                                account_id_to_shard_id(&account_id, &next_epoch_shard_layout),
-                                &next_epoch_shard_layout,
-                            ))
-                        } else {
-                            None
-                        }
-                    },
-                )
-                .map_err(|err| err.to_string())?;
+            let (store_update, new_state_roots) = tries.apply_changes_to_new_states(
+                state_roots,
+                trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
+                &|raw_key| {
+                    // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
+                    // This is because we cannot migrate delayed receipts part by part. They have to be
+                    // reconstructed in the new states after all DelayedReceipts are ready in the original
+                    // shard.
+                    if let Some(account_id) =
+                        parse_account_id_from_raw_key(&raw_key).map_err(|e| {
+                            let err = format!(
+                                "error parsing account id from trie key {:?}: {:?}",
+                                raw_key, e
+                            );
+                            StorageError::StorageInconsistentState(err)
+                        })?
+                    {
+                        Ok(Some(ShardUId::from_shard_id_and_layout(
+                            account_id_to_shard_id(&account_id, &next_epoch_shard_layout),
+                            &next_epoch_shard_layout,
+                        )))
+                    } else {
+                        Ok(None)
+                    }
+                },
+            )?;
             state_roots = new_state_roots;
             store_update.commit()?;
         }

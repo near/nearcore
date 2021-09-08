@@ -45,11 +45,11 @@ impl ShardTries {
         &self,
         state_roots: HashMap<ShardUId, StateRoot>,
         changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        key_to_shard_id: &(dyn Fn(&[u8]) -> Option<ShardUId> + 'a),
+        key_to_shard_id: &(dyn Fn(&[u8]) -> Result<Option<ShardUId>, StorageError> + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut changes_by_shard: HashMap<_, Vec<_>> = HashMap::new();
         for (raw_key, value) in changes.into_iter() {
-            if let Some(new_shard_uid) = key_to_shard_id(&raw_key) {
+            if let Some(new_shard_uid) = key_to_shard_id(&raw_key)? {
                 assert!(
                     state_roots.contains_key(&new_shard_uid),
                     "Cannot find state roots for shard {:?} for key {}. Only has state roots for shards {:?}",
@@ -225,10 +225,10 @@ mod tests {
 
                 let (store_update, new_state_roots) = tries
                     .apply_changes_to_new_states(state_roots, changes, &|raw_key| {
-                        Some(ShardUId {
+                        Ok(Some(ShardUId {
                             version: 1,
                             shard_id: (hash(raw_key).0[0] as NumShards % num_shards) as u32,
-                        })
+                        }))
                     })
                     .unwrap();
                 store_update.commit().unwrap();
