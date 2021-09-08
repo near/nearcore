@@ -8,6 +8,7 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
@@ -42,7 +43,7 @@ fn main() -> Result<()> {
     let matches = App::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .about("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -61,6 +62,7 @@ fn main() -> Result<()> {
         near_config.client_config.tracked_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(None),
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();
@@ -83,9 +85,10 @@ fn main() -> Result<()> {
             eprintln!("{} included, skip", height);
             continue;
         }
+        let shard_uid = runtime.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
 
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
