@@ -724,7 +724,7 @@ pub fn migrate_25_to_26(path: &Path) {
     set_store_version(&store, 26);
 }
 
-pub fn migrate_26_to_27(path: &String, is_archival: bool) {
+pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
     let store = create_store(path);
     if is_archival {
         let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
