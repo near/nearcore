@@ -249,7 +249,7 @@ pub(crate) async fn start(
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let mut indexer_db_path = nearcore::get_store_path(&indexer_config.home_dir);
-    indexer_db_path.push_str("/indexer");
+    indexer_db_path.push("indexer");
 
     // TODO: implement proper error handling
     let db = DB::open_default(indexer_db_path).unwrap();
