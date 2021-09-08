@@ -21,7 +21,8 @@ BLOCKS = 50
 
 nodes = start_cluster(
     4, 0, 4, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 60], ["chunk_producer_kickout_threshold", 60]], {})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 60],
+     ["chunk_producer_kickout_threshold", 60]], {})
 
 started = time.time()
 
@@ -61,7 +62,7 @@ while max_height < BLOCKS:
             max_height = height
             if height % 10 == 0:
                 logger.info("Reached height %s, min common: %s" %
-                      (height, min_common()))
+                            (height, min_common()))
 
         if height not in height_to_hash:
             height_to_hash[height] = hash_

@@ -67,5 +67,4 @@ time.sleep(60)
 bridge.check_balances(alice)
 logger.info('=== BALANCES ARE OK AFTER SLEEPING')
 
-
 logger.info('EPIC')

@@ -13,14 +13,17 @@ from configured_logger import logger
 from transaction import sign_staking_tx
 from utils import user_name, collect_gcloud_config
 
+
 def stop_node(machine):
     machine.run('tmux send-keys -t python-rc C-c')
     machine.kill_detach_tmux()
     logger.info(f'{machine} killed')
 
+
 def start_node(machine):
     machine.run_detach_tmux(
-        'cd nearcore && export RUST_LOG=diagnostic=trace && export RUST_BACKTRACE=1 && target/release/near run')
+        'cd nearcore && export RUST_LOG=diagnostic=trace && export RUST_BACKTRACE=1 && target/release/near run'
+    )
     logger.info(f'{machine} started')
 
 
@@ -41,6 +44,7 @@ class NodeState(Enum):
 
 
 class RemoteNode(GCloudNode):
+
     def __init__(self, instance_name, node_dir):
         super().__init__(instance_name)
         self.validator_key = Key.from_json_file(node_dir / 'validator_key.json')
@@ -50,28 +54,33 @@ class RemoteNode(GCloudNode):
 
         try:
             status = super().get_status()
-            validators = set(map(lambda x: x['account_id'], status['validators']))
+            validators = set(
+                map(lambda x: x['account_id'], status['validators']))
             if self.signer_key.account_id in validators:
                 self.state = NodeState.VALIDATING
             elif status['sync_info']['syncing']:
                 self.state = NodeState.SYNCING
             else:
                 self.state = NodeState.NONVALIDATING
-            self.account_key_nonce = super().get_nonce_for_pk(self.signer_key.account_id, self.signer_key.pk)
+            self.account_key_nonce = super().get_nonce_for_pk(
+                self.signer_key.account_id, self.signer_key.pk)
         except Exception:
             start_node(self.machine)
             time.sleep(20)
             self.state = NodeState.SYNCING
             self.account_key_nonce = None
 
-
     def send_staking_tx(self, stake):
         status = self.get_status()
         hash_ = status['sync_info']['latest_block_hash']
         if self.account_key_nonce is None:
-            self.account_key_nonce = self.get_nonce_for_pk(self.signer_key.account_id, self.signer_key.pk)
+            self.account_key_nonce = self.get_nonce_for_pk(
+                self.signer_key.account_id, self.signer_key.pk)
         self.account_key_nonce += 1
-        tx = sign_staking_tx(nodes[index].signer_key, nodes[index].validator_key, stake, self.account_key_nonce, base58.b58decode(hash_.encode('utf8')))
+        tx = sign_staking_tx(nodes[index].signer_key,
+                             nodes[index].validator_key, stake,
+                             self.account_key_nonce,
+                             base58.b58decode(hash_.encode('utf8')))
         logger.info(f'{self.signer_key.account_id} stakes {stake}')
         res = self.send_tx_and_wait(tx, timeout=15)
         if 'error' in res or 'Failure' in res['result']['status']:
@@ -115,11 +124,14 @@ class RemoteNode(GCloudNode):
         else:
             assert False, "unexpected state"
 
+
 num_nodes = 100
 collect_gcloud_config(num_nodes)
-nodes = [RemoteNode(f'pytest-node-{user_name()}-{i}',
-                    pathlib.Path(tempfile.gettempdir()) / 'near' / f'node{i}')
-         for i in range(num_nodes)]
+nodes = [
+    RemoteNode(f'pytest-node-{user_name()}-{i}',
+               pathlib.Path(tempfile.gettempdir()) / 'near' / f'node{i}')
+    for i in range(num_nodes)
+]
 
 while True:
     # find a node that is not syncing and get validator information
@@ -132,11 +144,16 @@ while True:
     if validator_info is None:
         assert False, "all nodes are syncing"
     assert 'error' not in validator_info, validator_info
-    cur_validators = dict(map(lambda x: (x['account_id'], x['stake']), validator_info['result']['current_validators']))
+    cur_validators = dict(
+        map(lambda x: (x['account_id'], x['stake']),
+            validator_info['result']['current_validators']))
     prev_epoch_kickout = validator_info['result']['prev_epoch_kickout']
-    logger.info(f'validators kicked out in the previous epoch: {prev_epoch_kickout}')
+    logger.info(
+        f'validators kicked out in the previous epoch: {prev_epoch_kickout}')
     for validator_kickout in prev_epoch_kickout:
-        assert validator_kickout['reason'] != 'Unstaked' or validator_kickout['reason'] != 'DidNotGetASeat' or not validator_kickout.startswith('NotEnoughStake'), validator_kickout
+        assert validator_kickout['reason'] != 'Unstaked' or validator_kickout[
+            'reason'] != 'DidNotGetASeat' or not validator_kickout.startswith(
+                'NotEnoughStake'), validator_kickout
     logger.info(f'current validators: {cur_validators}')
 
     # choose 5 nodes and change their state
@@ -144,7 +161,9 @@ while True:
     for index in node_indices:
         cur_state = nodes[index].state
         nodes[index].change_state(cur_validators)
-        logger.info(f'node {index} changed its state from {cur_state} to {nodes[index].state}')
+        logger.info(
+            f'node {index} changed its state from {cur_state} to {nodes[index].state}'
+        )
 
     logger.info(dict(enumerate(map(lambda x: x.state, nodes))))
     time.sleep(600)
