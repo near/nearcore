@@ -20,19 +20,14 @@ use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 pub struct ShardTries {
     pub(crate) store: Arc<Store>,
     /// Cache reserved for client actor to use
-    pub(crate) caches: Arc<HashMap<ShardUId, TrieCache>>,
+    pub(crate) caches: HashMap<ShardUId, TrieCache>,
     /// Cache for readers.
-    pub(crate) view_caches: Arc<HashMap<ShardUId, TrieCache>>,
+    pub(crate) view_caches: HashMap<ShardUId, TrieCache>,
 }
 
 impl ShardTries {
-    fn get_new_cache(shards: &Vec<ShardUId>) -> Arc<HashMap<ShardUId, TrieCache>> {
-        let mut cache = HashMap::new();
-        shards.iter().for_each(|x| {
-            cache.insert(*x, TrieCache::new());
-            ()
-        });
-        Arc::new(cache)
+    fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, TrieCache> {
+        shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
     }
 
     pub fn new(store: Arc<Store>, shard_version: ShardVersion, num_shards: NumShards) -> Self {
@@ -49,13 +44,9 @@ impl ShardTries {
 
     // add new shards to ShardTries, only used when shard layout changes and we are building
     // states for new shards
-    pub fn add_new_shards(&mut self, shards: Vec<ShardUId>) {
-        Arc::get_mut(&mut self.caches)
-            .unwrap()
-            .extend(Self::get_new_cache(&shards).as_ref().clone());
-        Arc::get_mut(&mut self.view_caches)
-            .unwrap()
-            .extend(Self::get_new_cache(&shards).as_ref().clone());
+    pub fn add_new_shards(&mut self, shards: &[ShardUId]) {
+        self.caches.extend(Self::get_new_cache(&shards));
+        self.view_caches.extend(Self::get_new_cache(&shards));
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
