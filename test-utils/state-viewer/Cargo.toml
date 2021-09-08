@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 ansi_term = "0.12"
-borsh = "0.8.1"
+borsh = "0.9"
 clap = "2.33"
 tracing = "0.1"
 
