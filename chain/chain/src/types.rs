@@ -36,7 +36,7 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -428,6 +428,10 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
+
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client is tracking the shard
@@ -443,6 +447,9 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Whether the client cares about some shard in the next epoch.
+    //  Note that `shard_id` always refers to a shard in the current epoch
+    //  If shard layout will change next epoch,
+    //  returns true if it cares about any shard that `shard_id` will split to
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client will track the shard
     /// * If `account_id` is not None, it is supposed to be a validator
@@ -605,7 +612,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,

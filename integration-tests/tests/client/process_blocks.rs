@@ -34,11 +34,16 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
@@ -55,6 +60,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
@@ -89,6 +96,7 @@ pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn Ru
                 vec![],
                 None,
                 None,
+                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
@@ -1561,7 +1569,11 @@ fn test_process_block_after_state_sync() {
     let sync_height = epoch_length * 4 + 1;
     let sync_block = env.clients[0].chain.get_block_by_height(sync_height).unwrap().clone();
     let sync_hash = *sync_block.hash();
-    let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(&sync_hash, &ShardUId { version: 1, shard_id: 0 })
+        .unwrap()
+        .clone();
     let state_part = env.clients[0]
         .runtime_adapter
         .obtain_state_part(0, &sync_hash, chunk_extra.state_root(), 0, 1)
@@ -1886,6 +1898,7 @@ fn test_incorrect_validator_key_produce_block() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
@@ -1973,7 +1986,7 @@ fn test_data_reset_before_state_sync() {
     let response = env.clients[0]
         .runtime_adapter
         .query(
-            0,
+            ShardUId::default(),
             &head_block.chunks()[0].prev_state_root(),
             head.height,
             0,
@@ -1987,7 +2000,7 @@ fn test_data_reset_before_state_sync() {
     env.clients[0].chain.reset_data_pre_state_sync(*head_block.hash()).unwrap();
     // account should not exist after clearing state
     let response = env.clients[0].runtime_adapter.query(
-        0,
+        ShardUId::default(),
         &head_block.chunks()[0].prev_state_root(),
         head.height,
         0,
@@ -2178,7 +2191,8 @@ fn test_validate_chunk_extra() {
 
     // About to produce a block on top of block1. Validate that this chunk is legit.
     let chunks = env.clients[0].shards_mgr.prepare_chunks(block1.hash());
-    let chunk_extra = env.clients[0].chain.get_chunk_extra(block1.hash(), 0).unwrap().clone();
+    let chunk_extra =
+        env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::default()).unwrap().clone();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
         &*env.clients[0].runtime_adapter,
@@ -2262,7 +2276,7 @@ fn test_catchup_gas_price_change() {
     }
 
     assert_ne!(blocks[3].header().gas_price(), blocks[4].header().gas_price());
-    assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).is_err());
+    assert!(env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::default()).is_err());
 
     // Simulate state sync
     let sync_hash = *blocks[5].hash();
@@ -2290,10 +2304,16 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     env.clients[1].chain.set_state_finalize(0, sync_hash, num_parts).unwrap();
-    let chunk_extra_after_sync =
-        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
-    let expected_chunk_extra =
-        env.clients[0].chain.get_chunk_extra(blocks[4].hash(), 0).unwrap().clone();
+    let chunk_extra_after_sync = env.clients[1]
+        .chain
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .unwrap()
+        .clone();
+    let expected_chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
+        .unwrap()
+        .clone();
     // The chunk extra of the prev block of sync block should be the same as the node that it is syncing from
     assert_eq!(chunk_extra_after_sync, expected_chunk_extra);
 }
@@ -2418,17 +2438,21 @@ fn test_refund_receipts_processing() {
     env.produce_block(0, 3);
     env.produce_block(0, 4);
     let mut block_height = 5;
+    let test_shard_uid = ShardUId { version: 1, shard_id: 0 };
     loop {
         env.produce_block(0, block_height);
         let block = env.clients[0].chain.get_block_by_height(block_height).unwrap().clone();
         let prev_block =
             env.clients[0].chain.get_block_by_height(block_height - 1).unwrap().clone();
-        let chunk_extra =
-            env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+        let chunk_extra = env.clients[0]
+            .chain
+            .get_chunk_extra(prev_block.hash(), &test_shard_uid)
+            .unwrap()
+            .clone();
         let state_update = env.clients[0]
             .runtime_adapter
             .get_tries()
-            .new_trie_update(ShardUId { version: 1, shard_id: 0 }, *chunk_extra.state_root());
+            .new_trie_update(test_shard_uid.clone(), *chunk_extra.state_root());
         let delayed_indices =
             get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
         let finished_all_delayed_receipts = match delayed_indices {
@@ -2482,11 +2506,82 @@ fn test_refund_receipts_processing() {
         execution_outcomes_from_block.iter().for_each(|outcome| {
             processed_refund_receipt_ids.insert(outcome.outcome_with_id.id);
         });
-        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().clone();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(block.hash(), &test_shard_uid).unwrap().clone();
         assert_eq!(execution_outcomes_from_block.len(), 1);
         assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     }
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
+}
+
+#[test]
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+fn test_shard_layout_upgrade() {
+    init_test_logger();
+    let epoch_length = 5;
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
+    let simple_nightshade_protocol_version = ProtocolFeature::SimpleNightshade.protocol_version();
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.protocol_version = simple_nightshade_protocol_version - 1;
+    let new_num_shards = 4;
+    genesis.config.simple_nightshade_shard_config = Some(ShardConfig {
+        num_block_producer_seats_per_shard: vec![2; new_num_shards],
+        avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
+        shard_layout: ShardLayout::v1(
+            vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        ),
+    });
+    let genesis_height = genesis.config.genesis_height;
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env =
+        TestEnv::new_with_runtime(chain_genesis, 2, 2, create_nightshade_runtimes(&genesis, 2));
+    // ShardLayout changes at epoch 2
+    // Test that state is caught up correctly at epoch 1 (block height 6-10)
+    // TODO: change this number to 16 once splitting states is fully implemented
+    for i in 1..=10 {
+        let head = env.clients[0].chain.head().unwrap();
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
+        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+        let (encoded_chunk, merkle_paths, receipts) =
+            create_chunk_on_height(&mut env.clients[index], i);
+
+        for j in 0..2 {
+            let mut chain_store =
+                ChainStore::new(env.clients[j].chain.store().owned_store(), genesis_height);
+            env.clients[j]
+                .shards_mgr
+                .distribute_encoded_chunk(
+                    encoded_chunk.clone(),
+                    merkle_paths.clone(),
+                    receipts.clone(),
+                    &mut chain_store,
+                )
+                .unwrap();
+        }
+
+        let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
+        // upgrade to new protocol version but in the second epoch one node vote for the old version.
+        if i != 10 {
+            set_block_protocol_version(
+                &mut block,
+                block_producer.clone(),
+                simple_nightshade_protocol_version,
+            );
+        }
+        for j in 0..2 {
+            let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
+            assert!(res.is_ok());
+            env.clients[j].run_catchup(&vec![]).unwrap();
+        }
+    }
 }
 
 #[test]
@@ -2587,7 +2682,7 @@ fn test_query_final_state() {
         let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap().clone();
         let response = runtime_adapter
             .query(
-                0,
+                ShardUId::default(),
                 &last_final_block.chunks()[0].prev_state_root(),
                 last_final_block.header().height(),
                 last_final_block.header().raw_timestamp(),
@@ -2941,7 +3036,11 @@ fn test_congestion_receipt_execution() {
     let height = 4;
     env.produce_block(0, height);
     let prev_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
-    let chunk_extra = env.clients[0].chain.get_chunk_extra(prev_block.hash(), 0).unwrap().clone();
+    let chunk_extra = env.clients[0]
+        .chain
+        .get_chunk_extra(prev_block.hash(), &ShardUId::default())
+        .unwrap()
+        .clone();
     assert!(chunk_extra.gas_used() >= chunk_extra.gas_limit());
     let state_update = env.clients[0]
         .runtime_adapter
@@ -3194,6 +3293,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         // TODO #4305: get directly from NightshadeRuntime
         let migration_data = load_migration_data(&genesis.config.chain_id);
@@ -3348,8 +3448,12 @@ mod storage_usage_fix_tests {
             assert!(res.is_ok());
             env.clients[0].run_catchup(&vec![]).unwrap();
 
-            let root =
-                env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap().state_root().clone();
+            let root = env.clients[0]
+                .chain
+                .get_chunk_extra(block.hash(), &ShardUId::default())
+                .unwrap()
+                .state_root()
+                .clone();
             let trie = Rc::new(
                 env.clients[0]
                     .runtime_adapter
@@ -3459,7 +3563,8 @@ mod contract_precompilation_tests {
     fn state_sync_on_height(env: &mut TestEnv, height: BlockHeight) {
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let sync_hash = *sync_block.hash();
-        let chunk_extra = env.clients[0].chain.get_chunk_extra(&sync_hash, 0).unwrap().clone();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(&sync_hash, &ShardUId::default()).unwrap().clone();
         let epoch_id =
             env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id().clone();
         let state_part = env.clients[0]
@@ -3491,6 +3596,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
+                    RuntimeConfigStore::test(),
                 ))
             })
             .collect();
@@ -3538,7 +3644,8 @@ mod contract_precompilation_tests {
         // Note that we can't test that behaviour is the same on two clients, because
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(EPOCH_LENGTH).unwrap().clone();
-        let chunk_extra = env.clients[0].chain.get_chunk_extra(block.hash(), 0).unwrap();
+        let chunk_extra =
+            env.clients[0].chain.get_chunk_extra(block.hash(), &ShardUId::default()).unwrap();
         let state_root = chunk_extra.state_root().clone();
 
         let viewer = TrieViewer::default();
@@ -3593,6 +3700,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
+                    RuntimeConfigStore::test(),
                 ))
             })
             .collect();
@@ -3674,6 +3782,7 @@ mod contract_precompilation_tests {
                     vec![],
                     None,
                     None,
+                    RuntimeConfigStore::test(),
                 ))
             })
             .collect();

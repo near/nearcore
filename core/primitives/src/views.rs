@@ -127,13 +127,15 @@ impl From<AccountView> for Account {
 
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        ContractCodeView { code: contract_code.code, hash: contract_code.hash }
+        let hash = *contract_code.hash();
+        let code = contract_code.into_code();
+        ContractCodeView { code, hash }
     }
 }
 
 impl From<ContractCodeView> for ContractCode {
     fn from(contract_code: ContractCodeView) -> Self {
-        ContractCode { code: contract_code.code, hash: contract_code.hash }
+        ContractCode::new(contract_code.code, Some(contract_code.hash))
     }
 }
 
@@ -1406,7 +1408,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,
