@@ -4450,6 +4450,7 @@ dependencies = [
  "nearcore",
  "serde",
  "serde_json",
+ "tempfile",
  "testlib",
 ]
 
@@ -4815,6 +4816,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-epoch-manager",
  "near-logger-utils",
  "near-network",
  "near-primitives",

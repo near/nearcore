@@ -259,7 +259,7 @@ impl ShardTries {
 
 pub struct WrappedTrieChanges {
     tries: ShardTries,
-    shard_uid: ShardUId,
+    pub shard_uid: ShardUId,
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
@@ -322,7 +322,7 @@ impl WrappedTrieChanges {
         self.state_changes_into(&mut store_update);
         store_update.set_ser(
             DBCol::ColTrieChanges,
-            &shard_layout::get_block_shard_uid(&self.block_hash, self.shard_uid),
+            &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
         )?;
         Ok(())
