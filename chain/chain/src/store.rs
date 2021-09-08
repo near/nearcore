@@ -1616,6 +1616,10 @@ impl<'a> ChainStoreUpdate<'a> {
             for height in (header_height + 1)..prev_height {
                 self.chain_store_cache_update.height_to_hashes.insert(height, None);
             }
+            // Override block ordinal to hash mapping for blocks in between.
+            // At this point block_merkle_tree for header is already saved.
+            let block_ordinal = self.get_block_merkle_tree(&header_hash)?.size();
+            self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
