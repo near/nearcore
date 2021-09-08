@@ -38,7 +38,7 @@ threadpool = "1.8.1"
 [dev-dependencies]
 near-test-contracts = { path = "../near-test-contracts" }
 assert_matches = "1.3"
-wat = "=1.0.40"
+wat = "1.0.40"
 base64 = "0.13"
 
 [features]
