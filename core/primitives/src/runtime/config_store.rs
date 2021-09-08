@@ -111,7 +111,7 @@ mod tests {
         let expected_hashes = vec![
             "9T3VNaNdGTiZZvuWiymSxtPdwWKNoJmqoTAaZ4JkuSoL",
             "E82ThZS7KFjpdKmogbMGPwv8nTztxqgSbuCTPRH73XFh",
-            "DMor89RAXPyCyyYRhY1CaHHV6PunLVE2DS397XjAq4o3",
+            "EMAAhdji1d9HjweDAM4pb9mu9nioGZRZQe1BsKwjF2iN",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
             assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
@@ -170,6 +170,29 @@ mod tests {
         assert!(
             base_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
                 > new_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+        );
+    }
+
+    // Check that for protocol version with lowered data receipt cost, runtime config passed to
+    // config store is overridden.
+    #[test]
+    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    fn test_override_runtime_config() {
+        let store = RuntimeConfigStore::new(Some(&RuntimeConfig::free()));
+        let config = store.get_config(0);
+        assert_eq!(config.as_ref(), &RuntimeConfig::free());
+
+        let config = store.get_config(LowerStorageCost.protocol_version());
+        assert_eq!(config.transaction_costs.action_creation_config.transfer_cost.send_sir, 0);
+        assert_ne!(
+            config.as_ref(),
+            &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
+        );
+
+        let config = store.get_config(LowerDataReceiptCost.protocol_version());
+        assert_eq!(
+            config.as_ref(),
+            &serde_json::from_slice::<RuntimeConfig>(CONFIGS[2].1).unwrap()
         );
     }
 }
