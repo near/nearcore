@@ -10,7 +10,9 @@ from configured_logger import logger
 from peer import *
 from proxy import ProxyHandler
 
+
 class Handler(ProxyHandler):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.blocks = 0

@@ -20,21 +20,53 @@ nodes = start_cluster(
     num_observers=1,
     num_shards=4,
     config=None,
-    genesis_config_changes=[
-        ["min_gas_price", 0],
-        ["max_inflation_rate", [0, 1]],
-        ["epoch_length", 10],
-        ["block_producer_kickout_threshold", 70]
-    ],
+    genesis_config_changes=[["min_gas_price",
+                             0], ["max_inflation_rate", [0, 1]],
+                            ["epoch_length", 10],
+                            ["block_producer_kickout_threshold", 70]],
     client_config_changes={
-                                  0: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-                                  1: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-                                  2: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-                                  3: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-                                  4: {"consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}},
-                                      "tracked_shards": [0, 1, 2, 3]}
-    }
-)
+        0: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        1: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        2: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        3: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            }
+        },
+        4: {
+            "consensus": {
+                "state_sync_timeout": {
+                    "secs": 2,
+                    "nanos": 0
+                }
+            },
+            "tracked_shards": [0, 1, 2, 3]
+        }
+    })
 
 started = time.time()
 
@@ -78,7 +110,7 @@ while True:
         # we are done with the sanity test, now let's stress it
         if ctx.get_balances() == ctx.expected_balances:
             logger.info("Balances caught up, took %s blocks, moving on" %
-                  (height - sent_height))
+                        (height - sent_height))
             last_balances = [x for x in ctx.expected_balances]
             ctx.send_moar_txs(hash_, 10, use_routing=True)
             sent_height = height

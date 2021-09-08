@@ -113,7 +113,8 @@ def test_changes_with_new_account_with_access_key():
 
     # Test happy-path
     block_header = nodes[0].get_block(block_hash)['result']['header']
-    prev_block_header = nodes[0].get_block(block_header['prev_hash'])['result']['header']
+    prev_block_header = nodes[0].get_block(
+        block_header['prev_hash'])['result']['header']
     nonce = prev_block_header['height'] * 1000000
     expected_response = {
         "block_hash":
@@ -399,10 +400,8 @@ def test_key_value_changes():
             },
             "type": "contract_code_update",
             "change": {
-                "account_id":
-                    contract_key.account_id,
-                "code_base64":
-                    base64.b64encode(contract_blob).decode('utf-8'),
+                "account_id": contract_key.account_id,
+                "code_base64": base64.b64encode(contract_blob).decode('utf-8'),
             }
         },]
     }
@@ -436,8 +435,8 @@ def test_key_value_changes():
     def set_value(value, *, nounce):
         args = key + struct.pack('<Q', value)
         tx = transaction.sign_function_call_tx(
-            function_caller_key, contract_key.account_id,
-            'write_key_value', args, 300000000000000, 100000000000, nounce,
+            function_caller_key, contract_key.account_id, 'write_key_value',
+            args, 300000000000000, 100000000000, nounce,
             base58.b58decode(latest_block_hash.encode('utf8')))
         response = nodes[1].send_tx_and_wait(tx, 10)
         try:
@@ -460,7 +459,8 @@ def test_key_value_changes():
     assert_changes_in_block_response(
         request={"block_id": tx_block_hash},
         expected_response={
-            "block_hash": tx_block_hash,
+            "block_hash":
+                tx_block_hash,
             "changes": [
                 {
                     "type": "account_touched",
@@ -511,31 +511,34 @@ def test_key_value_changes():
 
     # Test happy-path
     expected_response = {
-        "block_hash": tx_block_hash,
+        "block_hash":
+            tx_block_hash,
         "changes": [{
             "cause": {
                 "type": "receipt_processing",
             },
             "type": "data_update",
             "change": {
-                "account_id": contract_key.account_id,
-                "key_base64": key_base64,
-                "value_base64": base64.b64encode(
-                    struct.pack('<Q', 10)).decode('ascii'),
+                "account_id":
+                    contract_key.account_id,
+                "key_base64":
+                    key_base64,
+                "value_base64":
+                    base64.b64encode(struct.pack('<Q', 10)).decode('ascii'),
             }
         }, {
             "cause": {
-                "type":
-                    "receipt_processing",
-                "receipt_hash":
-                    response["result"]["receipts_outcome"][0]["id"],
+                "type": "receipt_processing",
+                "receipt_hash": response["result"]["receipts_outcome"][0]["id"],
             },
             "type": "data_update",
             "change": {
-                "account_id": contract_key.account_id,
-                "key_base64": key_base64,
-                "value_base64": base64.b64encode(
-                    struct.pack('<Q', 20)).decode('ascii'),
+                "account_id":
+                    contract_key.account_id,
+                "key_base64":
+                    key_base64,
+                "value_base64":
+                    base64.b64encode(struct.pack('<Q', 20)).decode('ascii'),
             }
         }]
     }

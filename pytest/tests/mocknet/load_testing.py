@@ -92,8 +92,7 @@ def check_slow_blocks(initial_metrics, final_metrics):
     slow_process_blocks = delta.block_processing_time[
         'le +Inf'] - delta.block_processing_time['le 1']
     logger.info(
-        f'Number of blocks processing for more than 1s: {slow_process_blocks}'
-    )
+        f'Number of blocks processing for more than 1s: {slow_process_blocks}')
     return slow_process_blocks == 0
 
 

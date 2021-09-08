@@ -12,15 +12,18 @@ from utils import load_test_contract
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80], ["transaction_validity_period", 10000]], {})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 80],
+     ["transaction_validity_period", 10000]], {})
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
 hash_ = base58.b58decode(hash_.encode('utf8'))
-tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10, hash_)
+tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
+                             hash_)
 nodes[0].send_tx(tx)
 
 time.sleep(3)
+
 
 # send num_tx function calls from node[i]'s account
 def send_transactions(i, num_tx):
@@ -30,13 +33,18 @@ def send_transactions(i, num_tx):
     hash_2 = base58.b58decode(hash_2.encode('utf8'))
     nonce = 20
     for _ in range(num_tx):
-        tx = sign_function_call_tx(nodes[i].signer_key, nodes[0].signer_key.account_id,
-                                    'loop_forever', [], 300000000000, 0, nonce,
-                                    hash_2)
+        tx = sign_function_call_tx(nodes[i].signer_key,
+                                   nodes[0].signer_key.account_id,
+                                   'loop_forever', [], 300000000000, 0, nonce,
+                                   hash_2)
         nonce += 1
         res = nodes[i].send_tx_and_wait(tx, 20)
         assert 'result' in res, res
-        assert res['result']['status']['Failure']['ActionError']['kind']['FunctionCallError']['ExecutionError'] == 'Exceeded the prepaid gas.', "result: {}".format(res)
+        assert res['result']['status']['Failure']['ActionError']['kind'][
+            'FunctionCallError'][
+                'ExecutionError'] == 'Exceeded the prepaid gas.', "result: {}".format(
+                    res)
+
 
 with concurrent.futures.ThreadPoolExecutor() as executor:
     futures = []
