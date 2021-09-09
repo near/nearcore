@@ -152,7 +152,7 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
             ProtocolFeature::LowerDataReceiptCost => 116,
-      }
+        }
     }
 }
 
