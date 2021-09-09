@@ -317,7 +317,7 @@ mod tests {
             })
             .collect();
 
-        let mut all_receipts = existing_receipts.clone();
+        let mut all_receipts = existing_receipts.to_vec();
         all_receipts.extend_from_slice(new_receipts);
 
         let mut expected_receipts_by_shard: HashMap<_, _> =
