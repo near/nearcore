@@ -48,5 +48,4 @@ tx.join()
 assert tx.exitcode == 0
 bridge.check_balances(alice)
 
-
 logger.info('EPIC')

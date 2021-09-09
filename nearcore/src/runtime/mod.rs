@@ -128,7 +128,7 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
 
     store: Arc<Store>,
-    tries: ShardTries,
+    tries: RwLock<ShardTries>,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: SafeEpochManager,
@@ -178,7 +178,7 @@ impl NightshadeRuntime {
             genesis_config,
             runtime_config_store,
             store,
-            tries,
+            tries: RwLock::new(tries),
             runtime,
             trie_viewer,
             epoch_manager: SafeEpochManager(epoch_manager),
@@ -597,12 +597,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_tries(&self) -> ShardTries {
-        self.tries.clone()
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        tries.clone()
     }
 
     fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_trie_for_shard(shard_uid))
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        Ok(tries.get_trie_for_shard(shard_uid))
     }
 
     fn get_view_trie_for_shard(
@@ -611,7 +613,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_hash: &CryptoHash,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        Ok(self.tries.get_view_trie_for_shard(shard_uid))
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        Ok(tries.get_view_trie_for_shard(shard_uid))
     }
 
     fn verify_block_vrf(
@@ -649,7 +652,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         if let Some(state_root) = state_root {
             let shard_uid =
                 self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
-            let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
+            let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+            let mut state_update = tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
                 runtime_config,
@@ -707,7 +711,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let mut state_update = self.get_tries().new_trie_update(shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let mut state_update = tries.new_trie_update(shard_uid, state_root);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -1482,7 +1487,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         assert!(part_id < num_parts);
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let trie = self.tries.get_view_trie_for_shard(shard_uid);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let trie = tries.get_view_trie_for_shard(shard_uid);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -1550,7 +1556,8 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<StateRootNode, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        self.tries
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        tries
             .get_view_trie_for_shard(shard_uid)
             .retrieve_root_node(state_root)
             .map_err(|e| e.to_string().into())
@@ -1646,7 +1653,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
-        let state_update = self.get_tries().new_trie_update_view(*shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
@@ -1656,7 +1664,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
-        let state_update = self.get_tries().new_trie_update_view(*shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_contract_code(&state_update, account_id)
     }
 
@@ -1677,7 +1686,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
-        let state_update = self.get_tries().new_trie_update_view(*shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
             block_height: height,
             prev_block_hash: *prev_block_hash,
@@ -1686,7 +1696,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
         };
         self.trie_viewer.call_function(
             state_update,
@@ -1706,7 +1716,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
-        let state_update = self.get_tries().new_trie_update_view(*shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
@@ -1717,7 +1728,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
-        let state_update = self.get_tries().new_trie_update_view(*shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }
 
@@ -1728,7 +1740,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
-        let state_update = self.get_tries().new_trie_update_view(*shard_uid, state_root);
+        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
+        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }
@@ -2072,7 +2085,28 @@ mod test {
             &signer,
             CryptoHash::default(),
         );
-        env.step_default(vec![staking_transaction, create_account_transaction]);
+        let test2_stake_amount = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3600 * crate::NEAR_BASE
+        } else {
+            TESTING_INIT_STAKE
+        };
+        let transactions = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            // With the new validator selection algorithm, test2 needs to have less stake to
+            // become a fisherman.
+            let signer = InMemorySigner::from_seed(
+                validators[1].clone(),
+                KeyType::ED25519,
+                validators[1].as_ref(),
+            );
+            vec![
+                staking_transaction,
+                create_account_transaction,
+                stake(1, &signer, &block_producers[1], test2_stake_amount),
+            ]
+        } else {
+            vec![staking_transaction, create_account_transaction]
+        };
+        env.step_default(transactions);
         env.step_default(vec![]);
         let account = env.view_account(block_producers[0].validator_id());
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
@@ -2111,7 +2145,7 @@ mod test {
         // Become fishermen instead
         assert_eq!(
             (test2_acc.amount, test2_acc.locked),
-            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+            (TESTING_INIT_BALANCE - test2_stake_amount, test2_stake_amount)
         );
         let test3_acc = env.view_account(&"test3".parse().unwrap());
         // Got 3 * X, staking 2 * X of them.
@@ -2396,6 +2430,8 @@ mod test {
                     block_producers[0].validator_id().clone(),
                     block_producers[0].public_key(),
                     TESTING_INIT_STAKE + 1,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )]
             } else {
                 vec![]
@@ -2455,6 +2491,9 @@ mod test {
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
     /// has 4 validators (test1, test2, test3, test4). Test that kickout and stake change
     /// work properly.
+    // This test only makes sense with the old validator selection because it requires
+    // specific control over what validators are assigned to each shard.
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     #[test]
     fn test_multiple_shards() {
         init_test_logger();
@@ -2493,6 +2532,7 @@ mod test {
         } else {
             vec![vec![], vec![staking_transaction]]
         };
+        // a validator from the first shard does not produce their chunk
         env.step(transactions, vec![false, true], ChallengesResult::default());
         for _ in 2..10 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
@@ -2507,7 +2547,12 @@ mod test {
         for _ in 10..14 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
-        let account = env.view_account(block_producers[3].validator_id());
+        // which validator is kicked out depends on which validator selection is used
+        let account = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            env.view_account(&block_producers[1].validator_id())
+        } else {
+            env.view_account(&block_producers[3].validator_id())
+        };
         assert_eq!(account.locked, 0);
 
         let account = env.view_account(block_producers[0].validator_id());
@@ -2538,12 +2583,28 @@ mod test {
             validators[0].as_ref(),
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
+        let mut expected_blocks = [0, 0];
+        let update_expected_blocks = |env: &mut TestEnv, expected_blocks: &mut [u64]| {
+            let bp = {
+                let epoch_id = env.head.epoch_id.clone();
+                let height = env.head.height;
+                let mut em = env.runtime.epoch_manager.0.write().unwrap();
+                em.get_block_producer_info(&epoch_id, height).unwrap()
+            };
+            if bp.account_id().as_ref() == "test1" {
+                expected_blocks[0] += 1;
+            } else {
+                expected_blocks[1] += 1;
+            }
+        };
         env.step_default(vec![staking_transaction]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         assert!(env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
             .is_err());
         env.step_default(vec![]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
                 account_id: "test1".parse().unwrap(),
@@ -2551,8 +2612,8 @@ mod test {
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-                num_produced_blocks: 1,
-                num_expected_blocks: 1,
+                num_produced_blocks: expected_blocks[0],
+                num_expected_blocks: expected_blocks[0],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".parse().unwrap(),
@@ -2560,8 +2621,8 @@ mod test {
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-                num_produced_blocks: 1,
-                num_expected_blocks: 1,
+                num_produced_blocks: expected_blocks[1],
+                num_expected_blocks: expected_blocks[1],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2593,6 +2654,8 @@ mod test {
                     "test1".parse().unwrap(),
                     block_producers[0].public_key(),
                     0,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
@@ -2600,14 +2663,18 @@ mod test {
                 epoch_height: 1,
             }
         );
+        expected_blocks = [0, 0];
         env.step_default(vec![]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         let response = env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
 
-        current_epoch_validator_info[1].num_produced_blocks = 0;
-        current_epoch_validator_info[1].num_expected_blocks = 0;
+        current_epoch_validator_info[0].num_produced_blocks = expected_blocks[0];
+        current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
+        current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
+        current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
@@ -2727,15 +2794,15 @@ mod test {
             vec![SlashedValidator::new("test2".parse().unwrap(), false)],
         );
         assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, 0);
-        assert_eq!(
-            env.runtime
-                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id().clone(), x.1))
-                .collect::<Vec<_>>(),
-            vec![("test2".parse().unwrap(), true), ("test1".parse().unwrap(), false)]
-        );
+        let mut bps = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.account_id().clone(), x.1))
+            .collect::<Vec<_>>();
+        bps.sort_unstable();
+        assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
         let signature = signer.sign(&msg);
@@ -2783,17 +2850,20 @@ mod test {
             vec![SlashedValidator::new("test2".parse().unwrap(), true)],
         );
         assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, TESTING_INIT_STAKE);
+        let mut bps = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.account_id().clone(), x.1))
+            .collect::<Vec<_>>();
+        bps.sort_unstable();
         assert_eq!(
-            env.runtime
-                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id().clone(), x.1))
-                .collect::<Vec<_>>(),
+            bps,
             vec![
-                ("test3".parse().unwrap(), false),
+                ("test1".parse().unwrap(), false),
                 ("test2".parse().unwrap(), true),
-                ("test1".parse().unwrap(), false)
+                ("test3".parse().unwrap(), false)
             ]
         );
         let msg = vec![0, 1, 2];
@@ -2962,7 +3032,11 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
+        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3200 * crate::NEAR_BASE + 1
+        } else {
+            TESTING_INIT_STAKE / 10 + 1
+        };
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -3034,7 +3108,11 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
+        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3200 * crate::NEAR_BASE + 1
+        } else {
+            TESTING_INIT_STAKE / 10 + 1
+        };
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);
@@ -3078,10 +3156,9 @@ mod test {
     fn test_validator_reward() {
         init_test_logger();
         let num_nodes = 4;
-        let epoch_length = 4;
-        let validators = (0..num_nodes)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
+        let epoch_length = 40;
+        let validators =
+            (0..num_nodes).map(|i| format!("test{}", i + 1).parse().unwrap()).collect::<Vec<_>>();
         let mut env = TestEnv::new(
             "test_validator_reward",
             vec![validators.clone()],
@@ -3095,7 +3172,7 @@ mod test {
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
 
-        for _ in 0..5 {
+        for _ in 0..(epoch_length + 1) {
             env.step_default(vec![]);
         }
 
@@ -3227,8 +3304,11 @@ mod test {
             .collect();
 
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-        let staking_transaction2 =
-            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1);
+        let staking_transaction2 = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE)
+        } else {
+            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1)
+        };
         env.step_default(vec![staking_transaction1, staking_transaction2]);
         assert!(env.last_proposals.is_empty());
         let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);

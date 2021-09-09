@@ -54,9 +54,7 @@ impl EpochInfoAggregator {
         // Step 1: update block tracer
         let block_info_height = *block_info.height();
         for height in prev_block_height + 1..=block_info_height {
-            let block_producers_settlement = epoch_info.block_producers_settlement();
-            let block_producer_id = block_producers_settlement
-                [(height as u64 % (block_producers_settlement.len() as u64)) as usize];
+            let block_producer_id = EpochManager::block_producer_from_info(epoch_info, height);
             let entry = self.block_tracker.entry(block_producer_id);
             if height == block_info_height {
                 entry

@@ -98,6 +98,8 @@ pub fn epoch_info_with_num_seats(
                     account_id.clone(),
                     SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key(),
                     stake,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
             })
             .collect()
@@ -117,6 +119,8 @@ pub fn epoch_info_with_num_seats(
         minted_amount,
         seat_price,
         PROTOCOL_VERSION,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        [0; 32],
     )
 }
 
@@ -148,6 +152,8 @@ pub fn epoch_config(
         protocol_upgrade_stake_threshold: Rational::new(80, 100),
         protocol_upgrade_num_epochs: 2,
         minimum_stake_divisor: 1,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        validator_selection_config: Default::default(),
         shard_layout: ShardLayout::v0(num_shards, 0),
     };
     AllEpochConfig::new(epoch_config, simple_nightshade_shard_config)
@@ -155,7 +161,13 @@ pub fn epoch_config(
 
 pub fn stake(account_id: AccountId, amount: Balance) -> ValidatorStake {
     let public_key = SecretKey::from_seed(KeyType::ED25519, account_id.as_ref()).public_key();
-    ValidatorStake::new(account_id, public_key, amount)
+    ValidatorStake::new(
+        account_id,
+        public_key,
+        amount,
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        false,
+    )
 }
 
 /// No-op reward calculator. Will produce no reward
