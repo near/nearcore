@@ -9,7 +9,6 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
-use std::str::from_utf8;
 
 impl Trie {
     /// Computes the set of trie items (nodes with keys and values) for a state part.
@@ -38,32 +37,28 @@ impl Trie {
 impl ShardTries {
     /// Apply `changes` to build states for new shards
     /// `state_roots` contains state roots for the new shards
+    /// The caller must guarantee that `state_roots` contains all shard_ids
+    /// that `key_to_shard_id` that may return
     /// Ignore changes on DelayedReceipts or DelayedReceiptsIndices
     /// Update `store_update` and return new state_roots
     /// used for building states for new shards in resharding
     pub fn apply_changes_to_new_states<'a>(
         &self,
-        state_roots: HashMap<ShardUId, StateRoot>,
+        state_roots: &HashMap<ShardUId, StateRoot>,
         changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         key_to_shard_id: &(dyn Fn(&[u8]) -> Result<Option<ShardUId>, StorageError> + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut changes_by_shard: HashMap<_, Vec<_>> = HashMap::new();
         for (raw_key, value) in changes.into_iter() {
             if let Some(new_shard_uid) = key_to_shard_id(&raw_key)? {
-                assert!(
-                    state_roots.contains_key(&new_shard_uid),
-                    "Cannot find state roots for shard {:?} for key {}. Only has state roots for shards {:?}",
-                    new_shard_uid,
-                    from_utf8(&raw_key).unwrap(),
-                    state_roots.keys(),
-                );
                 changes_by_shard.entry(new_shard_uid).or_default().push((raw_key, value));
             }
         }
         let mut new_state_roots = state_roots.clone();
         let mut store_update = StoreUpdate::new_with_tries(self.clone());
-        for (shard_uid, changes) in changes_by_shard.into_iter() {
+        for (shard_uid, changes) in changes_by_shard {
             let trie = self.get_trie_for_shard(shard_uid.clone());
+            // Here we assume that state_roots contains shard_uid, the caller of this method will guarantee that
             let trie_changes = trie.update(&state_roots[&shard_uid], changes.into_iter())?;
             let (update, state_root) = self.apply_all(&trie_changes, shard_uid.clone())?;
             new_state_roots.insert(shard_uid, state_root);
@@ -75,7 +70,7 @@ impl ShardTries {
     pub fn apply_delayed_receipts_to_split_states<'a>(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
-        receipts: &Vec<Receipt>,
+        receipts: &[Receipt],
         account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates = HashMap::new();
@@ -119,7 +114,7 @@ impl ShardTries {
         // commit the trie_updates and update state_roots
         let mut merged_store_update = StoreUpdate::new_with_tries(self.clone());
         let mut new_state_roots = HashMap::new();
-        for (shard_uid, mut trie_update) in trie_updates.into_iter() {
+        for (shard_uid, mut trie_update) in trie_updates {
             set(
                 &mut trie_update,
                 TrieKey::DelayedReceiptIndices,
@@ -224,7 +219,7 @@ mod tests {
                     test_populate_trie(&tries, &state_root, ShardUId::default(), changes.clone());
 
                 let (store_update, new_state_roots) = tries
-                    .apply_changes_to_new_states(state_roots, changes, &|raw_key| {
+                    .apply_changes_to_new_states(&state_roots, changes, &|raw_key| {
                         Ok(Some(ShardUId {
                             version: 1,
                             shard_id: (hash(raw_key).0[0] as NumShards % num_shards) as u32,
@@ -299,8 +294,8 @@ mod tests {
 
     fn test_apply_delayed_receipts<'a>(
         tries: &ShardTries,
-        new_receipts: &Vec<Receipt>,
-        exsiting_receipts: &Vec<Receipt>,
+        new_receipts: &[Receipt],
+        existing_receipts: &[Receipt],
         state_roots: HashMap<ShardUId, StateRoot>,
         account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> HashMap<ShardUId, StateRoot> {
@@ -322,7 +317,7 @@ mod tests {
             })
             .collect();
 
-        let mut all_receipts = exsiting_receipts.clone();
+        let mut all_receipts = existing_receipts.clone();
         all_receipts.extend_from_slice(new_receipts);
 
         let mut expected_receipts_by_shard: HashMap<_, _> =

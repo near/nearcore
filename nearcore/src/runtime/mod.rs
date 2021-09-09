@@ -1587,7 +1587,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
             let (store_update, new_state_roots) = tries.apply_changes_to_new_states(
-                state_roots,
+                &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
                 &|raw_key| {
                     // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
@@ -1603,10 +1603,18 @@ impl RuntimeAdapter for NightshadeRuntime {
                             StorageError::StorageInconsistentState(err)
                         })?
                     {
-                        Ok(Some(ShardUId::from_shard_id_and_layout(
+                        let new_shard_uid = ShardUId::from_shard_id_and_layout(
                             account_id_to_shard_id(&account_id, &next_epoch_shard_layout),
                             &next_epoch_shard_layout,
-                        )))
+                        );
+                        assert!(
+                            state_roots.contains_key(&new_shard_uid),
+                            "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+                            account_id,
+                            shard_uid,
+                            new_shard_uid,
+                        );
+                        Ok(Some(new_shard_uid))
                     } else {
                         Ok(None)
                     }
