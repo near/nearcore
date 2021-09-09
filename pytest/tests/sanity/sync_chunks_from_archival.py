@@ -14,11 +14,11 @@ sys.path.append('lib')
 from cluster import init_cluster, spin_up_node, load_config
 from configured_logger import logger
 from utils import TxContext, LogTracker
-from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2
+from messages.block import ShardChunkHeaderV1, ShardChunkHeaderV2, ShardChunkHeaderV3
 from transaction import sign_staking_tx
 from proxy import ProxyHandler, NodesProxy
 
-TIMEOUT = 150
+TIMEOUT = 200
 EPOCH_LENGTH = 10
 HEIGHTS_BEFORE_ROTATE = 35
 HEIGHTS_BEFORE_CHECK = 25
@@ -47,19 +47,28 @@ class Handler(ProxyHandler):
             if msg_kind == 'VersionedPartialEncodedChunk':
                 header = msg.Routed.body.VersionedPartialEncodedChunk.inner_header(
                 )
-                height = header.height_created
-                shard_id = header.shard_id
                 header_version = msg.Routed.body.VersionedPartialEncodedChunk.header_version(
                 )
+                if header_version == 'V3':
+                    height = header.V2.height_created
+                    shard_id = header.V2.shard_id
+                else:
+                    height = header.height_created
+                    shard_id = header.shard_id
+
                 if header_version == 'V1':
                     hash_ = ShardChunkHeaderV1.chunk_hash(header)
                 elif header_version == 'V2':
                     hash_ = ShardChunkHeaderV2.chunk_hash(header)
+                elif header_version == 'V3':
+                    hash_ = ShardChunkHeaderV3.chunk_hash(header)
                 hash_to_metadata[hash_] = (height, shard_id)
 
             if msg_kind == 'PartialEncodedChunkRequest':
                 if fr == 4:
                     hash_ = msg.Routed.body.PartialEncodedChunkRequest.chunk_hash
+                    assert hash_ in hash_to_metadata, "chunk hash %s is not present" % base58.b58encode(
+                        hash_)
                     (height, shard_id) = hash_to_metadata[hash_]
                     logger.info("REQ %s %s %s %s" % (height, shard_id, fr, to))
                     requests[(height, shard_id, to)] = 1
@@ -82,14 +91,15 @@ logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    4,
-    1,
+    2,
+    3,
     2,
     config,
     [
         ["min_gas_price", 0],
         ["max_inflation_rate", [0, 1]],
         ["epoch_length", EPOCH_LENGTH],
+        ['num_block_producer_seats', 4],
         ["block_producer_kickout_threshold", 20],
         ["chunk_producer_kickout_threshold", 20],
         ["validators", 0, "amount", "110000000000000000000000000000000"],
@@ -112,11 +122,23 @@ near_root, node_dirs = init_cluster(
         },
         3: {
             "archive": True,
-            "tracked_shards": [1]
+            "tracked_shards": [1],
+            "network": {
+                "ttl_account_id_router": {
+                    "secs": 1,
+                    "nanos": 0
+                }
+            }
         },
         2: {
             "archive": True,
-            "tracked_shards": [0]
+            "tracked_shards": [0],
+            "network": {
+                "ttl_account_id_router": {
+                    "secs": 1,
+                    "nanos": 0
+                }
+            }
         }
     })
 
@@ -201,7 +223,8 @@ while True:
     status = node4.get_status()
     new_height = status['sync_info']['latest_block_height']
     if not status['sync_info']['syncing']:
-        assert new_height > height_to_sync_to
+        assert new_height > height_to_sync_to, "new height %s height to sync to %s" % (
+            new_height, height_to_sync_to)
         break
     time.sleep(1)
 
@@ -211,7 +234,7 @@ logging.info("Checking the messages sent and received")
 # past compared to head, and thus should be requested from
 # archival nodes. Check that it's the case.
 # Start from 10 to account for possibly skipped blocks while the nodes were starting
-for h in range(10, HEIGHTS_BEFORE_ROTATE):
+for h in range(12, HEIGHTS_BEFORE_ROTATE):
     assert (h, 0, 2) in requests, h
     assert (h, 0, 2) in responses, h
     assert (h, 1, 2) not in requests, h

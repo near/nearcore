@@ -107,7 +107,8 @@ class ShardChunkHeaderV3:
             dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
-        return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
+        return hashlib.sha256(inner_hash +
+                              inner.V2.encoded_merkle_root).digest()
 
 
 class ShardChunkHeaderInner:
@@ -143,6 +144,9 @@ class PartialEncodedChunk:
                 return header.V1.inner
             elif header_version == 'V2':
                 return header.V2.inner
+            elif header_version == 'V3':
+                return header.V3.inner
+            assert False, "unknown header version"
 
     def header_version(self):
         version = self.enum
@@ -150,6 +154,7 @@ class PartialEncodedChunk:
             return version
         elif version == 'V2':
             return self.V2.header.enum
+        assert False, "unknown partial encoded chunk version"
 
 
 class PartialEncodedChunkV1:
@@ -177,6 +182,10 @@ class ValidatorStake:
 
 
 class ValidatorStakeV1:
+    pass
+
+
+class ValidatorStakeV2:
     pass
 
 
@@ -581,7 +590,7 @@ block_schema = [
         ValidatorStake, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [['V1', ValidatorStakeV1]]
+            'values': [['V1', ValidatorStakeV1], ['V2', ValidatorStakeV2]]
         }
     ],
     [
@@ -593,6 +602,14 @@ block_schema = [
                 ['public_key', PublicKey],
                 ['stake', 'u128'],
             ]
+        }
+    ],
+    [
+        ValidatorStakeV2, {
+            'kind':
+                'struct',
+            'fields': [['account_id', 'string'], ['public_key', PublicKey],
+                       ['stake', 'u128'], ['is_chunk_only', 'u8']]
         }
     ],
     [

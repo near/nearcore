@@ -1431,6 +1431,8 @@ impl Client {
         let head = self.chain.head()?;
         if let Some(next_epoch_id) = self.get_next_epoch_id_if_at_boundary(&head)? {
             self.forward_tx(&next_epoch_id, tx)?;
+        } else {
+            self.forward_tx(&head.epoch_id, tx)?;
         }
         Ok(())
     }

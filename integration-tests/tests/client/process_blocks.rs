@@ -771,6 +771,14 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 InvalidBlockMode::InvalidBlock => {
                                     // produce an invalid block whose invalidity cannot be verified by just
                                     // having its header.
+                                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                                    let proposals = vec![ValidatorStake::new(
+                                        "test1".parse().unwrap(),
+                                        PublicKey::empty(KeyType::ED25519),
+                                        0,
+                                        false,
+                                    )];
+                                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                                     let proposals = vec![ValidatorStake::new(
                                         "test1".parse().unwrap(),
                                         PublicKey::empty(KeyType::ED25519),
@@ -2074,6 +2082,14 @@ fn test_not_process_height_twice() {
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    let proposals = vec![ValidatorStake::new(
+        "test1".parse().unwrap(),
+        PublicKey::empty(KeyType::ED25519),
+        0,
+        false,
+    )];
+    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
@@ -2616,12 +2632,15 @@ fn test_epoch_protocol_version_change() {
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+            .chain
+            .get_block(&head.last_block_hash)
+            .unwrap()
+            .header()
+            .epoch_id()
+            .clone();
+        let chunk_producer =
+            env.clients[0].runtime_adapter.get_chunk_producer(&epoch_id, i, 0).unwrap();
+        let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
 
@@ -2639,6 +2658,13 @@ fn test_epoch_protocol_version_change() {
                 .unwrap();
         }
 
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
+        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
@@ -3534,6 +3560,8 @@ mod storage_usage_fix_tests {
     }
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+#[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
     use near_primitives::version::ProtocolFeature;
