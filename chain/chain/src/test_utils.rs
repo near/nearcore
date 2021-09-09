@@ -180,6 +180,8 @@ impl KeyValueRuntime {
                                 SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
                                     .public_key(),
                                 1_000_000,
+                                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                                false,
                             )
                         })
                         .collect()
@@ -472,6 +474,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
 
     fn num_total_parts(&self) -> usize {
@@ -832,7 +838,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardUId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,

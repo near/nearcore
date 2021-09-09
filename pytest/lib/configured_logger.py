@@ -27,7 +27,8 @@ def new_logger(
 
     log = logging.getLogger(name)
     log.setLevel(level)
-    fmt = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', '%Y-%m-%d %H:%M:%S')
+    fmt = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s',
+                            '%Y-%m-%d %H:%M:%S')
 
     if outfile is not None:
         handler = logging.FileHandler(outfile)

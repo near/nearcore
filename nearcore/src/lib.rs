@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use actix::{Actor, Addr, Arbiter};
@@ -18,13 +18,13 @@ use near_network::{NetworkRecipient, PeerManagerActor};
 use near_rosetta_rpc::start_rosetta_rpc;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_store::migrations::migrate_18_to_new_validator_stake;
-use near_store::migrations::migrate_20_to_21;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
     migrate_25_to_26, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10,
     set_store_version,
 };
+use near_store::migrations::{migrate_20_to_21, migrate_26_to_27};
 use near_store::{create_store, Store};
 use near_telemetry::TelemetryActor;
 
@@ -34,6 +34,7 @@ use crate::migrations::{
     migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 pub mod config;
 pub mod migrations;
@@ -46,7 +47,7 @@ pub fn store_path_exists<P: AsRef<Path>>(path: P) -> bool {
     fs::canonicalize(path).is_ok()
 }
 
-pub fn get_store_path(base_path: &Path) -> String {
+pub fn get_store_path(base_path: &Path) -> PathBuf {
     let mut store_path = base_path.to_owned();
     store_path.push(STORE_PATH);
     if store_path_exists(&store_path) {
@@ -54,24 +55,24 @@ pub fn get_store_path(base_path: &Path) -> String {
     } else {
         info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path);
     }
-    store_path.to_str().unwrap().to_owned()
+    store_path
 }
 
-pub fn get_default_home() -> String {
-    match std::env::var("NEAR_HOME") {
-        Ok(home) => home,
-        Err(_) => match dirs::home_dir() {
-            Some(mut home) => {
-                home.push(".near");
-                home.as_path().to_str().unwrap().to_string()
-            }
-            None => "".to_string(),
-        },
+pub fn get_default_home() -> PathBuf {
+    if let Ok(near_home) = std::env::var("NEAR_HOME") {
+        return near_home.into();
     }
+
+    if let Some(mut home) = dirs::home_dir() {
+        home.push(".near");
+        return home;
+    }
+
+    PathBuf::default()
 }
 
 /// Function checks current version of the database and applies migrations to the database.
-pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
+pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
     let db_version = get_store_version(path);
     if db_version > near_primitives::version::DB_VERSION {
         error!(target: "near", "DB version {} is created by a newer version of neard, please update neard or delete data", db_version);
@@ -229,6 +230,10 @@ pub fn apply_store_migrations(path: &String, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 25 to 26");
         migrate_25_to_26(&path);
     }
+    if db_version <= 26 {
+        info!(target: "near", "Migrate DB from version 26 to 27");
+        migrate_26_to_27(&path, near_config.client_config.archive);
+    }
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
@@ -280,6 +285,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.tracked_shards.clone(),
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

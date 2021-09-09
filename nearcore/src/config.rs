@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -465,7 +465,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &PathBuf) -> Self {
+    pub fn from_file(path: &Path) -> Self {
         let mut file = File::open(path)
             .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
@@ -473,7 +473,7 @@ impl Config {
         Config::from(content.as_str())
     }
 
-    pub fn write_to_file(&self, path: &PathBuf) {
+    pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a config file.");
         let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
         if let Err(err) = file.write_all(str.as_bytes()) {
@@ -813,8 +813,11 @@ fn generate_validator_key(account_id: AccountId, path: &Path) {
     signer.write_to_file(path);
 }
 
-lazy_static_include::lazy_static_include_bytes! {
-    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+pub fn mainnet_genesis() -> Genesis {
+    lazy_static_include::lazy_static_include_bytes! {
+        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
+    };
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -838,7 +841,7 @@ pub fn init_configs(
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
+        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.display(), genesis_config.chain_id);
     }
 
     let mut config = Config::default();
@@ -871,8 +874,7 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
-                .expect("Failed to deserialize MainNet genesis");
+            let genesis = mainnet_genesis();
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
@@ -882,7 +884,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated MainNet genesis file in {}", dir.display());
         }
         "testnet" | "betanet" => {
             if test_seed.is_some() {
@@ -918,7 +920,7 @@ pub fn init_configs(
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.to_str().unwrap());
+            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -993,7 +995,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
 }
@@ -1110,7 +1112,7 @@ pub fn get_config_url(chain_id: &String) -> String {
     )
 }
 
-pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
+pub fn download_file(url: &String, path: &Path, limit: usize) {
     actix::System::new().block_on(async move {
         let client = awc::Client::new();
         let mut response = client.get(url).send().await.expect("Unable to download the file");
@@ -1127,16 +1129,16 @@ pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
     });
 }
 
-pub fn download_genesis(url: &String, path: &PathBuf) {
+pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
     download_file(&url, &path, 10_000_000_000);
-    info!(target: "near", "Saved the genesis file to: {} ...", path.as_path().display());
+    info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
-pub fn download_config(url: &String, path: &PathBuf) {
+pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
     download_file(&url, &path, 10_000);
-    info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
+    info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 
 #[derive(Deserialize)]

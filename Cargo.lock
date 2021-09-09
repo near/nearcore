@@ -1845,7 +1845,7 @@ dependencies = [
 name = "genesis-populate"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "clap 2.33.3",
  "indicatif 0.15.0",
@@ -2244,7 +2244,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "funty",
@@ -2487,7 +2487,7 @@ checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
 name = "loadtester"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "clap 2.33.3",
  "env_logger",
@@ -2681,7 +2681,7 @@ dependencies = [
 name = "near-account-id"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "paperclip",
  "serde",
  "serde_json",
@@ -2699,7 +2699,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "delay-detector",
@@ -2757,7 +2757,7 @@ name = "near-chunks"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "futures",
@@ -2789,7 +2789,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "ansi_term 0.12.1",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "delay-detector",
@@ -2847,7 +2847,7 @@ version = "0.1.0"
 dependencies = [
  "arrayref",
  "blake2",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "c2-chacha",
  "curve25519-dalek",
@@ -2872,7 +2872,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "chrono",
  "log",
@@ -2919,7 +2919,7 @@ dependencies = [
  "actix-http",
  "actix-web",
  "awc",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "easy-ext",
  "futures",
  "lazy_static",
@@ -3013,7 +3013,7 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "bencher",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "bytes",
  "bytesize",
@@ -3049,7 +3049,7 @@ name = "near-network-primitives"
 version = "0.1.0"
 dependencies = [
  "actix",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "chrono",
  "near-crypto",
  "near-primitives",
@@ -3090,7 +3090,7 @@ dependencies = [
 name = "near-pool"
 version = "0.1.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "near-crypto",
  "near-primitives",
  "rand 0.7.3",
@@ -3102,7 +3102,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.13.0",
  "bencher",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "byteorder",
  "chrono",
@@ -3131,7 +3131,7 @@ name = "near-primitives-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.11.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "derive_more",
  "hex",
@@ -3216,7 +3216,7 @@ name = "near-store"
 version = "2.2.0"
 dependencies = [
  "bencher",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "bytesize",
  "cached",
@@ -3265,7 +3265,7 @@ dependencies = [
 name = "near-vm-errors"
 version = "3.0.0"
 dependencies = [
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "hex",
  "near-account-id",
  "near-rpc-error-macro",
@@ -3277,7 +3277,7 @@ name = "near-vm-logic"
 version = "3.0.0"
 dependencies = [
  "base64 0.13.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "bs58",
  "byteorder",
  "hex",
@@ -3301,7 +3301,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "base64 0.13.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cached",
  "near-primitives",
  "near-test-contracts",
@@ -3341,8 +3341,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
- "tracing",
- "tracing-subscriber",
+ "tracing-span-tree",
 ]
 
 [[package]]
@@ -3354,7 +3353,7 @@ dependencies = [
  "actix-web",
  "actix_derive",
  "awc",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "chrono",
  "delay-detector",
@@ -3434,7 +3433,7 @@ version = "3.0.0"
 dependencies = [
  "assert_matches",
  "base64 0.11.0",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "hex",
  "indicatif 0.13.0",
@@ -4397,7 +4396,7 @@ name = "runtime-params-estimator"
 version = "3.0.0"
 dependencies = [
  "anyhow",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "cfg-if 1.0.0",
  "chrono",
  "clap 3.0.0-beta.2",
@@ -4810,12 +4809,13 @@ name = "state-viewer"
 version = "0.1.0"
 dependencies = [
  "ansi_term 0.12.1",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "clap 2.33.3",
  "near-chain",
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-epoch-manager",
  "near-logger-utils",
  "near-network",
  "near-primitives",
@@ -5050,7 +5050,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
- "borsh 0.8.1",
+ "borsh 0.9.0",
  "byteorder",
  "clap 2.33.3",
  "futures",
@@ -5352,6 +5352,16 @@ checksum = "fb65ea441fbb84f9f6748fd496cf7f63ec9af5bca94dd86456978d055e8eb28b"
 dependencies = [
  "serde",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-span-tree"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877726b1570d7764022ef20cc61479b5bcfc1118b90521ce61f6cc9e4f5ffbd8"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -6108,18 +6118,18 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "34.0.0"
+version = "38.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3de71ea922e46a60d0bde4b27ebf24ab7c4991006fd5de23ce9c58e129b3ab3c"
+checksum = "0ebc29df4629f497e0893aacd40f13a4a56b85ef6eb4ab6d603f07244f1a7bf2"
 dependencies = [
  "leb128",
 ]
 
 [[package]]
 name = "wat"
-version = "1.0.35"
+version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "474403335b9a90b21120ab8131dd888f0a8d041c2d365ab960feddfe5a73c4b6"
+checksum = "adcfaeb27e2578d2c6271a45609f4a055e6d7ba3a12eff35b1fd5ba147bdf046"
 dependencies = [
  "wast",
 ]

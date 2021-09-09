@@ -58,7 +58,7 @@ block_timeout = 20  # if two blocks are not produced within that many seconds, t
 balances_timeout = 15  # how long to tolerate for balances to update after txs are sent
 restart_sync_timeout = 30  # for how long to wait for nodes to sync in `node_restart`
 tx_tolerance = 0.1
-wait_if_restart = False # whether to wait between `kill` and `start`, is needed when nodes are proxied
+wait_if_restart = False  # whether to wait between `kill` and `start`, is needed when nodes are proxied
 wipe_data = False
 
 assert balances_timeout * 2 <= TIMEOUT_SHUTDOWN
@@ -98,7 +98,8 @@ def get_recent_hash(node, sync_timeout):
         info = node.json_rpc('block', [hash_], timeout=10)
 
         is_syncing = status['sync_info']['syncing']
-        sync_error = 'error' in info and 'unavailable on the node' in info['error']['data']
+        sync_error = 'error' in info and 'unavailable on the node' in info[
+            'error']['data']
         if is_syncing or sync_error:
             time.sleep(1)
         else:
@@ -149,7 +150,7 @@ def monkey_node_set(stopped, error, nodes, nonces):
                     wipe = True
                     node.reset_data()
                 logging.info("Node set: stopping%s node %s" %
-                      (" and wiping" if wipe else "", i))
+                             (" and wiping" if wipe else "", i))
             nodes_stopped[i] = not nodes_stopped[i]
             change_status_at[i] = get_future_time()
 
@@ -170,12 +171,15 @@ def monkey_node_restart(stopped, error, nodes, nonces):
             _, h = get_recent_hash(node, restart_sync_timeout)
             assert h >= heights_after_restart[node_idx], "%s > %s" % (
                 h, heights_after_restart[node_idx])
-            if h > heights_after_restart[node_idx] + (5 if not wipe_data else 10):
+            if h > heights_after_restart[node_idx] + (5
+                                                      if not wipe_data else 10):
                 break
             time.sleep(1)
 
         reset_data = wipe_data and random.choice([True, False, False])
-        logging.info("NUKING NODE %s%s" % (node_idx, " AND WIPING ITS STORAGE" if reset_data else ""))
+        logging.info(
+            "NUKING NODE %s%s" %
+            (node_idx, " AND WIPING ITS STORAGE" if reset_data else ""))
 
         node.kill()
         if reset_data:
@@ -206,7 +210,8 @@ def monkey_local_network(stopped, error, nodes, nonces):
 
     while stopped.value == 0:
         _, cur_height = get_recent_hash(nodes[-1], 15)
-        if cur_height == last_height and time.time() - last_time_height_updated > 10:
+        if cur_height == last_height and time.time(
+        ) - last_time_height_updated > 10:
             time.sleep(25)
         else:
             last_height = cur_height
@@ -259,7 +264,8 @@ def monkey_transactions(stopped, error, nodes, nonces):
         validator_ids = get_validator_ids(nodes)
         if time.time() - last_iter_switch > balances_timeout:
             if mode == 0:
-                logging.info("%s TRANSACTIONS SENT. WAITING FOR BALANCES" % tx_count)
+                logging.info("%s TRANSACTIONS SENT. WAITING FOR BALANCES" %
+                             tx_count)
                 mode = 1
             else:
                 logging.info(
@@ -277,8 +283,8 @@ def monkey_transactions(stopped, error, nodes, nonces):
                             'tx', [tx[3], "test%s" % tx[1]], timeout=5)
 
                         if 'error' in response and 'data' in response[
-                                'error'] and "doesn't exist" in response['error'][
-                                    'data']:
+                                'error'] and "doesn't exist" in response[
+                                    'error']['data']:
                             tx_happened = False
                         elif 'result' in response and 'receipts_outcome' in response[
                                 'result']:
@@ -298,8 +304,9 @@ def monkey_transactions(stopped, error, nodes, nonces):
                 good, bad = revert_txs()
                 if expected_balances == get_balances():
                     # reverting helped
-                    logging.info("REVERTING HELPED, TX EXECUTED: %s, TX LOST: %s" %
-                          (good, bad))
+                    logging.info(
+                        "REVERTING HELPED, TX EXECUTED: %s, TX LOST: %s" %
+                        (good, bad))
                     bad_ratio = bad / (good + bad)
                     if bad_ratio > rolling_tolerance:
                         rolling_tolerance -= bad_ratio - rolling_tolerance
@@ -347,7 +354,8 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     for validator_id in shuffled_validator_ids:
                         try:
                             info = nodes[validator_id].send_tx(tx)
-                            if 'error' in info and info['error']['data'] == 'IsSyncing':
+                            if 'error' in info and info['error'][
+                                    'data'] == 'IsSyncing':
                                 pass
 
                             elif 'result' in info:
@@ -467,7 +475,8 @@ def blocks_tracker(stopped, error, nodes, nonces):
                     if stopped.value != 0:
                         done = True
                     if not every_ten or largest_height % 10 == 0:
-                        logging.info("BLOCK TRACKER: new height %s" % largest_height)
+                        logging.info("BLOCK TRACKER: new height %s" %
+                                     largest_height)
                     if largest_height >= 20:
                         if not every_ten:
                             every_ten = True
@@ -549,8 +558,17 @@ def doit(s, n, N, k, monkeys, timeout):
 
     for i in range(N + k + 1):
         local_config_changes[i] = {
-            "consensus": {"block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON, "state_sync_timeout": {"secs": 5, "nanos": 0}},
-            "view_client_throttle_period": {"secs": 0, "nanos": 0}
+            "consensus": {
+                "block_header_fetch_horizon": BLOCK_HEADER_FETCH_HORIZON,
+                "state_sync_timeout": {
+                    "secs": 5,
+                    "nanos": 0
+                }
+            },
+            "view_client_throttle_period": {
+                "secs": 0,
+                "nanos": 0
+            }
         }
     for i in range(N, N + k + 1):
         # make all the observers track all the shards
@@ -567,7 +585,8 @@ def doit(s, n, N, k, monkeys, timeout):
         block_timeout += 40
 
     if 'monkey_local_network' in monkey_names or 'monkey_packets_drop' in monkey_names:
-        assert config['local'], 'Network stress operations only work on local nodes'
+        assert config[
+            'local'], 'Network stress operations only work on local nodes'
         drop_probability = 0.05 if 'monkey_packets_drop' in monkey_names else 0
 
         reject_list = RejectListProxy.create_reject_list(1)
@@ -598,7 +617,8 @@ def doit(s, n, N, k, monkeys, timeout):
         # if packets can also be dropped, each state-sync-related request or response lost adds 10 seconds
         # to the sync process.
         restart_sync_timeout = 45 if 'monkey_packets_drop' not in monkey_names else 90
-        block_timeout += (10 if 'monkey_packets_drop' not in monkey_names else 40)
+        block_timeout += (10
+                          if 'monkey_packets_drop' not in monkey_names else 40)
 
     # We need to make sure that the blocks that include txs are not garbage collected. From the first tx sent until
     # we check balances time equal to `balances_timeout * 2` passes, and the block production is capped at 1.7/s.
@@ -606,24 +626,34 @@ def doit(s, n, N, k, monkeys, timeout):
     min_epoch_length = (int((balances_timeout * 2) * 1.7) + 4) // 5
     epoch_length = max(epoch_length, min_epoch_length)
 
-
     near_root, node_dirs = init_cluster(
         N, k + 1, s, config,
         [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-         ["epoch_length", epoch_length],
-         ["block_producer_kickout_threshold", 10],
-         ["chunk_producer_kickout_threshold", 10]], local_config_changes)
+         ["epoch_length", epoch_length], [
+             "block_producer_kickout_threshold", 10
+         ], ["chunk_producer_kickout_threshold", 10]], local_config_changes)
 
     started = time.time()
 
-    boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, proxy=proxy)
+    boot_node = spin_up_node(config,
+                             near_root,
+                             node_dirs[0],
+                             0,
+                             None,
+                             None,
+                             proxy=proxy)
     boot_node.stop_checking_store()
     boot_node.mess_with = False
     nodes = [boot_node]
 
     for i in range(1, N + k + 1):
-        node = spin_up_node(config, near_root, node_dirs[i], i,
-                            boot_node.node_key.pk, boot_node.addr(), proxy=proxy)
+        node = spin_up_node(config,
+                            near_root,
+                            node_dirs[i],
+                            i,
+                            boot_node.node_key.pk,
+                            boot_node.addr(),
+                            proxy=proxy)
         node.stop_checking_store()
         nodes.append(node)
         if i >= n and i < N:
@@ -681,14 +711,16 @@ def doit(s, n, N, k, monkeys, timeout):
         # proxies rigth away, because that would interfere with block production, and
         # might prevent other workers (e.g. block_tracker) from completing in a timely
         # manner. Thus, kill the proxies some time into the shut down process.
-        if time.time() - started_shutdown > TIMEOUT_SHUTDOWN / 2 and not proxies_stopped:
-            logging.info("Shutdown is %s seconds in, shutting down proxies if any" % (TIMEOUT_SHUTDOWN / 2))
+        if time.time(
+        ) - started_shutdown > TIMEOUT_SHUTDOWN / 2 and not proxies_stopped:
+            logging.info(
+                "Shutdown is %s seconds in, shutting down proxies if any" %
+                (TIMEOUT_SHUTDOWN / 2))
             if boot_node.proxy is not None:
                 boot_node.proxy.global_stopped.value = 1
                 for p in boot_node.proxy.ps:
                     p.terminate()
             proxies_stopped = True
-
 
         if time.time() - started_shutdown > TIMEOUT_SHUTDOWN:
             for (p, _) in ps:

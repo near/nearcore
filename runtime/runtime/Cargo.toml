@@ -20,7 +20,7 @@ hex = "0.4.2"
 rayon = "1.5"
 thiserror = "1.0"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -34,6 +34,7 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
+protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers"]
 wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
 wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
 wasmtime_vm = ["near-vm-runner/wasmtime_vm"]

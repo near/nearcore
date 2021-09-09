@@ -45,8 +45,8 @@ use near_primitives::syncing::{
     ShardStateSyncResponseV2,
 };
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
-    ShardId, TransactionOrReceiptId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,
+    MaybeBlockId, ShardId, TransactionOrReceiptId,
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
@@ -252,8 +252,12 @@ impl ViewClientActor {
             .runtime_adapter
             .account_id_to_shard_id(account_id, &header.epoch_id())
             .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        let shard_uid = self
+            .runtime_adapter
+            .shard_id_to_uid(shard_id, &header.epoch_id())
+            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
-        let chunk_extra = self.chain.get_chunk_extra(header.hash(), shard_id).map_err(|err| {
+        let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid).map_err(|err| {
             match err.kind() {
                 near_chain::near_chain_primitives::ErrorKind::DBNotFoundErr(_) => {
                     QueryError::UnavailableShard { requested_shard_id: shard_id }
@@ -267,7 +271,7 @@ impl ViewClientActor {
 
         let state_root = chunk_extra.state_root();
         match self.runtime_adapter.query(
-            shard_id,
+            shard_uid,
             state_root,
             header.height(),
             header.raw_timestamp(),
@@ -327,10 +331,15 @@ impl ViewClientActor {
     fn request_receipt_outcome(
         &mut self,
         receipt_id: CryptoHash,
+        epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
     ) -> Result<(), TxStatusError> {
         if let Ok(&dst_shard_id) = self.chain.get_shard_id_for_receipt_id(&receipt_id) {
-            if self.chain.get_chunk_extra(last_block_hash, dst_shard_id).is_err() {
+            let shard_uid = self
+                .runtime_adapter
+                .shard_id_to_uid(dst_shard_id, epoch_id)
+                .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
+            if self.chain.get_chunk_extra(last_block_hash, &shard_uid).is_err() {
                 let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
                 if Self::need_request(receipt_id, &mut request_manager.receipt_outcome_requests) {
                     let validator = self
@@ -368,7 +377,7 @@ impl ViewClientActor {
         // Check if we are tracking this shard.
         if self.runtime_adapter.cares_about_shard(
             self.validator_account_id.as_ref(),
-            &head.last_block_hash,
+            &head.prev_block_hash,
             target_shard_id,
             true,
         ) {
@@ -379,6 +388,7 @@ impl ViewClientActor {
                             for receipt_view in tx_result.receipts_outcome.iter() {
                                 self.request_receipt_outcome(
                                     receipt_view.id,
+                                    &head.epoch_id,
                                     &head.last_block_hash,
                                 )?;
                             }
@@ -406,7 +416,11 @@ impl ViewClientActor {
                         if let Ok(execution_outcome) = self.chain.get_execution_outcome(&tx_hash) {
                             for receipt_id in execution_outcome.outcome_with_id.outcome.receipt_ids
                             {
-                                self.request_receipt_outcome(receipt_id, &head.last_block_hash)?;
+                                self.request_receipt_outcome(
+                                    receipt_id,
+                                    &head.epoch_id,
+                                    &head.last_block_hash,
+                                )?;
                             }
                             return Ok(None);
                         } else {

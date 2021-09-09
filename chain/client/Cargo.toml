@@ -19,7 +19,7 @@ sysinfo = { git = "https://github.com/near/sysinfo", rev = "3cb97ee79a02754407d2
 strum = { version = "0.20", features = ["derive"] }
 cached = "0.23"
 lazy_static = "1.4"
-borsh = "0.8.1"
+borsh = "0.9"
 reed-solomon-erasure = "4"
 num-rational = "0.3"
 linked-hash-map = "0.5.3"
@@ -54,6 +54,7 @@ expensive_tests = []
 adversarial = ["near-network/adversarial", "near-chain/adversarial"]
 delay_detector = ["near-chain/delay_detector", "near-network/delay_detector", "delay-detector"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
+protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3", "near-primitives/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers"]
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "near-chain/nightly_protocol_features", "protocol_feature_block_header_v3"]
 sandbox = ["near-network/sandbox", "near-chain/sandbox"]

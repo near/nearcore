@@ -24,6 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
@@ -279,6 +280,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ))];
     let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -581,6 +583,7 @@ fn test_fishermen_challenge() {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         ))
     };
     let runtime1 = create_runtime();
@@ -633,7 +636,7 @@ fn test_fishermen_challenge() {
 fn test_challenge_in_different_epoch() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
-    genesis.config.epoch_length = 2;
+    genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let runtime1 = Arc::new(nearcore::NightshadeRuntime::new(
@@ -644,6 +647,7 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
@@ -653,26 +657,28 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
     let networks = vec![network_adapter.clone(), network_adapter.clone()];
     let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = 2;
+    chain_genesis.epoch_length = 3;
     let mut env =
         TestEnv::new_with_runtime_and_network_adapter(chain_genesis, 2, 2, runtimes, networks);
     let mut fork_blocks = vec![];
-    for i in 1..5 {
-        let block1 = env.clients[0].produce_block(2 * i - 1).unwrap().unwrap();
-        env.process_block(0, block1, Provenance::PRODUCED);
-
-        let block2 = env.clients[1].produce_block(2 * i).unwrap().unwrap();
-        env.process_block(1, block2.clone(), Provenance::PRODUCED);
-        fork_blocks.push(block2);
+    for h in 1..13 {
+        if let Some(block) = env.clients[0].produce_block(h).unwrap() {
+            env.process_block(0, block, Provenance::PRODUCED);
+        }
+        if let Some(block) = env.clients[1].produce_block(h).unwrap() {
+            env.process_block(1, block.clone(), Provenance::PRODUCED);
+            fork_blocks.push(block);
+        }
     }
 
-    let fork1_block = env.clients[0].produce_block(9).unwrap().unwrap();
+    let fork1_block = env.clients[0].produce_block(13).unwrap().unwrap();
     env.process_block(0, fork1_block, Provenance::PRODUCED);
-    let fork2_block = env.clients[1].produce_block(9).unwrap().unwrap();
+    let fork2_block = env.clients[1].produce_block(13).unwrap().unwrap();
     fork_blocks.push(fork2_block);
     for block in fork_blocks {
         let height = block.header().height();
