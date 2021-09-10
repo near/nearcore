@@ -3105,6 +3105,7 @@ dependencies = [
  "borsh 0.9.0",
  "bs58",
  "byteorder",
+ "bytesize",
  "chrono",
  "derive_more",
  "easy-ext",

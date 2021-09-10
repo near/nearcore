@@ -1264,6 +1264,16 @@ impl EpochManager {
         Ok(shard_layout)
     }
 
+    #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
+    pub fn get_split_shards_if_shards_will_change(
+        &mut self,
+        _parent_hash: &CryptoHash,
+        _shards: Vec<ShardId>,
+    ) -> Result<Option<HashMap<ShardId, Vec<ShardId>>>, EpochError> {
+        Ok(None)
+    }
+
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
     pub fn get_split_shards_if_shards_will_change(
         &mut self,
         parent_hash: &CryptoHash,
