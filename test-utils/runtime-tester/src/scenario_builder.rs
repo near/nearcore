@@ -14,22 +14,38 @@ pub struct ScenarioBuilder {
 }
 
 impl ScenarioBuilder {
-    pub fn new(num_accounts: usize, use_in_memory_store: bool) -> Self {
+    /// Creates builder with an empty scenario with 4 accounts.
+    /// Default `use_in_memory_store` -- true.
+    pub fn new() -> Self {
         let network_config =
-            NetworkConfig { seeds: (0..num_accounts).map(|x| id_to_seed(x)).collect() };
+            NetworkConfig { seeds: (0..4).map(|x| id_to_seed(x)).collect() };
 
         ScenarioBuilder {
             height: 1,
             nonce: 1,
-            scenario: Scenario { network_config, blocks: vec![], use_in_memory_store },
+            scenario: Scenario { network_config, blocks: vec![], use_in_memory_store: true },
         }
     }
 
+    /// Changes number of accounts to `num_accounts`.
+    pub fn number_of_accounts(mut self, num_accounts: usize) -> Self {
+        self.scenario.network_config = NetworkConfig { seeds: (0..num_accounts).map(|x| id_to_seed(x)).collect() };
+        self
+    }
+
+    /// Changes `use_in_memory_store`.
+    pub fn in_memory_store(mut self, in_memory_store: bool) -> Self {
+        self.scenario.use_in_memory_store = in_memory_store;
+        self
+    }
+
+    /// Adds empty block to the scenario with the next height (starting from 1).
     pub fn add_block(&mut self) {
         self.scenario.blocks.push(BlockConfig::at_height(self.height));
         self.height += 1;
     }
 
+    /// Adds transaction to the last block in the scenario.
     pub fn add_transaction(
         &mut self,
         signer_index: usize,
@@ -60,6 +76,7 @@ impl ScenarioBuilder {
         self.nonce += 1
     }
 
+    /// Returns a reference to the built scenario.
     pub fn scenario(&self) -> &Scenario {
         &self.scenario
     }
