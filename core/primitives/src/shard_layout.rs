@@ -157,7 +157,7 @@ impl ShardUId {
     }
 
     pub fn shard_id(&self) -> ShardId {
-        self.shard_id as ShardId
+        ShardId::from(self.shard_id)
     }
 }
 
