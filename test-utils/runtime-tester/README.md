@@ -31,35 +31,4 @@ Be careful to remember, that block height should be positive and ascending.
 
 ## Scenario Builder
 To easily create new scenarios in rust code use ScenarioBuilder.
-
-## Example
-Produce three blocks. The first one deploys a contract to the second account, other two blocks are empty.
-Assert that production of all blocks took less than a second.
-```rust
-#[test]
-fn test_deploy_contract() {
-    use runtime_tester::{ScenarioBuilder};
-    use std::time::Duration;
-
-    let mut builder = ScenarioBuilder::new().
-        number_of_accounts(10).
-        in_memory_store(true);
-
-    builder.add_block();
-    builder.add_transaction(0, 9,
-                            vec![Action::DeployContract(DeployContractAction {
-                                code: near_test_contracts::rs_contract().to_vec(),
-                            })]);
-
-    builder.add_block();
-    builder.add_block();
-
-    let runtime_stats = builder.scenario().run().unwrap();
-
-    for block_stats in runtime_stats.blocks_stats {
-        assert!(block_stats.block_production_time < Duration::from_secs(1),
-                "Block at height {} was produced in {:?}",
-                block_stats.height, block_stats.block_production_time);
-    }
-}
-```
+Example of ScenarioBuilder usage can be found in src/scenario_builder.rs.
