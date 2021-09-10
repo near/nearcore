@@ -1,5 +1,4 @@
 ActionReceiptCreation                         216_119_000_000
-ActionSirReceiptCreation                      244_844_875_000
 DataReceiptCreationBase                        72_973_464_625
 DataReceiptCreationPerByte                         34_424_023
 ActionCreateAccount                           199_214_750_000

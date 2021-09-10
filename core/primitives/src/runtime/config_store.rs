@@ -11,16 +11,11 @@ macro_rules! include_config {
     };
 }
 
-#[cfg(not(feature = "protocol_feature_lower_data_receipt_cost"))]
-const CONFIGS_NUMBER: usize = 2;
-#[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
-const CONFIGS_NUMBER: usize = 3;
-
 /// Stores pairs of protocol versions for which runtime config was updated and
 /// the new runtime config in bytes.
 /// Protocol versions are given in increasing order. First one is always 0, so that each version is
 /// mapped to some config.
-static CONFIGS: [(ProtocolVersion, &[u8]); CONFIGS_NUMBER] = [
+static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
