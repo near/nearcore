@@ -17,8 +17,7 @@ impl ScenarioBuilder {
     /// Creates builder with an empty scenario with 4 accounts.
     /// Default `use_in_memory_store` -- true.
     pub fn new() -> Self {
-        let network_config =
-            NetworkConfig { seeds: (0..4).map(|x| id_to_seed(x)).collect() };
+        let network_config = NetworkConfig { seeds: (0..4).map(|x| id_to_seed(x)).collect() };
 
         ScenarioBuilder {
             height: 1,
@@ -29,7 +28,8 @@ impl ScenarioBuilder {
 
     /// Changes number of accounts to `num_accounts`.
     pub fn number_of_accounts(mut self, num_accounts: usize) -> Self {
-        self.scenario.network_config = NetworkConfig { seeds: (0..num_accounts).map(|x| id_to_seed(x)).collect() };
+        self.scenario.network_config =
+            NetworkConfig { seeds: (0..num_accounts).map(|x| id_to_seed(x)).collect() };
         self
     }
 
