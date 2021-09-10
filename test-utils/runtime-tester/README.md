@@ -1,33 +1,7 @@
 # Runtime test
+## Scenario
 Runtime test is described by Scenario.
 Currently, scenario only supports one client, but you can specify the number of accounts through NetworcConfig.
-```rust
-#[derive(Serialize, Deserialize)]
-pub struct Scenario {
-    pub network_config: NetworkConfig,
-    pub blocks: Vec<BlockConfig>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct NetworkConfig {
-    pub seeds: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BlockConfig {
-    pub height: BlockHeight,
-    pub transactions: Vec<TransactionConfig>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct TransactionConfig {
-    pub nonce: Nonce,
-    pub signer_id: AccountId,
-    pub receiver_id: AccountId,
-    pub signer: InMemorySigner,
-    pub actions: Vec<Action>,
-}
-```
 
 Scenario can be loaded from a json file or constructed in rust code.
 ```rust
@@ -55,24 +29,8 @@ pub struct BlockStats {
 
 Be careful to remember, that block height should be positive and ascending.
 
-# Scenario Builder
+## Scenario Builder
 To easily create new scenarios in rust code use ScenarioBuilder.
-
-```rust
-impl ScenarioBuilder {
-    pub fn new(num_accounts: usize, use_in_memory_store: bool) -> Self
-
-    pub fn add_block(&mut self)
-
-    pub fn add_transaction(&mut self, signer_index: usize, receiver_index: usize, actions: Vec<Action>)
-
-    pub fn scenario(&self) -> &Scenario
-}
-```
-`new` -- Creates builder with an empty scenario with `num_accounts` accounts.
-`add_block` -- Adds empty block to the scenario with the next height (starting from 1).
-`add_transaction` -- Adds transaction to the last block in the scenario.
-`scenario` -- Returns a reference to the built scenario.
 
 ## Example
 Produce three blocks. The first one deploys a contract to the second account, other two blocks are empty.
@@ -83,10 +41,12 @@ fn test_deploy_contract() {
     use runtime_tester::{ScenarioBuilder};
     use std::time::Duration;
 
-    let mut builder = ScenarioBuilder::new(2, true);
+    let mut builder = ScenarioBuilder::new().
+        number_of_accounts(10).
+        in_memory_store(true);
 
     builder.add_block();
-    builder.add_transaction(0, 1,
+    builder.add_transaction(0, 9,
                             vec![Action::DeployContract(DeployContractAction {
                                 code: near_test_contracts::rs_contract().to_vec(),
                             })]);
