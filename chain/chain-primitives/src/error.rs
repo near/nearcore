@@ -368,3 +368,9 @@ impl From<BlockValidityError> for Error {
         .into()
     }
 }
+
+impl From<StorageError> for Error {
+    fn from(error: StorageError) -> Self {
+        ErrorKind::StorageError(error).into()
+    }
+}

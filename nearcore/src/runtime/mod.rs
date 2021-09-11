@@ -45,8 +45,8 @@ use near_vm_runner::precompile_contract;
 
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
-    StoreUpdate, Trie, WrappedTrieChanges,
+    ApplyStatePartResult, ColState, PartialStorage, ShardTries, StorageError, Store,
+    StoreCompiledContractCache, StoreUpdate, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -62,6 +62,9 @@ use errors::FromStateViewerErrors;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
+use near_store::split_state::get_delayed_receipts;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
@@ -585,6 +588,36 @@ impl NightshadeRuntime {
             });
         Ok(())
     }
+}
+
+fn apply_delayed_receipts(
+    tries: &ShardTries,
+    orig_shard_uid: ShardUId,
+    orig_state_root: StateRoot,
+    state_roots: HashMap<ShardUId, StateRoot>,
+    next_shard_layout: &ShardLayout,
+) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
+
+    let mut start_index = None;
+    let mut new_state_roots = state_roots.clone();
+    while let Some((next_index, receipts)) =
+        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
+    {
+        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
+            &new_state_roots,
+            &receipts,
+            &|account_id| {
+                let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
+                ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
+            },
+        )?;
+        new_state_roots = updated_state_roots;
+        start_index = Some(next_index);
+        store_update.commit()?;
+    }
+
+    Ok(new_state_roots)
 }
 
 pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
@@ -1526,6 +1559,80 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn build_state_for_split_shards(
+        &self,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
+        next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        let mut tries = self.tries.write().expect(POISONED_LOCK_ERR);
+        let trie = tries.get_view_trie_for_shard(shard_uid);
+        let shard_id = shard_uid.shard_id();
+        let new_shards: Vec<_> = {
+            let split_shards = next_epoch_shard_layout
+                .get_split_shards(shard_id)
+                .ok_or(ErrorKind::InvalidShardId(shard_id))?;
+            split_shards
+                .iter()
+                .map(|id| ShardUId::from_shard_id_and_layout(*id, &next_epoch_shard_layout))
+                .collect()
+        };
+        tries.add_new_shards(&new_shards);
+        let mut state_roots: HashMap<_, _> =
+            new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
+
+        let state_root_node = trie.retrieve_root_node(state_root)?;
+        let num_parts = get_num_state_parts(state_root_node.memory_usage);
+        debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
+        for part_id in 0..num_parts {
+            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
+            let (store_update, new_state_roots) = tries.apply_changes_to_new_states(
+                &state_roots,
+                trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
+                &|raw_key| {
+                    // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
+                    // This is because we cannot migrate delayed receipts part by part. They have to be
+                    // reconstructed in the new states after all DelayedReceipts are ready in the original
+                    // shard.
+                    if let Some(account_id) =
+                        parse_account_id_from_raw_key(&raw_key).map_err(|e| {
+                            let err = format!(
+                                "error parsing account id from trie key {:?}: {:?}",
+                                raw_key, e
+                            );
+                            StorageError::StorageInconsistentState(err)
+                        })?
+                    {
+                        let new_shard_uid = ShardUId::from_shard_id_and_layout(
+                            account_id_to_shard_id(&account_id, &next_epoch_shard_layout),
+                            &next_epoch_shard_layout,
+                        );
+                        assert!(
+                            state_roots.contains_key(&new_shard_uid),
+                            "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+                            account_id,
+                            shard_uid,
+                            new_shard_uid,
+                        );
+                        Ok(Some(new_shard_uid))
+                    } else {
+                        Ok(None)
+                    }
+                },
+            )?;
+            state_roots = new_state_roots;
+            store_update.commit()?;
+        }
+        state_roots = apply_delayed_receipts(
+            &tries,
+            shard_uid,
+            state_root.clone(),
+            state_roots,
+            &next_epoch_shard_layout,
+        )?;
+        Ok(state_roots)
+    }
+
     fn apply_state_part(
         &self,
         shard_id: ShardId,
@@ -2392,6 +2499,11 @@ mod test {
                 &signature
             )
             .unwrap());
+    }
+
+    #[test]
+    fn test_split_states() {
+        init_test_logger();
     }
 
     #[test]

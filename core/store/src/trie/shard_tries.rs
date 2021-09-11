@@ -299,6 +299,15 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
+
+            assert!(
+                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
+                    cause,
+                    StateChangeCause::Resharding
+                )),
+                "Resharding changes must never be finalized."
+            );
+
             // Filtering trie keys for user facing RPC reporting.
             // NOTE: If the trie key is not one of the account specific, it may cause key conflict
             // when the node tracks multiple shards. See #2563.
