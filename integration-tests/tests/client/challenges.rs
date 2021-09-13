@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use borsh::BorshSerialize;
 
-use near_chain::chain::StatePartsMessage;
 use near_chain::missing_chunks::MissingChunksPool;
 use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;

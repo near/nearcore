@@ -11,10 +11,7 @@ use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
-use near_chain::chain::{
-    SetStateFinalizeResult, StatePartsMessage, StatePartsResponse, StatePartsTaskSource,
-    NUM_EPOCHS_TO_KEEP_STORE_DATA,
-};
+use near_chain::chain::{StatePartsMessage, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -2351,7 +2348,7 @@ fn test_catchup_gas_price_change() {
                 &msg.state_root,
                 part_id,
                 num_parts,
-                msg.parts[part_id],
+                &msg.parts[part_id as usize],
                 &msg.epoch_id,
             )
             .unwrap();
