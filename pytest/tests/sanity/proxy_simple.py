@@ -16,7 +16,9 @@ from utils import obj_to_string
 TIMEOUT = 30
 success = Value('i', 0)
 
+
 class Handler(ProxyHandler):
+
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
             h = msg.Block.BlockV2.header.inner_lite().height

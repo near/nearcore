@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+
 sys.path.append('lib')
 
 from cluster import GCloudNode, RpcNode
@@ -9,7 +10,7 @@ from utils import user_name
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
 
-validators = [None]*100
+validators = [None] * 100
 
 while True:
     futures = {}
@@ -26,4 +27,6 @@ while True:
         assert v == validators[0], f'{v} not equal to {validators[0]}'
 
     v0 = sorted(list(validators[0]))
-    logger.info(f'{datetime.datetime.now(datetime.timezone.utc).isoformat()}, {len(v0)}, {v0}')
+    logger.info(
+        f'{datetime.datetime.now(datetime.timezone.utc).isoformat()}, {len(v0)}, {v0}'
+    )

@@ -15,13 +15,17 @@ from cluster import start_cluster
 from utils import load_binary_file
 import transaction
 
+
 def test_max_gas_burnt_view():
-    nodes = start_cluster(2, 0, 1,
-                          config=None,
-                          genesis_config_changes=[],
-                          client_config_changes={
-                              1: {'max_gas_burnt_view': int(5e10)}
-                          })
+    nodes = start_cluster(
+        2,
+        0,
+        1,
+        config=None,
+        genesis_config_changes=[],
+        client_config_changes={1: {
+            'max_gas_burnt_view': int(5e10)
+        }})
 
     contract_key = nodes[0].signer_key
     contract = load_binary_file(
@@ -37,7 +41,9 @@ def test_max_gas_burnt_view():
 
     def call_fib(node, n):
         args = base64.b64encode(bytes([n])).decode('ascii')
-        return node.call_function(contract_key.account_id, 'fibonacci', args,
+        return node.call_function(contract_key.account_id,
+                                  'fibonacci',
+                                  args,
                                   timeout=10).get('result')
 
     # Call view function of the smart contract via the first node.  This should

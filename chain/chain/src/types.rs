@@ -648,6 +648,13 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &Vec<u8>,
     ) -> bool;
 
+    fn build_state_for_split_shards(
+        &self,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
+        next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
+
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,

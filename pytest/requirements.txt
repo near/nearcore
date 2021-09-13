@@ -1,5 +1,6 @@
 PyGithub
 base58
+cython
 deepdiff
 ed25519
 numpy
@@ -8,6 +9,6 @@ pynacl
 python-rc==0.3.9
 requests
 retrying
-scikit-learn==0.21.3
+scikit-learn
 semver
 tqdm

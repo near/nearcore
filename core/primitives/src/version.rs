@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 26;
+pub const DB_VERSION: DbVersion = 27;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -107,6 +107,10 @@ pub enum ProtocolFeature {
     AltBn128,
     #[cfg(feature = "protocol_feature_simple_nightshade")]
     SimpleNightshade,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    ChunkOnlyProducers,
+    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    LowerDataReceiptCost,
 }
 
 /// Current latest stable version of the protocol.
@@ -117,7 +121,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 114;
+pub const PROTOCOL_VERSION: ProtocolVersion = 116;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -144,6 +148,10 @@ impl ProtocolFeature {
             ProtocolFeature::BlockHeaderV3 => 109,
             #[cfg(feature = "protocol_feature_simple_nightshade")]
             ProtocolFeature::SimpleNightshade => 114,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            ProtocolFeature::ChunkOnlyProducers => 115,
+            #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+            ProtocolFeature::LowerDataReceiptCost => 116,
         }
     }
 }

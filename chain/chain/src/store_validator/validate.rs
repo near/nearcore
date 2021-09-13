@@ -684,26 +684,17 @@ pub(crate) fn outcome_indexed_by_block_hash(
         let mut outcome_ids = vec![];
         for chunk_header in block.chunks().iter() {
             if chunk_header.height_included() == block.header().height() {
-                if let Some(me) = &sv.me {
-                    if sv.runtime_adapter.cares_about_shard(
-                        Some(&me),
-                        block.header().prev_hash(),
-                        chunk_header.shard_id(),
-                        true,
-                    ) || sv.runtime_adapter.will_care_about_shard(
-                        Some(&me),
-                        block.header().prev_hash(),
-                        chunk_header.shard_id(),
-                        true,
-                    ) {
-                        outcome_ids.extend(unwrap_or_err_db!(
-                            sv.store.get_ser::<Vec<CryptoHash>>(
-                                ColOutcomeIds,
-                                &get_block_shard_id(block.hash(), chunk_header.shard_id())
-                            ),
-                            "Can't get Outcome ids by Block Hash"
-                        ));
-                    }
+                if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
+                    ColChunkExtra,
+                    &get_block_shard_id(block.hash(), chunk_header.shard_id()),
+                ) {
+                    outcome_ids.extend(unwrap_or_err_db!(
+                        sv.store.get_ser::<Vec<CryptoHash>>(
+                            ColOutcomeIds,
+                            &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                        ),
+                        "Can't get Outcome ids by Block Hash"
+                    ));
                 }
             }
         }

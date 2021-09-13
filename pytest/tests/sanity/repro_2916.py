@@ -26,6 +26,7 @@ from messages.block import *
 from messages.crypto import *
 from messages.network import *
 
+
 async def main():
     # start a cluster with two shards
     nodes = start_cluster(2, 0, 2, None, [], {})
@@ -42,7 +43,10 @@ async def main():
 
         if height > 2:
             block = nodes[0].get_block(hash_)
-            chunk_hashes = [base58.b58decode(x['chunk_hash']) for x in block['result']['chunks']]
+            chunk_hashes = [
+                base58.b58decode(x['chunk_hash'])
+                for x in block['result']['chunks']
+            ]
 
             assert len(chunk_hashes) == 2
             assert all([len(x) == 32 for x in chunk_hashes])
@@ -52,8 +56,8 @@ async def main():
     my_key_pair_nacl = nacl.signing.SigningKey.generate()
     received_responses = [None, None]
 
-# step = 0: before the node is killed
-# step = 1: after the node is killed
+    # step = 0: before the node is killed
+    # step = 1: after the node is killed
     for step in range(2):
 
         conn0 = await connect(nodes[0].addr())
@@ -69,7 +73,8 @@ async def main():
             routed_msg_body.enum = 'PartialEncodedChunkRequest'
             routed_msg_body.PartialEncodedChunkRequest = request
 
-            peer_message = create_and_sign_routed_peer_message(routed_msg_body, nodes[0], my_key_pair_nacl)
+            peer_message = create_and_sign_routed_peer_message(
+                routed_msg_body, nodes[0], my_key_pair_nacl)
 
             await conn0.send(peer_message)
 
@@ -92,7 +97,10 @@ async def main():
             if step == 0:
                 received_responses[shard_ord] = received_response
             else:
-                assert received_responses[shard_ord] == received_response, "The response doesn't match for the chunk in shard %s. Received response before node killed: %s, after: %s" % (shard_ord, received_responses[shard_ord], received_response)
+                assert received_responses[
+                    shard_ord] == received_response, "The response doesn't match for the chunk in shard %s. Received response before node killed: %s, after: %s" % (
+                        shard_ord, received_responses[shard_ord],
+                        received_response)
 
         # we expect first node to only respond to one of the chunk requests, for the shard assigned to it
         assert received_responses[0] != received_responses[1], received_responses

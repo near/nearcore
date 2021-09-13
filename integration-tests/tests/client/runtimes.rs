@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use cached::Cached;
 
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::test_utils::ChunkForwardingTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
@@ -25,7 +25,6 @@ use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
@@ -99,8 +98,11 @@ fn test_invalid_approvals() {
     assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_cap_max_gas_price() {
+    use near_chain::Provenance;
+    use near_primitives::version::ProtocolFeature;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.min_gas_price = 1_000;

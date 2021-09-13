@@ -3106,6 +3106,7 @@ dependencies = [
  "borsh 0.9.0",
  "bs58",
  "byteorder",
+ "bytesize",
  "chrono",
  "derive_more",
  "easy-ext",
@@ -3342,8 +3343,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum",
- "tracing",
- "tracing-subscriber",
+ "tracing-span-tree",
 ]
 
 [[package]]
@@ -5354,6 +5354,16 @@ checksum = "fb65ea441fbb84f9f6748fd496cf7f63ec9af5bca94dd86456978d055e8eb28b"
 dependencies = [
  "serde",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-span-tree"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877726b1570d7764022ef20cc61479b5bcfc1118b90521ce61f6cc9e4f5ffbd8"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
