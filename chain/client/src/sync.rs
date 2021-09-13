@@ -605,9 +605,8 @@ pub struct StateSync {
 
     timeout: Duration,
 
-    /// Maps (sync_hash, shard_id) to result of applying downloaded state
-    state_parts_apply_results:
-        HashMap<(CryptoHash, ShardId), Result<(), near_chain_primitives::error::Error>>,
+    /// Maps shard_id to result of applying downloaded state
+    state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 }
 
 impl StateSync {
@@ -783,7 +782,7 @@ impl StateSync {
                     }
                 }
                 ShardSyncStatus::StateDownloadApplying => {
-                    let result = self.state_parts_apply_results.remove(&(sync_hash, shard_id));
+                    let result = self.state_parts_apply_results.remove(&shard_id);
                     if let Some(result) = result {
                         match chain.end_set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
@@ -882,13 +881,8 @@ impl StateSync {
         Ok((update_sync_status, all_done))
     }
 
-    pub fn set_apply_result(
-        &mut self,
-        sync_hash: CryptoHash,
-        shard_id: ShardId,
-        apply_result: Result<(), Error>,
-    ) {
-        self.state_parts_apply_results.insert((sync_hash, shard_id), apply_result);
+    pub fn set_apply_result(&mut self, shard_id: ShardId, apply_result: Result<(), Error>) {
+        self.state_parts_apply_results.insert(shard_id, apply_result);
     }
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.

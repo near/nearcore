@@ -1551,7 +1551,9 @@ impl Handler<StatePartsResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: StatePartsResponse, _: &mut Self::Context) -> Self::Result {
-        self.client.state_sync.set_apply_result(msg.sync_hash, msg.shard_id, msg.apply_result);
+        if let Some((sync, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            sync.set_apply_result(msg.shard_id, msg.apply_result);
+        }
     }
 }
 
