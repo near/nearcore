@@ -938,8 +938,8 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
-        let more_accepted_blocks = client.run_catchup(&vec![], &f, &None).unwrap();
+        let f = |_| {};
+        let more_accepted_blocks = client.run_catchup(&vec![], &f).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
@@ -2310,35 +2310,23 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let response = Rc::new(Cell::new(None));
-    let response_in_f = Rc::clone(&response);
-    let mut last_response = None;
-    let f: Box<dyn Fn(StatePartsMessage)> = Box::new(move |msg: StatePartsMessage| {
-        response_in_f.set(Some(StatePartsResponse {
-            apply_result: rt.apply_state_part(
+    let f = move |msg: StatePartsMessage| {
+        let num_parts = msg.parts.len() as u64;
+
+        for part_id in 0..num_parts {
+            rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
-                msg.part_id,
-                msg.num_parts,
-                &msg.part,
+                part_id,
+                num_parts,
+                msg.parts[part_id],
                 &msg.epoch_id,
-            ),
-            shard_id: msg.shard_id,
-            part_id: msg.part_id,
-            epoch_id: msg.epoch_id,
-            source: msg.source,
-        }));
-    });
-    while match env.clients[1]
-        .chain
-        .set_state_finalize(0, sync_hash, num_parts, &f, &last_response, StatePartsTaskSource::Sync)
-        .unwrap()
-    {
-        SetStateFinalizeResult::Finished => false,
-        _ => true,
-    } {
-        last_response = response.take();
-    }
+            )
+            .unwrap();
+        }
+    };
+    env.clients[1].chain.start_set_state_finalize(0, sync_hash, num_parts, &f).unwrap();
+    env.clients[1].chain.end_set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync = env.clients[1]
         .chain
         .get_chunk_extra(blocks[4].hash(), &ShardUId::default())
@@ -2611,10 +2599,11 @@ fn test_shard_layout_upgrade() {
                 simple_nightshade_protocol_version,
             );
         }
+        let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            env.clients[j].run_catchup(&vec![]).unwrap();
+            env.clients[j].run_catchup(&vec![], &f).unwrap();
         }
     }
 }
@@ -2661,11 +2650,11 @@ fn test_epoch_protocol_version_change() {
         if i != 10 {
             set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION + 1);
         }
-        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
+        let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            env.clients[j].run_catchup(&vec![], &f, &None).unwrap();
+            env.clients[j].run_catchup(&vec![], &f).unwrap();
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap().clone();
@@ -3482,8 +3471,8 @@ mod storage_usage_fix_tests {
 
             let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
-            env.clients[0].run_catchup(&vec![], &f, &None).unwrap();
+            let f = |_| {};
+            env.clients[0].run_catchup(&vec![], &f).unwrap();
 
             let root = env.clients[0]
                 .chain

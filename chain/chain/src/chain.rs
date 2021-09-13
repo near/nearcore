@@ -209,7 +209,6 @@ pub struct Chain {
     pub block_economics_config: BlockEconomicsConfig,
     pub doomslug_threshold_mode: DoomslugThresholdMode,
     pending_states_to_patch: Option<Vec<StateRecord>>,
-    currently_applying_state_part: HashMap<(EpochId, ShardId), u64>,
 }
 
 impl Chain {
@@ -247,7 +246,6 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
             pending_states_to_patch: None,
-            currently_applying_state_part: HashMap::new(),
         })
     }
 
@@ -364,7 +362,6 @@ impl Chain {
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
             pending_states_to_patch: None,
-            currently_applying_state_part: HashMap::new(),
         })
     }
 
@@ -1803,85 +1800,47 @@ impl Chain {
         Ok(())
     }
 
-    pub fn set_state_finalize(
+    pub fn start_set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
-        state_parts_task_scheduler: &Box<dyn Fn(StatePartsMessage)>,
-        prev_execution_result: &Option<StatePartsResponse>,
-        source: StatePartsTaskSource,
-    ) -> Result<SetStateFinalizeResult, Error> {
+        state_parts_task_scheduler: &dyn Fn(StatePartsMessage),
+    ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-        let map_key = (epoch_id.clone(), shard_id);
-        let current_task = self.currently_applying_state_part.get(&map_key);
 
-        if let Some(result) = prev_execution_result {
-            if result.shard_id != shard_id || result.epoch_id != epoch_id {
-                // Results are not for this shard
-                return Ok(SetStateFinalizeResult::NoAction);
-            }
-            match current_task {
-                Some(scheduled_part_id) => {
-                    if *scheduled_part_id != result.part_id {
-                        // We had probably had to abort process last time
-                        return Ok(SetStateFinalizeResult::NoAction);
-                    }
-                }
-                None => {
-                    // We had probably had to abort process last time
-                    return Ok(SetStateFinalizeResult::NoAction);
-                }
-            }
-            if result.part_id + 1 < num_parts {
-                let part_id = result.part_id + 1;
-                let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-                let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+        let mut parts = Vec::new();
 
-                state_parts_task_scheduler(StatePartsMessage {
-                    shard_id,
-                    state_root,
-                    part_id,
-                    num_parts,
-                    part,
-                    epoch_id,
-                    source,
-                });
-                self.currently_applying_state_part.insert(map_key, part_id);
-                return Ok(SetStateFinalizeResult::ScheduledNext);
-            } else {
-                self.currently_applying_state_part.remove(&map_key);
-            }
-        } else {
-            if current_task.is_some() {
-                // We are already doing something for this epoch and shard
-                return Ok(SetStateFinalizeResult::NoAction);
-            }
-            if num_parts != 0 {
-                let part_id = 0;
-                let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-                let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+        for part_id in 0..num_parts {
+            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
 
-                state_parts_task_scheduler(StatePartsMessage {
-                    shard_id,
-                    state_root,
-                    part_id,
-                    num_parts,
-                    part,
-                    epoch_id,
-                    source,
-                });
-                self.currently_applying_state_part.insert(map_key, part_id);
-                return Ok(SetStateFinalizeResult::ScheduledNext);
-            }
+            parts.push(part);
         }
 
-        // We've done with applying parts
+        state_parts_task_scheduler(StatePartsMessage {
+            shard_id,
+            state_root,
+            parts,
+            epoch_id,
+            sync_hash,
+        });
 
-        // Applying the chunk starts here
+        Ok(())
+    }
+
+    pub fn end_set_state_finalize(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        apply_result: Result<(), near_chain_primitives::Error>,
+    ) -> Result<(), Error> {
+        apply_result?;
+
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
+        let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -1899,7 +1858,8 @@ impl Chain {
                 break;
             }
         }
-        Ok(SetStateFinalizeResult::Finished)
+
+        Ok(())
     }
 
     pub fn clear_downloaded_parts(
@@ -1908,7 +1868,6 @@ impl Chain {
         sync_hash: CryptoHash,
         num_parts: u64,
     ) -> Result<(), Error> {
-        self.currently_applying_state_part.clear();
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
         Ok(chain_store_update.commit()?)
@@ -4068,11 +4027,9 @@ pub fn collect_receipts_from_response(
 pub struct StatePartsMessage {
     pub shard_id: ShardId,
     pub state_root: StateRoot,
-    pub part_id: u64,
-    pub num_parts: u64,
-    pub part: Vec<u8>,
+    pub parts: Vec<Vec<u8>>,
     pub epoch_id: EpochId,
-    pub source: StatePartsTaskSource,
+    pub sync_hash: CryptoHash,
 }
 
 #[derive(Message)]
@@ -4080,22 +4037,5 @@ pub struct StatePartsMessage {
 pub struct StatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
-    pub part_id: u64,
-    pub epoch_id: EpochId,
-    pub source: StatePartsTaskSource,
-}
-
-pub enum SetStateFinalizeResult {
-    /// No action taken because response is for other epoch/shard_id
-    NoAction,
-    /// Next part scheduled to be applied
-    ScheduledNext,
-    /// All parts for this epoch and shard are applied
-    Finished,
-}
-
-#[derive(Copy, Clone)]
-pub enum StatePartsTaskSource {
-    Catchup,
-    Sync,
+    pub sync_hash: CryptoHash,
 }

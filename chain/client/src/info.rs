@@ -247,7 +247,8 @@ fn display_sync_status(
                         match shard_status.status {
                             ShardSyncStatus::StateDownloadHeader => format!("header"),
                             ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadFinalize => format!("finalization"),
+                            ShardSyncStatus::StateDownloadDownloaded => format!("downloaded"),
+                            ShardSyncStatus::StateDownloadApplying => format!("applying parts"),
                             ShardSyncStatus::StateDownloadComplete => format!("download complete"),
                             ShardSyncStatus::StateSplit => format!("split"),
                         }

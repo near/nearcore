@@ -43,7 +43,6 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_chain::chain::StatePartsMessage;
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -1169,8 +1168,8 @@ impl TestEnv {
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let f: Box<dyn Fn(StatePartsMessage)> = Box::new(|_| {});
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f, &None).unwrap();
+        let f = |_| {};
+        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
