@@ -19,15 +19,13 @@ NODE_BASE_NAME = 'mocknet'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_NODES = 2
-NUM_SECONDS_PER_YEAR = 3600 * 24 * 365
 NUM_SHARDS = 8
 NUM_ACCOUNTS = 100
 RPC_PORT = 3030
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
 TX_OUT_FILE = '/home/ubuntu/tx_events'
-WASM_FILENAME = 'simply_contract.wasm'
+WASM_FILENAME = 'simple_contract.wasm'
 
 TMUX_STOP_SCRIPT = '''
 while tmux has-session -t near; do
@@ -35,12 +33,21 @@ tmux kill-session -t near || true
 done
 '''
 
-TMUX_START_SCRIPT = '''
+TMUX_START_SCRIPT_WITH_DEBUG_OUTPUT = '''
 sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
-sudo rm -rf /home/ubuntu/.near/data
+sudo rm -rf /home/ubuntu/.near/data /home/ubuntu/.near/pytest
 tmux new -s near -d bash
 tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info /home/ubuntu/neard run 2>&1 | tee /home/ubuntu/near.log' C-m
 '''
+
+TMUX_START_SCRIPT_NO_DEBUG_OUTPUT = '''
+sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
+sudo rm -rf /home/ubuntu/.near/data /home/ubuntu/.near/pytest
+tmux new -s near -d bash
+tmux send-keys -t near 'RUST_BACKTRACE=full /home/ubuntu/neard run 2>&1 | tee /home/ubuntu/near.log' C-m
+'''
+
+TMUX_START_SCRIPT = TMUX_START_SCRIPT_WITH_DEBUG_OUTPUT
 
 PYTHON_DIR = '/home/ubuntu/.near/pytest/'
 
@@ -61,17 +68,26 @@ cd {PYTHON_DIR}
 
 def get_node(hostname):
     instance_name = hostname
-    n = GCloudNode(instance_name=instance_name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH,
+    n = GCloudNode(instance_name=instance_name,
+                   username=NODE_USERNAME,
+                   project=PROJECT,
+                   ssh_key_path=NODE_SSH_KEY_PATH,
                    rpc_port=RPC_PORT)
     return n
 
 
 def get_nodes():
-    machines = gcloud.list(project=PROJECT, username=NODE_USERNAME, ssh_key_path=NODE_SSH_KEY_PATH)
+    machines = gcloud.list(project=PROJECT,
+                           username=NODE_USERNAME,
+                           ssh_key_path=NODE_SSH_KEY_PATH)
     nodes = []
-    pmap(lambda machine: nodes.append(
-        GCloudNode(instance_name=machine.name, username=NODE_USERNAME, project=PROJECT, ssh_key_path=NODE_SSH_KEY_PATH,
-                   rpc_port=RPC_PORT)), machines)
+    pmap(
+        lambda machine: nodes.append(
+            GCloudNode(instance_name=machine.name,
+                       username=NODE_USERNAME,
+                       project=PROJECT,
+                       ssh_key_path=NODE_SSH_KEY_PATH,
+                       rpc_port=RPC_PORT)), machines)
     return nodes
 
 
@@ -91,9 +107,11 @@ def create_target_dir(node):
 
 
 def get_validator_account(node):
-    validator_key_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix=f'.mocknet.loadtest.validator_key')
+    validator_key_file = tempfile.NamedTemporaryFile(
+        mode='r+', delete=False, suffix=f'.mocknet.loadtest.validator_key')
     validator_key_file.close()
-    node.machine.download(f'/home/ubuntu/.near/validator_key.json', validator_key_file.name)
+    node.machine.download(f'/home/ubuntu/.near/validator_key.json',
+                          validator_key_file.name)
     return Key.from_json_file(validator_key_file.name)
 
 
@@ -110,8 +128,12 @@ def setup_python_environment(node, wasm_contract):
     m.run('bash', input=PYTHON_SETUP_SCRIPT)
     m.upload('lib', PYTHON_DIR, switch_user='ubuntu')
     m.upload('requirements.txt', PYTHON_DIR, switch_user='ubuntu')
-    m.upload(wasm_contract, os.path.join(PYTHON_DIR, WASM_FILENAME), switch_user='ubuntu')
-    m.upload('tests/mocknet/load_testing_helper.py', PYTHON_DIR, switch_user='ubuntu')
+    m.upload(wasm_contract,
+             os.path.join(PYTHON_DIR, WASM_FILENAME),
+             switch_user='ubuntu')
+    m.upload('tests/mocknet/load_testing_helper.py',
+             PYTHON_DIR,
+             switch_user='ubuntu')
     m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
     logger.info(f'{m.name} python setup complete')
 
@@ -129,12 +151,16 @@ def start_load_test_helper_script(script, node_account_id, pk, sk):
 
 def start_load_test_helper(node, script, pk, sk):
     logger.info(f'Starting load_test_helper on {node.instance_name}')
-    node.machine.run('bash', input=start_load_test_helper_script(script, node_account_name(node), pk, sk))
+    node.machine.run('bash',
+                     input=start_load_test_helper_script(
+                         script, node_account_name(node), pk, sk))
 
 
 def start_load_test_helpers(nodes, script):
     account = get_validator_account(nodes[0])
-    pmap(lambda node: start_load_test_helper(node, script, account.pk, account.sk), nodes)
+    pmap(
+        lambda node: start_load_test_helper(node, script, account.pk, account.sk
+                                           ), nodes)
 
 
 def get_log(node):
@@ -180,7 +206,8 @@ def chain_measure_bps_and_tps(archival_node,
                               start_time,
                               end_time,
                               duration=None):
-    latest_block_hash = archival_node.get_status()['sync_info']['latest_block_hash']
+    latest_block_hash = archival_node.get_status(
+    )['sync_info']['latest_block_hash']
     curr_block = archival_node.get_block(latest_block_hash)['result']
     curr_time = get_timestamp(curr_block)
 
@@ -188,7 +215,8 @@ def chain_measure_bps_and_tps(archival_node,
         end_time = curr_time
     if start_time is None:
         start_time = end_time - duration
-    print(f'Measuring BPS and TPS in the time range {start_time} to {end_time}')
+    logger.info(
+        f'Measuring BPS and TPS in the time range {start_time} to {end_time}')
 
     # One entry per block, equal to the timestamp of that block.
     block_times = []
@@ -200,26 +228,28 @@ def chain_measure_bps_and_tps(archival_node,
             block_times.append(curr_time)
             txs = 0
             tx_per_chunk = [None] * len(curr_block['chunks'])
-            pmap(lambda i: get_chunk_txn(i, curr_block['chunks'], archival_node, tx_per_chunk),
-                 range(len(curr_block['chunks'])))
+            pmap(
+                lambda i: get_chunk_txn(i, curr_block['chunks'], archival_node,
+                                        tx_per_chunk),
+                range(len(curr_block['chunks'])))
             for stat in tx_per_chunk:
                 txs += stat
             tx_count.append(txs)
-            print(f'Processed block at time {curr_time} height #{curr_block['
-            header
-            ']['
-            height
-            ']}, '
-            # txs in a block: ${txs}, per chunk: {tx_per_chunk}')
-            prev_hash = curr_block['header']['prev_hash']
-            curr_block = archival_node.get_block(prev_hash)['result']
-            curr_time = get_timestamp(curr_block)
-            block_times.reverse()
-            tx_count.reverse()
-            tx_cumulative = data.compute_cumulative(tx_count)
-            bps = data.compute_rate(block_times)
-            tps_fit = data.linear_regression(block_times, tx_cumulative)
-            print(f'Num blocks: {len(block_times)}, num transactions: {len(tx_count)}, bps: {bps}, tps_fit: {tps_fit}')
+            logger.info(
+                f'Processed block at time {curr_time} height #{curr_block["header"]["height"]}, # txs in a block: {txs}, per chunk: {tx_per_chunk}'
+            )
+        prev_hash = curr_block['header']['prev_hash']
+        curr_block = archival_node.get_block(prev_hash)['result']
+        curr_time = get_timestamp(curr_block)
+    block_times.reverse()
+    tx_count.reverse()
+    assert block_times
+    tx_cumulative = data.compute_cumulative(tx_count)
+    bps = data.compute_rate(block_times)
+    tps_fit = data.linear_regression(block_times, tx_cumulative)
+    logger.info(
+        f'Num blocks: {len(block_times)}, num transactions: {len(tx_count)}, bps: {bps}, tps_fit: {tps_fit}'
+    )
     return {'bps': bps, 'tps': tps_fit['slope']}
 
 
@@ -236,7 +266,8 @@ def get_tx_events_single_node(node, tx_filename):
 def get_tx_events(nodes, tx_filename):
     run('mkdir ./logs/')
     run('rm -rf ./logs/*_txs')
-    all_events = pmap(lambda node: get_tx_events_single_node(node, tx_filename), nodes)
+    all_events = pmap(lambda node: get_tx_events_single_node(node, tx_filename),
+                      nodes)
     return sorted(data.flatten(all_events))
 
 
@@ -361,27 +392,36 @@ def stop_node(node):
 
 
 def upload_and_extract(node, compressed_filename, dst_filename, src_filename):
-    node.machine.upload(compressed_filename, '/home/ubuntu', switch_user='ubuntu')
-    node.machine.run('bash',
-                     input=f'unzip /home/ubuntu/$(basename {compressed_filename}); mv /home/ubuntu/$(basename {src_filename}) {dst_filename}')
+    node.machine.upload(compressed_filename,
+                        '/home/ubuntu',
+                        switch_user='ubuntu')
+    node.machine.run(
+        'bash',
+        input=
+        f'unzip /home/ubuntu/$(basename {compressed_filename}); mv /home/ubuntu/$(basename {src_filename}) {dst_filename}'
+    )
 
 
 def compress_and_upload(nodes, src_filename, dst_filename):
     compressed_genesis_filename = f'{src_filename}.zip'
     res = run(f'zip -j {compressed_genesis_filename} {src_filename}')
     assert res.returncode == 0
-    pmap(lambda node: upload_and_extract(node, compressed_genesis_filename, dst_filename, src_filename), nodes)
+    pmap(
+        lambda node: upload_and_extract(node, compressed_genesis_filename,
+                                        dst_filename, src_filename), nodes)
 
 
 # We assume that the nodes already have the .near directory with the files
 # node_key.json, validator_key.json and config.json.
 def create_and_upload_genesis(nodes, genesis_template_filename):
     print('Uploading genesis and config files')
-    mocknet_genesis_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix='.mocknet.genesis')
-    create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file)
+    mocknet_genesis_file = tempfile.NamedTemporaryFile(
+        mode='r+', delete=False, suffix='.mocknet.genesis')
     mocknet_genesis_file.close()
+    create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file)
     # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
-    compress_and_upload(nodes, mocknet_genesis_file.name, '/home/ubuntu/.near/genesis.json')
+    compress_and_upload(nodes, mocknet_genesis_file.name,
+                        '/home/ubuntu/.near/genesis.json')
     update_config_file(nodes)
 
 
@@ -389,80 +429,142 @@ def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
 
-    ONE_NEAR = 10 ** 24
-    TOTAL_SUPPLY = (10 ** 9) * ONE_NEAR
-    TREASURY_BALANCE = (10 ** 7) * ONE_NEAR
-    VALIDATOR_BALANCE = 5 * (10 ** 5) * ONE_NEAR
-    STAKED_BALANCE = 15 * (10 ** 5) * ONE_NEAR
+    ONE_NEAR = 10**24
+    TOTAL_SUPPLY = (10**9) * ONE_NEAR
+    TREASURY_BALANCE = (10**7) * ONE_NEAR
+    VALIDATOR_BALANCE = 5 * (10**5) * ONE_NEAR
+    STAKED_BALANCE = 15 * (10**5) * ONE_NEAR
     MASTER_ACCOUNT = "near"
     TREASURY_ACCOUNT = "test.near"
-    LOAD_TESTER_BALANCE = (10 ** 4) * ONE_NEAR
+    LOAD_TESTER_BALANCE = (10**4) * ONE_NEAR
 
     genesis_config['chain_id'] = "mocknet"
     genesis_config['total_supply'] = str(TOTAL_SUPPLY)
-    master_balance = TOTAL_SUPPLY - (TREASURY_BALANCE + len(nodes) * (
-            VALIDATOR_BALANCE + STAKED_BALANCE + NUM_ACCOUNTS * LOAD_TESTER_BALANCE))
+    master_balance = TOTAL_SUPPLY - (TREASURY_BALANCE + len(nodes) *
+                                     (VALIDATOR_BALANCE + STAKED_BALANCE +
+                                      NUM_ACCOUNTS * LOAD_TESTER_BALANCE))
     assert master_balance > 0
     genesis_config['records'] = []
     genesis_config['validators'] = []
-    genesis_config['records'].append({"Account": {"account_id": TREASURY_ACCOUNT,
-                                                  "account": {"amount": str(TREASURY_BALANCE), "locked": "0",
-                                                              "code_hash": "11111111111111111111111111111111",
-                                                              "storage_usage": 0, "version": "V1"}}})
-    genesis_config['records'].append({"AccessKey": {"account_id": TREASURY_ACCOUNT, "public_key": PUBLIC_KEY,
-                                                    "access_key": {"nonce": 0, "permission": "FullAccess"}}})
-    genesis_config['records'].append({"Account": {"account_id": MASTER_ACCOUNT,
-                                                  "account": {"amount": str(master_balance), "locked": "0",
-                                                              "code_hash": "11111111111111111111111111111111",
-                                                              "storage_usage": 0, "version": "V1"}}})
-    genesis_config['records'].append({"AccessKey": {"account_id": MASTER_ACCOUNT, "public_key": PUBLIC_KEY,
-                                                    "access_key": {"nonce": 0, "permission": "FullAccess"}}})
+    genesis_config['records'].append({
+        "Account": {
+            "account_id": TREASURY_ACCOUNT,
+            "account": {
+                "amount": str(TREASURY_BALANCE),
+                "locked": "0",
+                "code_hash": "11111111111111111111111111111111",
+                "storage_usage": 0,
+                "version": "V1"
+            }
+        }
+    })
+    genesis_config['records'].append({
+        "AccessKey": {
+            "account_id": TREASURY_ACCOUNT,
+            "public_key": PUBLIC_KEY,
+            "access_key": {
+                "nonce": 0,
+                "permission": "FullAccess"
+            }
+        }
+    })
+    genesis_config['records'].append({
+        "Account": {
+            "account_id": MASTER_ACCOUNT,
+            "account": {
+                "amount": str(master_balance),
+                "locked": "0",
+                "code_hash": "11111111111111111111111111111111",
+                "storage_usage": 0,
+                "version": "V1"
+            }
+        }
+    })
+    genesis_config['records'].append({
+        "AccessKey": {
+            "account_id": MASTER_ACCOUNT,
+            "public_key": PUBLIC_KEY,
+            "access_key": {
+                "nonce": 0,
+                "permission": "FullAccess"
+            }
+        }
+    })
     for node in nodes:
         account_id = node_account_name(node)
-        genesis_config['records'].append({"Account": {"account_id": account_id,
-                                                      "account": {"amount": str(VALIDATOR_BALANCE),
-                                                                  "locked": str(STAKED_BALANCE),
-                                                                  "code_hash": "11111111111111111111111111111111",
-                                                                  "storage_usage": 0, "version": "V1"}}})
-        genesis_config['records'].append({"AccessKey": {"account_id": account_id,
-                                                        "public_key": PUBLIC_KEY,
-                                                        "access_key": {"nonce": 0, "permission": "FullAccess"}}})
-        genesis_config['validators'].append(
-            {"account_id": account_id, "public_key": PUBLIC_KEY,
-             "amount": str(STAKED_BALANCE)})
+        genesis_config['records'].append({
+            "Account": {
+                "account_id": account_id,
+                "account": {
+                    "amount": str(VALIDATOR_BALANCE),
+                    "locked": str(STAKED_BALANCE),
+                    "code_hash": "11111111111111111111111111111111",
+                    "storage_usage": 0,
+                    "version": "V1"
+                }
+            }
+        })
+        genesis_config['records'].append({
+            "AccessKey": {
+                "account_id": account_id,
+                "public_key": PUBLIC_KEY,
+                "access_key": {
+                    "nonce": 0,
+                    "permission": "FullAccess"
+                }
+            }
+        })
+        genesis_config['validators'].append({
+            "account_id": account_id,
+            "public_key": PUBLIC_KEY,
+            "amount": str(STAKED_BALANCE)
+        })
         for i in range(NUM_ACCOUNTS):
             load_testing_account = load_testing_account_id(account_id, i)
-            genesis_config['records'].append({"Account": {"account_id": load_testing_account,
-                                                          "account": {"amount": str(LOAD_TESTER_BALANCE),
-                                                                      "locked": str(0),
-                                                                      "code_hash": "11111111111111111111111111111111",
-                                                                      "storage_usage": 0, "version": "V1"}}})
-            genesis_config['records'].append({"AccessKey": {"account_id": load_testing_account,
-                                                            "public_key": PUBLIC_KEY,
-                                                            "access_key": {"nonce": 0, "permission": "FullAccess"}}})
-    genesis_config["num_block_producer_seats"] = len(nodes)
-    genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)] * NUM_SHARDS
-    genesis_config["avg_hidden_validator_seats_per_shard"] = [0] * NUM_SHARDS
-    genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
-    genesis_config["simple_nightshade_shard_config"] = {}
-    genesis_config["simple_nightshade_shard_config"]["num_block_producer_seats_per_shard"] = [len(nodes)] * NUM_SHARDS
-    genesis_config["simple_nightshade_shard_config"]["avg_hidden_validator_seats_per_shard"] = [0] * NUM_SHARDS
-    genesis_config["simple_nightshade_shard_config"]["shard_layout"] = {}
-    genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"] = {}
-    genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
-    genesis_config["simple_nightshade_shard_config"]["shard_layout"]["V0"]["version"] = 0
+            genesis_config['records'].append({
+                "Account": {
+                    "account_id": load_testing_account,
+                    "account": {
+                        "amount": str(LOAD_TESTER_BALANCE),
+                        "locked": str(0),
+                        "code_hash": "11111111111111111111111111111111",
+                        "storage_usage": 0,
+                        "version": "V1"
+                    }
+                }
+            })
+            genesis_config['records'].append({
+                "AccessKey": {
+                    "account_id": load_testing_account,
+                    "public_key": PUBLIC_KEY,
+                    "access_key": {
+                        "nonce": 0,
+                        "permission": "FullAccess"
+                    }
+                }
+            })
     genesis_config["epoch_length"] = 2000
+    genesis_config["num_block_producer_seats"] = len(nodes)
+    genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)
+                                                           ] * NUM_SHARDS
+    genesis_config["avg_hidden_validator_seats_per_shard"] = [0] * NUM_SHARDS
+    # Loadtest helper signs all transactions using the same block.
+    # Extend validity period to allow the same hash to be used for the whole duration of the test.
+    genesis_config["transaction_validity_period"] = 10**9
+    genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
     # The json object gets truncated if I don't close and reopen the file.
-    mocknet_genesis_file.close()
     with open(mocknet_genesis_file.name, 'w') as f:
         json.dump(genesis_config, f, indent=2)
 
 
 def get_node_addr(node, port):
-    node_key_file = tempfile.NamedTemporaryFile(mode='r+', delete=False,
-                                                suffix=f'.mocknet.node_key.{node.instance_name}')
+    node_key_file = tempfile.NamedTemporaryFile(
+        mode='r+',
+        delete=False,
+        suffix=f'.mocknet.node_key.{node.instance_name}')
     node_key_file.close()
-    node.machine.download(f'/home/ubuntu/.near/node_key.json', node_key_file.name)
+    node.machine.download(f'/home/ubuntu/.near/node_key.json',
+                          node_key_file.name)
     with open(node_key_file.name, 'r') as f:
         node_key_json = json.load(f)
     return f'{node_key_json["public_key"]}@{node.ip}:{port}'
@@ -473,13 +575,17 @@ def update_config_file(nodes):
     first_node = nodes[0]
 
     # Create temporary files and close them because we'll download files using their filenames.
-    mocknet_config_file = tempfile.NamedTemporaryFile(mode='r+', delete=False, suffix='.mocknet.config')
+    mocknet_config_file = tempfile.NamedTemporaryFile(mode='r+',
+                                                      delete=False,
+                                                      suffix='.mocknet.config')
     mocknet_config_file.close()
     # Download and read.
-    first_node.machine.download(f'/home/ubuntu/.near/config.json', mocknet_config_file.name)
+    first_node.machine.download(f'/home/ubuntu/.near/config.json',
+                                mocknet_config_file.name)
     with open(mocknet_config_file.name, 'r') as f:
         config_json = json.load(f)
-    port = config_json["network"]["addr"].split(':')[1]  # Usually the port is 24567
+    port = config_json["network"]["addr"].split(':')[
+        1]  # Usually the port is 24567
     node_addresses = []
     pmap(lambda node: node_addresses.append(get_node_addr(node, port)), nodes)
 
@@ -490,8 +596,10 @@ def update_config_file(nodes):
     with open(mocknet_config_file.name, 'w') as f:
         json.dump(config_json, f, indent=2)
 
-    pmap(lambda node: node.machine.upload(mocknet_config_file.name, '/home/ubuntu/.near/config.json',
-                                          switch_user='ubuntu'), nodes)
+    pmap(
+        lambda node: node.machine.upload(mocknet_config_file.name,
+                                         '/home/ubuntu/.near/config.json',
+                                         switch_user='ubuntu'), nodes)
 
 
 def start_nodes(nodes):
@@ -514,7 +622,9 @@ def start_node(node):
         if start_process.returncode == 0:
             break
         else:
-            print(f"Failed to start process, returncode: {returncode}\n{m.name}\n{start_process.stderr}")
+            print(
+                f"Failed to start process, returncode: {returncode}\n{m.name}\n{start_process.stderr}"
+            )
             attempt += 1
             time.sleep(1)
 
@@ -530,8 +640,7 @@ def reset_data(node, retries=0):
     except:
         if retries < 3:
             logger.warning(
-                f'And error occured while clearing data directory, retrying'
-            )
+                f'And error occurred while clearing data directory, retrying')
             reset_data(node, retries=retries + 1)
         else:
             raise Exception(
