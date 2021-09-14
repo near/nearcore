@@ -19,7 +19,7 @@ thiserror = "1.0"
 strum = "0.20"
 rayon = "1.5"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-chain-primitives = { path = "../chain-primitives" }
@@ -42,6 +42,7 @@ adversarial = []
 delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
 protocol_feature_block_header_v3 = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]
+protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3", "near-primitives/protocol_feature_chunk_only_producers"]
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3", "protocol_feature_chunk_only_producers"]
 nightly_protocol = []
 sandbox = []

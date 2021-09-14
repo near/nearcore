@@ -4,13 +4,9 @@ from shutil import copy2, rmtree
 
 
 def genesis_populate(near_root, additional_accounts, node_dir):
-    subprocess.check_call((
-        join(near_root, 'genesis-populate'),
-        '--additional-accounts-num',
-        str(additional_accounts),
-        '--home',
-        node_dir
-    ))
+    subprocess.check_call(
+        (join(near_root, 'genesis-populate'), '--additional-accounts-num',
+         str(additional_accounts), '--home', node_dir))
     rmtree(join(node_dir, 'data'), ignore_errors=True)
 
 

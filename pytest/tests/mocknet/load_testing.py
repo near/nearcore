@@ -101,7 +101,7 @@ if __name__ == '__main__':
     nodes = mocknet.get_nodes()
     logger.info(f'Starting Load test using {len(nodes)} nodes.')
 
-    if '--restart' in sys.argv:
+    if not '--skip_restart' in sys.argv:
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(nodes)
         time.sleep(10)
@@ -117,7 +117,7 @@ if __name__ == '__main__':
 
     logger.info('Performing baseline block time measurement')
     # We do not include tps here because there are no transactions on mocknet normally.
-    if '--skip_initial_sleep' not in sys.argv:
+    if not '--skip_initial_sleep' in sys.argv:
         time.sleep(120)
     baseline_measurement = mocknet.chain_measure_bps_and_tps(
         archival_node=archival_node,

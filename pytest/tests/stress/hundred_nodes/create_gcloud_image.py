@@ -7,11 +7,11 @@ from rc import gcloud, run
 sys.path.append('lib')
 from configured_logger import logger
 
-
 additional_flags = ''
 
-toolchain = open(os.path.join(os.path.dirname(__file__),
-                              '../../../../rust-toolchain')).read().strip()
+toolchain = open(
+    os.path.join(os.path.dirname(__file__),
+                 '../../../../rust-toolchain')).read().strip()
 
 try:
     image_name = sys.argv[1]
@@ -26,20 +26,19 @@ machine_name = f'{image_name}-image-builder'
 
 logger.info(f"Creating machine: {machine_name}")
 
-m = gcloud.create(
-    name=machine_name,
-    machine_type='n1-standard-64',
-    disk_size='50G',
-    image_project='ubuntu-os-cloud',
-    image_family='ubuntu-1804-lts',
-    zone='us-west2-c',
-    firewall_allows=['tcp:3030', 'tcp:24567'],
-    min_cpu_platform='Intel Skylake'
-)
+m = gcloud.create(name=machine_name,
+                  machine_type='n1-standard-64',
+                  disk_size='50G',
+                  image_project='ubuntu-os-cloud',
+                  image_family='ubuntu-1804-lts',
+                  zone='us-west2-c',
+                  firewall_allows=['tcp:3030', 'tcp:24567'],
+                  min_cpu_platform='Intel Skylake')
 
 logger.info(f'machine created: {image_name}')
 
-p = m.run('bash', input=f'''
+p = m.run('bash',
+          input=f'''
 for i in `seq 1 3`; do
     sudo apt update
 done

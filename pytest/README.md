@@ -19,8 +19,8 @@ then execute the test file using python.  For example:
 
     cargo build
     cd pytest
-    python -m pip install -U requirements.txt
-    python tests/sanity/one_val.py
+    python3 -m pip install -U requirements.txt
+    python3 tests/sanity/one_val.py
 
 After the test finishes, log files and other result data from running
 each node will be located in a `~/.near/test#_finished` directory
@@ -71,7 +71,7 @@ set files.  Note that if you add a test file but don’t include it in
 nightly test set the pull request check will fail.
 
 Even though this directory is called `pytest`, the tests need to work
-when executed via `python`.  This means that they need to execute the
+when executed via `python3`.  This means that they need to execute the
 tests when run as the main module rather than just defining the tests
 function.  To make that happen it’s best to define `test_<foo>`
 functions with test bodies and than execute all those functions in
@@ -80,6 +80,13 @@ a code fragment guarded by `if __name__ == '__main__'` condition.
 If the test operates on the nodes running in a cluster, it will very
 likely want to make use of `start_cluster` function defined in the
 `lib/cluster.py` module.
+
+Rather than assuming location a temporary directory, well-behaved test
+should use `tempfile` module instead which will automatically take
+`TEMPDIR` variable into consideration.  This is especially important
+for NayDuck which will automatically cleanup after a test which
+respects `TEMPDIR` directory even if that tests ends up not cleaning
+up its temporary files.
 
 For example, a simple test for checking implementation of
 `max_gas_burnt_view` could be located in
@@ -151,3 +158,41 @@ For example, a simple test for checking implementation of
 
     if __name__ == '__main__':
         test_max_gas_burnt_view()
+
+### NayDuck environment
+
+When executed on NayDuck, tests have access to `neard`,
+`genesis-populate` and `restaked` binaries in `../target/debug` or
+`../target/release` directory (depending if the test has been
+scheduled with `--release` flag) just as if they were executed on
+local machine.  Similarly, freshly built NEAR test contracts will be
+located in `../runtime/near-test-contracts/res` directory.
+
+The `NAYDUCK` and `NIGHTLY_RUNNER` environment variables are set when
+tests are run on NayDuck.  If all else fails they can be used to
+change test’s behaviour to accommodate it running on the testing
+infrastructure as opposed to local machine.
+
+### Code Style
+
+To automate formatting and avoid excessive bike shedding, we're using
+YAPF to format Python source code in the pytest directory.  It can be
+installed from Python Package Index (PyPI) using `pip` tool:
+
+    python3 -m pip install yapf
+
+Once installed, it can be run either on a single file, for example
+with the following command:
+
+    python3 -m yapf -pi lib/cluster.py
+
+or the entire directory with command as seen below:
+
+    python3 -m yapf -pir .
+
+The `-p` switch enables parallelism and `-i` applies the changes in
+place.  Without the latter switch the tool will write formatted file
+to standard output instead.
+
+The command should be executed in the `pytest` directory so that it’ll
+pick up configuration from the `.style.yapf` file.

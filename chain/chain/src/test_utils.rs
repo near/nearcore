@@ -180,6 +180,8 @@ impl KeyValueRuntime {
                                 SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
                                     .public_key(),
                                 1_000_000,
+                                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                                false,
                             )
                         })
                         .collect()
@@ -1161,6 +1163,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
         Ok(false)
+    }
+
+    fn build_state_for_split_shards(
+        &self,
+        _shard_uid: ShardUId,
+        _state_root: &StateRoot,
+        _next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        Ok(HashMap::new())
     }
 }
 

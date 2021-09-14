@@ -27,7 +27,7 @@ import subprocess
 
 
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
-NAYDUCK_BASE_HREF = 'http://nayduck.eastus.cloudapp.azure.com:5005'
+NAYDUCK_BASE_HREF = 'http://nayduck.near.org'
 
 
 def _parse_args():

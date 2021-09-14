@@ -409,6 +409,8 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
@@ -445,6 +447,20 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
+                )?;
+            }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            Action::StakeChunkOnly(stake) => {
+                near_metrics::inc_counter(&metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL);
+                action_stake(
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    stake,
+                    &apply_state.prev_block_hash,
+                    epoch_info_provider,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    true,
                 )?;
             }
         };
@@ -1382,7 +1398,7 @@ impl Runtime {
     }
 
     // Adds the given receipt into the end of the delayed receipt queue in the state.
-    fn delay_receipt(
+    pub fn delay_receipt(
         state_update: &mut TrieUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         receipt: &Receipt,

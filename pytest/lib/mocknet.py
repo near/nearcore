@@ -19,7 +19,7 @@ NODE_BASE_NAME = 'mocknet'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 8
+NUM_SHARDS = 4
 NUM_ACCOUNTS = 100
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
@@ -254,9 +254,10 @@ def get_tx_events_single_node(node, tx_filename):
     try:
         target_file = f'./logs/{node.instance_name}_txs'
         node.machine.download(tx_filename, target_file)
-        with open(target_file) as f:
+        with open(target_file, 'r') as f:
             return [float(line.strip()) for line in f.readlines()]
-    except:
+    except Exception as e:
+        logger.info(f'Getting tx_events from {node.instance_name} failed: {e}')
         return []
 
 
