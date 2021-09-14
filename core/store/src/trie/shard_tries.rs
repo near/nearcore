@@ -27,14 +27,6 @@ struct ShardTriesInner {
 #[derive(Clone)]
 pub struct ShardTries(Arc<ShardTriesInner>);
 
-impl PartialEq for ShardTries {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for ShardTries {}
-
 impl ShardTries {
     fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, TrieCache> {
         shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
@@ -50,6 +42,10 @@ impl ShardTries {
             caches: RwLock::new(Self::get_new_cache(&shards)),
             view_caches: RwLock::new(Self::get_new_cache(&shards)),
         }))
+    }
+
+    pub fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     // add new shards to ShardTries, only used when shard layout changes and we are building
@@ -96,10 +92,8 @@ impl ShardTries {
 
     pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
         let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
-        let mut shards = caches
-            .iter()
-            .map(|(shard_uid, ..)| (*shard_uid, Vec::new()))
-            .collect::<HashMap<_, _>>();
+        let mut shards =
+            caches.keys().map(|shard_uid| (*shard_uid, Vec::new())).collect::<HashMap<_, _>>();
         for op in &transaction.ops {
             match op {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {

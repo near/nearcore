@@ -207,7 +207,7 @@ impl StoreUpdate {
             if self.tries.is_none() {
                 self.tries = Some(tries);
             } else {
-                debug_assert!(self.tries.as_ref().unwrap() == &tries);
+                debug_assert!(self.tries.as_ref().unwrap().is_same(&tries));
             }
         }
 
