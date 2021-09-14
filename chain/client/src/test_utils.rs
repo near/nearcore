@@ -156,6 +156,7 @@ pub fn setup_only_view(
     skip_sync_wait: bool,
     min_block_prod_time: u64,
     max_block_prod_time: u64,
+    enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -185,11 +186,19 @@ pub fn setup_only_view(
         protocol_version: PROTOCOL_VERSION,
     };
 
+    let doomslug_threshold_mode = if enable_doomslug {
+        DoomslugThresholdMode::TwoThirds
+    } else {
+        DoomslugThresholdMode::NoApprovals
+    };
+    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
+
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         account_id.clone(),
         KeyType::ED25519,
         account_id.as_ref(),
     ));
+    TelemetryActor::default().start();
     let config = ClientConfig::test(
         skip_sync_wait,
         min_block_prod_time,

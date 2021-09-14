@@ -185,6 +185,7 @@ fn test_state_request() {
             true,
             200,
             400,
+            false,
             true,
             false,
             Arc::new(MockNetworkAdapter::default()),
