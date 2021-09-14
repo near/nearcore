@@ -21,7 +21,6 @@ NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
 NUM_SHARDS = 8
 NUM_ACCOUNTS = 100
-RPC_PORT = 3030
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -68,11 +67,10 @@ cd {PYTHON_DIR}
 
 def get_node(hostname):
     instance_name = hostname
-    n = GCloudNode(instance_name=instance_name,
+    n = GCloudNode(instance_name,
                    username=NODE_USERNAME,
                    project=PROJECT,
-                   ssh_key_path=NODE_SSH_KEY_PATH,
-                   rpc_port=RPC_PORT)
+                   ssh_key_path=NODE_SSH_KEY_PATH)
     return n
 
 
@@ -83,11 +81,10 @@ def get_nodes():
     nodes = []
     pmap(
         lambda machine: nodes.append(
-            GCloudNode(instance_name=machine.name,
+            GCloudNode(machine.name,
                        username=NODE_USERNAME,
                        project=PROJECT,
-                       ssh_key_path=NODE_SSH_KEY_PATH,
-                       rpc_port=RPC_PORT)), machines)
+                       ssh_key_path=NODE_SSH_KEY_PATH)), machines)
     return nodes
 
 
