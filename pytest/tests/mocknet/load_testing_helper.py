@@ -49,9 +49,8 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
             "account_id": account_id,
             "finality": finality
         })
-    assert len(access_keys['result']['keys']) > 0
+    assert access_keys['result']['keys']
     for k in access_keys['result']['keys']:
-        assert 'public_key' in k
         if k['public_key'] == pk:
             return k['access_key']['nonce']
 

@@ -21,7 +21,6 @@ NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
 NUM_SHARDS = 8
 NUM_ACCOUNTS = 100
-RPC_PORT = 3030
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -68,11 +67,10 @@ cd {PYTHON_DIR}
 
 def get_node(hostname):
     instance_name = hostname
-    n = GCloudNode(instance_name=instance_name,
+    n = GCloudNode(instance_name,
                    username=NODE_USERNAME,
                    project=PROJECT,
-                   ssh_key_path=NODE_SSH_KEY_PATH,
-                   rpc_port=RPC_PORT)
+                   ssh_key_path=NODE_SSH_KEY_PATH)
     return n
 
 
@@ -83,11 +81,10 @@ def get_nodes():
     nodes = []
     pmap(
         lambda machine: nodes.append(
-            GCloudNode(instance_name=machine.name,
+            GCloudNode(machine.name,
                        username=NODE_USERNAME,
                        project=PROJECT,
-                       ssh_key_path=NODE_SSH_KEY_PATH,
-                       rpc_port=RPC_PORT)), machines)
+                       ssh_key_path=NODE_SSH_KEY_PATH)), machines)
     return nodes
 
 
@@ -415,14 +412,15 @@ def compress_and_upload(nodes, src_filename, dst_filename):
 # node_key.json, validator_key.json and config.json.
 def create_and_upload_genesis(nodes, genesis_template_filename):
     print('Uploading genesis and config files')
-    mocknet_genesis_file = tempfile.NamedTemporaryFile(
-        mode='r+', delete=False, suffix='.mocknet.genesis')
-    mocknet_genesis_file.close()
-    create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file)
-    # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
-    compress_and_upload(nodes, mocknet_genesis_file.name,
-                        '/home/ubuntu/.near/genesis.json')
-    update_config_file(nodes)
+    with tempfile.NamedTemporaryFile(
+            mode='w+', delete=False,
+            suffix='.mocknet.genesis') as mocknet_genesis_file:
+        create_genesis_file(nodes, genesis_template_filename,
+                            mocknet_genesis_file)
+        # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
+        compress_and_upload(nodes, mocknet_genesis_file.name,
+                            '/home/ubuntu/.near/genesis.json')
+        update_config_file(nodes)
 
 
 def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
@@ -553,7 +551,8 @@ def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
     genesis_config["transaction_validity_period"] = 10**9
     genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
     # The json object gets truncated if I don't close and reopen the file.
-    with open(mocknet_genesis_file.name, 'w') as f:
+    mocknet_genesis_file.close()
+    with open(mocknet_genesis_file.name, "w") as f:
         json.dump(genesis_config, f, indent=2)
 
 
