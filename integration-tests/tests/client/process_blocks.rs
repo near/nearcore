@@ -11,7 +11,7 @@ use futures::{future, FutureExt};
 use near_primitives::num_rational::Rational;
 
 use near_actix_test_utils::run_actix;
-use near_chain::chain::{StatePartsMessage, NUM_EPOCHS_TO_KEEP_STORE_DATA};
+use near_chain::chain::{ApplyStatePartsRequest, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use near_chain::types::LatestKnown;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{
@@ -2340,7 +2340,7 @@ fn test_catchup_gas_price_change() {
             .unwrap();
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
-    let f = move |msg: StatePartsMessage| {
+    let f = move |msg: ApplyStatePartsRequest| {
         use borsh::BorshSerialize;
         let store = rt.get_store();
 
@@ -2359,8 +2359,8 @@ fn test_catchup_gas_price_change() {
             .unwrap();
         }
     };
-    env.clients[1].chain.start_set_state_finalize(0, sync_hash, num_parts, &f).unwrap();
-    env.clients[1].chain.end_set_state_finalize(0, sync_hash, Ok(())).unwrap();
+    env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
+    env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
     let chunk_extra_after_sync = env.clients[1]
         .chain
         .get_chunk_extra(blocks[4].hash(), &ShardUId::default())

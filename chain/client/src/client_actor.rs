@@ -54,7 +54,7 @@ use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
-use near_chain::chain::{StatePartsMessage, StatePartsResponse};
+use near_chain::chain::{ApplyStatePartsRequest, ApplyStatePartsResponse};
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
@@ -93,7 +93,7 @@ pub struct ClientActor {
     doomslug_timer_next_attempt: DateTime<Utc>,
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
-    state_parts_task_scheduler: Box<dyn Fn(StatePartsMessage)>,
+    state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -176,7 +176,7 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
-            state_parts_task_scheduler: Box::new(move |msg: StatePartsMessage| {
+            state_parts_task_scheduler: Box::new(move |msg: ApplyStatePartsRequest| {
                 state_parts_actor_addr.do_send(msg);
             }),
         })
@@ -1517,7 +1517,7 @@ struct StatePartsActor {
 impl StatePartsActor {
     fn apply_parts(
         &mut self,
-        msg: &StatePartsMessage,
+        msg: &ApplyStatePartsRequest,
     ) -> Result<(), near_chain_primitives::error::Error> {
         let store = self.runtime.get_store();
 
@@ -1543,13 +1543,13 @@ impl Actor for StatePartsActor {
     type Context = Context<Self>;
 }
 
-impl Handler<StatePartsMessage> for StatePartsActor {
+impl Handler<ApplyStatePartsRequest> for StatePartsActor {
     type Result = ();
 
-    fn handle(&mut self, msg: StatePartsMessage, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ApplyStatePartsRequest, _: &mut Self::Context) -> Self::Result {
         let result = self.apply_parts(&msg);
 
-        self.client_addr.do_send(StatePartsResponse {
+        self.client_addr.do_send(ApplyStatePartsResponse {
             apply_result: result,
             shard_id: msg.shard_id,
             sync_hash: msg.sync_hash,
@@ -1557,10 +1557,10 @@ impl Handler<StatePartsMessage> for StatePartsActor {
     }
 }
 
-impl Handler<StatePartsResponse> for ClientActor {
+impl Handler<ApplyStatePartsResponse> for ClientActor {
     type Result = ();
 
-    fn handle(&mut self, msg: StatePartsResponse, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
         if let Some((sync, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);

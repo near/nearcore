@@ -24,7 +24,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, 
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
-use near_chain::chain::StatePartsMessage;
+use near_chain::chain::ApplyStatePartsRequest;
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
@@ -660,7 +660,7 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(StatePartsMessage),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
@@ -758,7 +758,7 @@ impl StateSync {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    match chain.start_set_state_finalize(
+                    match chain.schedule_apply_state_parts(
                         shard_id,
                         sync_hash,
                         state_num_parts,
@@ -784,7 +784,7 @@ impl StateSync {
                 ShardSyncStatus::StateDownloadApplying => {
                     let result = self.state_parts_apply_results.remove(&shard_id);
                     if let Some(result) = result {
-                        match chain.end_set_state_finalize(shard_id, sync_hash, result) {
+                        match chain.set_state_finalize(shard_id, sync_hash, result) {
                             Ok(()) => {
                                 update_sync_status = true;
                                 *shard_sync_download = ShardSyncDownload {
@@ -1104,7 +1104,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
-        state_parts_task_scheduler: &dyn Fn(StatePartsMessage),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();

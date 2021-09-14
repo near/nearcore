@@ -10,7 +10,7 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::{StatePartsMessage, TX_ROUTING_HEIGHT_HORIZON};
+use near_chain::chain::{ApplyStatePartsRequest, TX_ROUTING_HEIGHT_HORIZON};
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
@@ -1574,7 +1574,7 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
-        state_parts_task_scheduler: &dyn Fn(StatePartsMessage),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {

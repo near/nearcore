@@ -1800,18 +1800,18 @@ impl Chain {
         Ok(())
     }
 
-    pub fn start_set_state_finalize(
+    pub fn schedule_apply_state_parts(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
-        state_parts_task_scheduler: &dyn Fn(StatePartsMessage),
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
-        state_parts_task_scheduler(StatePartsMessage {
+        state_parts_task_scheduler(ApplyStatePartsRequest {
             shard_id,
             state_root,
             num_parts,
@@ -1822,7 +1822,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn end_set_state_finalize(
+    pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -4041,7 +4041,7 @@ pub fn collect_receipts_from_response(
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct StatePartsMessage {
+pub struct ApplyStatePartsRequest {
     pub shard_id: ShardId,
     pub state_root: StateRoot,
     pub num_parts: u64,
@@ -4051,7 +4051,7 @@ pub struct StatePartsMessage {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub struct StatePartsResponse {
+pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
