@@ -26,25 +26,32 @@ pub struct ShardTries {
 }
 
 impl ShardTries {
-    fn get_new_cache(shards: &Vec<ShardUId>) -> Arc<HashMap<ShardUId, TrieCache>> {
-        let mut cache = HashMap::new();
-        shards.iter().for_each(|x| {
-            cache.insert(*x, TrieCache::new());
-            ()
-        });
-        Arc::new(cache)
+    fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, TrieCache> {
+        shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
     }
 
     pub fn new(store: Arc<Store>, shard_version: ShardVersion, num_shards: NumShards) -> Self {
         assert_ne!(num_shards, 0);
-        let shards = (0..num_shards)
+        let shards: Vec<_> = (0..num_shards)
             .map(|shard_id| ShardUId { version: shard_version, shard_id: shard_id as u32 })
             .collect();
         ShardTries {
             store,
-            caches: Self::get_new_cache(&shards),
-            view_caches: Self::get_new_cache(&shards),
+            caches: Arc::new(Self::get_new_cache(&shards)),
+            view_caches: Arc::new(Self::get_new_cache(&shards)),
         }
+    }
+
+    // add new shards to ShardTries, only used when shard layout changes and we are building
+    // states for new shards
+    pub fn add_new_shards(&mut self, shards: &[ShardUId]) {
+        let add_empty_caches = |old_caches: &HashMap<ShardUId, TrieCache>| {
+            let mut new_caches = old_caches.clone();
+            new_caches.extend(shards.iter().map(|shard| (*shard, TrieCache::new())));
+            new_caches
+        };
+        self.caches = Arc::new(add_empty_caches(&*self.caches));
+        self.view_caches = Arc::new(add_empty_caches(&*self.caches));
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
@@ -292,6 +299,15 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
+
+            assert!(
+                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
+                    cause,
+                    StateChangeCause::Resharding
+                )),
+                "Resharding changes must never be finalized."
+            );
+
             // Filtering trie keys for user facing RPC reporting.
             // NOTE: If the trie key is not one of the account specific, it may cause key conflict
             // when the node tracks multiple shards. See #2563.

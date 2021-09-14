@@ -59,13 +59,16 @@ else:
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    1, 2, 1, config,
-    [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 300],
-     ["block_producer_kickout_threshold", 80]], {1: {
-         "tracked_shards": [0]
-     }, 2: {
-         "tracked_shards": [0]
-     }})
+    1, 2, 1,
+    config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
+             ["epoch_length", 300], ["block_producer_kickout_threshold", 80]], {
+                 1: {
+                     "tracked_shards": [0]
+                 },
+                 2: {
+                     "tracked_shards": [0]
+                 }
+             })
 
 logging.info("Populating genesis")
 
@@ -89,7 +92,9 @@ TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-observer = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
+observer = spin_up_node(config, near_root, node_dirs[1], 1,
+                        boot_node.node_key.pk, boot_node.addr())
+
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
     queue = []
@@ -121,7 +126,6 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
             tail = queue[0]
             bps = (head[1] - tail[1]) / (head[0] - tail[0])
 
-
         logging.info(f"bps: {bps} queue length: {len(queue)}")
         time.sleep(sleep_time)
         assert bps is None or bps >= bps_threshold
@@ -129,7 +133,8 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
 wait_for_height(SMALL_HEIGHT, boot_node)
 
-observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
+observer = spin_up_node(config, near_root, node_dirs[2], 2,
+                        boot_node.node_key.pk, boot_node.addr())
 tracker = LogTracker(observer)
 
 # Check that bps is not degraded

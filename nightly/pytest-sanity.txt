@@ -24,7 +24,7 @@ pytest --timeout=600 sanity/state_sync.py onetx 265 --features nightly_protocol,
 pytest --timeout=240 sanity/state_sync1.py
 pytest --timeout=240 sanity/state_sync1.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=900 sanity/state_sync2.py
-pytest --timeout=900 sanity/state_sync2.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=900 sanity/state_sync2.py nightly --features nightly_protocol,nightly_protocol_features
 pytest --timeout=1200 sanity/state_sync3.py
 pytest --timeout=1200 sanity/state_sync3.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/state_sync4.py
@@ -48,7 +48,7 @@ pytest sanity/rpc_tx_forwarding.py --features nightly_protocol,nightly_protocol_
 pytest --timeout=240 sanity/skip_epoch.py
 pytest --timeout=240 sanity/skip_epoch.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/one_val.py
-pytest --timeout=240 sanity/one_val.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=240 sanity/one_val.py nightly --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/lightclnt.py
 pytest --timeout=240 sanity/lightclnt.py --features nightly_protocol,nightly_protocol_features
 pytest sanity/rpc_light_client_execution_outcome_proof.py

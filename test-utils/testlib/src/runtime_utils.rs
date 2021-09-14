@@ -16,6 +16,10 @@ pub fn eve_dot_alice_account() -> AccountId {
     "eve.alice.near".parse().unwrap()
 }
 
+pub fn x_dot_y_dot_alice_account() -> AccountId {
+    "x.y.alice.near".parse().unwrap()
+}
+
 lazy_static::lazy_static! {
     static ref DEFAULT_TEST_CONTRACT_HASH: CryptoHash = hash(near_test_contracts::rs_contract());
 }

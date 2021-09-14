@@ -826,6 +826,12 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    StakeChunkOnly {
+        #[serde(with = "u128_dec_format")]
+        stake: Balance,
+        public_key: PublicKey,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -852,6 +858,10 @@ impl From<Action> for ActionView {
             Action::DeleteKey(action) => ActionView::DeleteKey { public_key: action.public_key },
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
+            }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            Action::StakeChunkOnly(action) => {
+                ActionView::StakeChunkOnly { stake: action.stake, public_key: action.public_key }
             }
         }
     }
@@ -886,6 +896,10 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+            }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            ActionView::StakeChunkOnly { stake, public_key } => {
+                Action::StakeChunkOnly(StakeAction { stake, public_key })
             }
         })
     }
@@ -1160,6 +1174,13 @@ pub mod validator_stake_view {
     use near_primitives_core::types::AccountId;
     use serde::{Deserialize, Serialize};
 
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use crate::serialize::u128_dec_format;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_crypto::PublicKey;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_primitives_core::types::Balance;
+
     pub use super::ValidatorStakeViewV1;
 
     #[derive(
@@ -1168,6 +1189,8 @@ pub mod validator_stake_view {
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
         V1(ValidatorStakeViewV1),
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        V2(ValidatorStakeViewV2),
     }
 
     impl ValidatorStakeView {
@@ -1179,6 +1202,8 @@ pub mod validator_stake_view {
         pub fn take_account_id(self) -> AccountId {
             match self {
                 Self::V1(v1) => v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => v2.account_id,
             }
         }
 
@@ -1186,8 +1211,22 @@ pub mod validator_stake_view {
         pub fn account_id(&self) -> &AccountId {
             match self {
                 Self::V1(v1) => &v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => &v2.account_id,
             }
         }
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[derive(
+        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+    )]
+    pub struct ValidatorStakeViewV2 {
+        pub account_id: AccountId,
+        pub public_key: PublicKey,
+        #[serde(with = "u128_dec_format")]
+        pub stake: Balance,
+        pub is_chunk_only: bool,
     }
 
     impl From<ValidatorStake> for ValidatorStakeView {
@@ -1198,6 +1237,13 @@ pub mod validator_stake_view {
                     public_key: v1.public_key,
                     stake: v1.stake,
                 }),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                ValidatorStake::V2(v2) => Self::V2(ValidatorStakeViewV2 {
+                    account_id: v2.account_id,
+                    public_key: v2.public_key,
+                    stake: v2.stake,
+                    is_chunk_only: v2.is_chunk_only,
+                }),
             }
         }
     }
@@ -1205,7 +1251,11 @@ pub mod validator_stake_view {
     impl From<ValidatorStakeView> for ValidatorStake {
         fn from(view: ValidatorStakeView) -> Self {
             match view {
-                ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
+                ValidatorStakeView::V1(v1) => Self::new_v1(v1.account_id, v1.public_key, v1.stake),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                ValidatorStakeView::V2(v2) => {
+                    Self::new(v2.account_id, v2.public_key, v2.stake, v2.is_chunk_only)
+                }
             }
         }
     }
@@ -1533,6 +1583,7 @@ pub enum StateChangeCauseView {
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
     Migration,
+    Resharding,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -1558,6 +1609,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
+            StateChangeCause::Resharding => Self::Resharding,
         }
     }
 }

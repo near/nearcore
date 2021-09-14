@@ -7,7 +7,6 @@
 //! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
 //! to provide custom context and VM config.
 mod script;
-mod tracing_timings;
 
 use crate::script::Script;
 use clap::Clap;
@@ -121,7 +120,7 @@ fn main() {
     let cli_args = CliArgs::parse();
 
     if cli_args.timings {
-        tracing_timings::enable();
+        tracing_span_tree::span_tree().enable();
     }
 
     let mut script = Script::default();

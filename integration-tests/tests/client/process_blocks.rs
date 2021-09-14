@@ -70,6 +70,7 @@ use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
+use rand::Rng;
 
 fn set_block_protocol_version(
     block: &mut Block,
@@ -770,6 +771,14 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 InvalidBlockMode::InvalidBlock => {
                                     // produce an invalid block whose invalidity cannot be verified by just
                                     // having its header.
+                                    #[cfg(feature = "protocol_feature_block_header_v3")]
+                                    let proposals = vec![ValidatorStake::new(
+                                        "test1".parse().unwrap(),
+                                        PublicKey::empty(KeyType::ED25519),
+                                        0,
+                                        false,
+                                    )];
+                                    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
                                     let proposals = vec![ValidatorStake::new(
                                         "test1".parse().unwrap(),
                                         PublicKey::empty(KeyType::ED25519),
@@ -1924,10 +1933,27 @@ fn test_block_merkle_proof_with_len(n: NumBlocks) {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let mut blocks = vec![genesis_block.clone()];
-    for i in 1..n {
-        let block = env.clients[0].produce_block(i).unwrap().unwrap();
-        blocks.push(block.clone());
-        env.process_block(0, block, Provenance::PRODUCED);
+    let mut rng = rand::thread_rng();
+    let mut cur_height = genesis_block.header().height() + 1;
+    while cur_height < n {
+        let should_fork = rng.gen_bool(0.5);
+        if should_fork {
+            let block = env.clients[0].produce_block(cur_height).unwrap().unwrap();
+            let fork_block = env.clients[0].produce_block(cur_height + 1).unwrap().unwrap();
+            env.process_block(0, block.clone(), Provenance::PRODUCED);
+            let next_block = env.clients[0].produce_block(cur_height + 2).unwrap().unwrap();
+            assert_eq!(next_block.header().prev_hash(), block.hash());
+            env.process_block(0, fork_block, Provenance::PRODUCED);
+            env.process_block(0, next_block.clone(), Provenance::PRODUCED);
+            blocks.push(block);
+            blocks.push(next_block);
+            cur_height += 3;
+        } else {
+            let block = env.clients[0].produce_block(cur_height).unwrap().unwrap();
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
+            cur_height += 1;
+        }
     }
     let head = blocks.pop().unwrap();
     let root = head.header().block_merkle_root();
@@ -2056,6 +2082,14 @@ fn test_not_process_height_twice() {
     env.process_block(0, block, Provenance::PRODUCED);
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    #[cfg(feature = "protocol_feature_block_header_v3")]
+    let proposals = vec![ValidatorStake::new(
+        "test1".parse().unwrap(),
+        PublicKey::empty(KeyType::ED25519),
+        0,
+        false,
+    )];
+    #[cfg(not(feature = "protocol_feature_block_header_v3"))]
     let proposals =
         vec![ValidatorStake::new("test1".parse().unwrap(), PublicKey::empty(KeyType::ED25519), 0)];
     invalid_block.mut_header().get_mut().inner_rest.validator_proposals = proposals;
@@ -2529,7 +2563,7 @@ fn test_shard_layout_upgrade() {
         avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
         shard_layout: ShardLayout::v1(
             vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
             Some(vec![vec![0, 1, 2, 3]]),
             1,
         ),
@@ -2541,7 +2575,7 @@ fn test_shard_layout_upgrade() {
     // ShardLayout changes at epoch 2
     // Test that state is caught up correctly at epoch 1 (block height 6-10)
     // TODO: change this number to 16 once splitting states is fully implemented
-    for i in 1..=10 {
+    for i in 1..=6 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
             .runtime_adapter
@@ -2598,12 +2632,15 @@ fn test_epoch_protocol_version_change() {
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
+            .chain
+            .get_block(&head.last_block_hash)
+            .unwrap()
+            .header()
+            .epoch_id()
+            .clone();
+        let chunk_producer =
+            env.clients[0].runtime_adapter.get_chunk_producer(&epoch_id, i, 0).unwrap();
+        let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
         let (encoded_chunk, merkle_paths, receipts) =
             create_chunk_on_height(&mut env.clients[index], i);
 
@@ -2621,6 +2658,13 @@ fn test_epoch_protocol_version_change() {
                 .unwrap();
         }
 
+        let epoch_id = env.clients[0]
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
+        let block_producer =
+            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
+        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
         let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
@@ -2998,15 +3042,24 @@ fn test_block_ordinal() {
     let fork2_block = env.clients[0].produce_block(101).unwrap().unwrap();
     assert_eq!(fork1_block.header().prev_hash(), fork2_block.header().prev_hash());
     env.process_block(0, fork1_block.clone(), Provenance::NONE);
+    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
+    assert_eq!(next_block.header().prev_hash(), fork1_block.header().hash());
     env.process_block(0, fork2_block.clone(), Provenance::NONE);
     ordinal += 1;
+    let fork_ordinal = ordinal - 1;
     assert_eq!(fork1_block.header().block_ordinal(), ordinal);
     assert_eq!(fork2_block.header().block_ordinal(), ordinal);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, fork2_block.header().height());
     // Next block on top of fork
-    let next_block = env.clients[0].produce_block(102).unwrap().unwrap();
     env.process_block(0, next_block.clone(), Provenance::PRODUCED);
     ordinal += 1;
+    assert_eq!(env.clients[0].chain.head().unwrap().height, next_block.header().height());
     assert_eq!(next_block.header().block_ordinal(), ordinal);
+
+    // make sure that the old ordinal maps to what is on the canonical chain
+    let fork_ordinal_block_hash =
+        env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap().clone();
+    assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
 }
 
 fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
@@ -3507,6 +3560,8 @@ mod storage_usage_fix_tests {
     }
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
+#[cfg(test)]
 mod cap_max_gas_price_tests {
     use super::*;
     use near_primitives::version::ProtocolFeature;

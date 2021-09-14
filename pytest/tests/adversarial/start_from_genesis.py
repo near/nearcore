@@ -16,13 +16,20 @@ if "doomslug_off" in sys.argv:
 TIMEOUT = 300
 BLOCKS = 30
 
-
 # Low sync_check_period to sync from a new peer with greater height
-client_config_change = {"consensus":{"sync_check_period": {"secs": 0, "nanos": 100000000}}}
+client_config_change = {
+    "consensus": {
+        "sync_check_period": {
+            "secs": 0,
+            "nanos": 100000000
+        }
+    }
+}
 
 nodes = start_cluster(
     2, 0, 2, None,
-    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {0: client_config_change})
+    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]],
+    {0: client_config_change})
 if not doomslug:
     # we expect inconsistency in store in node 0
     # because we're going to turn off doomslug

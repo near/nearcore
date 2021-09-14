@@ -786,10 +786,9 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateSplit => {
                     debug_assert!(split_states);
-                    // TODO: split states
+                    chain.build_state_for_split_shards(&sync_hash, shard_id)?;
                     debug!(target: "sync", "State sync split: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
-                    // TODO: change this to true once we implement StateSplit
-                    this_done = false;
+                    this_done = true;
                 }
             }
             all_done &= this_done;

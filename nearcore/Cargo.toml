@@ -20,7 +20,7 @@ rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "3"
-borsh = "0.8.1"
+borsh = "0.9"
 thiserror = "1.0"
 tracing = "0.1.13"
 smart-default = "0.6"
@@ -70,7 +70,9 @@ json_rpc = ["near-jsonrpc"]
 protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
 protocol_feature_simple_nightshade = ["near-primitives/protocol_feature_simple_nightshade"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_simple_nightshade"]
+protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3", "near-chain-configs/protocol_feature_chunk_only_producers", "near-epoch-manager/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers", "near-client/protocol_feature_chunk_only_producers", "node-runtime/protocol_feature_chunk_only_producers", "near-rosetta-rpc/protocol_feature_chunk_only_producers"]
+protocol_feature_lower_data_receipt_cost = ["near-primitives/protocol_feature_lower_data_receipt_cost"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_simple_nightshade", "protocol_feature_lower_data_receipt_cost"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 
 # enable this to build neard with wasmer 1.0 runner

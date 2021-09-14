@@ -58,7 +58,8 @@ while node1_height <= cur_height:
         status1 = nodes[1].get_status()
         logger.info(status1)
         node1_height = status1['sync_info']['latest_block_height']
-    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce, base58.b58decode(genesis_hash.encode('utf8')))
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce,
+                         base58.b58decode(genesis_hash.encode('utf8')))
     nodes[1].send_tx(tx)
     nonce += 1
     time.sleep(0.05)

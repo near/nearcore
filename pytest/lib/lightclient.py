@@ -121,11 +121,13 @@ def validate_light_client_block(last_known_block,
                 assert False
             return False
 
+        print(new_block['next_bps'])
         serialized_next_bp = bytearray()
         serialized_next_bp.append(len(new_block['next_bps']))
         for i in range(3):
             serialized_next_bp.append(0)
         for bp in new_block['next_bps']:
+            version = 0
             if 'validator_stake_struct_version' in bp:
                 # version of ValidatorStake enum
                 version = int(bp['validator_stake_struct_version'][1:]) - 1
@@ -141,6 +143,8 @@ def validate_light_client_block(last_known_block,
             for i in range(16):
                 serialized_next_bp.append(stake & 255)
                 stake >>= 8
+            if version > 0:
+                serialized_next_bp.append(1 if bp['is_chunk_only'] else 0)
 
         serialized_next_bp = bytes(serialized_next_bp)
 
