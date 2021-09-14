@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
+use borsh::BorshSerialize;
 use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
@@ -18,8 +19,8 @@ use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
 use near_chain::StoreValidator;
 use near_chain::{
-    byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
-    RuntimeAdapter,
+    byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
+    Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
 #[cfg(feature = "adversarial")]
@@ -61,7 +62,6 @@ use near_client_primitives::types::{
 use near_primitives::block_header::ApprovalType;
 use near_primitives::syncing::StatePartKey;
 use near_store::db::DBCol::ColStateParts;
-use near_store::Store;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -1514,6 +1514,31 @@ struct StatePartsActor {
     client_addr: Addr<ClientActor>,
 }
 
+impl StatePartsActor {
+    fn apply_parts(
+        &mut self,
+        msg: &StatePartsMessage,
+    ) -> Result<(), near_chain_primitives::error::Error> {
+        let store = self.runtime.get_store();
+
+        for part_id in 0..msg.num_parts {
+            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
+            let part = store.get(ColStateParts, &key)?.unwrap();
+
+            self.runtime.apply_state_part(
+                msg.shard_id,
+                &msg.state_root,
+                part_id,
+                msg.num_parts,
+                &part,
+                &msg.epoch_id,
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
 impl Actor for StatePartsActor {
     type Context = Context<Self>;
 }
@@ -1522,28 +1547,7 @@ impl Handler<StatePartsMessage> for StatePartsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StatePartsMessage, _: &mut Self::Context) -> Self::Result {
-        let mut result = Ok(());
-        let store = self.runtime.get_store();
-
-        for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
-            let part = store.owned_store().get(ColStateParts, &key)?.unwrap();
-
-            match self.runtime.apply_state_part(
-                msg.shard_id,
-                &msg.state_root,
-                part_id,
-                num_parts,
-                part,
-                &msg.epoch_id,
-            ) {
-                Ok(()) => {}
-                Err(e) => {
-                    result = Err(e);
-                    break;
-                }
-            }
-        }
+        let result = self.apply_parts(&msg);
 
         self.client_addr.do_send(StatePartsResponse {
             apply_result: result,
