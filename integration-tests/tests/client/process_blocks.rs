@@ -50,7 +50,7 @@ use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
-use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader};
+use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction,
@@ -66,6 +66,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_store::db::DBCol::ColStateParts;
 use near_store::get;
 use near_store::test_utils::create_test_store;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -2340,15 +2341,19 @@ fn test_catchup_gas_price_change() {
     }
     let rt = Arc::clone(&env.clients[1].runtime_adapter);
     let f = move |msg: StatePartsMessage| {
-        let num_parts = msg.parts.len() as u64;
+        use borsh::BorshSerialize;
+        let store = rt.get_store();
 
-        for part_id in 0..num_parts {
+        for part_id in 0..msg.num_parts {
+            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec().unwrap();
+            let part = store.get(ColStateParts, &key).unwrap().unwrap();
+
             rt.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 part_id,
-                num_parts,
-                &msg.parts[part_id as usize],
+                msg.num_parts,
+                &part,
                 &msg.epoch_id,
             )
             .unwrap();
