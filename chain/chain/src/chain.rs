@@ -1811,19 +1811,10 @@ impl Chain {
         let state_root = shard_state_header.chunk_prev_state_root();
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
-        let mut parts = Vec::new();
-
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
-
-            parts.push(part);
-        }
-
         state_parts_task_scheduler(StatePartsMessage {
             shard_id,
             state_root,
-            parts,
+            num_parts,
             epoch_id,
             sync_hash,
         });
@@ -4053,7 +4044,7 @@ pub fn collect_receipts_from_response(
 pub struct StatePartsMessage {
     pub shard_id: ShardId,
     pub state_root: StateRoot,
-    pub parts: Vec<Vec<u8>>,
+    pub num_parts: u64,
     pub epoch_id: EpochId,
     pub sync_hash: CryptoHash,
 }

@@ -629,6 +629,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
+    fn get_store(&self) -> Arc<Store> {
+        self.store.clone()
+    }
+
     fn get_tries(&self) -> ShardTries {
         let tries = self.tries.read().expect(POISONED_LOCK_ERR);
         tries.clone()

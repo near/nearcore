@@ -59,6 +59,9 @@ use near_client_primitives::types::{
     StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_primitives::block_header::ApprovalType;
+use near_primitives::syncing::StatePartKey;
+use near_store::db::DBCol::ColStateParts;
+use near_store::Store;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -1519,16 +1522,19 @@ impl Handler<StatePartsMessage> for StatePartsActor {
     type Result = ();
 
     fn handle(&mut self, msg: StatePartsMessage, _: &mut Self::Context) -> Self::Result {
-        let num_parts = msg.parts.len() as u64;
         let mut result = Ok(());
+        let store = self.runtime.get_store();
 
-        for part_id in 0..num_parts {
+        for part_id in 0..msg.num_parts {
+            let key = StatePartKey(msg.sync_hash, msg.shard_id, part_id).try_to_vec()?;
+            let part = store.owned_store().get(ColStateParts, &key)?.unwrap();
+
             match self.runtime.apply_state_part(
                 msg.shard_id,
                 &msg.state_root,
                 part_id,
                 num_parts,
-                &msg.parts[part_id as usize],
+                part,
                 &msg.epoch_id,
             ) {
                 Ok(()) => {}
