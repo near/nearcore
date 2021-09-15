@@ -162,7 +162,7 @@ pub enum ApprovalInner {
 }
 
 /// Block approval by other block producers with a signature
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Approval {
     pub inner: ApprovalInner,
     pub target_height: BlockHeight,

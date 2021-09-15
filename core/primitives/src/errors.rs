@@ -11,7 +11,7 @@ use near_vm_errors::{CompilationError, FunctionCallErrorSer, MethodResolveError,
 
 /// Error returned in the ExecutionOutcome in case of failure
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError, Hash,
 )]
 pub enum TxExecutionError {
     /// An error happened during Acton execution
@@ -102,7 +102,7 @@ impl std::error::Error for StorageError {}
 
 /// An error happened during TX execution
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
@@ -148,7 +148,7 @@ pub enum InvalidTxError {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
@@ -174,7 +174,7 @@ pub enum InvalidAccessKeyError {
 
 /// Describes the error for validating a list of actions.
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError, Hash
 )]
 pub enum ActionsValidationError {
     /// The delete action must be a final aciton in transaction
@@ -205,7 +205,7 @@ pub enum ActionsValidationError {
 
 /// Describes the error for validating a receipt.
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError,
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, RpcError, Hash
 )]
 pub enum ReceiptValidationError {
     /// The `predecessor_id` of a Receipt is not valid.
@@ -321,7 +321,7 @@ impl Display for ActionsValidationError {
 
 /// An error happened during Acton execution
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError, Hash
 )]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
@@ -370,7 +370,7 @@ impl From<FunctionCallErrorSer> for ContractCallError {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError,
+    BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage

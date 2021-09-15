@@ -36,6 +36,7 @@ use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryRespo
 use std::fmt::{Debug, Error, Formatter};
 
 use near_primitives::merkle::combine_hash;
+use std::hash::{Hash, Hasher};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -186,13 +187,13 @@ pub struct AnnounceAccountRoute {
     pub signature: Signature,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Ping {
     pub nonce: u64,
     pub source: PeerId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct Pong {
     pub nonce: u64,
     pub source: PeerId,
@@ -207,6 +208,7 @@ pub struct Pong {
     Clone,
     strum::AsStaticStr,
     strum::EnumVariantNames,
+    Hash,
 )]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
@@ -316,7 +318,7 @@ impl Debug for RoutedMessageBody {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
@@ -396,7 +398,7 @@ pub struct RoutedMessageNoSignature<'a> {
 /// sender of the package should be banned instead.
 /// If target is hash, it is a message that should be routed back using the same path used to route
 /// the request in first place. It is the hash of the request message.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct RoutedMessage {
     /// Peer id which is directed this message.
     /// If `target` is hash, this a message should be routed back.
@@ -792,21 +794,21 @@ pub struct KnownProducer {
     pub peer_id: PeerId,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct StateResponseInfoV1 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponseV1,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct StateResponseInfoV2 {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub state_response: ShardStateSyncResponse,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub enum StateResponseInfo {
     V1(StateResponseInfoV1),
     V2(StateResponseInfoV2),
@@ -977,7 +979,18 @@ pub struct PartialEncodedChunkRequestMsg {
     pub tracking_shards: HashSet<ShardId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+
+impl Hash for PartialEncodedChunkRequestMsg {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.chunk_hash.hash(state);
+        self.part_ords.hash(state);
+        let mut v: Vec<ShardId> = self.tracking_shards.iter().cloned().collect();
+        v.sort();
+        v.hash(state);
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Hash)]
 pub struct PartialEncodedChunkResponseMsg {
     pub chunk_hash: ChunkHash,
     pub parts: Vec<PartialEncodedChunkPart>,
@@ -987,7 +1000,7 @@ pub struct PartialEncodedChunkResponseMsg {
 /// Message for chunk part owners to forward their parts to validators tracking that shard.
 /// This reduces the number of requests a node tracking a shard needs to send to obtain enough
 /// parts to reconstruct the message (in the best case no such requests are needed).
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize, Hash)]
 pub struct PartialEncodedChunkForwardMsg {
     pub chunk_hash: ChunkHash,
     pub inner_header_hash: CryptoHash,

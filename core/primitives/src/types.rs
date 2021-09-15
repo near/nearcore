@@ -18,7 +18,7 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -54,7 +54,7 @@ pub struct AccountInfo {
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize, Hash
 )]
 #[as_ref(forward)]
 pub struct StoreKey(Vec<u8>);
@@ -75,7 +75,7 @@ pub struct StoreValue(Vec<u8>);
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize,
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize, Hash
 )]
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
@@ -367,7 +367,7 @@ impl StateChanges {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize, Hash)]
 pub struct StateRootNode {
     /// in Nightshade, data is the serialized TrieNodeWithSize
     pub data: Vec<u8>,
@@ -426,7 +426,7 @@ pub mod validator_stake {
     pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
-    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
@@ -735,7 +735,7 @@ pub mod validator_stake {
 }
 
 /// Stores validator and its stake.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ValidatorStakeV1 {
     /// Account that stakes money.
     pub account_id: AccountId,
@@ -944,7 +944,7 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),
@@ -953,14 +953,14 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
     EarliestAvailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),

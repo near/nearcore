@@ -44,7 +44,7 @@ impl Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
     /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
@@ -78,7 +78,7 @@ impl Action {
 }
 
 /// Create account action
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct CreateAccountAction {}
 
 impl From<CreateAccountAction> for Action {
@@ -88,7 +88,7 @@ impl From<CreateAccountAction> for Action {
 }
 
 /// Deploy contract action
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub struct DeployContractAction {
     /// WebAssembly binary
     #[serde(with = "base64_format")]
@@ -109,7 +109,7 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub struct FunctionCallAction {
     pub method_name: String,
     #[serde(with = "base64_format")]
@@ -136,7 +136,7 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct TransferAction {
     #[serde(with = "u128_dec_format_compatible")]
     pub deposit: Balance,
@@ -149,7 +149,7 @@ impl From<TransferAction> for Action {
 }
 
 /// An action which stakes singer_id tokens and setup's validator public key
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "u128_dec_format_compatible")]
@@ -164,7 +164,7 @@ impl From<StakeAction> for Action {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
     pub public_key: PublicKey,
@@ -178,7 +178,7 @@ impl From<AddKeyAction> for Action {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
     pub public_key: PublicKey,
@@ -190,7 +190,7 @@ impl From<DeleteKeyAction> for Action {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }

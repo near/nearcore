@@ -12,22 +12,22 @@ use crate::sharding::{
 use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Hash)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 pub struct ShardStateSyncResponseHeaderV1 {
     pub chunk: ShardChunkV1,
     pub chunk_proof: MerklePath,
@@ -38,7 +38,7 @@ pub struct ShardStateSyncResponseHeaderV1 {
     pub state_root_node: StateRootNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 pub struct ShardStateSyncResponseHeaderV2 {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
@@ -137,19 +137,19 @@ impl ShardStateSyncResponseHeader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 pub struct ShardStateSyncResponseV2 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Hash)]
 pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1),
     V2(ShardStateSyncResponseV2),

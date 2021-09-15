@@ -687,7 +687,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             Ok(msg) => msg,
             Err(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
-                return ();
+                return;
             }
         };
 

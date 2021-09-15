@@ -46,7 +46,7 @@ pub enum FunctionCallError {
 /// add new variants at the end (but do that very carefully). This type must be never used
 /// directly, and must be converted to `ContractCallError` instead using `into()` converter.
 /// It describes stable serialization format, and only used by serialization logic.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize, Hash)]
 pub enum FunctionCallErrorSer {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -77,7 +77,7 @@ pub enum CacheError {
 }
 /// A kind of a trap happened during execution of a binary
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum WasmTrap {
     /// An `unreachable` opcode was executed.
@@ -101,7 +101,7 @@ pub enum WasmTrap {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum MethodResolveError {
     MethodEmptyName,
@@ -110,7 +110,7 @@ pub enum MethodResolveError {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum CompilationError {
     CodeDoesNotExist { account_id: AccountId },
@@ -120,7 +120,7 @@ pub enum CompilationError {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError, Hash
 )]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
@@ -148,7 +148,7 @@ pub enum PrepareError {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
+    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError, Hash
 )]
 pub enum HostError {
     /// String encoding is bad UTF-16 sequence
