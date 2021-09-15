@@ -155,6 +155,10 @@ impl ShardUId {
         assert!(shard_id < shard_layout.num_shards());
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
+
+    pub fn shard_id(&self) -> ShardId {
+        ShardId::from(self.shard_id)
+    }
 }
 
 impl TryFrom<&[u8]> for ShardUId {

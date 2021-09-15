@@ -189,6 +189,11 @@ fn convert_block_changes_to_transactions(
             StateChangeCauseView::Migration => {
                 format!("migration:{}", block_hash)
             }
+            StateChangeCauseView::Resharding => {
+                return Err(crate::errors::ErrorKind::InternalInvariantError(
+                    "State Change 'Resharding' should never be observed".to_string(),
+                ));
+            }
         };
 
         let current_transaction =

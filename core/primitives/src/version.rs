@@ -109,6 +109,8 @@ pub enum ProtocolFeature {
     SimpleNightshade,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
+    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    LowerDataReceiptCost,
 }
 
 /// Current latest stable version of the protocol.
@@ -119,7 +121,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 115;
+pub const PROTOCOL_VERSION: ProtocolVersion = 116;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -148,6 +150,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshade => 114,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 115,
+            #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+            ProtocolFeature::LowerDataReceiptCost => 116,
         }
     }
 }

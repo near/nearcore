@@ -2,11 +2,14 @@
 //! You can create Scenario in rust code or have it in a JSON file.
 //! Scenario::run executes scenario, keeping track of different metrics.
 //! So far, the only metric is how much time block production takes.
+//! To create scenario in rust code you can use ScenarioBuilder which covers basic scenarios.
 //! fuzzing provides Arbitrary trait for Scenario, thus enabling creating random scenarios.
 pub mod fuzzing;
 pub mod run_test;
+pub mod scenario_builder;
 
 pub use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
+pub use crate::scenario_builder::ScenarioBuilder;
 
 #[test]
 // Use this test as a base for creating reproducers.

@@ -1164,6 +1164,15 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
         Ok(false)
     }
+
+    fn build_state_for_split_shards(
+        &self,
+        _shard_uid: ShardUId,
+        _state_root: &StateRoot,
+        _next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        Ok(HashMap::new())
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
