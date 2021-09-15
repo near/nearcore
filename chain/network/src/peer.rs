@@ -76,6 +76,8 @@ pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
 pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
+/// Duplicated messages will be dropped if routed through the same peer multiple times.
+pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(100);
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -747,7 +749,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Utc::now();
             if let Some(time) = self.routed_message_cache.cache_get(&key) {
-                if time.signed_duration_since(now).num_seconds() >= 1 {
+                if time.signed_duration_since(now) <= DROP_DUPLICATED_MESSAGES_PERIOD {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }
