@@ -94,6 +94,7 @@ pub struct ClientActor {
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
+    state_parts_client_arbiter: Arbiter,
 }
 
 /// Blocks the program until given genesis time arrives.
@@ -134,7 +135,8 @@ impl ClientActor {
         let runtime_adapter_clone = Arc::clone(&runtime_adapter);
         let state_parts_actor_addr = StatePartsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
-            move |_: &mut Context<StatePartsActor>| -> StatePartsActor {
+            move |ctx: &mut Context<StatePartsActor>| -> StatePartsActor {
+                ctx.set_mailbox_capacity(StatePartsActor::MAILBOX_CAPACITY);
                 StatePartsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
             },
         );
@@ -177,8 +179,11 @@ impl ClientActor {
             chunk_request_retry_next_attempt: now,
             sync_started: false,
             state_parts_task_scheduler: Box::new(move |msg: ApplyStatePartsRequest| {
-                state_parts_actor_addr.do_send(msg);
+                if let Err(_) = state_parts_actor_addr.try_send(msg) {
+                    panic!("Can't send message to StatePartsActor");
+                }
             }),
+            state_parts_client_arbiter: state_parts_arbiter,
         })
     }
 }
@@ -1509,12 +1514,20 @@ impl ClientActor {
     }
 }
 
+impl Drop for ClientActor {
+    fn drop(&mut self) {
+        self.state_parts_client_arbiter.stop();
+    }
+}
+
 struct StatePartsActor {
     runtime: Arc<dyn RuntimeAdapter>,
     client_addr: Addr<ClientActor>,
 }
 
 impl StatePartsActor {
+    const MAILBOX_CAPACITY: usize = 100;
+
     fn apply_parts(
         &mut self,
         msg: &ApplyStatePartsRequest,
