@@ -750,11 +750,11 @@ impl StateSync {
                         update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
-                            status: ShardSyncStatus::StateDownloadDownloaded,
+                            status: ShardSyncStatus::StateDownloadScheduling,
                         };
                     }
                 }
-                ShardSyncStatus::StateDownloadDownloaded => {
+                ShardSyncStatus::StateDownloadScheduling => {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
