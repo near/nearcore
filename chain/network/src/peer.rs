@@ -1,6 +1,6 @@
 use std::cmp::max;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -38,7 +38,7 @@ use crate::types::{
     RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
     UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
-use crate::PeerManagerActor;
+use crate::{PeerManagerActor, NetworkConfig};
 use crate::{
     metrics::{self, NetworkMetrics},
     NetworkResponses,
@@ -53,6 +53,9 @@ use near_rust_allocator_proxy::allocator::get_tid;
 
 use near_crypto::Signature;
 use near_network_primitives::types::PeerIdOrHash;
+use actix::actors::mocker::Mocker;
+use near_store::test_utils::create_test_store;
+use crate::test_utils::convert_boot_nodes;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -1101,6 +1104,112 @@ impl Handler<PeerManagerRequest> for Peer {
     }
 }
 
+
+
+// type ClientMock = Mocker<ClientActor>;
+// type ViewClientMock = Mocker<ClientActor>;
+type FramedWriteMock = Mocker<FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>>;
+type PeerManagerActorMock = Mocker<PeerManagerActor>;
+type ClientMessagesMock = Mocker<NetworkClientMessages>;
+type ViewClientMessagesMock = Mocker<NetworkViewClientMessages>;
+
+
+// peer_manager_addr: Addr<PeerManagerActor>,
+/// Make Peer Manager with mocked client ready to accept any announce account.
+/// Used for `test_infinite_loop`
+pub fn make_peer(
+    peer_id: PeerId,
+    peer_type: PeerType,
+    seed: &str,
+    port: u16,
+    boot_nodes: Vec<(&str, u16)>,
+    peer_max_count: u32,
+) -> Peer {
+    let store = create_test_store();
+    let mut config = NetworkConfig::from_seed(seed, port);
+    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.max_num_peers = peer_max_count;
+    let counter = Arc::new(AtomicUsize::new(0));
+    let counter1 = counter.clone();
+    /*
+    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
+        Box::new(Some(NetworkClientResponses::NoResponse))
+    }))
+        .start();
+
+
+    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
+        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
+        match msg {
+            NetworkViewClientMessages::AnnounceAccount(accounts) => {
+                if !accounts.is_empty() {
+                    counter1.fetch_add(1, Ordering::SeqCst);
+                }
+                Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
+                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                )))
+            }
+            NetworkViewClientMessages::GetChainInfo => {
+                Box::new(Some(NetworkViewClientResponses::ChainInfo {
+                    genesis_id: GenesisId::default(),
+                    height: 1,
+                    tracked_shards: vec![],
+                    archival: false,
+                }))
+            }
+            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
+        }
+    }))
+        .start();
+
+*/
+    let peer_manager_mock = PeerManagerActorMock::mock(Box::new(move |msg, _ctx| {
+        Box::new("")
+    }))
+        .start();
+    let client_messages_mock = ClientMessagesMock::mock(Box::new(move |msg, _ctx| {
+        Box::new("")
+    }))
+        .start();
+    let view_client_messages_mock = ViewClientMessagesMock::mock(Box::new(move |msg, _ctx| {
+        Box::new("")
+    }))
+        .start();
+    let framed_write_mock: Mocker<FramedWrite<Vec<u8>, WriteHalf, Codec, Codec>> = FramedWriteMock::mock(Box::new(move |msg, _ctx| {
+        Box::new("")
+    }));
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 11);
+
+/*
+        peer_manager_addr: Addr<PeerManagerActor>,
+        client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
+ */
+    let peer_counter = Arc::new(AtomicUsize::new(0));
+    let txns_since_last_block =Arc::new(AtomicUsize::new(0));
+    let network_metrics = NetworkMetrics::new();
+    Peer::new(
+        //PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
+        PeerInfo { id: peer_id, addr: Some(addr), account_id: None },
+        addr,
+        None,
+        // peer_info,
+        peer_type,
+        framed_write_mock,
+        Duration::from_millis(1000),
+        peer_manager_mock,
+        client_messages_mock.recipient(),
+        view_client_messages_mock.recipient(),
+        // edge_info,
+        None,
+        network_metrics,
+        txns_since_last_block,
+        peer_counter,
+    )
+}
+
+
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::hash;
@@ -1175,4 +1284,12 @@ mod tests {
         }
         assert!(q.contains(&hash(&[5])));
     }
+
+    #[test]
+    fn test_make_peer() {
+        let peer_id = PeerId::random();
+        let peer = make_peer(peer_id, PeerType::Inbound ,"0", 16, Vec::new(), 0);
+    }
 }
+
+
