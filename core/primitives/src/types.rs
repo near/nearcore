@@ -435,7 +435,7 @@ pub mod validator_stake {
     }
 
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
     pub struct ValidatorStakeV2 {
         /// Account that stakes money.
         pub account_id: AccountId,
