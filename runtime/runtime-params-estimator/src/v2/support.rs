@@ -11,6 +11,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Gas};
 use near_vm_logic::ExtCosts;
+use num_rational::Ratio;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 
@@ -148,7 +149,7 @@ impl<'c> TestBed<'c> {
         let total_iters = self.config.warmup_iters_per_block + self.config.iter_per_block;
 
         let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-        let mut total = 0;
+        let mut total = Ratio::from_integer(0);
         let mut n = 0;
         for iter in 0..total_iters {
             let block_size = self.block_size;
@@ -269,7 +270,10 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct GasCost {
-    pub value: u64,
+    /// The smallest thing we are measuring is one wasm instruction, and it
+    /// takes about a nanosecond, so we do need to account for fractional
+    /// nanoseconds here!
+    pub value: Ratio<u64>,
     pub metric: GasMetric,
 }
 
@@ -277,7 +281,7 @@ impl fmt::Debug for GasCost {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.metric {
             GasMetric::ICount => write!(f, "{}i", self.value),
-            GasMetric::Time => fmt::Debug::fmt(&Duration::from_nanos(self.value), f),
+            GasMetric::Time => fmt::Debug::fmt(&Duration::from_nanos(self.value.to_integer()), f),
         }
     }
 }
@@ -313,6 +317,6 @@ impl Ord for GasCost {
 
 impl GasCost {
     pub(crate) fn to_gas(self) -> Gas {
-        ratio_to_gas(self.metric, self.value.into())
+        ratio_to_gas(self.metric, self.value)
     }
 }

@@ -15,6 +15,7 @@ use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
+use num_rational::Ratio;
 use rand::Rng;
 
 use crate::testbed_runners::{end_count, start_count, Config};
@@ -437,6 +438,7 @@ fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
         run();
     }
     let total = end_count(ctx.config.metric, &start);
+    let total = Ratio::from_integer(total);
 
     let instructions_per_iter = {
         let op_cost = config.regular_op_cost as u64;
