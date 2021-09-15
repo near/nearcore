@@ -316,7 +316,7 @@ impl Debug for RoutedMessageBody {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]
 pub enum PeerIdOrHash {
     PeerId(PeerId),
     Hash(CryptoHash),
