@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use crate::hash::{hash, CryptoHash};
 use crate::types::MerkleHash;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash,
+)]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
     pub direction: Direction,
@@ -12,7 +14,9 @@ pub struct MerklePathItem {
 
 pub type MerklePath = Vec<MerklePathItem>;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash,
+)]
 pub enum Direction {
     Left,
     Right,

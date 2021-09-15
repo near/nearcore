@@ -979,7 +979,6 @@ pub struct PartialEncodedChunkRequestMsg {
     pub tracking_shards: HashSet<ShardId>,
 }
 
-
 impl Hash for PartialEncodedChunkRequestMsg {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.chunk_hash.hash(state);

@@ -671,10 +671,8 @@ pub enum Signature {
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            Signature::ED25519(sig) => {
-                sig.to_bytes().hash(state)
-            },
-            Signature::SECP256K1(sig) => { sig.hash(state) }
+            Signature::ED25519(sig) => sig.to_bytes().hash(state),
+            Signature::SECP256K1(sig) => sig.hash(state),
         };
     }
 }

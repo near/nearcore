@@ -53,7 +53,9 @@ use crate::version::{ProtocolVersion, Version};
 use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Hash,
+)]
 pub struct AccountView {
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
@@ -67,7 +69,9 @@ pub struct AccountView {
 }
 
 /// A view of the contract code.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Hash,
+)]
 pub struct ContractCodeView {
     #[serde(rename = "code_base64", with = "base64_format")]
     pub code: Vec<u8>,
@@ -139,7 +143,9 @@ impl From<ContractCodeView> for ContractCode {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Hash,
+)]
 pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "option_u128_dec_format")]
@@ -178,7 +184,9 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Hash,
+)]
 pub struct AccessKeyView {
     pub nonce: Nonce,
     pub permission: AccessKeyPermissionView,
@@ -200,21 +208,34 @@ impl From<AccessKeyView> for AccessKey {
 pub type TrieProofPath = Vec<String>;
 
 /// Item of the state, key and value are serialized in base64 and proof for inclusion of given state item.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct StateItem {
     pub key: String,
     pub value: String,
     pub proof: TrieProofPath,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct ViewStateResult {
     pub values: Vec<StateItem>,
     pub proof: TrieProofPath,
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default, Hash
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Default,
+    Hash,
 )]
 pub struct CallResult {
     pub result: Vec<u8>,
@@ -227,13 +248,17 @@ pub struct QueryError {
     pub logs: Vec<String>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct AccessKeyInfoView {
     pub public_key: PublicKey,
     pub access_key: AccessKeyView,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
 }
@@ -254,7 +279,9 @@ pub enum QueryResponseKind {
     AccessKeyList(AccessKeyList),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 #[serde(tag = "request_type", rename_all = "snake_case")]
 pub enum QueryRequest {
     ViewAccount {
@@ -794,7 +821,9 @@ impl ChunkView {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash)]
+#[derive(
+    Serialize, Deserialize, Clone, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash,
+)]
 pub enum ActionView {
     CreateAccount,
     DeployContract {
@@ -905,7 +934,9 @@ impl TryFrom<ActionView> for Action {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    Serialize, Deserialize, Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Hash,
+)]
 pub struct SignedTransactionView {
     pub signer_id: AccountId,
     pub public_key: PublicKey,
@@ -1017,7 +1048,9 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug, Hash,
+)]
 pub struct CostGasUsed {
     pub cost_category: String,
     pub cost: String,
@@ -1025,7 +1058,9 @@ pub struct CostGasUsed {
     pub gas_used: Gas,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug, Hash,
+)]
 pub struct ExecutionMetadataView {
     version: u32,
     gas_profile: Option<Vec<CostGasUsed>>,
@@ -1061,7 +1096,9 @@ impl From<ExecutionMetadata> for ExecutionMetadataView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash,
+)]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
     pub logs: Vec<String>,
@@ -1097,7 +1134,9 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash )]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct ExecutionOutcomeWithIdView {
     pub proof: MerklePath,
     pub block_hash: CryptoHash,

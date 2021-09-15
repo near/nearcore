@@ -15,7 +15,9 @@ use crate::types::{AccountId, Balance, ShardId};
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct Receipt {
     /// An issuer account_id of a particular receipt.
     /// `predecessor_id` could be either `Transaction` `signer_id` or intermediate contract's `account_id`.
@@ -89,14 +91,18 @@ impl Receipt {
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash,
+)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Hash,
+)]
 pub struct ActionReceipt {
     /// A signer of the original transaction
     pub signer_id: AccountId,

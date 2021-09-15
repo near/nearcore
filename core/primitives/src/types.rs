@@ -18,7 +18,9 @@ pub use near_primitives_core::types::*;
 pub type StateRoot = CryptoHash;
 
 /// Different types of finality.
-#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Serialize, Deserialize, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, Hash,
+)]
 pub enum Finality {
     #[serde(rename = "optimistic")]
     None,
@@ -54,7 +56,7 @@ pub struct AccountInfo {
 /// NOTE: Currently, this type is only used in the view_client and RPC to be able to transparently
 /// pretty-serialize the bytes arrays as base64-encoded strings (see `serialize.rs`).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize, Hash
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize, Hash,
 )]
 #[as_ref(forward)]
 pub struct StoreKey(Vec<u8>);
@@ -75,7 +77,7 @@ pub struct StoreValue(Vec<u8>);
 /// transparently serialized and deserialized as a base64-encoded string when serde is used
 /// (serde_json).
 #[derive(
-    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize, Hash
+    Debug, Clone, PartialEq, Eq, DeriveAsRef, DeriveFrom, BorshSerialize, BorshDeserialize, Hash,
 )]
 #[as_ref(forward)]
 pub struct FunctionArgs(Vec<u8>);
@@ -944,7 +946,9 @@ pub struct ChunkExtraV1 {
     pub balance_burnt: Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash,
+)]
 #[serde(untagged)]
 pub enum BlockId {
     Height(BlockHeight),
@@ -953,14 +957,18 @@ pub enum BlockId {
 
 pub type MaybeBlockId = Option<BlockId>;
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncCheckpoint {
     Genesis,
     EarliestAvailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize, Deserialize, Hash,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockReference {
     BlockId(BlockId),
