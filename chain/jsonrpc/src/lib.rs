@@ -33,6 +33,7 @@ use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionOutcomeViewEnum;
+use near_network::types::AcceptConnectionFrom;
 
 mod metrics;
 
@@ -236,6 +237,27 @@ impl JsonRpcHandler {
                 "adv_switch_to_height" => Some(self.adv_switch_to_height(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
+                "adv_accept_connection_from" => {
+                    let req =
+                        near_jsonrpc_primitives::types::requests::AcceptConnectionFromRequest::parse(
+                            params,
+                        )?;
+                    let address = req.address.parse().map_err(|_| {
+                        RpcError::new_internal_error(
+                            None,
+                            format!("Failed to parse address: {:?}", req.address),
+                        )
+                    })?;
+                    let result = self
+                        .peer_manager_addr
+                        .clone()
+                        .send(AcceptConnectionFrom { addr: address })
+                        .await?;
+                    Some(
+                        serde_json::to_value(result)
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
                 _ => None,
             };
 

@@ -1,10 +1,10 @@
 use rand::seq::{IteratorRandom, SliceRandom};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::{atomic::AtomicUsize, Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use actix::{
@@ -31,14 +31,7 @@ use crate::peer_store::{PeerStore, TrustLevel};
 use crate::routing::{
     Edge, EdgeInfo, EdgeType, EdgeVerifierHelper, ProcessEdgeResult, RoutingTable, MAX_NUM_PEERS,
 };
-use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
-};
+use crate::types::{AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister, AcceptConnectionFrom};
 use crate::types::{
     EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerInfo,
@@ -173,6 +166,8 @@ pub struct PeerManagerActor {
     peer_counter: Arc<AtomicUsize>,
     scheduled_routing_table_update: bool,
     edge_verifier_requests_in_progress: u64,
+    /// White list of peers, from from connections will be accepted above limit
+    peer_white_list: Arc<RwLock<HashSet<IpAddr>>>,
 }
 
 impl PeerManagerActor {
@@ -217,6 +212,7 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             scheduled_routing_table_update: false,
             edge_verifier_requests_in_progress: 0,
+            peer_white_list: Default::default(),
         })
     }
 
@@ -1254,6 +1250,7 @@ impl Actor for PeerManagerActor {
                 self.pending_incoming_connections_counter.clone();
             let peer_counter = self.peer_counter.clone();
             let max_num_peers: usize = self.config.max_num_peers as usize;
+            let peer_white_list = self.peer_white_list.clone();
 
             ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
@@ -1265,10 +1262,18 @@ impl Actor for PeerManagerActor {
 
                     ctx.add_message_stream(incoming.filter_map(move |conn| {
                         if let Ok(conn) = conn {
-                            if pending_incoming_connections_counter.load(Ordering::SeqCst)
+                            let mut accept_connection = pending_incoming_connections_counter
+                                .load(Ordering::SeqCst)
                                 + peer_counter.load(Ordering::SeqCst)
-                                < max_num_peers + LIMIT_PENDING_PEERS
-                            {
+                                < max_num_peers + LIMIT_PENDING_PEERS;
+                            if !accept_connection {
+                                if let Ok(addr) = conn.peer_addr() {
+                                    accept_connection |=
+                                        peer_white_list.write().unwrap().contains(&addr.ip());
+                                }
+                            }
+
+                            if accept_connection {
                                 pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
                                 return future::ready(Some(InboundTcpConnect::new(conn)));
                             }
@@ -1669,11 +1674,14 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("inbound tcp connect".into());
-        if self.is_inbound_allowed() {
-            self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
-        } else {
-            // TODO(1896): Gracefully drop inbound connection for other peer.
-            debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+        if let Ok(addr) = msg.stream.peer_addr() {
+            if self.is_inbound_allowed()
+                || self.peer_white_list.write().unwrap().contains(&addr.ip()) {
+                self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
+            } else {
+                // TODO(1896): Gracefully drop inbound connection for other peer.
+                debug!(target: "network", "Inbound connection dropped (network at max capacity).");
+            }
         }
         self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
     }
@@ -1956,3 +1964,13 @@ impl Handler<PeerRequest> for PeerManagerActor {
         }
     }
 }
+
+impl Handler<AcceptConnectionFrom> for PeerManagerActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: AcceptConnectionFrom, _ctx: &mut Self::Context) {
+        self.peer_white_list.write().unwrap().insert(msg.addr.clone());
+    }
+}
+

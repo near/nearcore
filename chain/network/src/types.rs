@@ -9,6 +9,7 @@ use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future::BoxFuture, FutureExt};
 use strum::AsStaticStr;
+use serde::{Serialize, Deserialize};
 
 pub use near_network_primitives::types::*;
 
@@ -32,6 +33,8 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 
 use conqueue::QueueSender;
+use std::net::IpAddr;
+use serde_json::Value;
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
@@ -808,4 +811,11 @@ mod tests {
         assert_size!(FullPeerInfo);
         assert_size!(NetworkInfo);
     }
+}
+
+
+#[derive(Message, Clone, Debug)]
+#[rtype(result = "()")]
+pub struct AcceptConnectionFrom {
+    pub addr: IpAddr,
 }
