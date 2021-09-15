@@ -662,7 +662,7 @@ impl From<Secp256K1Signature> for [u8; 65] {
 }
 
 /// Signature container supporting different curves.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),

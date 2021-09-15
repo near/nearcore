@@ -48,6 +48,11 @@ use crate::{
     metrics::{self, NetworkMetrics},
     NetworkResponses,
 };
+use cached::{Cached, SizedCache};
+use chrono::{DateTime, Utc};
+
+use near_crypto::Signature;
+use near_network_primitives::types::PeerIdOrHash;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -68,6 +73,8 @@ pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
 pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
+/// Limit cache size of 1000 messages
+pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -193,6 +200,8 @@ pub struct Peer {
     peer_counter: Arc<AtomicUsize>,
     /// The last time a Epoch Sync request was received from this peer
     last_time_received_epoch_sync_request: Instant,
+    /// Cache of recently routed messages, this allows us to drop duplicates
+    routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), DateTime<Utc>>,
 }
 
 impl Peer {
@@ -233,6 +242,7 @@ impl Peer {
             peer_counter,
             last_time_received_epoch_sync_request: Instant::now()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
         }
     }
 
@@ -688,7 +698,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             Ok(msg) => msg,
             Err(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
-                return ();
+                return;
             }
         };
 
@@ -732,6 +742,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 return;
             }
         };
+        // Drop duplicated messages routed within 1s
+        if let PeerMessage::Routed(msg) = &peer_msg {
+            let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
+            let now = Utc::now();
+            if let Some(time) = self.routed_message_cache.cache_get(&key) {
+                if time.signed_duration_since(now).num_seconds() >= 1 {
+                    debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                    return;
+                }
+            }
+            self.routed_message_cache.cache_set(key, now);
+        }
         if let PeerMessage::Routed(RoutedMessage {
             body: RoutedMessageBody::ForwardTx(_), ..
         }) = &peer_msg
