@@ -43,17 +43,16 @@ use crate::{
     metrics::{self, NetworkMetrics},
     NetworkResponses,
 };
+use cached::{Cached, SizedCache};
+use chrono::{DateTime, Utc};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_performance_metrics_macros::perf;
 use near_primitives::sharding::PartialEncodedChunk;
 use near_rust_allocator_proxy::allocator::get_tid;
-use chrono::{Utc, DateTime};
-use cached::{SizedCache, Cached};
 
-use near_network_primitives::types::PeerIdOrHash;
 use near_crypto::Signature;
-
+use near_network_primitives::types::PeerIdOrHash;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -204,7 +203,7 @@ pub struct Peer {
     /// The last time a Epoch Sync request was received from this peer
     last_time_received_epoch_sync_request: Instant,
     /// Cache of recently routed messages, this allows us to drop duplicates
-    routed_message_cache : SizedCache<(PeerId, PeerIdOrHash, Signature), DateTime<Utc>>
+    routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), DateTime<Utc>>,
 }
 
 impl Peer {
@@ -749,7 +748,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Utc::now();
             if let Some(time) = self.routed_message_cache.cache_get(&key) {
-                if time.signed_duration_since(now).num_milliseconds() as i128 <= DROP_DUPLICATED_MESSAGES_PERIOD.as_millis() as i128 {
+                if time.signed_duration_since(now).num_milliseconds() as i128
+                    <= DROP_DUPLICATED_MESSAGES_PERIOD.as_millis() as i128
+                {
                     debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                     return;
                 }

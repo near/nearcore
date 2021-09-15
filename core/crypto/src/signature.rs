@@ -668,7 +668,6 @@ pub enum Signature {
     SECP256K1(Secp256K1Signature),
 }
 
-
 impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
@@ -677,7 +676,6 @@ impl Hash for Signature {
         };
     }
 }
-
 
 impl Signature {
     /// Construct Signature from key type and raw signature blob
