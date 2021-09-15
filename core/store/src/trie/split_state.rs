@@ -201,7 +201,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         for _ in 0..20 {
-            let mut tries = create_tries();
+            let tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
             let shards: Vec<_> = (0..num_shards)
@@ -335,7 +335,7 @@ mod tests {
     fn test_apply_delayed_receipts_to_new_states() {
         let mut rng = rand::thread_rng();
 
-        let mut tries = create_tries();
+        let tries = create_tries();
         let num_shards = 4;
         let shards: Vec<_> = (0..num_shards)
             .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })

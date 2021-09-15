@@ -131,7 +131,7 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
 
     store: Arc<Store>,
-    tries: RwLock<ShardTries>,
+    tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
     epoch_manager: SafeEpochManager,
@@ -181,7 +181,7 @@ impl NightshadeRuntime {
             genesis_config,
             runtime_config_store,
             store,
-            tries: RwLock::new(tries),
+            tries,
             runtime,
             trie_viewer,
             epoch_manager: SafeEpochManager(epoch_manager),
@@ -634,14 +634,12 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_tries(&self) -> ShardTries {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        tries.clone()
+        self.tries.clone()
     }
 
     fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        Ok(tries.get_trie_for_shard(shard_uid))
+        Ok(self.tries.get_trie_for_shard(shard_uid))
     }
 
     fn get_view_trie_for_shard(
@@ -650,8 +648,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_hash: &CryptoHash,
     ) -> Result<Trie, Error> {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        Ok(tries.get_view_trie_for_shard(shard_uid))
+        Ok(self.tries.get_view_trie_for_shard(shard_uid))
     }
 
     fn verify_block_vrf(
@@ -689,8 +686,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if let Some(state_root) = state_root {
             let shard_uid =
                 self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
-            let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-            let mut state_update = tries.new_trie_update(shard_uid, state_root);
+            let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
                 runtime_config,
@@ -748,8 +744,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let mut state_update = tries.new_trie_update(shard_uid, state_root);
+        let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -1524,8 +1519,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         assert!(part_id < num_parts);
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let trie = tries.get_view_trie_for_shard(shard_uid);
+        let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -1569,8 +1563,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &StateRoot,
         next_epoch_shard_layout: &ShardLayout,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let mut tries = self.tries.write().expect(POISONED_LOCK_ERR);
-        let trie = tries.get_view_trie_for_shard(shard_uid);
+        let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let shard_id = shard_uid.shard_id();
         let new_shards: Vec<_> = {
             let split_shards = next_epoch_shard_layout
@@ -1581,7 +1574,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .map(|id| ShardUId::from_shard_id_and_layout(*id, &next_epoch_shard_layout))
                 .collect()
         };
-        tries.add_new_shards(&new_shards);
+        self.tries.add_new_shards(&new_shards);
         let mut state_roots: HashMap<_, _> =
             new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
 
@@ -1590,7 +1583,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
-            let (store_update, new_state_roots) = tries.apply_changes_to_new_states(
+            let (store_update, new_state_roots) = self.tries.apply_changes_to_new_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
                 &|raw_key| {
@@ -1628,7 +1621,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             store_update.commit()?;
         }
         state_roots = apply_delayed_receipts(
-            &tries,
+            &self.tries,
             shard_uid,
             state_root.clone(),
             state_roots,
@@ -1667,8 +1660,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<StateRootNode, Error> {
         let epoch_id = self.get_epoch_id(block_hash)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        tries
+        self.tries
             .get_view_trie_for_shard(shard_uid)
             .retrieve_root_node(state_root)
             .map_err(|e| e.to_string().into())
@@ -1764,8 +1756,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
@@ -1775,8 +1766,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_contract_code(&state_update, account_id)
     }
 
@@ -1797,8 +1787,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
             block_height: height,
             prev_block_hash: *prev_block_hash,
@@ -1807,7 +1796,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
+            cache: Some(Arc::new(StoreCompiledContractCache { store: self.tries.get_store() })),
         };
         self.trie_viewer.call_function(
             state_update,
@@ -1827,8 +1816,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
@@ -1839,8 +1827,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }
 
@@ -1851,8 +1838,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
-        let tries = self.tries.read().expect(POISONED_LOCK_ERR);
-        let state_update = tries.new_trie_update_view(*shard_uid, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }

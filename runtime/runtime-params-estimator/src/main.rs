@@ -217,14 +217,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         let _binary_name = args.next();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--docker" => continue,
-                "--full" => continue,
-                "--additional-accounts-num" => {
-                    args.next();
-                    write!(buf, " {:?} 0", arg).unwrap();
-                    continue;
-                }
-                "--home" => {
+                "--docker" | "--full" => continue,
+                "--additional-accounts-num" | "--home" => {
                     args.next();
                     continue;
                 }
@@ -233,7 +227,9 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
                 }
             }
         }
+
         write!(buf, " --skip-build-test-contract").unwrap();
+        write!(buf, " --additional-accounts-num 0").unwrap();
 
         buf
     };
