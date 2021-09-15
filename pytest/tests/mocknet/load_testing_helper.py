@@ -25,7 +25,7 @@ MAX_TPS = 500  # maximum transactions per second sent (across the whole network)
 NUM_NODES = 100
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * 60
+CONTRACT_DEPLOY_TIME = 3 * 60
 TRANSFER_ONLY_TIMEOUT = 10 * 60
 ALL_TX_TIMEOUT = 10 * 60
 
