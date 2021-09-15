@@ -156,24 +156,24 @@ impl<'a> VMLogic<'a> {
         if self.config.regular_op_cost == 0 {
             return Ok(());
         }
-        let remaining_gas_before = self.gas_counter.remaining_prepaid_gas();
+        let remaining_gas_before = self.gas_counter.gas_to_use();
         let remaining_ops_before = remaining_gas_before / self.config.regular_op_cost as u64;
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
         let remaining_ops_after = instance.get_remaining_ops();
-        self.pay_gas_for_wasm_ops(remaining_ops_before - remaining_ops_after)
+        self.pay_gas_for_wasm_ops(remaining_ops_before.saturating_sub(remaining_ops_after))
     }
 
     pub fn sync_to_wasm_counter(&self) {
         if self.config.regular_op_cost == 0 {
             return;
         }
-        let remaining_gas_now = self.gas_counter.remaining_prepaid_gas();
+        let remaining_gas_now = self.gas_counter.gas_to_use();
         let instance = unsafe { self.instance.unwrap().as_ref() }.unwrap();
         instance.set_remaining_ops(remaining_gas_now / self.config.regular_op_cost as u64);
     }
 
-    pub fn remaining_prepaid_gas(&self) -> Gas {
-        self.gas_counter.remaining_prepaid_gas()
+    pub fn gas_to_use(&self) -> Gas {
+        self.gas_counter.gas_to_use()
     }
 
     // ###########################

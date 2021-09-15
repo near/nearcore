@@ -197,8 +197,11 @@ impl GasCounter {
         self.used_gas
     }
 
-    pub fn remaining_prepaid_gas(&self) -> Gas {
-        self.prepaid_gas - self.used_gas
+    pub fn gas_to_use(&self) -> Gas {
+        // self.prepaid_gas - self.used_gas
+        println!("burn {} prepaid {}", self.max_gas_burnt, self.prepaid_gas);
+        let lim = self.max_gas_burnt.min(self.prepaid_gas);
+        lim.saturating_sub(self.used_gas)
     }
 
     pub fn profile_data(&self) -> ProfileData {

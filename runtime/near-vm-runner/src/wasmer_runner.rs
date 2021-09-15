@@ -294,7 +294,7 @@ pub fn run_wasmer<'a>(
     }
 
     let gas_mode = if wasm_config.regular_op_cost > 0 {
-        GasMode::Paid(logic.remaining_prepaid_gas() / wasm_config.regular_op_cost as u64)
+        GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
     } else {
         GasMode::Free
     };
