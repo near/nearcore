@@ -74,15 +74,14 @@ pub fn validate_chunk_proofs(
     if height_created == 0 {
         return Ok(receipts.len() == 0 && outgoing_receipts_root == CryptoHash::default());
     } else {
-        let shard_layout = {
+        let epoch_id = {
             let prev_block_hash = match chunk {
                 ShardChunk::V1(chunk) => chunk.header.inner.prev_block_hash,
                 ShardChunk::V2(chunk) => chunk.header.prev_block_hash(),
             };
-            runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?
+            runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?
         };
-        let outgoing_receipts_hashes =
-            runtime_adapter.build_receipts_hashes(receipts, &shard_layout);
+        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(receipts, &epoch_id);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
         if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
@@ -169,8 +168,8 @@ pub fn validate_chunk_with_chunk_extra(
         prev_chunk_height_included,
     )?;
     let outgoing_receipts_hashes = {
-        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_block_hash)?;
-        runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout)
+        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+        runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id)
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 

@@ -40,7 +40,7 @@ mod shard_assignment;
 pub mod test_utils;
 mod types;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
-mod validator_selection;
+pub mod validator_selection;
 
 const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;

@@ -1576,15 +1576,16 @@ impl ShardsManager {
     ) -> Result<(), Error> {
         let header = encoded_chunk.cloned_header();
         let shard_id = header.shard_id();
-        let shard_layout =
-            self.runtime_adapter.get_shard_layout_from_prev_block(&header.prev_block_hash())?;
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&header.prev_block_hash()).unwrap();
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
 
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id).unwrap();
         let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipts = outgoing_receipts_proofs
             .into_iter()
@@ -1623,6 +1624,21 @@ impl ShardsManager {
         Ok(())
     }
 
+    pub fn build_block_producer_mapping(
+        &self,
+        prev_block_hash: &CryptoHash,
+    ) -> HashMap<AccountId, Vec<u64>> {
+        let mut block_producer_mapping = HashMap::new();
+
+        for part_ord in 0..self.runtime_adapter.num_total_parts() {
+            let part_ord = part_ord as u64;
+            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
+            let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
+            entry.push(part_ord);
+        }
+        block_producer_mapping
+    }
+
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
@@ -1634,24 +1650,14 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
-        let shard_layout =
-            self.runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(chunk_header.outgoing_receipts_root(), outgoing_receipts_root);
 
-        let mut block_producer_mapping = HashMap::new();
-
-        for part_ord in 0..self.runtime_adapter.num_total_parts() {
-            let part_ord = part_ord as u64;
-            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
-
-            let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
-            entry.push(part_ord);
-        }
-
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id).unwrap();
         let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipt_proofs: Vec<_> = outgoing_receipts_proofs
             .into_iter()
@@ -1665,7 +1671,7 @@ impl ShardsManager {
             })
             .collect();
 
-        for (to_whom, part_ords) in block_producer_mapping {
+        for (to_whom, part_ords) in self.build_block_producer_mapping(&prev_block_hash) {
             let part_receipt_proofs = receipt_proofs
                 .iter()
                 .filter(|proof| {
@@ -1796,7 +1802,6 @@ mod test {
         let signer =
             InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         let mut rs = ReedSolomonWrapper::new(4, 10);
-        let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
         let (encoded_chunk, proof) = shards_manager
             .create_encoded_shard_chunk(
                 CryptoHash::default(),
@@ -1810,7 +1815,7 @@ mod test {
                 vec![],
                 vec![],
                 &vec![],
-                merklize(&runtime_adapter.build_receipts_hashes(&vec![], &shard_layout)).0,
+                merklize(&runtime_adapter.build_receipts_hashes(&vec![], &EpochId::default())).0,
                 CryptoHash::default(),
                 &signer,
                 &mut rs,

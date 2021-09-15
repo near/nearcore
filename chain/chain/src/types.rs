@@ -748,11 +748,12 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.
-    fn build_receipts_hashes(
-        &self,
-        receipts: &[Receipt],
-        shard_layout: &ShardLayout,
-    ) -> Vec<CryptoHash> {
+    fn build_receipts_hashes(&self, receipts: &[Receipt], epoch_id: &EpochId) -> Vec<CryptoHash> {
+        let shard_layout = //{
+            //let epoch_id = self.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+            self.get_shard_layout(&epoch_id).unwrap();
+        //};
+        //self.build_receipts_hashes(receipts, &shard_layout)
         if shard_layout.num_shards() == 1 {
             return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
@@ -763,7 +764,7 @@ pub trait RuntimeAdapter: Send + Sync {
             let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
                 Some(id) => *id,
                 None => {
-                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+                    let id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
                     account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
                     id
                 }

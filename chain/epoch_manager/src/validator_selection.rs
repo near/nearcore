@@ -305,6 +305,7 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorKickoutReason};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Rational;
 
@@ -485,6 +486,169 @@ mod tests {
         }
         let diff = (2 * counts[1] - counts[0]).abs();
         assert!(diff < 100);
+    }
+
+    struct EpochValidatorsTestConfig {
+        num_shards: u64,
+        num_block_producer_seats: u64,
+        fishermen_threshold: Balance,
+        validator_selection_config: ValidatorSelectionConfig,
+        num_selected_block_producers: u64,
+    }
+
+    fn test_block_producer_sampling_without_chunk_producers(
+        epoch_validators_test_config: EpochValidatorsTestConfig,
+    ) {
+        let epoch_config = create_epoch_config(
+            epoch_validators_test_config.num_shards,
+            epoch_validators_test_config.num_block_producer_seats,
+            epoch_validators_test_config.fishermen_threshold,
+            epoch_validators_test_config.validator_selection_config.clone(),
+        );
+
+        let num_shards = epoch_validators_test_config.num_shards;
+        let num_block_producer_seats = epoch_validators_test_config.num_block_producer_seats;
+        let minimum_validators_per_shard =
+            epoch_validators_test_config.validator_selection_config.minimum_validators_per_shard;
+        let num_selected_block_producers =
+            epoch_validators_test_config.num_selected_block_producers;
+
+        let prev_epoch_height = 18;
+        let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
+        // Add 400 candidates for validators
+        let proposals = create_proposals((1..=200).flat_map(|i| {
+            // Each shard gets a pair of validators, one with twice as
+            // much stake as the other.
+            vec![(format!("test{}", i), 1000), (format!("test{}", 200 + i), i * 1000)].into_iter()
+        }));
+        let proposals2 = proposals.clone();
+        let epoch_info = proposals_to_epoch_info(
+            &epoch_config,
+            [0; 32],
+            &prev_epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            1000,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        // make sure, that all chunk producers are actually block producers
+        println!("num_shards = {}", num_shards);
+        let mut counts: Vec<usize> = vec![0; num_block_producer_seats as usize];
+
+        for shard_id in 0..num_shards {
+            let chunk = &epoch_info.chunk_producers_settlement()[shard_id as usize];
+            assert!(chunk.len() as u64 >= minimum_validators_per_shard);
+            for validator_id in chunk.iter() {
+                counts[*validator_id as usize] += 1;
+            }
+        }
+
+        let mut min_stake = epoch_info.get_validator(0).stake();
+        let min_chunks_per_validator =
+            ((num_shards * minimum_validators_per_shard) / num_block_producer_seats) as usize;
+        let max_chunks_per_validator = ((num_shards * minimum_validators_per_shard - 1)
+            / num_block_producer_seats
+            + 1) as usize;
+        let num_block_producers = epoch_info.block_producers_settlement().len();
+        for validator_id in 0..num_block_producers {
+            let v = epoch_info.get_validator(validator_id as u64);
+            println!(
+                "      validator_id = {} account = {} stacked = {} in {} chunks",
+                validator_id,
+                v.account_id(),
+                v.stake(),
+                counts[validator_id as usize]
+            );
+            if v.stake() < min_stake {
+                min_stake = v.stake();
+            }
+            assert!(counts[validator_id as usize] >= min_chunks_per_validator);
+            assert!(counts[validator_id as usize] <= max_chunks_per_validator);
+        }
+        // check if all validators with enough stake is selected as block producer
+        let mut count_validator_with_more_then_min_stake = 0;
+        for p in proposals2 {
+            if p.stake() >= min_stake {
+                count_validator_with_more_then_min_stake += 1;
+            }
+        }
+        assert_eq!(count_validator_with_more_then_min_stake, num_selected_block_producers);
+        assert_eq!(num_block_producers as u64, num_selected_block_producers);
+        assert_eq!(epoch_info.chunk_producers_settlement().len() as u64, num_shards);
+    }
+
+    #[test]
+    fn test_block_producer_sampling_with_100_block_producers() {
+        test_block_producer_sampling_without_chunk_producers(EpochValidatorsTestConfig {
+            num_block_producer_seats: 100,
+            num_selected_block_producers: 100,
+            fishermen_threshold: 0,
+            num_shards: 160,
+            validator_selection_config: {
+                ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 0,
+                    minimum_validators_per_shard: 4,
+                    minimum_stake_ratio: Rational::new(160, 1_000_000),
+                }
+            },
+        });
+
+        test_block_producer_sampling_without_chunk_producers(EpochValidatorsTestConfig {
+            num_block_producer_seats: 100,
+            num_selected_block_producers: 100,
+            fishermen_threshold: 0,
+            num_shards: 37,
+            validator_selection_config: {
+                ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 0,
+                    minimum_validators_per_shard: 6,
+                    minimum_stake_ratio: Rational::new(160, 1_000_000),
+                }
+            },
+        });
+
+        test_block_producer_sampling_without_chunk_producers(EpochValidatorsTestConfig {
+            num_block_producer_seats: 56,
+            num_selected_block_producers: 56,
+            fishermen_threshold: 0,
+            num_shards: 77,
+            validator_selection_config: {
+                ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 0,
+                    minimum_validators_per_shard: 11,
+                    minimum_stake_ratio: Rational::new(160, 1_000_000),
+                }
+            },
+        });
+        // High min stake ratio, some validators get rejected due not having enough stake_ratio
+        test_block_producer_sampling_without_chunk_producers(EpochValidatorsTestConfig {
+            num_block_producer_seats: 90,
+            num_selected_block_producers: 53,
+            fishermen_threshold: 0,
+            num_shards: 77,
+            validator_selection_config: {
+                ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 0,
+                    minimum_validators_per_shard: 12,
+                    minimum_stake_ratio: Rational::new(16000, 1_000_000),
+                }
+            },
+        });
+        test_block_producer_sampling_without_chunk_producers(EpochValidatorsTestConfig {
+            num_block_producer_seats: 100,
+            num_selected_block_producers: 53,
+            fishermen_threshold: 0,
+            num_shards: 160,
+            validator_selection_config: {
+                ValidatorSelectionConfig {
+                    num_chunk_only_producer_seats: 0,
+                    minimum_validators_per_shard: 4,
+                    minimum_stake_ratio: Rational::new(16000, 1_000_000),
+                }
+            },
+        });
     }
 
     #[test]

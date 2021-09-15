@@ -483,7 +483,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     let shard_layout =
         env.clients[0].runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
     let receipts_hashes =
-        env.clients[0].runtime_adapter.build_receipts_hashes(&receipts, &shard_layout);
+        env.clients[0].runtime_adapter.build_receipts_hashes(&receipts, &EpochId::default());
     let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
     let receipts_by_shard =
         env.clients[0].shards_mgr.group_receipts_by_shard(receipts.clone(), &shard_layout);

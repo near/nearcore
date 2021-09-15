@@ -39,13 +39,16 @@ use near_network::routing::EdgeInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::merklize;
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
+use near_primitives::sharding::{
+    EncodedShardChunk, ReceiptProof, ReedSolomonWrapper, ShardChunkHeader, ShardProof,
+};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};
@@ -57,6 +60,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -3937,5 +3941,182 @@ mod contract_precompilation_tests {
 
         // Check that contract is not cached for client 1 because of late state sync.
         assert!(caches[1].get(&contract_key.0).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_block_producers_with_sampling() {
+        init_test_logger();
+        let num_clients = 4;
+        let stores: Vec<Arc<Store>> = (0..num_clients).map(|_| create_test_store()).collect();
+        let accounts: Vec<AccountId> =
+            (0..=num_clients).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
+        let mut genesis = Genesis::test(accounts.clone(), 4);
+        genesis.config.epoch_length = 1500;
+        genesis.config.num_block_producer_seats = 4;
+        genesis.config.num_block_producer_seats_per_shard = vec![3];
+        let runtimes: Vec<Arc<nearcore::NightshadeRuntime>> = stores
+            .iter()
+            .map(|store| {
+                Arc::new(nearcore::NightshadeRuntime::new(
+                    Path::new("."),
+                    store.clone(),
+                    &genesis,
+                    vec![],
+                    vec![],
+                    None,
+                    None,
+                    RuntimeConfigStore::test(),
+                ))
+            })
+            .collect();
+        let runtime_adapters =
+            runtimes.iter().map(|r| r.clone() as Arc<dyn RuntimeAdapter>).collect();
+
+        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let networks = vec![network_adapter.clone(); num_clients];
+        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+            .runtime_adapters(runtime_adapters)
+            .network_adapters(networks)
+            .clients_count(num_clients)
+            .build();
+
+        let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
+        assert_eq!(genesis_block.header().height(), 0);
+
+        // singer to send money from test0 to test1
+        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let signer2 =
+            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+
+        let mut prev_block_hash = genesis_block.hash().clone();
+        let epoch_id = genesis_block.header().epoch_id().clone();
+        let mut nonce = 1;
+        for next_block_height in 1..=10 {
+            let tx = SignedTransaction::send_money(
+                nonce,
+                "test0".parse().unwrap(),
+                "test1".parse().unwrap(),
+                &signer,
+                10000000,
+                prev_block_hash,
+            );
+            nonce = nonce + 1;
+            let tx2 = SignedTransaction::send_money(
+                nonce,
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                &signer2,
+                10000000,
+                prev_block_hash,
+            );
+
+            let block_producer_account = env.clients[0]
+                .runtime_adapter
+                .get_block_producer(&epoch_id, next_block_height as u64)
+                .unwrap();
+            let producer_id = accounts.iter().position(|r| r == &block_producer_account).unwrap();
+
+            // every client should know tha mapping between account id and shard id
+            let shard_id = env.clients[0]
+                .runtime_adapter
+                .account_id_to_shard_id(&signer.account_id, &epoch_id)
+                .unwrap();
+            // every client should know who is next chunk producer
+            let chunk_producer_account = env.clients[0]
+                .runtime_adapter
+                .get_chunk_producer(&epoch_id, next_block_height as u64, shard_id)
+                .unwrap();
+            let chunk_id = accounts.iter().position(|r| r == &chunk_producer_account).unwrap();
+            let (block_producer_mapping, receipt_proofs, encoded_chunk, merkle_paths) = {
+                let client = &mut env.clients[chunk_id];
+                let r = client.process_tx(tx, false, false);
+                assert_eq!(r, NetworkClientResponses::ValidTx);
+                let r2 = client.process_tx(tx2, false, false);
+                assert_eq!(r2, NetworkClientResponses::ValidTx);
+
+                let last_block = client.chain.get_block(&prev_block_hash).unwrap().clone();
+                let (encoded_chunk, merkle_paths, receipts) = client
+                    .produce_chunk(
+                        prev_block_hash,
+                        last_block.header().epoch_id(),
+                        last_block.chunks()[0].clone(),
+                        next_block_height,
+                        shard_id,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let receipts_hashes =
+                    client.runtime_adapter.build_receipts_hashes(&receipts, &epoch_id);
+                let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
+                let shard_layout = client.runtime_adapter.get_shard_layout(&epoch_id).unwrap();
+
+                let mut receipts_by_shard =
+                    client.shards_mgr.group_receipts_by_shard(receipts, &shard_layout);
+                let receipt_proofs: Vec<_> = receipts_proofs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(proof_shard_id, proof)| {
+                        let proof_shard_id = proof_shard_id as u64;
+                        let receipts =
+                            receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
+                        let shard_proof = ShardProof {
+                            from_shard_id: shard_id,
+                            to_shard_id: proof_shard_id,
+                            proof,
+                        };
+                        ReceiptProof(receipts, shard_proof)
+                    })
+                    .collect();
+
+                let block_producer_mapping =
+                    client.shards_mgr.build_block_producer_mapping(&prev_block_hash);
+                (block_producer_mapping, receipt_proofs, encoded_chunk, merkle_paths)
+            };
+            {
+                for (to_whom, part_ords) in block_producer_mapping {
+                    let destination_id = accounts.iter().position(|r| r == &to_whom).unwrap();
+
+                    let client = &mut env.clients[destination_id];
+                    println!("To {} parts = {:?} client {}", to_whom, part_ords, destination_id);
+
+                    let part_receipt_proofs = receipt_proofs
+                        .iter()
+                        .filter(|proof| {
+                            let proof_shard_id = proof.1.to_shard_id;
+                            client.shards_mgr.cares_about_shard_this_or_next_epoch(
+                                Some(&to_whom),
+                                &prev_block_hash,
+                                proof_shard_id,
+                                false,
+                            )
+                        })
+                        .cloned()
+                        .collect();
+
+                    let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
+                        part_ords,
+                        part_receipt_proofs,
+                        &merkle_paths,
+                    );
+                    let res = client
+                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                            partial_encoded_chunk,
+                        ))
+                        .unwrap();
+                    assert_eq!(res.len(), 0)
+                }
+            }
+
+            // Check that we are were called at the block that we are producer for.
+            let block =
+                env.clients[producer_id].produce_block(next_block_height as u64).unwrap().unwrap();
+            assert_eq!(block.chunks().len(), 1);
+            for i in 0..num_clients {
+                let provenance =
+                    if i == producer_id { Provenance::PRODUCED } else { Provenance::SYNC };
+                env.process_block(i, block.clone(), provenance);
+            }
+            prev_block_hash = block.hash().clone();
+        }
     }
 }
