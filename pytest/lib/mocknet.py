@@ -225,7 +225,7 @@ def chain_measure_bps_and_tps(archival_node,
             block_times.append(curr_time)
             gas_per_chunk = []
             for chunk in curr_block['chunks']:
-                gas_per_chunk.append(chunk['gas_used'])
+                gas_per_chunk.append(chunk['gas_used'] * 1e-12)
             gas_block = sum(gas_per_chunk)
             tx_per_chunk = [None] * len(curr_block['chunks'])
             pmap(
