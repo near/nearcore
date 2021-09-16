@@ -1,21 +1,26 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Serialize};
+use borsh::BorshSerialize;
+use serde::Serialize;
 use std::hash::Hash;
 
-#[derive(Clone, Copy, Debug, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
+#[allow(dead_code)]
+// Note, that VMKind is part of serialization protocol, so we cannor remove entries
+// from this list if particular VM reached publically visible networks.
 pub enum VMKind {
     /// Wasmer 0.17.x VM.
     Wasmer0,
     /// Wasmtime VM.
     Wasmtime,
-    /// Wasmer 1.x VM.
-    Wasmer1,
+    /// Wasmer 1.x VM, no longer supported.
+    // Wasmer1,
+    //  Wasmer 2.x VM,
+    Wasmer2,
 }
 
 impl Default for VMKind {
     #[cfg(all(
         feature = "wasmer0_default",
-        not(feature = "wasmer1_default"),
+        not(feature = "wasmer2_default"),
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
@@ -24,16 +29,16 @@ impl Default for VMKind {
 
     #[cfg(all(
         not(feature = "wasmer0_default"),
-        feature = "wasmer1_default",
+        feature = "wasmer2_default",
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
-        VMKind::Wasmer1
+        VMKind::Wasmer2
     }
 
     #[cfg(all(
         not(feature = "wasmer0_default"),
-        not(feature = "wasmer1_default"),
+        not(feature = "wasmer2_default"),
         feature = "wasmtime_default"
     ))]
     fn default() -> Self {
@@ -42,7 +47,7 @@ impl Default for VMKind {
 
     #[cfg(all(
         not(feature = "wasmer0_default"),
-        not(feature = "wasmer1_default"),
+        not(feature = "wasmer2_default"),
         not(feature = "wasmtime_default")
     ))]
     fn default() -> Self {
@@ -52,7 +57,7 @@ impl Default for VMKind {
     // These features should be mutually exclusive, but implement this to work around CI cargo check --all-features
     #[cfg(all(
         feature = "wasmer0_default",
-        feature = "wasmer1_default",
+        feature = "wasmer2_default",
         feature = "wasmtime_default"
     ))]
     fn default() -> Self {
