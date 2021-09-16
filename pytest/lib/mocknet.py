@@ -1,6 +1,7 @@
 import base58
 import json
 import os
+import shlex
 import os.path
 import tempfile
 import time
@@ -19,7 +20,7 @@ NODE_BASE_NAME = 'mocknet'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 4
+NUM_SHARDS = 8
 NUM_ACCOUNTS = 100
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
@@ -78,13 +79,11 @@ def get_nodes():
     machines = gcloud.list(project=PROJECT,
                            username=NODE_USERNAME,
                            ssh_key_path=NODE_SSH_KEY_PATH)
-    nodes = []
-    pmap(
-        lambda machine: nodes.append(
-            GCloudNode(machine.name,
-                       username=NODE_USERNAME,
-                       project=PROJECT,
-                       ssh_key_path=NODE_SSH_KEY_PATH)), machines)
+    nodes = pmap(
+        lambda machine: GCloudNode(machine.name,
+                                   username=NODE_USERNAME,
+                                   project=PROJECT,
+                                   ssh_key_path=NODE_SSH_KEY_PATH), machines)
     return nodes
 
 
@@ -105,9 +104,8 @@ def create_target_dir(node):
 
 def get_validator_account(node):
     validator_key_file = tempfile.NamedTemporaryFile(
-        mode='r+', delete=False, suffix=f'.mocknet.loadtest.validator_key')
-    validator_key_file.close()
-    node.machine.download(f'/home/ubuntu/.near/validator_key.json',
+        mode='r+', delete=False, suffix='.mocknet.loadtest.validator_key')
+    node.machine.download('/home/ubuntu/.near/validator_key.json',
                           validator_key_file.name)
     return Key.from_json_file(validator_key_file.name)
 
@@ -140,10 +138,14 @@ def setup_python_environments(nodes, wasm_contract):
 
 
 def start_load_test_helper_script(script, node_account_id, pk, sk):
-    return f'''
-        cd {PYTHON_DIR}
-        nohup ./venv/bin/python {script} {node_account_id} "{pk}" "{sk}" > load_test.out 2> load_test.err < /dev/null &
-    '''
+    return '''
+        cd {dir}
+        nohup ./venv/bin/python {script} {node_account_id} {pk} {sk} > load_test.out 2> load_test.err < /dev/null &
+    '''.format(dir=shlex.quote(PYTHON_DIR),
+               script=shlex.quote(script),
+               node_account_id=shlex.quote(node_account_id),
+               pk=shlex.quote(pk),
+               sk=shlex.quote(sk))
 
 
 def start_load_test_helper(node, script, pk, sk):
@@ -162,7 +164,7 @@ def start_load_test_helpers(nodes, script):
 
 def get_log(node):
     target_file = f'./logs/{node.instance_name}.log'
-    node.machine.download(f'/home/ubuntu/near.log', target_file)
+    node.machine.download('/home/ubuntu/near.log', target_file)
 
 
 def get_logs(nodes):
@@ -171,7 +173,7 @@ def get_logs(nodes):
 
 def get_epoch_length_in_blocks(node):
     target_dir = create_target_dir(node)
-    node.machine.download(f'/home/ubuntu/.near/genesis.json', target_dir)
+    node.machine.download('/home/ubuntu/.near/genesis.json', target_dir)
     with open(f'{target_dir}/genesis.json') as f:
         config = json.load(f)
     epoch_length_in_blocks = config['epoch_length']
@@ -191,10 +193,8 @@ def get_timestamp(block):
 def get_chunk_txn(index, chunks, archival_node, result):
     chunk = chunks[index]
     chunk_hash = chunk['chunk_hash']
-    chunk = archival_node.get_chunk(chunk_hash)['result']
-    assert index >= 0
-    assert index < len(result)
-    result[index] = len(chunk['transactions'])
+    result[index] = len(
+        archival_node.get_chunk(chunk_hash)['result']['transactions'])
 
 
 # Measure bps and tps by directly checking block timestamps and number of transactions
@@ -223,17 +223,19 @@ def chain_measure_bps_and_tps(archival_node,
     while curr_time > start_time:
         if curr_time < end_time:
             block_times.append(curr_time)
-            txs = 0
+            gas_per_chunk = []
+            for chunk in curr_block['chunks']:
+                gas_per_chunk.append(chunk['gas_used'])
+            gas_block = sum(gas_per_chunk)
             tx_per_chunk = [None] * len(curr_block['chunks'])
             pmap(
                 lambda i: get_chunk_txn(i, curr_block['chunks'], archival_node,
                                         tx_per_chunk),
                 range(len(curr_block['chunks'])))
-            for stat in tx_per_chunk:
-                txs += stat
+            txs = sum(tx_per_chunk)
             tx_count.append(txs)
             logger.info(
-                f'Processed block at time {curr_time} height #{curr_block["header"]["height"]}, # txs in a block: {txs}, per chunk: {tx_per_chunk}'
+                f'Processed block at time {curr_time} height #{curr_block["header"]["height"]}, # txs in a block: {txs}, per chunk: {tx_per_chunk}, gas in block: {gas_block}, gas per chunk: {gas_per_chunk}'
             )
         prev_hash = curr_block['header']['prev_hash']
         curr_block = archival_node.get_block(prev_hash)['result']
@@ -257,7 +259,7 @@ def get_tx_events_single_node(node, tx_filename):
         with open(target_file, 'r') as f:
             return [float(line.strip()) for line in f.readlines()]
     except Exception as e:
-        logger.info(f'Getting tx_events from {node.instance_name} failed: {e}')
+        logger.exception(f'Getting tx_events from {node.instance_name} failed')
         return []
 
 
@@ -389,42 +391,37 @@ def stop_node(node):
         m.run('sudo -u ubuntu -i', input=TMUX_STOP_SCRIPT)
 
 
-def upload_and_extract(node, compressed_filename, dst_filename, src_filename):
-    node.machine.upload(compressed_filename,
-                        '/home/ubuntu',
+def upload_and_extract(node, src_filename, dst_filename):
+    node.machine.upload(f'{src_filename}.gz',
+                        f'{dst_filename}.gz',
                         switch_user='ubuntu')
-    node.machine.run(
-        'bash',
-        input=
-        f'unzip /home/ubuntu/$(basename {compressed_filename}); mv /home/ubuntu/$(basename {src_filename}) {dst_filename}'
-    )
+    node.machine.run('gunzip -f {dst_filename}.gz'.format(
+        dst_filename=shlex.quote(dst_filename)))
 
 
 def compress_and_upload(nodes, src_filename, dst_filename):
-    compressed_genesis_filename = f'{src_filename}.zip'
-    res = run(f'zip -j {compressed_genesis_filename} {src_filename}')
+    res = run(f'gzip {src_filename}')
     assert res.returncode == 0
-    pmap(
-        lambda node: upload_and_extract(node, compressed_genesis_filename,
-                                        dst_filename, src_filename), nodes)
+    pmap(lambda node: upload_and_extract(node, src_filename, dst_filename),
+         nodes)
 
 
 # We assume that the nodes already have the .near directory with the files
 # node_key.json, validator_key.json and config.json.
 def create_and_upload_genesis(nodes, genesis_template_filename):
-    print('Uploading genesis and config files')
-    with tempfile.NamedTemporaryFile(
-            mode='w+', delete=False,
-            suffix='.mocknet.genesis') as mocknet_genesis_file:
+    logger.info('Uploading genesis and config files')
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        mocknet_genesis_filename = os.path.join(tmp_dir, "genesis.json")
         create_genesis_file(nodes, genesis_template_filename,
-                            mocknet_genesis_file)
+                            mocknet_genesis_filename)
         # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
-        compress_and_upload(nodes, mocknet_genesis_file.name,
+        compress_and_upload(nodes, mocknet_genesis_filename,
                             '/home/ubuntu/.near/genesis.json')
-        update_config_file(nodes)
+        update_config_file(nodes, tmp_dir)
 
 
-def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
+def create_genesis_file(nodes, genesis_template_filename,
+                        mocknet_genesis_filename):
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
 
@@ -552,52 +549,43 @@ def create_genesis_file(nodes, genesis_template_filename, mocknet_genesis_file):
     genesis_config["transaction_validity_period"] = 10**9
     genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
     # The json object gets truncated if I don't close and reopen the file.
-    mocknet_genesis_file.close()
-    with open(mocknet_genesis_file.name, "w") as f:
+    with open(mocknet_genesis_filename, "w") as f:
         json.dump(genesis_config, f, indent=2)
 
 
-def get_node_addr(node, port):
-    node_key_file = tempfile.NamedTemporaryFile(
-        mode='r+',
-        delete=False,
-        suffix=f'.mocknet.node_key.{node.instance_name}')
-    node_key_file.close()
-    node.machine.download(f'/home/ubuntu/.near/node_key.json',
-                          node_key_file.name)
-    with open(node_key_file.name, 'r') as f:
+def get_node_addr(node, port, tmp_dir):
+    node_key_filename = os.path.join(tmp_dir,
+                                     f'node_key.{node.instance_name}.json')
+    node.machine.download('/home/ubuntu/.near/node_key.json', node_key_filename)
+    with open(node_key_filename, 'r') as f:
         node_key_json = json.load(f)
     return f'{node_key_json["public_key"]}@{node.ip}:{port}'
 
 
-def update_config_file(nodes):
-    assert (len(nodes) > 0)
+def update_config_file(nodes, tmp_dir):
     first_node = nodes[0]
 
-    # Create temporary files and close them because we'll download files using their filenames.
-    mocknet_config_file = tempfile.NamedTemporaryFile(mode='r+',
-                                                      delete=False,
-                                                      suffix='.mocknet.config')
-    mocknet_config_file.close()
     # Download and read.
-    first_node.machine.download(f'/home/ubuntu/.near/config.json',
-                                mocknet_config_file.name)
-    with open(mocknet_config_file.name, 'r') as f:
+    mocknet_config_filename = os.path.join(tmp_dir, "config.json")
+    first_node.machine.download('/home/ubuntu/.near/config.json',
+                                mocknet_config_filename)
+    with open(mocknet_config_filename, 'r') as f:
         config_json = json.load(f)
     port = config_json["network"]["addr"].split(':')[
         1]  # Usually the port is 24567
     node_addresses = []
-    pmap(lambda node: node_addresses.append(get_node_addr(node, port)), nodes)
+    pmap(lambda node: node_addresses.append(get_node_addr(node, port, tmp_dir)),
+         nodes)
 
     config_json["tracked_shards"] = list(range(0, NUM_SHARDS))
 
     # Update the config and save it to the file.
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
-    with open(mocknet_config_file.name, 'w') as f:
+    with open(mocknet_config_filename, 'w') as f:
         json.dump(config_json, f, indent=2)
 
     pmap(
-        lambda node: node.machine.upload(mocknet_config_file.name,
+        lambda node: node.machine.upload(mocknet_config_filename,
                                          '/home/ubuntu/.near/config.json',
                                          switch_user='ubuntu'), nodes)
 
@@ -614,19 +602,23 @@ def start_node(node):
     m = node.machine
     logger.info(f'Starting node {m.name}')
     attempt = 0
+    success = False
     while attempt < 3:
         pid = get_near_pid(m)
         if pid != '':
+            success = True
             break
         start_process = m.run('sudo -u ubuntu -i', input=TMUX_START_SCRIPT)
         if start_process.returncode == 0:
+            success = True
             break
-        else:
-            print(
-                f"Failed to start process, returncode: {returncode}\n{m.name}\n{start_process.stderr}"
-            )
-            attempt += 1
-            time.sleep(1)
+        logger.warn(
+            f"Failed to start process, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}"
+        )
+        attempt += 1
+        time.sleep(1)
+    if not success:
+        raise Exception(f'Could not start node {node.instance_name}')
 
 
 def reset_data(node, retries=0):
@@ -640,7 +632,7 @@ def reset_data(node, retries=0):
     except:
         if retries < 3:
             logger.warning(
-                f'And error occurred while clearing data directory, retrying')
+                'And error occurred while clearing data directory, retrying')
             reset_data(node, retries=retries + 1)
         else:
             raise Exception(

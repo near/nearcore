@@ -93,7 +93,7 @@ def send_random_transactions(node_account_id, test_accounts):
 
 
 def random_delay():
-    random_delay = random.randint(0, 10)
+    random_delay = random.random() * 10
     logger.info(
         f'Random delay of {random_delay} second in `throttle_txns` to evenly spread the load'
     )
