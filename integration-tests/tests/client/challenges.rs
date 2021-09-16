@@ -683,7 +683,8 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
-        match env.clients[0].run_catchup(&vec![]) {
+        let f = |_| {};
+        match env.clients[0].run_catchup(&vec![], &f) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
                     env.clients[0].on_block_accepted(
