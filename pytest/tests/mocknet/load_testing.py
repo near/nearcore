@@ -7,9 +7,8 @@ import sys, time
 sys.path.append('lib')
 
 from rc import pmap
-from load_testing_helper import (ALL_TX_TIMEOUT, TRANSFER_ONLY_TIMEOUT,
-                                 CONTRACT_DEPLOY_TIME, MAX_TPS)
 
+import load_testing_helper
 import mocknet
 import data, utils
 
@@ -54,8 +53,8 @@ fn bubble_sort(mut xs: Vec<u32>) -> Vec<u32> {
 ''')
 
 
-def measure_tps_bps(nodes):
-    input_tx_events = mocknet.get_tx_events(nodes)
+def measure_tps_bps(nodes, tx_filename):
+    input_tx_events = mocknet.get_tx_events(nodes, tx_filename)
     # drop first and last 5% of events to avoid edges of test
     n = int(0.05 * len(input_tx_events))
     input_tx_events = input_tx_events[n:-n]
@@ -100,14 +99,31 @@ def check_slow_blocks(initial_metrics, final_metrics):
 if __name__ == '__main__':
     logger.info('Starting Load test.')
     nodes = mocknet.get_nodes()
-    initial_validator_accounts = mocknet.list_validators(nodes[0])
+    logger.info(f'Starting Load test using {len(nodes)} nodes.')
+
+    if '--skip_restart' not in sys.argv:
+        # Make sure nodes are running by restarting them.
+        mocknet.stop_nodes(nodes)
+        time.sleep(10)
+        mocknet.create_and_upload_genesis(
+            nodes, '../nearcore/res/genesis_config.json')
+        mocknet.start_nodes(nodes)
+        time.sleep(60)
+
+    archival_node = nodes[-1]
+    logger.info(f'Archival node: {archival_node.instance_name}')
+    initial_validator_accounts = mocknet.list_validators(archival_node)
     test_passed = True
 
     logger.info('Performing baseline block time measurement')
     # We do not include tps here because there are no transactions on mocknet normally.
-    time.sleep(120)
+    if '--skip_initial_sleep' not in sys.argv:
+        time.sleep(120)
     baseline_measurement = mocknet.chain_measure_bps_and_tps(
-        archival_node=nodes[-1], start_time=None, end_time=None, duration=120)
+        archival_node=archival_node,
+        start_time=None,
+        end_time=None,
+        duration=120)
     baseline_measurement['in_tps'] = 0.0
     # quit test early if the baseline is poor.
     assert baseline_measurement['bps'] > 1.0
@@ -119,33 +135,39 @@ if __name__ == '__main__':
     logger.info('Starting transaction spamming scripts.')
     mocknet.start_load_test_helpers(nodes, 'load_testing_helper.py')
 
-    initial_metrics = mocknet.get_metrics(nodes[-1])
-    logger.info('Waiting for transfer only period to complete.')
-    time.sleep(TRANSFER_ONLY_TIMEOUT)
-    transfer_final_metrics = mocknet.get_metrics(nodes[-1])
+    initial_metrics = mocknet.get_metrics(archival_node)
+    logger.info(
+        f'Waiting for transfer only period to complete: {load_testing_helper.TRANSFER_ONLY_TIMEOUT} seconds'
+    )
+    time.sleep(load_testing_helper.TRANSFER_ONLY_TIMEOUT)
+    transfer_final_metrics = mocknet.get_metrics(archival_node)
 
-    # wait before doing measurement to ensure tx_events written by helpers
+    logger.info(
+        f'Waiting for contracts to be deployed for {load_testing_helper.CONTRACT_DEPLOY_TIME} seconds.'
+    )
+    time.sleep(load_testing_helper.CONTRACT_DEPLOY_TIME)
+
+    logger.info(
+        f'Waiting for random transactions period to complete for {load_testing_helper.ALL_TX_TIMEOUT} seconds.'
+    )
+    all_tx_initial_metrics = mocknet.get_metrics(archival_node)
+    time.sleep(load_testing_helper.ALL_TX_TIMEOUT)
+    final_metrics = mocknet.get_metrics(archival_node)
+
     time.sleep(5)
+
     logger.info('Transfer-only results:')
-    transfer_only_measurement = measure_tps_bps(nodes)
+    transfer_only_measurement = measure_tps_bps(nodes,
+                                                f'{mocknet.TX_OUT_FILE}.0')
     test_passed = (transfer_only_measurement['bps'] > 0.5) and test_passed
-    test_passed = check_tps(transfer_only_measurement, MAX_TPS) and test_passed
+    test_passed = check_tps(transfer_only_measurement,
+                            load_testing_helper.MAX_TPS) and test_passed
     test_passed = check_memory_usage(nodes[0]) and test_passed
     test_passed = check_slow_blocks(initial_metrics,
                                     transfer_final_metrics) and test_passed
 
-    logger.info('Waiting for contracts to be deployed.')
-    measurement_duration = transfer_final_metrics.timestamp - time.time()
-    time.sleep(CONTRACT_DEPLOY_TIME - measurement_duration)
-
-    logger.info('Waiting for random transactions period to complete.')
-    all_tx_initial_metrics = mocknet.get_metrics(nodes[-1])
-    time.sleep(ALL_TX_TIMEOUT)
-    final_metrics = mocknet.get_metrics(nodes[-1])
-
-    time.sleep(5)
     logger.info('All transaction types results:')
-    all_tx_measurement = measure_tps_bps(nodes)
+    all_tx_measurement = measure_tps_bps(nodes, f'{mocknet.TX_OUT_FILE}.1')
     test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
     test_passed = check_memory_usage(nodes[0]) and test_passed
     test_passed = check_slow_blocks(all_tx_initial_metrics,
