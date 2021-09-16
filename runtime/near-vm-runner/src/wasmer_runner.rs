@@ -397,12 +397,6 @@ pub(crate) fn run_wasmer0_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let gas_mode = if wasm_config.regular_op_cost > 0 {
-        GasMode::Paid(context.prepaid_gas / wasm_config.regular_op_cost as u64)
-    } else {
-        GasMode::Free
-    };
-
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -412,6 +406,12 @@ pub(crate) fn run_wasmer0_module<'a>(
         memory,
         current_protocol_version,
     );
+
+    let gas_mode = if wasm_config.regular_op_cost > 0 {
+        GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
+    } else {
+        GasMode::Free
+    };
 
     let import_object = imports::build_wasmer(memory_copy, &mut logic, current_protocol_version);
 
