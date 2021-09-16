@@ -6,7 +6,7 @@ use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
 
 use near_vm_errors::PrepareError;
-use near_vm_logic::VMConfig;
+use near_vm_logic::{GasCounterMode, VMConfig};
 
 struct ContractModule<'a> {
     module: elements::Module,
@@ -56,15 +56,18 @@ impl<'a> ContractModule<'a> {
         }
     }
 
-    fn inject_gas_metering(self) -> Result<Self, PrepareError> {
+    fn inject_gas_metering(self, gas_counter_mode: GasCounterMode) -> Result<Self, PrepareError> {
         let Self { module, config } = self;
         // Free config, no need for gas metering.
         if config.regular_op_cost == 0 {
             return Ok(Self { module, config });
         }
         let gas_rules = rules::Set::new(1, Default::default()).with_grow_cost(config.grow_mem_cost);
-        let module = pwasm_utils::inject_global_gas_counter(module, &gas_rules)
-            .map_err(|_| PrepareError::GasInstrumentation)?;
+        let module = match gas_counter_mode {
+            GasCounterMode::Wasm => pwasm_utils::inject_global_gas_counter(module, &gas_rules),
+            GasCounterMode::HostFunction => pwasm_utils::inject_gas_counter(module, &gas_rules),
+        }
+        .map_err(|_| PrepareError::GasInstrumentation)?;
         Ok(Self { module, config })
     }
 
@@ -152,11 +155,15 @@ impl<'a> ContractModule<'a> {
 /// - all imported functions from the external environment matches defined by `env` module,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
-pub fn prepare_contract(original_code: &[u8], config: &VMConfig) -> Result<Vec<u8>, PrepareError> {
+pub fn prepare_contract(
+    original_code: &[u8],
+    config: &VMConfig,
+    gas_counter_mode: GasCounterMode,
+) -> Result<Vec<u8>, PrepareError> {
     ContractModule::init(original_code, config)?
         .standardize_mem()
         .ensure_no_internal_memory()?
-        .inject_gas_metering()?
+        .inject_gas_metering(gas_counter_mode)?
         .inject_stack_height_metering()?
         .scan_imports()?
         .into_wasm_code()

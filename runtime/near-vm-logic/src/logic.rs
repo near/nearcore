@@ -24,6 +24,12 @@ use std::mem::size_of;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum GasCounterMode {
+    HostFunction,
+    Wasm,
+}
+
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
@@ -69,6 +75,9 @@ pub struct VMLogic<'a> {
 
     /// Current protocol version that is used for the function call.
     current_protocol_version: ProtocolVersion,
+
+    /// Whether to use host gas counter or wasm one
+    gas_counter_mode: GasCounterMode,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -110,6 +119,7 @@ impl<'a> VMLogic<'a> {
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
         current_protocol_version: ProtocolVersion,
+        gas_counter_mode: GasCounterMode,
     ) -> Self {
         ext.reset_touched_nodes_counter();
         // Overflow should be checked before calling VMLogic.
@@ -145,6 +155,7 @@ impl<'a> VMLogic<'a> {
             receipt_to_account: HashMap::new(),
             total_log_length: 0,
             current_protocol_version,
+            gas_counter_mode,
         }
     }
 
@@ -153,7 +164,8 @@ impl<'a> VMLogic<'a> {
     }
 
     pub fn sync_from_wasm_counter(&mut self) -> Result<()> {
-        if self.config.regular_op_cost == 0 {
+        if self.config.regular_op_cost == 0 || self.gas_counter_mode == GasCounterMode::HostFunction
+        {
             return Ok(());
         }
         let remaining_gas_before = self.gas_counter.gas_to_use();
@@ -164,7 +176,8 @@ impl<'a> VMLogic<'a> {
     }
 
     pub fn sync_to_wasm_counter(&self) {
-        if self.config.regular_op_cost == 0 {
+        if self.config.regular_op_cost == 0 || self.gas_counter_mode == GasCounterMode::HostFunction
+        {
             return;
         }
         let remaining_gas_now = self.gas_counter.gas_to_use();
@@ -174,6 +187,10 @@ impl<'a> VMLogic<'a> {
 
     pub fn gas_to_use(&self) -> Gas {
         self.gas_counter.gas_to_use()
+    }
+
+    pub fn gas_counter_mode(&self) -> GasCounterMode {
+        self.gas_counter_mode
     }
 
     // ###########################

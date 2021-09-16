@@ -1,11 +1,13 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
+use crate::runner::GasCounterMode;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
+use near_vm_logic::GasCounterMode;
 use near_vm_logic::InstanceLike;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use wasmer_runtime::{ImportObject, Module};
@@ -237,6 +239,7 @@ pub fn run_wasmer<'a>(
     promise_results: &'a [PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
+    gas_counter_mode: GasCounterMode,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::debug_span!(target: "vm", "run_wasmer").entered();
 
@@ -260,8 +263,12 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache)
-    {
+    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(
+        code,
+        wasm_config,
+        cache,
+        gas_counter_mode,
+    ) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };
@@ -281,6 +288,7 @@ pub fn run_wasmer<'a>(
         promise_results,
         &mut memory,
         current_protocol_version,
+        gas_counter_mode,
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
@@ -331,8 +339,10 @@ fn run_method(
     };
 
     let instance = Wasmer0Instance(instance);
-    if let GasMode::Paid(available_ops) = gas_mode {
-        instance.set_remaining_ops(available_ops);
+    if logic.gas_counter_mode() == GasCounterMode::Wasm {
+        if let GasMode::Paid(available_ops) = gas_mode {
+            instance.set_remaining_ops(available_ops);
+        }
     }
 
     logic.set_instance(Some(&instance as *const dyn InstanceLike));
@@ -356,8 +366,10 @@ fn run_method_inner(
         let _span = tracing::debug_span!(target: "vm", "run_method/call_start_func").entered();
         instance.call_start_func()
     };
-    if let GasMode::Paid(_) = gas_mode {
-        logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+    if logic.gas_counter_mode() == GasCounterMode::Wasm {
+        if let GasMode::Paid(_) = gas_mode {
+            logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+        }
     }
     call_start_func_result.map_err(|err| err.into_vm_error())?;
 
@@ -366,8 +378,10 @@ fn run_method_inner(
         instance.call(&method_name, &[])
     };
 
-    if let GasMode::Paid(_) = gas_mode {
-        logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+    if logic.gas_counter_mode() == GasCounterMode::Wasm {
+        if let GasMode::Paid(_) = gas_mode {
+            logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+        }
     }
 
     call_result.map_err(|err| err.into_vm_error())?;
@@ -405,6 +419,7 @@ pub(crate) fn run_wasmer0_module<'a>(
         promise_results,
         memory,
         current_protocol_version,
+        GasCounterMode::HostFunction,
     );
 
     let gas_mode = if wasm_config.regular_op_cost > 0 {

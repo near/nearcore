@@ -12,6 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::{CacheError, VMError};
+use near_vm_logic::GasCounterMode;
 use near_vm_logic::VMConfig;
 use std::collections::HashMap;
 use std::fmt;
@@ -33,6 +34,14 @@ enum ContractCacheKey {
         vm_kind: VMKind,
         vm_hash: u64,
     },
+    // add gas counter mode
+    Version4 {
+        code_hash: CryptoHash,
+        vm_config_non_crypto_hash: u64,
+        vm_kind: VMKind,
+        vm_hash: u64,
+        gas_counter_mode: GasCounterMode,
+    },
 }
 
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -53,13 +62,15 @@ pub fn get_contract_cache_key(
     code: &ContractCode,
     vm_kind: VMKind,
     config: &VMConfig,
+    gas_counter_mode: GasCounterMode,
 ) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
-    let key = ContractCacheKey::Version3 {
+    let key = ContractCacheKey::Version4 {
         code_hash: code.hash,
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind,
         vm_hash: vm_hash(vm_kind),
+        gas_counter_mode,
     };
     near_primitives::hash::hash(&key.try_to_vec().unwrap())
 }
@@ -117,20 +128,23 @@ pub mod wasmer0_cache {
     pub(crate) fn compile_module(
         code: &[u8],
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
     ) -> Result<wasmer_runtime::Module, VMError> {
-        let prepared_code = prepare::prepare_contract(code, config)?;
+        let prepared_code = prepare::prepare_contract(code, config, gas_counter_mode)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| err.into_vm_error())
     }
 
     pub(crate) fn compile_and_serialize_wasmer(
         wasm_code: &[u8],
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
         key: &CryptoHash,
         cache: &dyn CompiledContractCache,
     ) -> Result<wasmer_runtime::Module, VMError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
 
-        let module = compile_module(wasm_code, config).map_err(|e| cache_error(e, &key, cache))?;
+        let module = compile_module(wasm_code, config, gas_counter_mode)
+            .map_err(|e| cache_error(e, &key, cache))?;
         let artifact =
             module.cache().map_err(|_e| VMError::CacheError(SerializationError { hash: key.0 }))?;
         let code = artifact
@@ -169,6 +183,7 @@ pub mod wasmer0_cache {
         key: CryptoHash,
         wasm_code: &[u8],
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<wasmer_runtime::Module, VMError> {
         if cache.is_none() {
@@ -181,7 +196,9 @@ pub mod wasmer0_cache {
                 Some(serialized) => {
                     deserialize_wasmer(serialized.as_slice()).map_err(VMError::CacheError)?
                 }
-                None => compile_and_serialize_wasmer(wasm_code, config, &key, cache),
+                None => {
+                    compile_and_serialize_wasmer(wasm_code, config, gas_counter_mode, &key, cache)
+                }
             },
             Err(_) => Err(VMError::CacheError(ReadError)),
         }
@@ -199,8 +216,9 @@ pub mod wasmer0_cache {
             key: CryptoHash,
             wasm_code: &[u8],
             config: &VMConfig,
+            gas_counter_mode: GasCounterMode,
             cache: Option<&dyn CompiledContractCache>) -> Result<wasmer_runtime::Module, VMError> = {
-            compile_module_cached_wasmer_impl(key, wasm_code, config, cache)
+            compile_module_cached_wasmer_impl(key, wasm_code, config, gas_counter_mode, cache)
         }
     }
 
@@ -208,12 +226,19 @@ pub mod wasmer0_cache {
         code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
+        gas_counter_mode: GasCounterMode,
     ) -> Result<wasmer_runtime::Module, VMError> {
-        let key = get_contract_cache_key(code, VMKind::Wasmer0, config);
+        let key = get_contract_cache_key(code, VMKind::Wasmer0, config, gas_counter_mode);
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer(key, &code.code, config, cache);
+        return memcache_compile_module_cached_wasmer(
+            key,
+            &code.code,
+            config,
+            gas_counter_mode,
+            cache,
+        );
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer_impl(key, &code.code, config, cache);
+        return compile_module_cached_wasmer_impl(key, &code.code, config, gas_counter_mode, cache);
     }
 }
 

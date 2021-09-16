@@ -4,6 +4,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
+use near_vm_logic::GasCounterMode;
 use near_vm_logic::{External, VMContext, VMOutcome};
 
 use crate::VMKind;
@@ -42,6 +43,7 @@ pub fn run<'a>(
         VMKind::default(),
         current_protocol_version,
         cache,
+        GasCounterMode::HostFunction,
     )
 }
 
@@ -56,6 +58,7 @@ pub fn run_vm(
     vm_kind: VMKind,
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
+    gas_counter_mode: GasCounterMode,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::debug_span!(target: "vm", "run_vm").entered();
 
@@ -80,6 +83,7 @@ pub fn run_vm(
             promise_results,
             current_protocol_version,
             cache,
+            gas_counter_mode,
         ),
         #[cfg(not(feature = "wasmer0_vm"))]
         VMKind::Wasmer0 => panic!("Wasmer0 is not supported, compile with '--features wasmer0_vm'"),
