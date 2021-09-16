@@ -4,15 +4,17 @@ use std::hash::Hash;
 
 #[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
 #[allow(dead_code)]
+// Note, that VMKind is part of serialization protocol, so we cannor remove entries
+// from this list if particular VM reached publically visible networks.
 pub enum VMKind {
     /// Wasmer 0.17.x VM.
-    Wasmer0 = 0,
+    Wasmer0,
     /// Wasmtime VM.
-    Wasmtime = 1,
+    Wasmtime,
     /// Wasmer 1.x VM, no longer supported.
-    // Wasmer1 = 2,
+    // Wasmer1,
     //  Wasmer 2.x VM,
-    Wasmer2 = 3,
+    Wasmer2,
 }
 
 impl Default for VMKind {
