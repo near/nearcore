@@ -36,7 +36,7 @@ use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId,
+    NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -64,6 +64,7 @@ use crate::validate::{
 };
 use crate::{byzantine_assert, create_light_client_block_view, Doomslug};
 use crate::{metrics, DoomslugThresholdMode};
+use actix::Message;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_primitives::shard_layout::ShardUId;
@@ -1799,32 +1800,38 @@ impl Chain {
         Ok(())
     }
 
-    pub fn set_state_finalize(
+    pub fn schedule_apply_state_parts(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let mut height = shard_state_header.chunk_height_included();
         let state_root = shard_state_header.chunk_prev_state_root();
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
 
-        for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-            let part = self.store.owned_store().get(ColStateParts, &key)?.unwrap();
+        state_parts_task_scheduler(ApplyStatePartsRequest {
+            shard_id,
+            state_root,
+            num_parts,
+            epoch_id,
+            sync_hash,
+        });
 
-            self.runtime_adapter.apply_state_part(
-                shard_id,
-                &state_root,
-                part_id,
-                num_parts,
-                &part,
-                &epoch_id,
-            )?;
-        }
+        Ok(())
+    }
 
-        // Applying the chunk starts here
+    pub fn set_state_finalize(
+        &mut self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        apply_result: Result<(), near_chain_primitives::Error>,
+    ) -> Result<(), Error> {
+        apply_result?;
+
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
+        let mut height = shard_state_header.chunk_height_included();
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(shard_id, sync_hash, shard_state_header)?;
         chain_update.commit()?;
@@ -1842,6 +1849,7 @@ impl Chain {
                 break;
             }
         }
+
         Ok(())
     }
 
@@ -4031,4 +4039,22 @@ pub fn collect_receipts_from_response(
     collect_receipts(
         receipt_proof_response.iter().flat_map(|ReceiptProofResponse(_, proofs)| proofs),
     )
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct ApplyStatePartsRequest {
+    pub shard_id: ShardId,
+    pub state_root: StateRoot,
+    pub num_parts: u64,
+    pub epoch_id: EpochId,
+    pub sync_hash: CryptoHash,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct ApplyStatePartsResponse {
+    pub apply_result: Result<(), near_chain_primitives::error::Error>,
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
 }

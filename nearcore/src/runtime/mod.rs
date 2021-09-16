@@ -630,6 +630,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
+    fn get_store(&self) -> Arc<Store> {
+        self.store.clone()
+    }
+
     fn get_tries(&self) -> ShardTries {
         self.tries.clone()
     }
