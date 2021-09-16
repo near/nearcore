@@ -3,34 +3,31 @@
 # to itself.
 
 import base58
-import base64
-import requests
 import json
-from rc import pmap, run
-import sys
 import random
+import requests
 import string
+import sys
 import time
+from rc import pmap
 
 sys.path.append('lib')
-from key import Key
-from mocknet import NUM_NODES, TX_OUT_FILE
-from account import Account
+import account
+import key
+import mocknet
+from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
-NUM_ACCOUNTS = 100
 MAX_TPS = 500  # maximum transactions per second sent (across the whole network)
+# TODO: Get the number of nodes from the genesis config.
+# For now this number needs to be in-sync with the actual number of nodes.
+NUM_NODES = 100
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
-WASM_FILENAME = 'empty_contract_rs.wasm'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * NUM_ACCOUNTS
+CONTRACT_DEPLOY_TIME = 3 * 60
 TRANSFER_ONLY_TIMEOUT = 10 * 60
 ALL_TX_TIMEOUT = 10 * 60
-
-
-def load_testing_account_id(i):
-    return f'load_testing_{i}'
 
 
 def get_status():
@@ -52,6 +49,7 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
             "account_id": account_id,
             "finality": finality
         })
+    assert access_keys['result']['keys']
     for k in access_keys['result']['keys']:
         if k['public_key'] == pk:
             return k['access_key']['nonce']
@@ -62,119 +60,144 @@ def get_latest_block_hash():
     return base58.b58decode(last_block_hash.encode('utf8'))
 
 
-def send_transfer(account, i, i0):
-    next_id = i + 1
-    if next_id >= i0 + NUM_ACCOUNTS:
-        next_id = i0
-    dest_account_id = load_testing_account_id(next_id)
+def send_transfer(account, i, node_account_id):
+    next_id = (i + 1) % mocknet.NUM_ACCOUNTS
+    dest_account_id = mocknet.load_testing_account_id(node_account_id, next_id)
     account.send_transfer_tx(dest_account_id)
 
 
-def random_transaction(account_and_index, i0):
+def random_transaction(account, i, node_account_id):
     choice = random.randint(0, 3)
     if choice == 0:
-        send_transfer(account_and_index[0], account_and_index[1], i0)
+        send_transfer(account, i, node_account_id)
     elif choice == 1:
-        account_and_index[0].send_call_contract_tx('do_work', [])
+        account.send_call_contract_tx('do_work', [])
     elif choice == 2:
-        # min_allowed_top_level_account_length may be set to 32, and accounts creation shorter than it is disabled
         new_account_id = ''.join(
-            random.choice(string.ascii_lowercase) for _ in range(0, 40))
-        account_and_index[0].send_create_account_tx(new_account_id)
+            random.choice(string.ascii_lowercase) for _ in range(0, 10))
+        account.send_create_account_tx(new_account_id)
     elif choice == 3:
-        account_and_index[0].send_stake_tx(1)
+        account.send_stake_tx(1)
 
 
-def send_transfers(i0):
+def send_transfers(node_account_id, test_accounts):
     pmap(
         lambda account_and_index: send_transfer(account_and_index[
-            0], account_and_index[1], i0), test_accounts)
+            0], account_and_index[1], node_account_id), test_accounts)
 
 
-def send_random_transactions(i0):
-    pmap(lambda x: random_transaction(x, i0), test_accounts)
+def send_random_transactions(node_account_id, test_accounts):
+    pmap(
+        lambda account_and_index: random_transaction(account_and_index[
+            0], account_and_index[1], node_account_id), test_accounts)
 
 
-def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps, i0):
+def random_delay():
+    random_delay = random.random() * 10
+    logger.info(
+        f'Random delay of {random_delay} second in `throttle_txns` to evenly spread the load'
+    )
+    time.sleep(random_delay)
+
+
+def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps,
+                  node_account_id, test_accounts):
     start_time = time.time()
-    send_txns(i0)
+    send_txns(node_account_id, test_accounts)
     duration = time.time() - start_time
-    total_tx_sent += NUM_ACCOUNTS
+    total_tx_sent += len(test_accounts)
     elapsed_time += duration
 
     excess_transactions = total_tx_sent - (max_tps * elapsed_time)
     if excess_transactions > 0:
         delay = excess_transactions / max_tps
         elapsed_time += delay
+        logger.info(f'Sleeping for {delay} seconds to throttle transactions')
         time.sleep(delay)
+        random_delay()
 
     return (total_tx_sent, elapsed_time)
 
 
-def write_tx_events(accounts_and_indices):
+def write_tx_events(accounts_and_indices, filename):
     # record events for accurate input tps measurements
     all_tx_events = []
     for (account, _) in accounts_and_indices:
         all_tx_events += account.tx_timestamps
     all_tx_events.sort()
-    with open(TX_OUT_FILE, 'w') as output:
+    with open(filename, 'w') as output:
         for t in all_tx_events:
             output.write(f'{t}\n')
 
 
 def get_test_accounts_from_args():
-    node_index = int(sys.argv[1])
+    node_account_id = sys.argv[1]
     pk = sys.argv[2]
     sk = sys.argv[3]
 
     test_account_keys = [
-        (Key(load_testing_account_id(i), pk, sk), i)
-        for i in range(node_index * NUM_ACCOUNTS, (node_index + 1) *
-                       NUM_ACCOUNTS)
+        (key.Key(mocknet.load_testing_account_id(node_account_id, i), pk,
+                 sk), i) for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
     base_block_hash = get_latest_block_hash()
     rpc_info = (LOCAL_ADDR, RPC_PORT)
 
-    return [(Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                     base_block_hash, rpc_info), i)
-            for (key, i) in test_account_keys]
+    return (node_account_id,
+            [(account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
+                              base_block_hash, rpc_info), i)
+             for (key, i) in test_account_keys])
 
 
 if __name__ == '__main__':
-    test_accounts = get_test_accounts_from_args()
-    run(f'rm -rf {TX_OUT_FILE}')
+    logger.info(sys.argv)
+    (node_account_id, test_accounts) = get_test_accounts_from_args()
 
-    i0 = test_accounts[0][1]
     start_time = time.time()
 
+    # Avoid the thundering herd problem by adding random delays.
+    random_delay()
+
     # begin with only transfers for TPS measurement
-    total_tx_sent = 0
-    elapsed_time = 0
+    total_tx_sent, elapsed_time = 0, 0
+    logger.info(
+        f'Start transfer only, expected TPS {MAX_TPS_PER_NODE} over the next {TRANSFER_ONLY_TIMEOUT} seconds'
+    )
     while time.time() - start_time < TRANSFER_ONLY_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_transfers, total_tx_sent,
-                                       elapsed_time, MAX_TPS_PER_NODE, i0)
+                                       elapsed_time, MAX_TPS_PER_NODE,
+                                       node_account_id, test_accounts)
+    logger.info('Stop transfer only')
 
-    write_tx_events(test_accounts)
+    write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')
+    logger.info('Wrote tx events: transfer only')
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
-    delay = CONTRACT_DEPLOY_TIME / NUM_ACCOUNTS
+    delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
+    logger.info(f'Start deploying, delay between deployments: {delay}')
     for (account, _) in test_accounts:
-        account.send_deploy_contract_tx(WASM_FILENAME)
+        account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         time.sleep(delay)
+    logger.info('Done deploying')
 
     # reset input transactions
-    run(f'rm -rf {TX_OUT_FILE}')
     for (account, _) in test_accounts:
         account.tx_timestamps = []
     # send all sorts of transactions
     start_time = time.time()
+    logger.info(
+        f'Start random transactions, expected TPS {MAX_TPS_PER_NODE} over the next {ALL_TX_TIMEOUT} seconds.'
+    )
+    total_tx_sent, elapsed_time = 0, 0
     while time.time() - start_time < ALL_TX_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-                                       elapsed_time, MAX_TPS_PER_NODE, i0)
+                                       elapsed_time, MAX_TPS_PER_NODE,
+                                       node_account_id, test_accounts)
+    logger.info('Stop random transactions')
 
-    write_tx_events(test_accounts)
+    write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.1')
+    logger.info('Wrote tx events: random transactions')

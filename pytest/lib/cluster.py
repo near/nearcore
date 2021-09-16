@@ -1,29 +1,27 @@
-import multiprocessing
-import threading
-import subprocess
+import atexit
+import base64
 import json
+import multiprocessing
 import os
 import pathlib
-import sys
-import signal
-import atexit
-import signal
-import shutil
-import requests
-import time
-import base58
-import base64
-from retrying import retry
 import rc
-from rc import gcloud
+import requests
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
 import traceback
 import uuid
-import network
+from rc import gcloud
+from retrying import retry
 
-from proxy import NodesProxy
+import network
 from bridge import GanacheNode, RainbowBridge, alice, bob, carol
 from configured_logger import logger
 from key import Key
+from proxy import NodesProxy
 
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -391,14 +389,17 @@ class LocalNode(BaseNode):
 
 class GCloudNode(BaseNode):
 
-    def __init__(self, *args):
+    def __init__(self, *args, username=None, project=None, ssh_key_path=None):
         if len(args) == 1:
-            # Get existing instance assume it's ready to run
             name = args[0]
+            # Get existing instance assume it's ready to run.
             self.instance_name = name
             self.port = 24567
             self.rpc_port = 3030
-            self.machine = gcloud.get(name)
+            self.machine = gcloud.get(name,
+                                      username=username,
+                                      project=project,
+                                      ssh_key_path=ssh_key_path)
             self.ip = self.machine.ip
         elif len(args) == 4:
             # Create new instance from scratch
@@ -418,7 +419,7 @@ class GCloudNode(BaseNode):
                 min_cpu_platform='Intel Skylake',
                 preemptible=False,
             )
-            self.ip = self.machine.ip
+            # self.ip = self.machine.ip
             self._upload_config_files(node_dir)
             self._download_binary(binary)
             with remote_nodes_lock:
@@ -444,8 +445,8 @@ class GCloudNode(BaseNode):
     def _download_binary(self, binary):
         p = self.machine.run('bash',
                              input=f'''
-/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} near
-chmod +x near
+/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} neard
+chmod +x neard
 ''')
         if p.returncode != 0:
             raise DownloadException(p.stderr)
