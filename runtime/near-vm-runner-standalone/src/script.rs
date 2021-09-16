@@ -263,5 +263,5 @@ fn test_evm_slow_deserialize_repro() {
     }
 
     evm_slow_deserialize_repro(VMKind::Wasmer0);
-    evm_slow_deserialize_repro(VMKind::Wasmer1);
+    evm_slow_deserialize_repro(VMKind::Wasmer2);
 }
