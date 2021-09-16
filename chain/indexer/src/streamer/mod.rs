@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info};
 
+use near_primitives::hash::CryptoHash;
 pub use near_primitives::views;
 
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
@@ -153,7 +154,33 @@ async fn build_streamer_message(
             receipt_execution_outcomes
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
         }
-        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes;
+        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes.clone();
+
+        // Block #47317863 (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK) is the first block of upgraded
+        // protocol version on mainnet. In this block ExecutionOutcomes for restored Receipts appear.
+        // However the Receipts are not included in any Chunk. Indexer Framework needs to include them,
+        // so it was decided to artificially include the Receipts into the Chunk of the Block where
+        // ExecutionOutcomes appear.
+        // ref: https://github.com/near/nearcore/pull/4248
+        if &block.header.hash.to_string() == "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK" {
+            let protocol_config =
+                fetchers::fetch_protocol_config(&client, block.header.hash).await?;
+
+            if &protocol_config.chain_id == "mainnet" {
+                let mut restored_receipts: Vec<views::ReceiptView> = vec![];
+                let receipt_ids_included: std::collections::HashSet<CryptoHash> =
+                    chunk_receipts.iter().map(|receipt| receipt.receipt_id).collect();
+
+                for outcome in receipt_execution_outcomes.into_iter() {
+                    if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
+                        restored_receipts.push(outcome.receipt.clone());
+                    }
+                }
+
+                restored_receipts.extend(chunk_receipts);
+                chunk_receipts = restored_receipts;
+            }
+        }
 
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_id].chunk = Some(IndexerChunkView {
