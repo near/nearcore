@@ -21,13 +21,14 @@ to make sure it has expected behavior once deployed to the blockchain.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = "=3.0.0-beta.2"
+clap_derive = "=3.0.0-beta.2"
 base64 = "0.13"
 strum = "0.20"
 num-rational = "0.3"
 tracing-span-tree = "0.1"
 
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", features = ["costs_counting"]}
-near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer1_vm"] }
+near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer2_vm"] }
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 

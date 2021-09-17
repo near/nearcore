@@ -12,7 +12,7 @@ use near_actix_test_utils::run_actix;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_chain_configs::ClientConfig;
-use near_client::{start_view_client, ClientActor};
+use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
@@ -71,7 +71,7 @@ pub fn setup_network_node(
         #[cfg(feature = "adversarial")]
         let adv = Arc::new(RwLock::new(Default::default()));
 
-        let client_actor = ClientActor::new(
+        let client_actor = start_client(
             client_config.clone(),
             chain_genesis.clone(),
             runtime.clone(),
@@ -79,12 +79,10 @@ pub fn setup_network_node(
             network_adapter.clone(),
             Some(signer),
             telemetry_actor,
-            false,
             #[cfg(feature = "adversarial")]
             adv.clone(),
         )
-        .unwrap()
-        .start();
+        .0;
         let view_client_actor = start_view_client(
             config.account_id.clone(),
             chain_genesis.clone(),
