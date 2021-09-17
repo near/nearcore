@@ -1284,7 +1284,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(target: "runtime", "apply_transactions_with_optional_storage_proof").entered();
         let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(

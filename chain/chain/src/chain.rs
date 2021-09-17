@@ -2866,7 +2866,6 @@ impl<'a> ChainUpdate<'a> {
         prev_block: &Block,
         work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "chain", "do_apply_chunks").entered();
         work.into_par_iter().map(|task| task()).collect::<Vec<_>>().into_iter().try_for_each(
             |result| -> Result<(), Error> {
                 self.process_apply_chunk_result(
@@ -2887,7 +2886,6 @@ impl<'a> ChainUpdate<'a> {
         mode: ApplyChunksMode,
     ) -> Result<Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>, Error>
     {
-        let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         let mut result: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>> =
             Vec::new();
         let challenges_result = self.verify_challenges(
@@ -3178,7 +3176,6 @@ impl<'a> ChainUpdate<'a> {
         F: FnMut(ChallengeBody) -> (),
     {
         let _span = tracing::debug_span!(target: "chain", "process_block").entered();
-        let span_before_apply = tracing::debug_span!(target: "chain", "process_block::before_applying_chunks").entered();
         debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header().height(), block.header().num_approvals(), me);
 
         // Check that we know the epoch of the block before we try to get the header
@@ -3337,7 +3334,6 @@ impl<'a> ChainUpdate<'a> {
 
         drop(span_before_apply);
         self.do_apply_chunks(block, &prev_block, apply_chunk_work)?;
-        let _span_after_apply = tracing::debug_span!(target: "chain", "process_block::after_applying_chunks").entered();
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
