@@ -3450,7 +3450,7 @@ mod contract_precompilation_tests {
     use near_primitives::types::CompiledContractCache;
     use near_primitives::views::ViewApplyState;
     use near_store::{Store, StoreCompiledContractCache, TrieUpdate};
-    use near_vm_runner::{get_contract_cache_key, VMKind};
+    use near_vm_runner::{get_contract_cache_key, GasCounterMode, VMKind};
     use node_runtime::state_viewer::TrieViewer;
     use std::rc::Rc;
 
@@ -3524,6 +3524,7 @@ mod contract_precompilation_tests {
             &contract_code,
             VMKind::default(),
             &genesis_config.runtime_config.wasm_config,
+            GasCounterMode::HostFunction,
         );
         for i in 0..num_clients {
             caches[i]
@@ -3637,11 +3638,13 @@ mod contract_precompilation_tests {
             &ContractCode::new(tiny_wasm_code.clone(), None),
             VMKind::default(),
             &genesis_config.runtime_config.wasm_config,
+            GasCounterMode::HostFunction,
         );
         let test_contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
             VMKind::default(),
             &genesis_config.runtime_config.wasm_config,
+            GasCounterMode::HostFunction,
         );
 
         // Check that both deployed contracts are presented in cache for client 0.
@@ -3719,6 +3722,7 @@ mod contract_precompilation_tests {
             &ContractCode::new(wasm_code.clone(), None),
             VMKind::default(),
             &genesis_config.runtime_config.wasm_config,
+            GasCounterMode::HostFunction,
         );
 
         // Check that contract is cached for client 0 despite account deletion.

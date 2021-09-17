@@ -1,7 +1,7 @@
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::VMContext;
+use near_vm_logic::{GasCounterMode, VMContext};
 use near_vm_logic::{VMConfig, VMLogic};
 
 use near_vm_logic::types::PromiseResult;
@@ -41,6 +41,7 @@ impl VMLogicBuilder {
             &self.promise_results,
             &mut self.memory,
             self.current_protocol_version,
+            GasCounterMode::HostFunction,
         )
     }
     #[allow(dead_code)]

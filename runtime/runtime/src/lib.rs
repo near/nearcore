@@ -1477,6 +1477,7 @@ mod tests {
     use near_store::set_access_key;
     use near_store::test_utils::create_tries;
     use near_store::StoreCompiledContractCache;
+    use near_vm_logic::GasCounterMode;
     use near_vm_runner::{get_contract_cache_key, VMKind};
     use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -2390,6 +2391,7 @@ mod tests {
             &contract_code,
             VMKind::default(),
             &apply_state.config.wasm_config,
+            GasCounterMode::HostFunction,
         );
         apply_state
             .cache
