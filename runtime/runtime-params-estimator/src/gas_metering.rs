@@ -7,13 +7,14 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::GasCounterMode;
 use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
 
 #[allow(dead_code)]
-fn test_gas_metering_cost(metric: GasMetric) {
+fn test_gas_metering_cost(metric: GasMetric, gas_counter_mode: GasCounterMode) {
     const REPEATS: i32 = 1000;
     let mut xs1 = vec![];
     let mut ys1 = vec![];
@@ -23,15 +24,26 @@ fn test_gas_metering_cost(metric: GasMetric) {
         if true {
             // Here we test gas metering costs for forward branch cases.
             let nested_contract = make_deeply_nested_blocks_contact(depth);
-            let cost =
-                compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &nested_contract);
+            let cost = compute_gas_metering_cost(
+                metric,
+                VMKind::Wasmer0,
+                REPEATS,
+                &nested_contract,
+                gas_counter_mode,
+            );
             println!("nested {} {}", depth, cost / (REPEATS as u64));
             xs1.push(depth as u64);
             ys1.push(cost);
         }
         if true {
             let loop_contract = make_simple_loop_contact(depth);
-            let cost = compute_gas_metering_cost(metric, VMKind::Wasmer0, REPEATS, &loop_contract);
+            let cost = compute_gas_metering_cost(
+                metric,
+                VMKind::Wasmer0,
+                REPEATS,
+                &loop_contract,
+                gas_counter_mode,
+            );
             println!("loop {} {}", depth, cost / (REPEATS as u64));
             xs2.push(depth as u64);
             ys2.push(cost);
@@ -62,7 +74,8 @@ fn test_gas_metering_cost(metric: GasMetric) {
 fn test_gas_metering_cost_time() {
     // Run with
     // cargo test --release --lib gas_metering::test_gas_metering_cost_time -- --exact --nocapture
-    test_gas_metering_cost(GasMetric::Time)
+    test_gas_metering_cost(GasMetric::Time, GasCounterMode::HostFunction);
+    test_gas_metering_cost(GasMetric::Time, GasCounterMode::Wasm);
 }
 
 #[test]
@@ -74,7 +87,8 @@ fn test_gas_metering_cost_icount() {
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_gas_metering_cost(GasMetric::ICount)
+    test_gas_metering_cost(GasMetric::ICount, GasCounterMode::HostFunction);
+    test_gas_metering_cost(GasMetric::ICount, GasCounterMode::Wasm);
 }
 
 /*
@@ -170,6 +184,7 @@ pub fn compute_gas_metering_cost(
     vm_kind: VMKind,
     repeats: i32,
     contract: &ContractCode,
+    gas_counter_mode: GasCounterMode,
 ) -> u64 {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
@@ -193,6 +208,7 @@ pub fn compute_gas_metering_cost(
         vm_kind,
         ProtocolVersion::MAX,
         cache,
+        gas_counter_mode,
     );
     assert!(result.1.is_none());
 
@@ -210,6 +226,7 @@ pub fn compute_gas_metering_cost(
             vm_kind,
             ProtocolVersion::MAX,
             cache,
+            gas_counter_mode,
         );
         assert!(result.1.is_none());
     }
@@ -227,6 +244,7 @@ pub fn compute_gas_metering_cost(
         vm_kind,
         ProtocolVersion::MAX,
         cache,
+        gas_counter_mode,
     );
     assert!(result.1.is_none());
     let start = start_count(gas_metric);
@@ -242,6 +260,7 @@ pub fn compute_gas_metering_cost(
             vm_kind,
             ProtocolVersion::MAX,
             cache,
+            gas_counter_mode,
         );
         assert!(result.1.is_none());
     }

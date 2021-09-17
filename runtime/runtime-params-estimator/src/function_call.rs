@@ -7,19 +7,21 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::GasCounterMode;
 use near_vm_runner::{run_vm, VMKind};
 use nearcore::get_store_path;
 use std::fmt::Write;
 use std::sync::Arc;
 
 #[allow(dead_code)]
-fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
+fn test_function_call(metric: GasMetric, vm_kind: VMKind, gas_counter_mode: GasCounterMode) {
     let mut xs = vec![];
     let mut ys = vec![];
     const REPEATS: u64 = 50;
     for method_count in vec![5, 20, 30, 50, 100, 200, 1000] {
         let contract = make_many_methods_contract(method_count);
-        let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
+        let cost =
+            compute_function_call_cost(metric, vm_kind, REPEATS, &contract, gas_counter_mode);
         println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
         xs.push(contract.get_code().len() as u64);
         ys.push(cost / REPEATS);
@@ -46,7 +48,9 @@ fn test_function_call_time() {
     // Run with
     // cargo test --release --lib function_call::test_function_call_time
     //    --features required  -- --exact --nocapture
-    test_function_call(GasMetric::Time, VMKind::Wasmer0);
+    test_function_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::HostFunction);
+    test_function_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::Wasm);
+
     //    test_function_call(GasMetric::Time, VMKind::Wasmer1);
     //    test_function_call(GasMetric::Time, VMKind::Wasmtime);
 }
@@ -60,7 +64,9 @@ fn test_function_call_icount() {
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_function_call(GasMetric::ICount, VMKind::Wasmer0);
+    test_function_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::HostFunction);
+    test_function_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::Wasm);
+
     //    test_function_call(GasMetric::ICount, VMKind::Wasmer1);
     //    test_function_call(GasMetric::ICount, VMKind::Wasmtime);
 }
@@ -98,6 +104,7 @@ pub fn compute_function_call_cost(
     vm_kind: VMKind,
     repeats: u64,
     contract: &ContractCode,
+    gas_counter_mode: GasCounterMode,
 ) -> u64 {
     let workdir = tempfile::Builder::new().prefix("runtime_testbed").tempdir().unwrap();
     let store = create_store(&get_store_path(workdir.path()));
@@ -122,6 +129,7 @@ pub fn compute_function_call_cost(
             vm_kind,
             ProtocolVersion::MAX,
             cache,
+            gas_counter_mode,
         );
         assert!(result.1.is_none());
     }
@@ -139,6 +147,7 @@ pub fn compute_function_call_cost(
             vm_kind,
             ProtocolVersion::MAX,
             cache,
+            gas_counter_mode,
         );
         assert!(result.1.is_none());
     }

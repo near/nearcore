@@ -30,7 +30,7 @@ use near_vm_errors::{
     CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMError,
 };
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{VMContext, VMOutcome};
+use near_vm_logic::{GasCounterMode, VMContext, VMOutcome};
 
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
@@ -444,7 +444,13 @@ pub(crate) fn action_deploy_contract(
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).
-    precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref()).ok();
+    precompile_contract(
+        &code,
+        &apply_state.config.wasm_config,
+        GasCounterMode::HostFunction,
+        apply_state.cache.as_deref(),
+    )
+    .ok();
     Ok(())
 }
 

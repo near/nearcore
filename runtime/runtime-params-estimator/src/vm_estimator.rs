@@ -107,10 +107,16 @@ pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
 
 type CompileCost = (u64, Ratio<u64>);
 
-fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
+fn compile(
+    code: &[u8],
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+    gas_counter_mode: GasCounterMode,
+) -> Option<CompileCost> {
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
+        let prepared_code =
+            prepare::prepare_contract(code, &VMConfig::default(), gas_counter_mode).unwrap();
         if compile_module(vm_kind, &prepared_code) {
             return None;
         }
@@ -123,10 +129,11 @@ pub fn load_and_compile(
     path: &PathBuf,
     gas_metric: GasMetric,
     vm_kind: VMKind,
+    gas_counter_mode: GasCounterMode,
 ) -> Option<CompileCost> {
     match fs::read(path) {
         Ok(mut code) => match delete_all_data(&mut code) {
-            Ok(code) => compile(&code, gas_metric, vm_kind),
+            Ok(code) => compile(&code, gas_metric, vm_kind, gas_counter_mode),
             _ => None,
         },
         _ => None,
@@ -324,7 +331,11 @@ fn test_compile_cost_icount() {
 }
 
 #[allow(dead_code)]
-fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
+fn test_many_contracts_call(
+    gas_metric: GasMetric,
+    vm_kind: VMKind,
+    gas_counter_mode: GasCounterMode,
+) {
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
@@ -380,6 +391,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
             vm_kind,
             ProtocolVersion::MAX,
             cache,
+            gas_counter_mode,
         );
         assert!(result.1.is_none());
     }
@@ -396,7 +408,8 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
 
 #[test]
 fn test_many_contracts_call_time() {
-    test_many_contracts_call(GasMetric::Time, VMKind::Wasmer0)
+    test_many_contracts_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::HostFunction);
+    test_many_contracts_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::Wasm);
 }
 
 #[test]
@@ -408,7 +421,8 @@ fn test_many_contracts_call_icount() {
     // Where runner.sh is
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
-    test_many_contracts_call(GasMetric::ICount, VMKind::Wasmer0)
+    test_many_contracts_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::HostFunction);
+    test_many_contracts_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::Wasm);
 }
 
 fn delete_all_data(wasm_bin: &mut Vec<u8>) -> Result<&Vec<u8>> {

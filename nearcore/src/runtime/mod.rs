@@ -42,6 +42,7 @@ use near_primitives::views::{
     QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_vm_runner::precompile_contract;
+use near_vm_runner::GasCounterMode;
 
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
@@ -587,6 +588,7 @@ impl NightshadeRuntime {
                     precompile_contract(
                         &code,
                         &runtime_config.wasm_config,
+                        GasCounterMode::HostFunction,
                         compiled_contract_cache.as_deref(),
                     )
                     .ok();
