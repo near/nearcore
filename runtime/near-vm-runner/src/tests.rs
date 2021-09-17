@@ -12,7 +12,7 @@ use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
 use near_vm_errors::VMError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{GasCounterMode, VMConfig, VMContext, VMOutcome};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -58,6 +58,7 @@ fn make_simple_contract_call_with_gas_vm(
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
+    gas_counter_mode: GasCounterMode,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
@@ -79,6 +80,7 @@ fn make_simple_contract_call_with_gas_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
+        gas_counter_mode,
     )
 }
 
@@ -87,7 +89,22 @@ fn make_simple_contract_call_vm(
     method_name: &str,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
+    let with_old_counter = make_simple_contract_call_with_gas_vm(
+        code,
+        method_name,
+        10u64.pow(14),
+        vm_kind,
+        GasCounterMode::HostFunction,
+    );
+    let with_new_counter = make_simple_contract_call_with_gas_vm(
+        code,
+        method_name,
+        10u64.pow(14),
+        vm_kind,
+        GasCounterMode::HostFunction,
+    );
+    assert_eq!(with_old_counter, with_new_counter);
+    with_new_counter
 }
 
 fn make_cached_contract_call_vm(
@@ -96,6 +113,7 @@ fn make_cached_contract_call_vm(
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
+    gas_counter_mode: GasCounterMode,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
@@ -116,5 +134,6 @@ fn make_cached_contract_call_vm(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         Some(cache),
+        gas_counter_mode,
     )
 }

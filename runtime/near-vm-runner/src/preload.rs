@@ -8,7 +8,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
 use near_vm_logic::types::PromiseResult;
-use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{External, GasCounterMode, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use crate::cache;
 use crate::memory::WasmerMemory;
@@ -56,13 +56,19 @@ pub struct ContractCaller {
     pool: ThreadPool,
     vm_kind: VMKind,
     vm_config: VMConfig,
+    gas_counter_mode: GasCounterMode,
     vm_data_private: VMDataPrivate,
     vm_data_shared: VMDataShared,
     preloaded: Vec<CallInner>,
 }
 
 impl ContractCaller {
-    pub fn new(num_threads: usize, vm_kind: VMKind, vm_config: VMConfig) -> ContractCaller {
+    pub fn new(
+        num_threads: usize,
+        vm_kind: VMKind,
+        vm_config: VMConfig,
+        gas_counter_mode: GasCounterMode,
+    ) -> ContractCaller {
         let (shared, private) = match vm_kind {
             VMKind::Wasmer0 => (
                 VMDataShared::Wasmer0,
@@ -103,6 +109,7 @@ impl ContractCaller {
             pool: ThreadPool::new(num_threads),
             vm_kind,
             vm_config,
+            gas_counter_mode,
             vm_data_private: private,
             vm_data_shared: shared,
             preloaded: Vec::new(),
@@ -123,7 +130,17 @@ impl ContractCaller {
                 let vm_config = self.vm_config.clone();
                 let vm_data_shared = self.vm_data_shared.clone();
                 let vm_kind = self.vm_kind.clone();
-                move || preload_in_thread(request, vm_kind, vm_config, vm_data_shared, tx)
+                let gas_counter_mode = self.gas_counter_mode.clone();
+                move || {
+                    preload_in_thread(
+                        request,
+                        vm_kind,
+                        vm_config,
+                        gas_counter_mode,
+                        vm_data_shared,
+                        tx,
+                    )
+                }
             });
             result.push(ContractCallPrepareResult { handle: index });
         }
@@ -223,14 +240,20 @@ fn preload_in_thread(
     request: ContractCallPrepareRequest,
     vm_kind: VMKind,
     vm_config: VMConfig,
+    gas_counter_mode: GasCounterMode,
     vm_data_shared: VMDataShared,
     tx: Sender<VMCallData>,
 ) {
     let cache = request.cache.as_deref();
     let result = match (vm_kind, vm_data_shared) {
         (VMKind::Wasmer0, VMDataShared::Wasmer0) => {
-            cache::wasmer0_cache::compile_module_cached_wasmer0(&request.code, &vm_config, cache)
-                .map(VMModule::Wasmer0)
+            cache::wasmer0_cache::compile_module_cached_wasmer0(
+                &request.code,
+                &vm_config,
+                cache,
+                gas_counter_mode,
+            )
+            .map(VMModule::Wasmer0)
         }
         (VMKind::Wasmer1, VMDataShared::Wasmer1(store)) => {
             cache::wasmer1_cache::compile_module_cached_wasmer1(

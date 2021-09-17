@@ -141,6 +141,7 @@ pub fn precompile<'a>(
             let result = crate::cache::wasmer0_cache::compile_and_serialize_wasmer(
                 code,
                 wasm_config,
+                GasCounterMode::HostFunction,
                 code_hash,
                 cache,
             );

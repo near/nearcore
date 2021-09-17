@@ -3,7 +3,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{External, VMConfig};
+use near_vm_logic::{External, GasCounterMode, VMConfig};
 
 use crate::tests::{create_context, with_vm_variants, LATEST_PROTOCOL_VERSION};
 use crate::{run_vm, VMKind};
@@ -31,6 +31,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         );
         assert_eq!(
             result.1,
@@ -52,6 +53,7 @@ pub fn test_ts_contract() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         )
         .0
         .unwrap();
@@ -77,6 +79,7 @@ pub fn test_ts_contract() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         );
 
         if let ReturnData::Value(value) = result.0.unwrap().return_data {

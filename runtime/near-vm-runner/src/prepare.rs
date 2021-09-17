@@ -178,7 +178,7 @@ mod tests {
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, PrepareError> {
         let wasm = wat::parse_str(wat).unwrap();
         let config = VMConfig::default();
-        prepare_contract(wasm.as_ref(), &config)
+        prepare_contract(wasm.as_ref(), &config, GasCounterMode::HostFunction)
     }
 
     #[test]

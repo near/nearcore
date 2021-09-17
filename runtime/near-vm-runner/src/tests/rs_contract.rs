@@ -3,7 +3,7 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{types::ReturnData, VMConfig, VMOutcome};
+use near_vm_logic::{types::ReturnData, GasCounterMode, VMConfig, VMOutcome};
 use std::mem::size_of;
 
 use crate::tests::{
@@ -70,6 +70,7 @@ pub fn test_read_write() {
             vm_kind.clone(),
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         );
         assert_run_result(result, 0);
 
@@ -85,6 +86,7 @@ pub fn test_read_write() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         );
         assert_run_result(result, 20);
     });
@@ -143,6 +145,7 @@ fn run_test_ext(
         vm_kind,
         LATEST_PROTOCOL_VERSION,
         None,
+        GasCounterMode::HostFunction,
     );
 
     if let Some(outcome) = &outcome {
@@ -278,6 +281,7 @@ pub fn test_out_of_memory() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         );
         assert_eq!(
             result.1,

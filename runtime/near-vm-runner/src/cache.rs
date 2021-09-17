@@ -187,7 +187,7 @@ pub mod wasmer0_cache {
         cache: Option<&dyn CompiledContractCache>,
     ) -> Result<wasmer_runtime::Module, VMError> {
         if cache.is_none() {
-            return compile_module(wasm_code, config);
+            return compile_module(wasm_code, config, gas_counter_mode);
         }
 
         let cache = cache.unwrap();
@@ -253,7 +253,7 @@ pub mod wasmer1_cache {
         config: &VMConfig,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let prepared_code = prepare::prepare_contract(code, config)?;
+        let prepared_code = prepare::prepare_contract(code, config, GasCounterMode::HostFunction)?;
         wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error())
     }
 
@@ -339,7 +339,8 @@ pub mod wasmer1_cache {
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let key = get_contract_cache_key(code, VMKind::Wasmer1, config);
+        let key =
+            get_contract_cache_key(code, VMKind::Wasmer1, config, GasCounterMode::HostFunction);
         #[cfg(not(feature = "no_cache"))]
         return memcache_compile_module_cached_wasmer1(key, &code.code, config, cache, store);
         #[cfg(feature = "no_cache")]
@@ -351,13 +352,14 @@ pub fn precompile_contract_vm(
     vm_kind: VMKind,
     wasm_code: &ContractCode,
     config: &VMConfig,
+    gas_counter_mode: GasCounterMode,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
     let cache = match cache {
         None => return Ok(ContractPrecompilatonResult::CacheNotAvailable),
         Some(it) => it,
     };
-    let key = get_contract_cache_key(wasm_code, vm_kind, config);
+    let key = get_contract_cache_key(wasm_code, vm_kind, config, gas_counter_mode);
     // Check if we already cached with such a key.
     match cache.get(&key.0) {
         // If so - do not override.
@@ -368,6 +370,7 @@ pub fn precompile_contract_vm(
         VMKind::Wasmer0 => match wasmer0_cache::compile_and_serialize_wasmer(
             wasm_code.code.as_slice(),
             config,
+            gas_counter_mode,
             &key,
             cache,
         ) {
@@ -399,7 +402,8 @@ pub fn precompile_contract_vm(
 pub fn precompile_contract(
     wasm_code: &ContractCode,
     config: &VMConfig,
+    gas_counter_mode: GasCounterMode,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
-    precompile_contract_vm(VMKind::default(), wasm_code, config, cache)
+    precompile_contract_vm(VMKind::default(), wasm_code, config, gas_counter_mode, cache)
 }

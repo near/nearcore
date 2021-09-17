@@ -6,7 +6,7 @@ use near_primitives::types::{CompiledContractCache, ProtocolVersion};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::{create_store, StoreCompiledContractCache};
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::{VMConfig, VMContext, VMOutcome};
+use near_vm_logic::{GasCounterMode, VMConfig, VMContext, VMOutcome};
 use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VMError, VMKind};
 use nearcore::get_store_path;
 use num_rational::Ratio;
@@ -141,7 +141,8 @@ fn measure_contract(
 ) -> u64 {
     let vm_config = VMConfig::default();
     let start = start_count(gas_metric);
-    let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
+    let result =
+        precompile_contract_vm(vm_kind, &contract, &vm_config, GasCounterMode::HostFunction, cache);
     let end = end_count(gas_metric, &start);
     assert!(result.is_ok(), "Compilation failed");
     end
@@ -352,7 +353,13 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let vm_config = VMConfig::default();
     for contract in &contracts {
-        let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
+        let result = precompile_contract_vm(
+            vm_kind,
+            contract,
+            &vm_config,
+            GasCounterMode::HostFunction,
+            cache,
+        );
         assert!(result.is_ok());
     }
     let mut fake_external = MockedExternal::new();

@@ -2,7 +2,7 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
-use near_vm_logic::{ReturnData, VMOutcome};
+use near_vm_logic::{GasCounterMode, ReturnData, VMOutcome};
 
 use crate::cache::MockCompiledContractCache;
 use crate::tests::{
@@ -496,15 +496,38 @@ fn test_stack_overflow() {
         // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
         // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer1 => assert_eq!(
-                make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
-                (
-                    Some(vm_outcome_with_gas(21103107744)),
-                    Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                        WasmTrap::Unreachable
-                    )))
-                )
-            ),
+            VMKind::Wasmer0 | VMKind::Wasmer1 => {
+                assert_eq!(
+                    make_simple_contract_call_with_gas_vm(
+                        &stack_overflow(),
+                        "hello",
+                        10u64.pow(14),
+                        vm_kind,
+                        GasCounterMode::HostFunction,
+                    ),
+                    (
+                        Some(vm_outcome_with_gas(63226248177)),
+                        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                            WasmTrap::Unreachable
+                        )))
+                    )
+                );
+                assert_eq!(
+                    make_simple_contract_call_with_gas_vm(
+                        &stack_overflow(),
+                        "hello",
+                        10u64.pow(14),
+                        vm_kind,
+                        GasCounterMode::Wasm,
+                    ),
+                    (
+                        Some(vm_outcome_with_gas(21103107744)),
+                        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                            WasmTrap::Unreachable
+                        )))
+                    )
+                );
+            }
             VMKind::Wasmtime => {}
         }
     });
@@ -663,7 +686,23 @@ fn test_initializer_no_gas() {
                 &some_initializer_contract(),
                 "hello",
                 0,
-                vm_kind
+                vm_kind,
+                GasCounterMode::HostFunction
+            ),
+            (
+                Some(vm_outcome_with_gas(0)),
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GasExceeded
+                )))
+            )
+        );
+        assert_eq!(
+            make_simple_contract_call_with_gas_vm(
+                &some_initializer_contract(),
+                "hello",
+                0,
+                vm_kind,
+                GasCounterMode::Wasm,
             ),
             (
                 Some(vm_outcome_with_gas(0)),
@@ -739,7 +778,28 @@ fn test_external_call_ok() {
 fn test_external_call_error() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind),
+            make_simple_contract_call_with_gas_vm(
+                &external_call_contract(),
+                "hello",
+                100,
+                vm_kind,
+                GasCounterMode::HostFunction
+            ),
+            (
+                Some(vm_outcome_with_gas(100)),
+                Some(VMError::FunctionCallError(FunctionCallError::HostError(
+                    HostError::GasExceeded
+                )))
+            )
+        );
+        assert_eq!(
+            make_simple_contract_call_with_gas_vm(
+                &external_call_contract(),
+                "hello",
+                100,
+                vm_kind,
+                GasCounterMode::Wasm
+            ),
             (
                 Some(vm_outcome_with_gas(100)),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -796,12 +856,24 @@ fn test_contract_error_caching() {
         let code = [42; 1000];
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
-        let err1 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name1", terragas, vm_kind);
+        let err1 = make_cached_contract_call_vm(
+            &mut cache,
+            &code,
+            "method_name1",
+            terragas,
+            vm_kind,
+            GasCounterMode::HostFunction,
+        );
         println!("{:?}", cache);
         assert_eq!(cache.len(), 1);
-        let err2 =
-            make_cached_contract_call_vm(&mut cache, &code, "method_name2", terragas, vm_kind);
+        let err2 = make_cached_contract_call_vm(
+            &mut cache,
+            &code,
+            "method_name2",
+            terragas,
+            vm_kind,
+            GasCounterMode::HostFunction,
+        );
         assert_eq!(err1, err2);
     })
 }
@@ -831,6 +903,7 @@ fn test_burn_gas_limit() {
             vm_kind,
             LATEST_PROTOCOL_VERSION,
             None,
+            GasCounterMode::HostFunction,
         );
         assert_eq!(
             result.1,

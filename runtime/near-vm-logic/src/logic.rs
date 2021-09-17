@@ -4,6 +4,7 @@ use crate::gas_counter::GasCounter;
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
+use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::ByteOrder;
 use near_crypto::Secp256K1Signature;
 use near_primitives::version::is_implicit_account_creation_enabled;
@@ -24,7 +25,7 @@ use std::mem::size_of;
 
 pub type Result<T> = ::std::result::Result<T, VMLogicError>;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, BorshSerialize, BorshDeserialize, Debug)]
 pub enum GasCounterMode {
     HostFunction,
     Wasm,

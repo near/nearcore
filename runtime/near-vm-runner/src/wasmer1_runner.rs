@@ -7,7 +7,9 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError, WasmTrap,
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
-use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome};
+use near_vm_logic::{
+    External, GasCounterMode, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome,
+};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
@@ -246,6 +248,7 @@ pub fn run_wasmer1(
         promise_results,
         &mut memory,
         current_protocol_version,
+        GasCounterMode::HostFunction,
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
@@ -376,6 +379,7 @@ pub(crate) fn run_wasmer1_module<'a>(
         promise_results,
         memory,
         current_protocol_version,
+        GasCounterMode::HostFunction,
     );
 
     let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);

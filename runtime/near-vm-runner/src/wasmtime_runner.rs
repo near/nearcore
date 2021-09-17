@@ -12,7 +12,7 @@ pub mod wasmtime_runner {
     };
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap};
     use near_vm_logic::{
-        types::PromiseResult, External, MemoryLike, VMContext, VMLogic, VMOutcome,
+        types::PromiseResult, External, GasCounterMode, MemoryLike, VMContext, VMLogic, VMOutcome,
     };
     use std::ffi::c_void;
     use std::str;
@@ -166,7 +166,11 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(&code.code, wasm_config) {
+        let prepared_code = match prepare::prepare_contract(
+            &code.code,
+            wasm_config,
+            GasCounterMode::HostFunction,
+        ) {
             Ok(code) => code,
             Err(err) => return (None, Some(VMError::from(err))),
         };
@@ -186,6 +190,7 @@ pub mod wasmtime_runner {
             promise_results,
             &mut memory,
             current_protocol_version,
+            GasCounterMode::HostFunction,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {

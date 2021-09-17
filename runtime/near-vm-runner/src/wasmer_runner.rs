@@ -1,6 +1,5 @@
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
-use crate::runner::GasCounterMode;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
