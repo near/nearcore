@@ -26,6 +26,7 @@ import base58
 
 seed(0)
 
+
 def key_seed():
     return bytes([randint(0, 255) for _ in range(32)])
 
@@ -61,7 +62,8 @@ def create_edge(key0, key1, nonce):
 
     edge.nonce = nonce
 
-    val = bytes([0]) + bytes(edge.peer0.data) + bytes([0]) + bytes(edge.peer1.data) + struct.pack('Q', nonce)
+    val = bytes([0]) + bytes(edge.peer0.data) + bytes([0]) + bytes(
+        edge.peer1.data) + struct.pack('Q', nonce)
     hsh = hashlib.sha256(val).digest()
     enc58 = base58.b58encode(hsh)
 
@@ -82,12 +84,17 @@ async def main():
     key_pair_0 = nacl.signing.SigningKey(key_seed())
     tracker = LogTracker(nodes[0])
     conn = await connect(nodes[0].addr())
-    await run_handshake(conn, nodes[0].node_key.pk, key_pair_0, listen_port=12345)
+    await run_handshake(conn,
+                        nodes[0].node_key.pk,
+                        key_pair_0,
+                        listen_port=12345)
 
     num_nodes = 300
 
     def create_update():
-        key_pairs = [key_pair_0] +  [nacl.signing.SigningKey(key_seed()) for _ in range(num_nodes - 1)]
+        key_pairs = [key_pair_0] + [
+            nacl.signing.SigningKey(key_seed()) for _ in range(num_nodes - 1)
+        ]
         nonces = [[1] * num_nodes for _ in range(num_nodes)]
 
         edges = []

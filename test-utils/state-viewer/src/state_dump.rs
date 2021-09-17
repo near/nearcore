@@ -85,7 +85,7 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::NumBlocks;
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
     use near_store::test_utils::create_test_store;
     use near_store::Store;
     use nearcore::config::GenesisExt;
@@ -93,6 +93,7 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
+    use near_primitives::runtime::config_store::RuntimeConfigStore;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis =
@@ -109,6 +110,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -116,6 +118,27 @@ mod test {
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
         (store, genesis, env)
+    }
+
+    /// Produces blocks, avoiding the potential failure where the client is not the
+    /// block producer for each subsequent height (this can happen when a new validator
+    /// is staked since they will also have heights where they should produce the block instead).
+    fn safe_produce_blocks(
+        env: &mut TestEnv,
+        initial_height: BlockHeight,
+        num_blocks: BlockHeightDelta,
+    ) {
+        let mut h = initial_height;
+        for _ in 1..=num_blocks {
+            let mut block = None;
+            // `env.clients[0]` may not be the block producer at `h`,
+            // loop until we find a height env.clients[0] should produce.
+            while block.is_none() {
+                block = env.clients[0].produce_block(h).unwrap();
+                h += 1;
+            }
+            env.process_block(0, block.unwrap(), Provenance::PRODUCED);
+        }
     }
 
     /// Test that we preserve the validators from the epoch of the state dump.
@@ -134,9 +157,9 @@ mod test {
             genesis_hash,
         );
         env.clients[0].process_tx(tx, false, false);
-        for i in 1..=epoch_length * 2 + 1 {
-            env.produce_block(0, i);
-        }
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
@@ -158,6 +181,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -195,6 +219,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
@@ -224,7 +249,16 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![], None, None)
+            NightshadeRuntime::new(
+                Path::new("."),
+                store,
+                &genesis,
+                vec![],
+                vec![],
+                None,
+                None,
+                RuntimeConfigStore::test(),
+            )
         };
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
             Arc::new(create_runtime(store1.clone())),
@@ -281,6 +315,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
@@ -297,9 +332,9 @@ mod test {
             genesis_hash,
         );
         env.clients[0].process_tx(tx, false, false);
-        for i in 1..=epoch_length * 2 + 1 {
-            env.produce_block(0, i);
-        }
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
@@ -321,6 +356,7 @@ mod test {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         );
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);

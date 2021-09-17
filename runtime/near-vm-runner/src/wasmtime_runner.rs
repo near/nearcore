@@ -166,14 +166,12 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code = match prepare::prepare_contract(
-            &code.code,
-            wasm_config,
-            GasCounterMode::HostFunction,
-        ) {
-            Ok(code) => code,
-            Err(err) => return (None, Some(VMError::from(err))),
-        };
+        let prepared_code =
+            match prepare::prepare_contract(code.code(), wasm_config, GasCounterMode::HostFunction)
+            {
+                Ok(code) => code,
+                Err(err) => return (None, Some(VMError::from(err))),
+            };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
             Err(err) => return (None, Some(err.into_vm_error())),
@@ -193,7 +191,7 @@ pub mod wasmtime_runner {
             GasCounterMode::HostFunction,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-        if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+        if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
             return (
                 Some(logic.outcome()),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(

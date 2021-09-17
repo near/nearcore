@@ -254,6 +254,7 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
     last_block_hash: &CryptoHash,
     epoch_info_provider: &dyn EpochInfoProvider,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only: bool,
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
@@ -282,6 +283,8 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            is_chunk_only,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
@@ -429,17 +432,17 @@ pub(crate) fn action_deploy_contract(
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-    let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
     account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
     account.set_storage_usage(
-        account.storage_usage().checked_add(code.code.len() as u64).ok_or_else(|| {
+        account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Storage usage integer overflow for account {}",
                 account_id
             ))
         })?,
     );
-    account.set_code_hash(code.get_hash());
+    account.set_code_hash(*code.hash());
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
@@ -470,7 +473,7 @@ pub(crate) fn action_delete_account(
         let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
         if let Some(code) = contract_code {
             // account storage usage should be larger than code size
-            let code_len = code.code.len() as u64;
+            let code_len = code.code().len() as u64;
             debug_assert!(account_storage_usage > code_len);
             account_storage_usage = account_storage_usage.saturating_sub(code_len);
         }
@@ -594,6 +597,16 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
         }
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        Action::StakeChunkOnly(_) => {
+            if actor_id != account_id {
+                return Err(ActionErrorKind::ActorNoPermission {
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
+                }
+                .into());
+            }
+        }
         Action::DeleteAccount(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
@@ -678,6 +691,15 @@ pub(crate) fn check_account_existence(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_) => {
+            if account.is_none() {
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            }
+        }
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        Action::StakeChunkOnly(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

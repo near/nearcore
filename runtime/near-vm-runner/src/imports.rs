@@ -8,11 +8,11 @@ pub struct ImportReference(pub *mut c_void);
 unsafe impl Send for ImportReference {}
 unsafe impl Sync for ImportReference {}
 
-#[cfg(feature = "wasmer1_vm")]
+#[cfg(feature = "wasmer2_vm")]
 use wasmer::{Memory, WasmerEnv};
 
 #[derive(WasmerEnv, Clone)]
-#[cfg(feature = "wasmer1_vm")]
+#[cfg(feature = "wasmer2_vm")]
 pub struct NearWasmerEnv {
     pub memory: Memory,
     pub logic: ImportReference,
@@ -55,8 +55,8 @@ macro_rules! wrapped_imports {
                 )*
             }
 
-            #[cfg(feature = "wasmer1_vm")]
-            pub mod wasmer1_ext {
+            #[cfg(feature = "wasmer2_vm")]
+            pub mod wasmer2_ext {
             use near_vm_logic::VMLogic;
             use crate::imports::NearWasmerEnv;
 
@@ -137,8 +137,8 @@ macro_rules! wrapped_imports {
             }
 
             #[allow(unused_variables)]
-            #[cfg(feature = "wasmer1_vm")]
-            pub(crate) fn build_wasmer1(
+            #[cfg(feature = "wasmer2_vm")]
+            pub(crate) fn build_wasmer2(
                 store: &wasmer::Store,
                 memory: wasmer::Memory,
                 logic: &mut VMLogic<'_>,
@@ -151,7 +151,7 @@ macro_rules! wrapped_imports {
                 $({
                     $(#[cfg(feature = $feature_name)])*
                     if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
-                        namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer1_ext::$func));
+                        namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer2_ext::$func));
                     }
                 })*
                 import_object.register("env", namespace);

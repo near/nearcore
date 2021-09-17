@@ -68,8 +68,8 @@ pub fn run_vm(
     #[cfg(feature = "wasmtime_vm")]
     use crate::wasmtime_runner::wasmtime_runner::run_wasmtime;
 
-    #[cfg(feature = "wasmer1_vm")]
-    use crate::wasmer1_runner::run_wasmer1;
+    #[cfg(feature = "wasmer2_vm")]
+    use crate::wasmer2_runner::run_wasmer2;
 
     let (outcome, error) = match vm_kind {
         #[cfg(feature = "wasmer0_vm")]
@@ -103,8 +103,8 @@ pub fn run_vm(
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
-        #[cfg(feature = "wasmer1_vm")]
-        VMKind::Wasmer1 => run_wasmer1(
+        #[cfg(feature = "wasmer2_vm")]
+        VMKind::Wasmer2 => run_wasmer2(
             code,
             method_name,
             ext,
@@ -115,8 +115,8 @@ pub fn run_vm(
             current_protocol_version,
             cache,
         ),
-        #[cfg(not(feature = "wasmer1_vm"))]
-        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
+        #[cfg(not(feature = "wasmer2_vm"))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not supported, compile with '--features wasmer2_vm'"),
     };
     (outcome, error)
 }
@@ -147,12 +147,12 @@ pub fn precompile<'a>(
             );
             result.err()
         }
-        #[cfg(feature = "wasmer1_vm")]
-        VMKind::Wasmer1 => {
-            let engine =
-                wasmer::JIT::new(wasmer_compiler_singlepass::Singlepass::default()).engine();
+        #[cfg(feature = "wasmer2_vm")]
+        VMKind::Wasmer2 => {
+            let compiler = wasmer_compiler_singlepass::Singlepass::new();
+            let engine = wasmer::Universal::new(compiler).engine();
             let store = wasmer::Store::new(&engine);
-            let result = crate::cache::wasmer1_cache::compile_and_serialize_wasmer1(
+            let result = crate::cache::wasmer2_cache::compile_and_serialize_wasmer2(
                 code,
                 code_hash,
                 wasm_config,
@@ -161,8 +161,8 @@ pub fn precompile<'a>(
             );
             result.err()
         }
-        #[cfg(not(feature = "wasmer1_vm"))]
-        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
+        #[cfg(not(feature = "wasmer2_vm"))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not supported, compile with '--features wasmer2_vm'"),
         VMKind::Wasmtime => Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
             CompilationError::UnsupportedCompiler {
                 msg: "Precompilation not supported in Wasmtime yet".to_string(),
@@ -190,13 +190,13 @@ pub fn compile_module(vm_kind: VMKind, code: &Vec<u8>) -> bool {
         VMKind::Wasmtime => {
             panic!("Wasmtime is not supported, compile with '--features wasmtime_vm'")
         }
-        #[cfg(feature = "wasmer1_vm")]
-        VMKind::Wasmer1 => {
-            use crate::wasmer1_runner::compile_wasmer1_module;
-            compile_wasmer1_module(code)
+        #[cfg(feature = "wasmer2_vm")]
+        VMKind::Wasmer2 => {
+            use crate::wasmer2_runner::compile_wasmer2_module;
+            compile_wasmer2_module(code)
         }
-        #[cfg(not(feature = "wasmer1_vm"))]
-        VMKind::Wasmer1 => panic!("Wasmer1 is not supported, compile with '--features wasmer1_vm'"),
+        #[cfg(not(feature = "wasmer2_vm"))]
+        VMKind::Wasmer2 => panic!("Wasmer2 is not supported, compile with '--features wasmer2_vm'"),
     };
     false
 }

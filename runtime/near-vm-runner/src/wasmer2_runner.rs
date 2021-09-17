@@ -10,23 +10,23 @@ use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{
     External, GasCounterMode, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome,
 };
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store, JIT};
+use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 
+use crate::cache::StableHasher;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_types::Value;
 use wasmer_vm::TrapCode;
 
-pub struct Wasmer1Memory(Memory);
+pub struct Wasmer2Memory(Memory);
 
-impl Wasmer1Memory {
+impl Wasmer2Memory {
     pub fn new(
         store: &Store,
         initial_memory_pages: u32,
         max_memory_pages: u32,
     ) -> Result<Self, VMError> {
-        Ok(Wasmer1Memory(
+        Ok(Wasmer2Memory(
             Memory::new(
                 &store,
                 MemoryType::new(Pages(initial_memory_pages), Some(Pages(max_memory_pages)), false),
@@ -40,7 +40,7 @@ impl Wasmer1Memory {
     }
 }
 
-impl MemoryLike for Wasmer1Memory {
+impl MemoryLike for Wasmer2Memory {
     fn fits_memory(&self, offset: u64, len: u64) -> bool {
         match offset.checked_add(len) {
             None => false,
@@ -105,17 +105,11 @@ impl IntoVMError for wasmer::RuntimeError {
         let trap_code = trap_code.unwrap_or_else(|| panic!("Unknown error: {}", error_msg));
         let error = match trap_code {
             TrapCode::StackOverflow => FunctionCallError::WasmTrap(WasmTrap::StackOverflow),
-            TrapCode::HeapSetterOutOfBounds => {
-                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
-            }
             TrapCode::HeapAccessOutOfBounds => {
                 FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
             TrapCode::HeapMisaligned => {
                 FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
-            }
-            TrapCode::TableSetterOutOfBounds => {
-                FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
             }
             TrapCode::TableAccessOutOfBounds => {
                 FunctionCallError::WasmTrap(WasmTrap::MemoryOutOfBounds)
@@ -137,12 +131,6 @@ impl IntoVMError for wasmer::RuntimeError {
             TrapCode::UnreachableCodeReached => FunctionCallError::WasmTrap(WasmTrap::Unreachable),
             TrapCode::UnalignedAtomic => {
                 FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
-            }
-            TrapCode::Interrupt => {
-                FunctionCallError::Nondeterministic("Wasmer interrupt".to_string())
-            }
-            TrapCode::VMOutOfMemory => {
-                FunctionCallError::Nondeterministic("Wasmer out of memory".to_string())
             }
         };
         VMError::FunctionCallError(error)
@@ -187,7 +175,7 @@ fn wasmer1_set_available_gas(instance: &wasmer::Instance, available_gas: u64) {
     remaining_gas.set(Value::I32(available_gas as i32)).unwrap();
 }
 
-pub fn run_wasmer1(
+pub fn run_wasmer2(
     code: &ContractCode,
     method_name: &str,
     ext: &mut dyn External,
@@ -198,7 +186,7 @@ pub fn run_wasmer1(
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!(target: "vm", "run_wasmer1").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_wasmer2").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
     // So doesn't require x86. However, when it is on x86, AVX is required:
     // https://github.com/wasmerio/wasmer/issues/1567
@@ -218,8 +206,8 @@ pub fn run_wasmer1(
         );
     }
 
-    let store = default_wasmer1_store();
-    let module = match cache::wasmer1_cache::compile_module_cached_wasmer1(
+    let store = default_wasmer2_store();
+    let module = match cache::wasmer2_cache::compile_module_cached_wasmer2(
         &code,
         wasm_config,
         cache,
@@ -229,7 +217,7 @@ pub fn run_wasmer1(
         Err(err) => return (None, Some(err)),
     };
 
-    let mut memory = Wasmer1Memory::new(
+    let mut memory = Wasmer2Memory::new(
         &store,
         wasm_config.limit_config.initial_memory_pages,
         wasm_config.limit_config.max_memory_pages,
@@ -252,7 +240,7 @@ pub fn run_wasmer1(
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+    if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -262,7 +250,7 @@ pub fn run_wasmer1(
     }
 
     let import_object =
-        imports::build_wasmer1(&store, memory_copy, &mut logic, current_protocol_version);
+        imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
@@ -301,53 +289,70 @@ fn run_method(
     Ok(())
 }
 
-pub(crate) fn compile_wasmer1_module(code: &[u8]) -> bool {
-    let store = default_wasmer1_store();
+pub(crate) fn compile_wasmer2_module(code: &[u8]) -> bool {
+    let store = default_wasmer2_store();
     Module::new(&store, code).is_ok()
 }
 
-#[derive(Hash)]
-struct Wasmer1Config {
-    seed: i32,
-    use_cranelift: bool,
-    use_native_engine: bool,
+#[derive(Hash, PartialEq, Debug)]
+#[allow(unused)]
+enum WasmerEngine {
+    Universal = 1,
+    StaticLib = 2,
+    DynamicLib = 3,
 }
 
-impl Wasmer1Config {
+#[derive(Hash, PartialEq, Debug)]
+#[allow(unused)]
+enum WasmerCompiler {
+    Singlepass = 1,
+    Cranelift = 2,
+    Llvm = 3,
+}
+
+#[derive(Hash)]
+struct Wasmer2Config {
+    seed: i32,
+    engine: WasmerEngine,
+    compiler: WasmerCompiler,
+}
+
+impl Wasmer2Config {
     fn config_hash(self: Self) -> u64 {
-        let mut s = DefaultHasher::new();
+        let mut s = StableHasher::new();
         self.hash(&mut s);
         s.finish()
     }
 }
 
-const WASMER1_CONFIG: Wasmer1Config =
-    Wasmer1Config { seed: 53, use_cranelift: false, use_native_engine: false };
+// We use following scheme for the bits forming seed:
+//  kind << 10, kind is 1 for Wasmer
+//  major version << 6
+//  minor version
+const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
+    seed: (1 << 10) | (2 << 6) | 0,
+    engine: WasmerEngine::Universal,
+    compiler: WasmerCompiler::Singlepass,
+};
 
-pub(crate) fn wasmer1_vm_hash() -> u64 {
-    WASMER1_CONFIG.config_hash()
+pub(crate) fn wasmer2_vm_hash() -> u64 {
+    WASMER2_CONFIG.config_hash()
 }
 
-pub(crate) fn default_wasmer1_store() -> Store {
-    if WASMER1_CONFIG.use_native_engine {
-        let engine = if WASMER1_CONFIG.use_cranelift {
-            wasmer_engine_native::Native::new(wasmer_compiler_cranelift::Cranelift::default())
-                .engine()
-        } else {
-            wasmer_engine_native::Native::new(wasmer_compiler_singlepass::Singlepass::default())
-                .engine()
-        };
-        Store::new(&engine)
-    } else {
-        let engine = JIT::new(Singlepass::default()).engine();
-        Store::new(&engine)
-    }
+pub(crate) fn default_wasmer2_store() -> Store {
+    // We only support singlepass compiler at the moment.
+    assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
+    let compiler = Singlepass::new();
+    // We only support universal engine at the moment.
+    assert_eq!(WASMER2_CONFIG.engine, WasmerEngine::Universal);
+    let engine = wasmer::Universal::new(compiler).engine();
+    Store::new(&engine)
 }
 
-pub(crate) fn run_wasmer1_module<'a>(
+pub(crate) fn run_wasmer2_module<'a>(
     module: &Module,
     store: &Store,
-    memory: &mut Wasmer1Memory,
+    memory: &mut Wasmer2Memory,
     method_name: &str,
     ext: &mut dyn External,
     context: VMContext,
@@ -382,7 +387,7 @@ pub(crate) fn run_wasmer1_module<'a>(
         GasCounterMode::HostFunction,
     );
 
-    let import = imports::build_wasmer1(store, memory_copy, &mut logic, current_protocol_version);
+    let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));

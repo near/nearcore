@@ -1,5 +1,7 @@
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::sync::Arc;
 
 use log::debug;
 
@@ -7,7 +9,17 @@ use near_chain_configs::Genesis;
 pub use near_crypto;
 use near_crypto::PublicKey;
 pub use near_primitives;
+#[cfg(feature = "sandbox")]
+use near_primitives::contract::ContractCode;
+use near_primitives::profile::ProfileData;
+pub use near_primitives::runtime::apply_state::ApplyState;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::get_insufficient_storage_stake;
+use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::transaction::ExecutionMetadata;
+use near_primitives::version::{
+    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
+};
 use near_primitives::{
     account::Account,
     checked_feature,
@@ -50,18 +62,6 @@ use crate::config::{
 use crate::genesis::{GenesisStateApplier, StorageComputer};
 use crate::verifier::validate_receipt;
 pub use crate::verifier::{validate_transaction, verify_and_charge_transaction};
-#[cfg(feature = "sandbox")]
-use near_primitives::contract::ContractCode;
-use near_primitives::profile::ProfileData;
-pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::transaction::ExecutionMetadata;
-use near_primitives::version::{
-    is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
-};
-use std::rc::Rc;
-use std::sync::Arc;
 
 mod actions;
 pub mod adapter;
@@ -409,6 +409,8 @@ impl Runtime {
                     stake,
                     &apply_state.prev_block_hash,
                     epoch_info_provider,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )?;
             }
             Action::AddKey(add_key) => {
@@ -445,6 +447,20 @@ impl Runtime {
                     account_id,
                     delete_account,
                     apply_state.current_protocol_version,
+                )?;
+            }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            Action::StakeChunkOnly(stake) => {
+                near_metrics::inc_counter(&metrics::ACTION_STAKE_CHUNK_ONLY_TOTAL);
+                action_stake(
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    &mut result,
+                    account_id,
+                    stake,
+                    &apply_state.prev_block_hash,
+                    epoch_info_provider,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    true,
                 )?;
             }
         };
@@ -1382,7 +1398,7 @@ impl Runtime {
     }
 
     // Adds the given receipt into the end of the delayed receipt queue in the state.
-    fn delay_receipt(
+    pub fn delay_receipt(
         state_update: &mut TrieUpdate,
         delayed_receipts_indices: &mut DelayedReceiptIndices,
         receipt: &Receipt,
@@ -1421,7 +1437,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(state_update, account_id, &code);
-                    assert_eq!(code.get_hash(), acc.code_hash());
+                    assert_eq!(*code.hash(), acc.code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);
@@ -1460,8 +1476,6 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::account::AccessKey;
     use near_primitives::contract::ContractCode;
@@ -1480,6 +1494,8 @@ mod tests {
     use near_vm_logic::GasCounterMode;
     use near_vm_runner::{get_contract_cache_key, VMKind};
     use testlib::runtime_utils::{alice_account, bob_account};
+
+    use super::*;
 
     const GAS_PRICE: Balance = 5000;
 

@@ -1,6 +1,6 @@
 use crate::errors::{ContractPrecompilatonError, ContractPrecompilatonResult, IntoVMError};
 use crate::prepare;
-use crate::wasmer1_runner::{default_wasmer1_store, wasmer1_vm_hash};
+use crate::wasmer2_runner::{default_wasmer2_store, wasmer2_vm_hash};
 use crate::wasmer_runner::wasmer0_vm_hash;
 use crate::wasmtime_runner::wasmtime_vm_hash;
 use crate::VMKind;
@@ -16,9 +16,12 @@ use near_vm_logic::GasCounterMode;
 use near_vm_logic::VMConfig;
 use std::collections::HashMap;
 use std::fmt;
+#[allow(deprecated)]
+use std::hash::{Hasher, SipHasher};
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, BorshSerialize)]
+#[allow(dead_code)]
 enum ContractCacheKey {
     Version1 {
         code_hash: CryptoHash,
@@ -53,7 +56,7 @@ enum CacheRecord {
 fn vm_hash(vm_kind: VMKind) -> u64 {
     match vm_kind {
         VMKind::Wasmer0 => wasmer0_vm_hash(),
-        VMKind::Wasmer1 => wasmer1_vm_hash(),
+        VMKind::Wasmer2 => wasmer2_vm_hash(),
         VMKind::Wasmtime => wasmtime_vm_hash(),
     }
 }
@@ -66,7 +69,7 @@ pub fn get_contract_cache_key(
 ) -> CryptoHash {
     let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version4 {
-        code_hash: code.hash,
+        code_hash: *code.hash(),
         vm_config_non_crypto_hash: config.non_crypto_hash(),
         vm_kind,
         vm_hash: vm_hash(vm_kind),
@@ -232,23 +235,29 @@ pub mod wasmer0_cache {
         #[cfg(not(feature = "no_cache"))]
         return memcache_compile_module_cached_wasmer(
             key,
-            &code.code,
+            code.code(),
             config,
             gas_counter_mode,
             cache,
         );
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer_impl(key, &code.code, config, gas_counter_mode, cache);
+        return compile_module_cached_wasmer_impl(
+            key,
+            code.code(),
+            config,
+            gas_counter_mode,
+            cache,
+        );
     }
 }
 
-#[cfg(feature = "wasmer1_vm")]
-pub mod wasmer1_cache {
+#[cfg(feature = "wasmer2_vm")]
+pub mod wasmer2_cache {
     use near_primitives::contract::ContractCode;
 
     use super::*;
 
-    fn compile_module_wasmer1(
+    fn compile_module_wasmer2(
         code: &[u8],
         config: &VMConfig,
         store: &wasmer::Store,
@@ -257,16 +266,16 @@ pub mod wasmer1_cache {
         wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error())
     }
 
-    pub(crate) fn compile_and_serialize_wasmer1(
+    pub(crate) fn compile_and_serialize_wasmer2(
         wasm_code: &[u8],
         key: &CryptoHash,
         config: &VMConfig,
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer1").entered();
+        let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer2").entered();
 
-        let module = compile_module_wasmer1(wasm_code, config, store)
+        let module = compile_module_wasmer2(wasm_code, config, store)
             .map_err(|e| cache_error(e, &key, cache))?;
         let code = module
             .serialize()
@@ -276,11 +285,11 @@ pub mod wasmer1_cache {
         Ok(module)
     }
 
-    fn deserialize_wasmer1(
+    fn deserialize_wasmer2(
         serialized: &[u8],
         store: &wasmer::Store,
     ) -> Result<Result<wasmer::Module, VMError>, CacheError> {
-        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer1").entered();
+        let _span = tracing::debug_span!(target: "vm", "deserialize_wasmer2").entered();
 
         let record = CacheRecord::try_from_slice(serialized).map_err(|_e| DeserializationError)?;
         let serialized_module = match record {
@@ -293,7 +302,7 @@ pub mod wasmer1_cache {
         }
     }
 
-    fn compile_module_cached_wasmer1_impl(
+    fn compile_module_cached_wasmer2_impl(
         key: CryptoHash,
         wasm_code: &[u8],
         config: &VMConfig,
@@ -301,15 +310,15 @@ pub mod wasmer1_cache {
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
         if cache.is_none() {
-            return compile_module_wasmer1(wasm_code, config, store);
+            return compile_module_wasmer2(wasm_code, config, store);
         }
 
         let cache = cache.unwrap();
         match cache.get(&key.0) {
             Ok(serialized) => match serialized {
-                Some(serialized) => deserialize_wasmer1(serialized.as_slice(), store)
+                Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store)
                     .map_err(VMError::CacheError)?,
-                None => compile_and_serialize_wasmer1(wasm_code, &key, config, cache, store),
+                None => compile_and_serialize_wasmer2(wasm_code, &key, config, cache, store),
             },
             Err(_) => Err(VMError::CacheError(ReadError)),
         }
@@ -323,28 +332,28 @@ pub mod wasmer1_cache {
             key
         };
 
-        fn memcache_compile_module_cached_wasmer1(
+        fn memcache_compile_module_cached_wasmer2(
             key: CryptoHash,
             wasm_code: &[u8],
             config: &VMConfig,
             cache: Option<&dyn CompiledContractCache>,
             store: &wasmer::Store) -> Result<wasmer::Module, VMError> = {
-            compile_module_cached_wasmer1_impl(key, wasm_code, config, cache, store)
+            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store)
         }
     }
 
-    pub(crate) fn compile_module_cached_wasmer1(
+    pub(crate) fn compile_module_cached_wasmer2(
         code: &ContractCode,
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
         let key =
-            get_contract_cache_key(code, VMKind::Wasmer1, config, GasCounterMode::HostFunction);
+            get_contract_cache_key(code, VMKind::Wasmer2, config, GasCounterMode::HostFunction);
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer1(key, &code.code, config, cache, store);
+        return memcache_compile_module_cached_wasmer2(key, &code.code(), config, cache, store);
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer1_impl(key, &code.code, config, cache, store);
+        return compile_module_cached_wasmer2_impl(key, &code.code(), config, cache, store);
     }
 }
 
@@ -367,20 +376,22 @@ pub fn precompile_contract_vm(
         Ok(None) | Err(_) => {}
     };
     match vm_kind {
-        VMKind::Wasmer0 => match wasmer0_cache::compile_and_serialize_wasmer(
-            wasm_code.code.as_slice(),
-            config,
-            gas_counter_mode,
-            &key,
-            cache,
-        ) {
-            Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
-            Err(err) => Err(ContractPrecompilatonError::new(err)),
-        },
-        VMKind::Wasmer1 => {
-            let store = default_wasmer1_store();
-            match wasmer1_cache::compile_and_serialize_wasmer1(
-                wasm_code.code.as_slice(),
+        VMKind::Wasmer0 => {
+            match wasmer0_cache::compile_and_serialize_wasmer(
+                wasm_code.code(),
+                config,
+                gas_counter_mode,
+                &key,
+                cache,
+            ) {
+                Ok(_) => Ok(ContractPrecompilatonResult::ContractCompiled),
+                Err(err) => Err(ContractPrecompilatonError::new(err)),
+            }
+        }
+        VMKind::Wasmer2 => {
+            let store = default_wasmer2_store();
+            match wasmer2_cache::compile_and_serialize_wasmer2(
+                wasm_code.code(),
                 &key,
                 config,
                 cache,
@@ -406,4 +417,24 @@ pub fn precompile_contract(
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
     precompile_contract_vm(VMKind::default(), wasm_code, config, gas_counter_mode, cache)
+}
+
+/// We not use stable hasher as it could change with Rust releases, so rely on stable SIP hash.
+#[allow(deprecated)]
+pub(crate) struct StableHasher(SipHasher);
+
+impl StableHasher {
+    #[allow(deprecated)]
+    pub fn new() -> StableHasher {
+        StableHasher(SipHasher::new())
+    }
+}
+
+impl Hasher for StableHasher {
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes)
+    }
 }

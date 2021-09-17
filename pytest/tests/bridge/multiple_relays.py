@@ -5,6 +5,7 @@
 # Wait at the end for 60 seconds more to make sure balances are not chaning.
 
 import sys, time
+
 sys.path.append('lib')
 from configured_logger import logger
 
@@ -66,6 +67,5 @@ logger.info('=== BALANCES ARE OK, SLEEPING FOR 60 SEC')
 time.sleep(60)
 bridge.check_balances(alice)
 logger.info('=== BALANCES ARE OK AFTER SLEEPING')
-
 
 logger.info('EPIC')

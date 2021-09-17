@@ -10,9 +10,11 @@ use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
+use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
 impl Scenario {
@@ -26,18 +28,29 @@ impl Scenario {
             1,
         );
 
+        let tempdir;
+        let store = if self.use_in_memory_store {
+            create_test_store()
+        } else {
+            tempdir = tempfile::tempdir().map_err(|err| {
+                Error::Other(format!("failed to create temporary directory: {}", err))
+            })?;
+            create_store(tempdir.path())
+        };
+
         let mut env = TestEnv::new_with_runtime(
             ChainGenesis::from(&genesis),
             1,
             1,
             vec![Arc::new(NightshadeRuntime::new(
                 Path::new("."),
-                create_test_store(),
+                store,
                 &genesis,
                 vec![],
                 vec![],
                 None,
                 None,
+                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>],
         );
 
@@ -72,6 +85,7 @@ impl Scenario {
 pub struct Scenario {
     pub network_config: NetworkConfig,
     pub blocks: Vec<BlockConfig>,
+    pub use_in_memory_store: bool,
 }
 
 #[derive(Serialize, Deserialize)]

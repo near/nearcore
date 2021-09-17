@@ -27,6 +27,12 @@ pub struct ShardLayoutV0 {
     version: ShardVersion,
 }
 
+/// A map that maps shards from the last shard layout to shards that it splits to in this shard layout.
+/// Instead of using map, we just use a vec here because shard_id ranges from 0 to num_shards-1
+/// For example, if a shard layout with only shard 0 splits into shards 0, 1, 2, 3, the ShardsSplitMap
+/// will be `[[0, 1, 2, 3]]`
+type ShardSplitMap = Vec<Vec<ShardId>>;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ShardLayoutV1 {
     /// num_shards = fixed_shards.len() + boundary_accounts.len() + 1
@@ -34,9 +40,10 @@ pub struct ShardLayoutV1 {
     fixed_shards: Vec<AccountId>,
     /// The rest are divided by boundary_accounts to ranges, each range is mapped to a shard
     boundary_accounts: Vec<AccountId>,
-    /// Parent shards for the shards, useful for constructing states for the shards.
+    /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
+    /// Useful for constructing states for the shards.
     /// None for the genesis shard layout
-    parent_shards: Option<Vec<ShardId>>,
+    shards_split_map: Option<ShardSplitMap>,
     /// Version of the shard layout, this is useful for uniquely identify the shard layout
     version: ShardVersion,
 }
@@ -53,17 +60,20 @@ impl ShardLayout {
     pub fn v1(
         fixed_shards: Vec<AccountId>,
         boundary_accounts: Vec<AccountId>,
-        parent_shards: Option<Vec<ShardId>>,
+        shards_split_map: Option<ShardSplitMap>,
         version: ShardVersion,
     ) -> Self {
-        Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, parent_shards, version })
+        Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, shards_split_map, version })
     }
 
     #[inline]
-    pub fn parent_shards(&self) -> Option<&Vec<ShardId>> {
+    pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<&Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
-            Self::V1(v1) => v1.parent_shards.as_ref(),
+            Self::V1(v1) => match &v1.shards_split_map {
+                Some(shards_split_map) => shards_split_map.get(parent_shard_id as usize),
+                None => None,
+            },
         }
     }
 
@@ -145,6 +155,10 @@ impl ShardUId {
         assert!(shard_id < shard_layout.num_shards());
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
+
+    pub fn shard_id(&self) -> ShardId {
+        ShardId::from(self.shard_id)
+    }
 }
 
 impl TryFrom<&[u8]> for ShardUId {
@@ -159,7 +173,7 @@ impl TryFrom<&[u8]> for ShardUId {
         Ok(Self { version, shard_id })
     }
 }
-pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: ShardUId) -> Vec<u8> {
+pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
     res.extend_from_slice(&shard_uid.to_bytes());

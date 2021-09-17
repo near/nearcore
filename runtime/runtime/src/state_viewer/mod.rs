@@ -120,7 +120,7 @@ impl TrieViewer {
         match get_account(state_update, account_id)? {
             Some(account) => {
                 let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
-                    .map(|c| c.code.len() as u64)
+                    .map(|c| c.code().len() as u64)
                     .unwrap_or_default();
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {

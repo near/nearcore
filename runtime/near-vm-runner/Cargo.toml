@@ -3,7 +3,7 @@ name = "near-vm-runner"
 version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
@@ -13,19 +13,25 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-borsh = "0.8.1"
+borsh = "0.9"
 serde = { version = "1", features = ["derive"] }
 # TODO: merge https://github.com/near/wasmer/pull/44
 wasmer-runtime = { git = "https://github.com/near/wasmer", rev = "8defdd0c84db469da47835d32f8bf955fb953e5f", features = ["default-backend-singlepass"], default-features = false, package = "wasmer-runtime-near", optional = true }
 wasmer-runtime-core = { git = "https://github.com/near/wasmer", rev = "8defdd0c84db469da47835d32f8bf955fb953e5f", package = "wasmer-runtime-core-near", optional = true}
 wasmparser = "0.51"
-wasmer = { version = "1.0.2", optional = true }
-wasmer-types = { version = "1.0.2", optional = true }
-wasmer-compiler-singlepass = { version = "1.0.2", optional = true, default-features = false, features = ["std", "enable-serde"] } # disable `rayon` feature.
-wasmer-compiler-cranelift = { version = "1.0.2", optional = true }
-wasmer-engine-native = { version = "1.0.2", optional = true }
-wasmer-vm = "1.0.2"
-# TODO: merge https://github.com/near/wasm-utils/pull/1
+
+# Use the following for development versions of Wasmer.
+# wasmer = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
+# wasmer-types = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-engine-universal = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-vm = { git = "https://github.com/near/wasmer", branch = "near-main" }
+wasmer = { package = "wasmer-near", version = "2.0.0", optional = true, default-features = false, features = ["singlepass", "universal"] }
+wasmer-types = { package = "wasmer-types-near", version = "2.0.0", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "2.0.0", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "2.0.0", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "2.0.0" }
+
 pwasm-utils = { git = "https://github.com/near/wasm-utils", rev = "5d1385ff790de0527c654eb79a4198f725ed2d80" }
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
@@ -40,19 +46,19 @@ threadpool = "1.8.1"
 [dev-dependencies]
 near-test-contracts = { path = "../near-test-contracts" }
 assert_matches = "1.3"
-wat = "1.0"
+wat = "1.0.40"
 base64 = "0.13"
 
 [features]
 # all vms enabled for tests, but only one default vm, specified by runtime crate
-default = ["wasmer0_vm", "wasmtime_vm", "wasmer1_vm"]
+default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
-wasmer1_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-compiler-cranelift", "wasmer-engine-native", ]
+wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
 
 wasmer0_default = []
 wasmtime_default = []
-wasmer1_default = []
+wasmer2_default = []
 
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []

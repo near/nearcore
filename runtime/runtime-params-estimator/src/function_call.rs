@@ -23,7 +23,7 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind, gas_counter_mode: GasC
         let cost =
             compute_function_call_cost(metric, vm_kind, REPEATS, &contract, gas_counter_mode);
         println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
-        xs.push(contract.get_code().len() as u64);
+        xs.push(contract.code().len() as u64);
         ys.push(cost / REPEATS);
     }
 
@@ -51,7 +51,7 @@ fn test_function_call_time() {
     test_function_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::HostFunction);
     test_function_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::Wasm);
 
-    //    test_function_call(GasMetric::Time, VMKind::Wasmer1);
+    //    test_function_call(GasMetric::Time, VMKind::Wasmer2);
     //    test_function_call(GasMetric::Time, VMKind::Wasmtime);
 }
 
@@ -67,7 +67,7 @@ fn test_function_call_icount() {
     test_function_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::HostFunction);
     test_function_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::Wasm);
 
-    //    test_function_call(GasMetric::ICount, VMKind::Wasmer1);
+    //    test_function_call(GasMetric::ICount, VMKind::Wasmer2);
     //    test_function_call(GasMetric::ICount, VMKind::Wasmtime);
 }
 

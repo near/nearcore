@@ -19,6 +19,9 @@ use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Rational;
 use near_primitives::transaction::SignedTransaction;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::types::validator_stake::ValidatorStake;
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -49,6 +52,21 @@ fn add_blocks(
         let next_epoch_id = EpochId(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
+            "other".parse().unwrap(),
+            signer.public_key(),
+            TESTING_INIT_STAKE,
+            false,
+        )])
+        .unwrap();
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
+            "other".parse().unwrap(),
+            signer.public_key(),
+            TESTING_INIT_STAKE,
+        )])
+        .unwrap();
         let block = Block::produce(
             PROTOCOL_VERSION,
             &prev.header(),
@@ -76,12 +94,7 @@ fn add_blocks(
             vec![],
             vec![],
             signer,
-            Chain::compute_collection_hash(vec![ValidatorStake::new(
-                "other".parse().unwrap(),
-                signer.public_key(),
-                TESTING_INIT_STAKE,
-            )])
-            .unwrap(),
+            next_bp_hash,
             block_merkle_tree.root(),
         );
         block_merkle_tree.insert(*block.hash());

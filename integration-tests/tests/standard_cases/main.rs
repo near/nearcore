@@ -24,7 +24,9 @@ use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use integration_tests::node::Node;
 use integration_tests::user::User;
 use testlib::fees_utils::FeeHelper;
-use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
+use testlib::runtime_utils::{
+    alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
+};
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
@@ -1184,6 +1186,32 @@ pub fn test_delete_account_ok(node: impl Node) {
         node_user.delete_account(eve_dot_alice_account(), eve_dot_alice_account()).unwrap();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(String::new()));
     assert!(node.user().view_account(&eve_dot_alice_account()).is_err());
+}
+
+pub fn test_creating_invalid_subaccount_fail(node: impl Node) {
+    let money_used = TESTING_INIT_BALANCE / 2;
+    let node_user = node.user();
+    let result = node_user
+        .create_account(
+            alice_account(),
+            x_dot_y_dot_alice_account(),
+            node.signer().public_key(),
+            money_used,
+        )
+        .unwrap();
+    assert_eq!(
+        result.status,
+        FinalExecutionStatus::Failure(
+            ActionError {
+                index: Some(0),
+                kind: ActionErrorKind::CreateAccountNotAllowed {
+                    account_id: x_dot_y_dot_alice_account(),
+                    predecessor_id: alice_account()
+                }
+            }
+            .into()
+        )
+    );
 }
 
 pub fn test_delete_account_fail(node: impl Node) {
