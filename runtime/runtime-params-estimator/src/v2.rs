@@ -18,6 +18,7 @@ use near_vm_logic::{ExtCosts, VMConfig};
 use num_rational::Ratio;
 use rand::Rng;
 
+use crate::cost_table::format_gas;
 use crate::testbed_runners::{end_count, start_count, Config};
 use crate::v2::support::{Ctx, GasCost};
 use crate::vm_estimator::create_context;
@@ -73,10 +74,10 @@ pub fn run(config: Config) -> CostTable {
         }
 
         let start = Instant::now();
-        eprint!("{:<40} ", format!("{:?} ...", cost));
         let value = f(&mut ctx);
-        res.add(cost, value.to_gas());
-        eprintln!("{:.2?}", start.elapsed());
+        let gas = value.to_gas();
+        res.add(cost, gas);
+        eprintln!("{:<40} {:>25} gas  (computed in {:.2?})", cost, format_gas(gas), start.elapsed());
     }
 
     res
