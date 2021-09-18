@@ -52,7 +52,8 @@ fn test_function_call_time() {
     test_function_call(GasMetric::Time, VMKind::Wasmer0, GasCounterMode::Wasm);
 
     //    test_function_call(GasMetric::Time, VMKind::Wasmer2);
-    //    test_function_call(GasMetric::Time, VMKind::Wasmtime);
+    test_function_call(GasMetric::Time, VMKind::Wasmtime, GasCounterMode::HostFunction);
+    test_function_call(GasMetric::Time, VMKind::Wasmtime, GasCounterMode::Wasm);
 }
 
 #[test]
@@ -66,9 +67,10 @@ fn test_function_call_icount() {
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
     test_function_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::HostFunction);
     test_function_call(GasMetric::ICount, VMKind::Wasmer0, GasCounterMode::Wasm);
-
-    //    test_function_call(GasMetric::ICount, VMKind::Wasmer2);
-    //    test_function_call(GasMetric::ICount, VMKind::Wasmtime);
+    //
+    // //    test_function_call(GasMetric::ICount, VMKind::Wasmer2);
+    test_function_call(GasMetric::ICount, VMKind::Wasmtime, GasCounterMode::HostFunction);
+    test_function_call(GasMetric::ICount, VMKind::Wasmtime, GasCounterMode::Wasm);
 }
 
 fn make_many_methods_contract(method_count: i32) -> ContractCode {
@@ -131,6 +133,7 @@ pub fn compute_function_call_cost(
             cache,
             gas_counter_mode,
         );
+        println!("{:?}", result);
         assert!(result.1.is_none());
     }
     // Run with gas metering.

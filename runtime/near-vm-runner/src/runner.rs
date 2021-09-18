@@ -98,6 +98,7 @@ pub fn run_vm(
             promise_results,
             current_protocol_version,
             cache,
+            gas_counter_mode,
         ),
         #[cfg(not(feature = "wasmtime_vm"))]
         VMKind::Wasmtime => {

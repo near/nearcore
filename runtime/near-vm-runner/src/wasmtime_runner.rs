@@ -4,6 +4,7 @@ use wasmtime::Module;
 #[cfg(feature = "wasmtime_vm")]
 pub mod wasmtime_runner {
     use crate::errors::IntoVMError;
+    use crate::wasmer_runner::GasMode;
     use crate::{imports, prepare};
     use near_primitives::contract::ContractCode;
     use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -12,7 +13,8 @@ pub mod wasmtime_runner {
     };
     use near_vm_errors::{FunctionCallError, MethodResolveError, VMError, VMLogicError, WasmTrap};
     use near_vm_logic::{
-        types::PromiseResult, External, GasCounterMode, MemoryLike, VMContext, VMLogic, VMOutcome,
+        types::PromiseResult, External, GasCounterMode, InstanceLike, MemoryLike, VMContext,
+        VMLogic, VMOutcome,
     };
     use std::ffi::c_void;
     use std::str;
@@ -141,9 +143,21 @@ pub mod wasmtime_runner {
         }
     }
 
-    fn wasmtime_set_available_gas(instance: &wasmtime::Instance, available_gas: u64) {
-        let remaining_gas: wasmtime::Global = instance.get_global("remaining_gas").unwrap();
-        remaining_gas.set(wasmtime::Val::I32(available_gas as i32)).unwrap();
+    pub struct WasmtimeInstance(pub wasmtime::Instance);
+
+    impl InstanceLike for WasmtimeInstance {
+        fn get_remaining_ops(&self) -> u64 {
+            let remaining_ops: wasmtime::Global =
+                self.0.get_global("remaining_ops").expect("Global based gas meter is not injected");
+            let ops = remaining_ops.get().unwrap_i64();
+            ops as u64
+        }
+
+        fn set_remaining_ops(&self, ops: u64) {
+            let remaining_ops: wasmtime::Global =
+                self.0.get_global("remaining_ops").expect("Global based gas meter is not injected");
+            remaining_ops.set(wasmtime::Val::I64(ops as i64)).unwrap();
+        }
     }
 
     pub fn run_wasmtime(
@@ -156,6 +170,7 @@ pub mod wasmtime_runner {
         promise_results: &[PromiseResult],
         current_protocol_version: ProtocolVersion,
         _cache: Option<&dyn CompiledContractCache>,
+        gas_counter_mode: GasCounterMode,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         let mut config = Config::default();
         let engine = get_engine(&mut config);
@@ -167,8 +182,7 @@ pub mod wasmtime_runner {
         )
         .unwrap();
         let prepared_code =
-            match prepare::prepare_contract(code.code(), wasm_config, GasCounterMode::HostFunction)
-            {
+            match prepare::prepare_contract(code.code(), wasm_config, gas_counter_mode) {
                 Ok(code) => code,
                 Err(err) => return (None, Some(VMError::from(err))),
             };
@@ -179,7 +193,6 @@ pub mod wasmtime_runner {
         // Note that we don't clone the actual backing memory, just increase the RC.
         let memory_copy = memory.clone();
         let mut linker = Linker::new(&store);
-        let available_gas = context.prepaid_gas;
         let mut logic = VMLogic::new_with_protocol_version(
             ext,
             context,
@@ -188,7 +201,7 @@ pub mod wasmtime_runner {
             promise_results,
             &mut memory,
             current_protocol_version,
-            GasCounterMode::HostFunction,
+            gas_counter_mode,
         );
         // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
         if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
@@ -199,6 +212,13 @@ pub mod wasmtime_runner {
                 ))),
             );
         }
+
+        let gas_mode = if wasm_config.regular_op_cost > 0 {
+            GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
+        } else {
+            GasMode::Free
+        };
+
         // Unfortunately, due to the Wasmtime implementation we have to do tricks with the
         // lifetimes of the logic instance and pass raw pointers here.
         let raw_logic = &mut logic as *mut _ as *mut c_void;
@@ -245,26 +265,58 @@ pub mod wasmtime_runner {
         }
         match linker.instantiate(&module) {
             Ok(instance) => {
-                wasmtime_set_available_gas(&instance, available_gas);
-                match instance.get_func(method_name) {
-                    Some(func) => match func.typed::<(), ()>() {
-                        Ok(run) => match run.call(()) {
-                            Ok(_) => (Some(logic.outcome()), None),
-                            Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-                        },
-                        Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
-                    },
-                    None => (
-                        None,
-                        Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                            MethodResolveError::MethodNotFound,
-                        ))),
-                    ),
+                let instance = WasmtimeInstance(instance);
+                logic.set_instance(Some(&instance as *const dyn InstanceLike));
+                let result = run_method_inner(&instance.0, method_name, gas_mode, &mut logic);
+                logic.set_instance(None);
+
+                match result {
+                    Ok(()) => (Some(logic.outcome()), None),
+                    Err(err) => (Some(logic.outcome()), Some(err)),
                 }
             }
             Err(err) => (Some(logic.outcome()), Some(err.into_vm_error())),
         }
     }
+
+    fn run_method_inner(
+        instance: &wasmtime::Instance,
+        method_name: &str,
+        gas_mode: GasMode,
+        logic: &mut VMLogic,
+    ) -> Result<(), VMError> {
+        if logic.gas_counter_mode() == GasCounterMode::Wasm {
+            if let GasMode::Paid(_) = gas_mode {
+                logic
+                    .sync_from_wasm_counter()
+                    .map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+            }
+        }
+
+        let result = match instance.get_func(method_name) {
+            Some(func) => match func.typed::<(), ()>() {
+                Ok(run) => match run.call(()) {
+                    Ok(_) => Ok(()),
+                    Err(err) => Err(err.into_vm_error()),
+                },
+                Err(err) => Err(err.into_vm_error()),
+            },
+            None => Err(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodNotFound,
+            ))),
+        };
+
+        if logic.gas_counter_mode() == GasCounterMode::Wasm {
+            if let GasMode::Paid(_) = gas_mode {
+                logic
+                    .sync_from_wasm_counter()
+                    .map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+            }
+        }
+
+        result
+    }
+
     #[cfg(not(feature = "lightbeam"))]
     pub fn get_engine(config: &mut wasmtime::Config) -> Engine {
         Engine::new(config).unwrap()

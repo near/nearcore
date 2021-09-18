@@ -25,8 +25,8 @@ fn with_vm_variants(runner: fn(VMKind) -> ()) {
     #[cfg(feature = "wasmer0_vm")]
     runner(VMKind::Wasmer0);
 
-    //    #[cfg(feature = "wasmtime_vm")]
-    //    runner(VMKind::Wasmtime);
+    #[cfg(feature = "wasmtime_vm")]
+    runner(VMKind::Wasmtime);
     //
     //    #[cfg(feature = "wasmer2_vm")]
     //    runner(VMKind::Wasmer2);
@@ -101,7 +101,7 @@ fn make_simple_contract_call_vm(
         method_name,
         10u64.pow(14),
         vm_kind,
-        GasCounterMode::HostFunction,
+        GasCounterMode::Wasm,
     );
     assert_eq!(with_old_counter, with_new_counter);
     with_new_counter
