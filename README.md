@@ -69,12 +69,6 @@ Check the `nearup` repository for [more details](https://github.com/near/nearup)
 
 To learn how to become validator, checkout [documentation](https://docs.nearprotocol.com/docs/validator/staking-overview).
 
-## Development Status
-
-We are using [ZenHub](https://zenhub.com) to manage the development process. You can either login on their website or [install ZenHub extension](https://www.zenhub.com/extension) to see additional information right on Github.
-
-For the high-level roadmap, checkout [Chain&Middleware's roadmap](https://app.zenhub.com/workspaces/chainmiddleware-5cea2bcf78297c385cf0ec81/roadmap). 
-
 ## Contributing
 
 The workflow and details of setup to contribute are described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md).
