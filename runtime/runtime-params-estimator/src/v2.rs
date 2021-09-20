@@ -77,7 +77,12 @@ pub fn run(config: Config) -> CostTable {
         let value = f(&mut ctx);
         let gas = value.to_gas();
         res.add(cost, gas);
-        eprintln!("{:<40} {:>25} gas  (computed in {:.2?})", cost, format_gas(gas), start.elapsed());
+        eprintln!(
+            "{:<40} {:>25} gas  (computed in {:.2?})",
+            cost,
+            format_gas(gas),
+            start.elapsed()
+        );
     }
 
     res
@@ -399,6 +404,8 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
 }
 
 fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
+    let vm_kind = ctx.config.vm_kind;
+
     let code = ctx.read_resource(if cfg!(feature = "nightly_protocol_features") {
         "test-contract/res/nightly_large_contract.wasm"
     } else {
@@ -415,7 +422,7 @@ fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
 
     let mut run = || {
         let context = create_context(vec![]);
-        let (outcome, err) = near_vm_runner::run(
+        let (outcome, err) = near_vm_runner::run_vm(
             &code,
             "cpu_ram_soak_test",
             &mut fake_external,
@@ -423,6 +430,7 @@ fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
             &config,
             &fees,
             &promise_results,
+            vm_kind,
             PROTOCOL_VERSION,
             None,
         );
