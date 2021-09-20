@@ -58,6 +58,10 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::LogByte, log_byte),
     (Cost::Utf8DecodingBase, utf8_decoding_base),
     (Cost::Utf8DecodingByte, utf8_decoding_byte),
+    (Cost::Utf16DecodingBase, utf16_decoding_base),
+    (Cost::Utf16DecodingByte, utf16_decoding_byte),
+    (Cost::Sha256Base, sha256_base),
+    (Cost::Sha256Byte, sha256_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -79,11 +83,12 @@ pub fn run(config: Config) -> CostTable {
         res.add(cost, gas);
         eprintln!(
             "{:<40} {:>25} gas  (computed in {:.2?})",
-            cost,
+            cost.to_string(),
             format_gas(gas),
             start.elapsed()
         );
     }
+    eprintln!();
 
     res
 }
@@ -490,7 +495,7 @@ fn log_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::log_base, 10_000)
 }
 fn log_byte(ctx: &mut Ctx) -> GasCost {
-    // NOTE: we are paying for the output byte here
+    // NOTE: We are paying per *output* byte here, hence 3/2 multiplier.
     fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, 10 * 1024 * 10_000 * 3 / 2)
 }
 
@@ -507,6 +512,28 @@ fn utf8_decoding_byte(ctx: &mut Ctx) -> GasCost {
         (10 * 1024 - 1) * 10_000,
     );
     nul.max(no_nul)
+}
+
+fn utf16_decoding_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::utf16_decoding_base, 10_000)
+}
+fn utf16_decoding_byte(ctx: &mut Ctx) -> GasCost {
+    let no_nul =
+        fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::utf16_decoding_byte, 10 * 1024 * 10_000);
+    let nul = fn_cost(
+        ctx,
+        "nul_utf16_log_10kib_10k",
+        ExtCosts::utf16_decoding_byte,
+        (10 * 1024 - 2) * 10_000,
+    );
+    nul.max(no_nul)
+}
+
+fn sha256_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "sha256_10b_10k", ExtCosts::sha256_base, 10_000)
+}
+fn sha256_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "sha256_10kib_10k", ExtCosts::sha256_byte, 10 * 1024 * 10_000)
 }
 
 // Helpers
@@ -569,7 +596,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["WasmInstruction"];
+    let metrics = ["Utf16DecodingBase", "Utf16DecodingByte", "Sha256Base", "Sha256Byte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
