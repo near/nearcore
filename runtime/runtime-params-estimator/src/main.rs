@@ -56,6 +56,9 @@ struct CliArgs {
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
+    /// Spawn a bash shell inside a docker container for debugging purposes.
+    #[clap(long)]
+    docker_shell: bool,
     /// If docker is also set, run estimator in the fully production setting to get usable cost
     /// table. See runtime-params-estimator/emu-cost/README.md for more details.
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
@@ -101,7 +104,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if cli_args.docker {
-        return main_docker(&state_dump_path, cli_args.full);
+        return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
     }
 
     if let Some(path) = cli_args.costs_file {
@@ -175,7 +178,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path, full: bool) -> anyhow::Result<()> {
+fn main_docker(state_dump_path: &Path, full: bool, debug_shell: bool) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -250,7 +253,13 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
     }
-    cmd.arg("rust-emu").args(&["/usr/bin/env", "bash", "-c", &init]);
+    cmd.arg("rust-emu");
+
+    if debug_shell {
+        cmd.args(&["/usr/bin/env", "bash"]);
+    } else {
+        cmd.args(&["/usr/bin/env", "bash", "-c", &init]);
+    }
 
     cmd.status()?;
     Ok(())
