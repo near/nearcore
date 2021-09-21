@@ -74,7 +74,7 @@ impl ShardTries {
             self.0.store.clone(),
             caches
                 .get(&shard_uid)
-                .expect(&format!("cache for shard {:?} must exsit", shard_uid))
+                .unwrap_or_else(|| panic!("cache for shard {:?} must exist", shard_uid))
                 .clone(),
             shard_uid,
         ));

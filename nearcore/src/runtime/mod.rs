@@ -638,7 +638,7 @@ fn apply_delayed_receipts(
     {
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
             &new_state_roots,
-            receipts,
+            &receipts,
             &|account_id| {
                 let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
                 let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout);

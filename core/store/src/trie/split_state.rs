@@ -75,12 +75,8 @@ impl ShardTries {
                     // we can safely unwrap here because the caller of this function guarantees trie_updates contains all shard_uids for the new shards
                     let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
                     match value {
-                        Some(value) => {
-                            trie_update.set(trie_key, value);
-                        }
-                        None => {
-                            trie_update.remove(trie_key);
-                        }
+                        Some(value) => trie_update.set(trie_key, value),
+                        None => trie_update.remove(trie_key),
                     }
                 }
             }
@@ -89,7 +85,7 @@ impl ShardTries {
             update.commit(StateChangeCause::Resharding);
         }
 
-        insert_receipts.sort_by(|a, b| a.0.cmp(&b.0));
+        insert_receipts.sort_by_key(|it| it.0);
 
         let insert_receipts: Vec<_> =
             insert_receipts.into_iter().map(|(_, receipt)| receipt).collect();
@@ -179,13 +175,13 @@ impl ShardTries {
     pub fn apply_delayed_receipts_to_split_states<'a>(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
-        receipts: Vec<Receipt>,
+        receipts: &[Receipt],
         account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         apply_delayed_receipts_to_split_states_impl(
             &mut trie_updates,
-            &receipts,
+            receipts,
             &[],
             account_id_to_shard_id,
         )?;
@@ -657,7 +653,7 @@ mod tests {
             let (store_update, split_state_roots) = tries
                 .apply_delayed_receipts_to_split_states(
                     &split_state_roots,
-                    get_all_delayed_receipts(&tries, &ShardUId::default(), &state_root),
+                    &get_all_delayed_receipts(&tries, &ShardUId::default(), &state_root),
                     account_id_to_shard_id,
                 )
                 .unwrap();

@@ -3834,7 +3834,7 @@ mod tests {
         // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
         assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
         for i in 4..=5 {
-            assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true,);
+            assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);
         }
         assert_eq!(epoch_manager.will_shard_layout_change(&h[6]).unwrap(), false);
 

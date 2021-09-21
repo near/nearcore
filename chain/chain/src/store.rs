@@ -1880,17 +1880,20 @@ impl<'a> ChainStoreUpdate<'a> {
         self.trie_changes.push(trie_changes);
     }
 
-    pub fn remove_consolidated_state_changes(&mut self, block_hash: CryptoHash, shard_id: ShardId) {
-        self.remove_consolidated_state_changes.push((block_hash, shard_id));
-    }
-
     pub fn add_consolidated_state_changes(
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
         state_changes: ConsolidatedStateChanges,
     ) {
-        self.add_consolidated_state_changes.insert((block_hash, shard_id), state_changes);
+        let prev =
+            self.add_consolidated_state_changes.insert((block_hash, shard_id), state_changes);
+        // We should not save state changes for the same chunk twice
+        assert!(prev.is_none());
+    }
+
+    pub fn remove_consolidated_state_changes(&mut self, block_hash: CryptoHash, shard_id: ShardId) {
+        self.remove_consolidated_state_changes.push((block_hash, shard_id));
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {

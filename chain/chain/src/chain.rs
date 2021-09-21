@@ -1864,8 +1864,8 @@ impl Chain {
         let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
         let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let prev_hash = self.get_block_header(sync_hash)?.prev_hash().clone();
-        let state_root = self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root().clone();
+        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
+        let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
 
         assert_ne!(shard_layout, next_shard_layout);
         let state_roots = self.runtime_adapter.build_state_for_split_shards(
@@ -2894,10 +2894,9 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let next_shard_layout =
             self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
-        let new_shards = next_shard_layout.get_split_shards(shard_id).expect(&format!(
-            "shard layout must contain maps of all shards to its split shards {}",
-            shard_id
-        ));
+        let new_shards = next_shard_layout.get_split_shards(shard_id).unwrap_or_else(|| {
+            panic!("shard layout must contain maps of all shards to its split shards {}", shard_id)
+        });
         let state_roots: Result<Vec<_>, _> = new_shards
             .iter()
             .map(|shard_uid| {
@@ -2940,7 +2939,12 @@ impl<'a> ChainUpdate<'a> {
                 self.runtime_adapter.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
             let cares_about_shard_next_epoch =
                 self.runtime_adapter.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-            let update_shard_state = match mode {
+            // We want to guarantee that transactions are only applied once for each shard, even
+            // though apply_chunks may be called twice, once with ApplyChunksMode::NotCaughtUp
+            // once with ApplyChunksMode::CatchingUp
+            // Note that this variable does not guard whether we split states or not, see the comments
+            // before `need_to_split_state`
+            let should_apply_transactions = match mode {
                 // next epoch's shard states are not ready, only update this epoch's shards
                 ApplyChunksMode::NotCaughtUp => cares_about_shard_this_epoch,
                 // update both this epoch and next epoch
@@ -2953,22 +2957,24 @@ impl<'a> ChainUpdate<'a> {
                     !cares_about_shard_this_epoch && cares_about_shard_next_epoch
                 }
             };
-            // For splitting states, there are also two possibilities
-            // 1) states for next epoch are not ready when the block is processed
+            // For splitting states, there are two possibilities
+            // 1) split states for next epoch are not ready when the block is processed
             //    In this case, apply_chunks is first called with ApplyChunksMode::NotCaughtUp and
-            //    then ApplyChunksMode::CatchingUp. With NotCatchUp, state changes will be stored
-            //    in ApplyTransactionResult::consolidated_state_changes, which will be stored
-            //    in the database by `process_apply_chunk_result`. Later, when `apply_chunks` is
-            //    called again with mode CatchingUp, these states are ready from the database and
-            //    applied to the split states
-            // 2) states for next epoch are ready.
+            //    then ApplyChunksMode::CatchingUp.
+            //     With mode NotCaughtUp, state changes will be stored in
+            //       ApplyTransactionResult::consolidated_state_changes, which will be stored
+            //       in the database by `process_apply_chunk_result` through `process_apply_chunk_result`
+            //     With mode CatchingUp, these stored state_changes are read from the database and
+            //       applied to shards for which the split states were not ready when transactions
+            //       were applied.
+            // 2) split states for next epoch are ready.
             //    In this case, the split states will be updated by `apply_transactions` and
             //    results for applying these updates will be stored in
             //    ApplyTransactionResult::split_state_apply_result
             let need_to_split_state = will_shard_layout_change && cares_about_shard_next_epoch;
             let shard_uid =
                 self.runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id())?;
-            if update_shard_state {
+            if should_apply_transactions {
                 let split_state_roots =
                     if need_to_split_state && mode != ApplyChunksMode::NotCaughtUp {
                         Some(self.get_split_state_roots(block, shard_id)?)
@@ -3202,7 +3208,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.save_trie_changes(result.trie_changes);
             }
             // should not store state_changes after state results have already been processed
-            assert!(!state_changes_to_add.is_some());
+            assert!(state_changes_to_add.is_none());
         }
         if let Some(state_changes_to_add) = state_changes_to_add {
             self.chain_store_update.add_consolidated_state_changes(
