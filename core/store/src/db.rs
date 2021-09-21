@@ -120,7 +120,7 @@ pub enum DBCol {
     /// Header Hashes indexed by Height
     ColHeaderHashesByHeight = 48,
     /// State changes made by a chunk, used for splitting states
-    ColConsolidatedStateChanges = 49,
+    ColStateChangesForSplitStates = 49,
 }
 
 // Do not move this line from enum DBCol
@@ -178,7 +178,9 @@ impl std::fmt::Display for DBCol {
             Self::ColCachedContractCode => "cached code",
             Self::ColEpochValidatorInfo => "epoch validator info",
             Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
-            Self::ColConsolidatedStateChanges => "state changes indexed by block hash and shard id",
+            Self::ColStateChangesForSplitStates => {
+                "state changes indexed by block hash and shard id"
+            }
         };
         write!(formatter, "{}", desc)
     }

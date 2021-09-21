@@ -11,7 +11,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    ConsolidatedStateChange, ConsolidatedStateChanges, StateChangeCause, StateRoot,
+    ConsolidatedStateChange, StateChangeCause, StateChangesForSplitStates, StateRoot,
 };
 use std::collections::HashMap;
 
@@ -43,7 +43,7 @@ impl ShardTries {
     pub fn apply_state_changes_to_split_states<'a>(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
-        changes: ConsolidatedStateChanges,
+        changes: StateChangesForSplitStates,
         account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
     ) -> Result<HashMap<ShardUId, TrieChanges>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
@@ -335,7 +335,7 @@ mod tests {
     use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{
-        ConsolidatedStateChanges, NumShards, StateChangeCause, StateRoot,
+        NumShards, StateChangeCause, StateChangesForSplitStates, StateRoot,
     };
     use rand::seq::SliceRandom;
     use rand::Rng;
@@ -732,7 +732,7 @@ mod tests {
             let trie_changes = tries
                 .apply_state_changes_to_split_states(
                     &split_state_roots,
-                    ConsolidatedStateChanges::from_raw_state_changes(
+                    StateChangesForSplitStates::from_raw_state_changes(
                         &state_changes,
                         removed_receipts,
                     ),

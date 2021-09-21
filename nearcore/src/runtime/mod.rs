@@ -10,7 +10,8 @@ use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
 use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
+    ApplySplitStateResult, ApplySplitStateResultOrStateChanges, ApplyTransactionResult,
+    BlockHeaderInfo, ValidatorInfoIdentifier,
 };
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -34,9 +35,9 @@ use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache,
-    ConsolidatedStateChanges, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NumShards,
-    ShardId, StateChangeCause, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
+    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
+    StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -541,27 +542,31 @@ impl NightshadeRuntime {
             self.get_shard_layout(&next_block_epoch_id)?
         };
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
-        let (consolidated_state_changes, split_state_apply_results) =
+        let apply_split_state_result_or_state_changes =
             if self.will_shard_layout_change(prev_block_hash)? {
-                let consolidated_state_changes = ConsolidatedStateChanges::from_raw_state_changes(
+                let consolidated_state_changes = StateChangesForSplitStates::from_raw_state_changes(
                     &apply_result.state_changes,
                     apply_result.processed_delayed_receipts,
                 );
                 // split states are ready, apply update to them now
                 if let Some(state_roots) = split_state_roots {
-                    let split_state_results = Some(self.apply_update_to_split_states(
+                    let split_state_results = self.apply_update_to_split_states(
                         block_hash,
                         state_roots,
                         &next_shard_layout,
                         consolidated_state_changes,
-                    )?);
-                    (None, split_state_results)
+                    )?;
+                    Some(ApplySplitStateResultOrStateChanges::ApplySplitStateResults(
+                        split_state_results,
+                    ))
                 } else {
                     // split states are not ready yet, store state changes in consolidated_state_changes
-                    (Some(consolidated_state_changes), None)
+                    Some(ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(
+                        consolidated_state_changes,
+                    ))
                 }
             } else {
-                (None, None)
+                None
             };
 
         for receipt in apply_result.outgoing_receipts {
@@ -586,8 +591,7 @@ impl NightshadeRuntime {
             total_gas_burnt,
             total_balance_burnt,
             proof: apply_result.proof,
-            consolidated_state_changes,
-            split_state_apply_results,
+            apply_split_state_result_or_state_changes,
         };
 
         Ok(result)
@@ -1601,7 +1605,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
-        state_changes: ConsolidatedStateChanges,
+        state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         let trie_changes = self.tries.apply_state_changes_to_split_states(
             &state_roots,
@@ -1612,6 +1616,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(trie_changes
             .into_iter()
             .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
+                shard_uid,
                 new_root: trie_changes.new_root,
                 trie_changes: WrappedTrieChanges::new(
                     self.get_tries(),

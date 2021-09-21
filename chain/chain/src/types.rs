@@ -24,8 +24,8 @@ use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, ConsolidatedStateChanges,
-    EpochId, Gas, MerkleHash, NumBlocks, ShardId, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -80,8 +80,19 @@ pub struct AcceptedBlock {
 }
 
 pub struct ApplySplitStateResult {
+    pub shard_uid: ShardUId,
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
+}
+
+// This struct captures two cases
+// when apply transactions, split states may or may not be ready
+// if it's ready, apply transactions also apply updates to split states and this enum will be
+//    ApplySplitStateResults
+// otherwise, it simply returns the state changes needed to be applied to split states
+pub enum ApplySplitStateResultOrStateChanges {
+    ApplySplitStateResults(Vec<ApplySplitStateResult>),
+    StateChangesForSplitStates(StateChangesForSplitStates),
 }
 
 pub struct ApplyTransactionResult {
@@ -93,8 +104,7 @@ pub struct ApplyTransactionResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
-    pub split_state_apply_results: Option<Vec<ApplySplitStateResult>>,
-    pub consolidated_state_changes: Option<ConsolidatedStateChanges>,
+    pub apply_split_state_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
 impl ApplyTransactionResult {
@@ -672,7 +682,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
-        state_changes: ConsolidatedStateChanges,
+        state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error>;
 
     fn build_state_for_split_shards(

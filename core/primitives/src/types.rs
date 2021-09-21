@@ -182,7 +182,7 @@ pub struct ConsolidatedStateChange {
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct ConsolidatedStateChanges {
+pub struct StateChangesForSplitStates {
     pub changes: Vec<ConsolidatedStateChange>,
     // we need to store deleted receipts here because StateChanges will only include
     // trie keys for removed values and account information can not be inferred from
@@ -190,7 +190,7 @@ pub struct ConsolidatedStateChanges {
     pub processed_delayed_receipts: Vec<Receipt>,
 }
 
-impl ConsolidatedStateChanges {
+impl StateChangesForSplitStates {
     pub fn from_raw_state_changes(
         changes: &[RawStateChangesWithTrieKey],
         processed_delayed_receipts: Vec<Receipt>,
@@ -818,6 +818,10 @@ pub mod chunk_extra {
     }
 
     impl ChunkExtra {
+        pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
+            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+        }
+
         pub fn new(
             state_root: &StateRoot,
             outcome_root: CryptoHash,
@@ -905,6 +909,10 @@ pub mod chunk_extra {
     pub type ChunkExtra = ChunkExtraV1;
 
     impl ChunkExtra {
+        pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
+            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+        }
+
         pub fn new(
             state_root: &StateRoot,
             outcome_root: CryptoHash,

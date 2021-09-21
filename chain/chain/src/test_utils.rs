@@ -32,8 +32,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, ConsolidatedStateChanges, EpochId, Gas, Nonce,
-    NumBlocks, NumShards, ShardId, StateRoot, StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
+    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -813,8 +813,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_gas_burnt: 0,
             total_balance_burnt: 0,
             proof: None,
-            split_state_apply_results: None,
-            consolidated_state_changes: None,
+            apply_split_state_result_or_state_changes: None,
         })
     }
 
@@ -1174,7 +1173,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
-        _state_changes: ConsolidatedStateChanges,
+        _state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         Ok(vec![])
     }
