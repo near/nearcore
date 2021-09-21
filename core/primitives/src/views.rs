@@ -1031,6 +1031,12 @@ pub struct ExecutionMetadataView {
     gas_profile: Option<Vec<CostGasUsed>>,
 }
 
+impl Default for ExecutionMetadataView {
+    fn default() -> Self {
+        ExecutionMetadata::V1.into()
+    }
+}
+
 impl From<ExecutionMetadata> for ExecutionMetadataView {
     fn from(metadata: ExecutionMetadata) -> Self {
         let gas_profile = match metadata {
@@ -1080,12 +1086,8 @@ pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
     /// Execution metadata, versioned
-    #[serde(default = "default_execution_metadata_view")]
+    #[serde(default)]
     pub metadata: ExecutionMetadataView,
-}
-
-fn default_execution_metadata_view() -> ExecutionMetadataView {
-    ExecutionMetadata::V1.into()
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
