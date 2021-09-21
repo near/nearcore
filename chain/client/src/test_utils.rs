@@ -1111,8 +1111,10 @@ pub struct TestEnvBuilder {
     network_adapters: Option<Vec<Arc<MockNetworkAdapter>>>,
 }
 
+/// Builder for the `TestEnv` structure.
 impl TestEnvBuilder {
-    pub fn new(chain_genesis: ChainGenesis) -> Self {
+    /// Constructs a new builder.
+    fn new(chain_genesis: ChainGenesis) -> Self {
         Self {
             chain_genesis,
             clients: Self::make_accounts(1, Self::default_formatter),
@@ -1122,50 +1124,62 @@ impl TestEnvBuilder {
         }
     }
 
+    /// Sets list of client `AccountId`s to the one provided.  Panics if the
+    /// vector is empty.
     pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
         assert!(!clients.is_empty());
         self.clients = clients;
         self
     }
 
-    pub fn clients_count(self, num_clients: usize) -> Self {
-        self.clients_with_formatter(num_clients, Self::default_formatter)
+    /// Sets number of clients to given one.  Each client will use `AccountId`
+    /// in the form `test{}` where `{}` will count from zero.
+    pub fn clients_count(self, num: usize) -> Self {
+        self.clients(Self::make_accounts(num, Self::default_formatter))
     }
 
-    pub fn clients_with_formatter<F>(self, num_clients: usize, formatter: F) -> Self
-    where
-        F: Fn(usize) -> std::string::String,
-    {
-        self.clients(Self::make_accounts(num_clients, formatter))
-    }
-
+    /// Sets list of validator `AccountId`s to the one provided.  Panics if the
+    /// vector is empty.
     pub fn validators(mut self, validators: Vec<AccountId>) -> Self {
         assert!(!validators.is_empty());
         self.validators = validators;
         self
     }
 
-    pub fn validators_seats(self, num_validators: usize) -> Self {
-        self.validators_with_formatter(num_validators, Self::default_formatter)
+    /// Sets number of validator seats to given one.  Each validator will use
+    /// `AccountId` in the form `test{}` where `{}` will count from zero.
+    pub fn validator_seats(self, num: usize) -> Self {
+        self.validators(Self::make_accounts(num, Self::default_formatter))
     }
 
-    pub fn validators_with_formatter<F>(self, num_validators: usize, formatter: F) -> Self
-    where
-        F: Fn(usize) -> std::string::String,
-    {
-        self.validators(Self::make_accounts(num_validators, formatter))
-    }
-
+    /// Specifies custom runtime adaptors for each client.  This allows us to
+    /// construct `TestEnv` with `NightshadeRuntime`.
+    ///
+    /// The vector must have the same number of elements as they are clients.
+    /// If that does not hold, `build` method will panic.
     pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
         self.runtime_adapters = Some(adapters);
         self
     }
 
+    /// Specifies custom network adaptors for each client.
+    ///
+    /// The vector must have the same number of elements as they are clients.
+    /// If that does not hold, `build` method will panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
     }
 
+    /// Constructs new `TestEnv` structure.
+    ///
+    /// If no clients were configured (either through count or vector) one
+    /// client is created.  Similarly, if no validator seats were configured,
+    /// one seat is configured.
+    ///
+    /// Panics if `runtime_adapters` or `network_adapters` methods were used and
+    /// the length of the vectors passed to them did not equal number of
+    /// configured clients.
     pub fn build(self) -> TestEnv {
         let chain_genesis = self.chain_genesis;
         let clients = self.clients;
@@ -1269,7 +1283,7 @@ impl TestEnv {
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
         Self::builder(chain_genesis)
             .clients_count(num_clients)
-            .validators_seats(usize::try_from(num_validator_seats).unwrap())
+            .validator_seats(usize::try_from(num_validator_seats).unwrap())
             .network_adapters(network_adapters)
             .runtime_adapters(runtime_adapters)
             .build()
