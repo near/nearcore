@@ -1080,7 +1080,12 @@ pub struct ExecutionOutcomeView {
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
     /// Execution metadata, versioned
+    #[serde(default = "default_execution_metadata_view")]
     pub metadata: ExecutionMetadataView,
+}
+
+fn default_execution_metadata_view() -> ExecutionMetadataView {
+    ExecutionMetadata::V1.into()
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
