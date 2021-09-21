@@ -66,6 +66,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::Keccak256Byte, keccak256_byte),
     (Cost::Keccak512Base, keccak512_base),
     (Cost::Keccak512Byte, keccak512_byte),
+    (Cost::Ripemd160Base, ripemd160_base),
+    (Cost::Ripemd160Block, ripemd160_block),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -500,7 +502,7 @@ fn log_base(ctx: &mut Ctx) -> GasCost {
 }
 fn log_byte(ctx: &mut Ctx) -> GasCost {
     // NOTE: We are paying per *output* byte here, hence 3/2 multiplier.
-    fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, 10 * 1024 * 10_000 * 3 / 2)
+    fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, (10 * 1024 * 3 / 2) * 10_000)
 }
 
 fn utf8_decoding_base(ctx: &mut Ctx) -> GasCost {
@@ -552,6 +554,13 @@ fn keccak512_base(ctx: &mut Ctx) -> GasCost {
 }
 fn keccak512_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "keccak512_10kib_10k", ExtCosts::keccak512_byte, 10 * 1024 * 10_000)
+}
+
+fn ripemd160_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "ripemd160_10b_10k", ExtCosts::ripemd160_base, 10_000)
+}
+fn ripemd160_block(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "ripemd160_10kib_10k", ExtCosts::ripemd160_block, (10 * 1024 / 64 + 1) * 10_000)
 }
 
 // Helpers
@@ -614,14 +623,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = [
-        "Sha256Base",
-        "Sha256Byte",
-        "Keccak256Base",
-        "Keccak256Byte",
-        "Keccak512Base",
-        "Keccak512Byte",
-    ];
+    let metrics = ["Ripemd160Base", "Ripemd160Block"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
