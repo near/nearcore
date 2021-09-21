@@ -659,12 +659,16 @@ fn test_challenge_in_different_epoch() {
         None,
         RuntimeConfigStore::test(),
     ));
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
-    let networks = vec![network_adapter.clone(), network_adapter.clone()];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;
-    let mut env =
-        TestEnv::new_with_runtime_and_network_adapter(chain_genesis, 2, 2, runtimes, networks);
+
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(2)
+        .validators_count(2)
+        .runtime_adapters(vec![runtime1, runtime2])
+        .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
+        .build();
+
     let mut fork_blocks = vec![];
     for h in 1..13 {
         if let Some(block) = env.clients[0].produce_block(h).unwrap() {
