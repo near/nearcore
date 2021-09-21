@@ -998,12 +998,31 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
     BlockId(BlockId),
     Latest,
+}
+
+impl Serialize for EpochReference {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            EpochReference::EpochId(epoch_id) => {
+                s.serialize_newtype_variant("EpochReference", 0, "epoch_id", epoch_id)
+            }
+            EpochReference::BlockId(block_id) => {
+                s.serialize_newtype_variant("EpochReference", 1, "block_id", block_id)
+            }
+            EpochReference::Latest => {
+                s.serialize_newtype_variant("EpochReference", 2, "latest", &())
+            }
+        }
+    }
 }
 
 /// Reasons for removing a validator from the validator set.
