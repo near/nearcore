@@ -2897,15 +2897,14 @@ impl<'a> ChainUpdate<'a> {
         let new_shards = next_shard_layout.get_split_shards(shard_id).unwrap_or_else(|| {
             panic!("shard layout must contain maps of all shards to its split shards {}", shard_id)
         });
-        let state_roots: Result<Vec<_>, _> = new_shards
+        new_shards
             .iter()
             .map(|shard_uid| {
                 self.chain_store_update
                     .get_chunk_extra(block.header().prev_hash(), shard_uid)
-                    .map(|chunk_extra| chunk_extra.state_root().clone())
+                    .map(|chunk_extra| (*shard_uid, *chunk_extra.state_root()))
             })
-            .collect();
-        Ok(new_shards.into_iter().zip(state_roots?.into_iter()).collect())
+            .collect()
     }
 
     /// Creates jobs that would apply chunks

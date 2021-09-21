@@ -53,10 +53,11 @@ impl ShardTries {
                 TrieKey::DelayedReceiptIndices => {}
                 TrieKey::DelayedReceipt { index } => match value {
                     Some(value) => {
-                        let receipt: Receipt = <_>::try_from_slice(&value).map_err(|_| {
+                        let receipt = Receipt::try_from_slice(&value).map_err(|err| {
                             StorageError::StorageInconsistentState(format!(
-                                "invalid delayed receipt {:?}",
-                                value
+                                "invalid delayed receipt {:?}, err: {}",
+                                value,
+                                err.to_string(),
                             ))
                         })?;
                         insert_receipts.push((*index, receipt));
