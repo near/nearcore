@@ -1145,7 +1145,7 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn validators_count(mut self, num_validators: usize) -> Self {
+    pub fn validators_seats(mut self, num_validators: usize) -> Self {
         self.validators_with_formatter(num_validators, Self::default_formatter)
     }
 
@@ -1269,7 +1269,7 @@ impl TestEnv {
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
         Self::builder(chain_genesis)
             .clients_count(num_clients)
-            .validators_count(usize::try_from(num_validator_seats).unwrap())
+            .validators_seats(usize::try_from(num_validator_seats).unwrap())
             .network_adapters(network_adapters)
             .runtime_adapters(runtime_adapters)
             .build()

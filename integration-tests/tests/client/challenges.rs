@@ -664,7 +664,7 @@ fn test_challenge_in_different_epoch() {
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
-        .validators_count(2)
+        .validators_seats(2)
         .runtime_adapters(vec![runtime1, runtime2])
         .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
         .build();
