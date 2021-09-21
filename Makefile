@@ -66,10 +66,12 @@ nightly-debug:
 
 sandbox:
 	CARGO_TARGET_DIR=sandbox cargo build -p neard --features sandbox
+	mkdir -p target/debug
 	mv sandbox/debug/neard target/debug/near-sandbox
 
 sandbox-release:
 	CARGO_TARGET_DIR=sandbox cargo build -p neard --features sandbox --release
+	mkdir -p target/release
 	mv sandbox/release/neard target/release/near-sandbox
 
 
