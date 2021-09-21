@@ -69,6 +69,13 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
     (Cost::EcrecoverBase, ecrecover_base),
+    (Cost::AltBn128G1MultiexpBase, alt_bn128g1_multiexp_base),
+    (Cost::AltBn128G1MultiexpByte, alt_bn128g1_multiexp_byte),
+    (Cost::AltBn128G1MultiexpSublinear, alt_bn128g1_multiexp_sublinear),
+    (Cost::AltBn128G1SumBase, alt_bn128g1_sum_base),
+    (Cost::AltBn128G1SumByte, alt_bn128g1_sum_byte),
+    (Cost::AltBn128PairingCheckBase, alt_bn128_pairing_check_base),
+    (Cost::AltBn128PairingCheckByte, alt_bn128_pairing_check_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -568,6 +575,71 @@ fn ecrecover_base(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
 }
 
+fn alt_bn128g1_multiexp_base(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(ctx, "alt_bn128_g1_multiexp_1_1k", ExtCosts::alt_bn128_g1_multiexp_base, 1000);
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+fn alt_bn128g1_multiexp_byte(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(
+        ctx,
+        "alt_bn128_g1_multiexp_10_1k",
+        ExtCosts::alt_bn128_g1_multiexp_byte,
+        964 * 1000,
+    );
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+fn alt_bn128g1_multiexp_sublinear(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(
+        ctx,
+        "alt_bn128_g1_multiexp_10_1k",
+        ExtCosts::alt_bn128_g1_multiexp_sublinear,
+        743342 * 1000,
+    );
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+
+fn alt_bn128g1_sum_base(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(ctx, "alt_bn128_g1_sum_1_1k", ExtCosts::alt_bn128_g1_sum_base, 1000);
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+fn alt_bn128g1_sum_byte(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_byte, 654 * 1000);
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+
+fn alt_bn128_pairing_check_base(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(
+        ctx,
+        "alt_bn128_pairing_check_1_1k",
+        ExtCosts::alt_bn128_pairing_check_base,
+        1000,
+    );
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+fn alt_bn128_pairing_check_byte(ctx: &mut Ctx) -> GasCost {
+    #[cfg(feature = "protocol_feature_alt_bn128")]
+    return fn_cost(
+        ctx,
+        "alt_bn128_pairing_check_10_1k",
+        ExtCosts::alt_bn128_pairing_check_byte,
+        1924 * 1000,
+    );
+    #[cfg(not(feature = "protocol_feature_alt_bn128"))]
+    return GasCost { value: 0.into(), metric: ctx.config.metric };
+}
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -628,7 +700,15 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["EcrecoverBase"];
+    let metrics = [
+        "AltBn128G1MultiexpBase",
+        "AltBn128G1MultiexpByte",
+        "AltBn128G1MultiexpSublinear",
+        "AltBn128G1SumBase",
+        "AltBn128G1SumByte",
+        "AltBn128PairingCheckBase",
+        "AltBn128PairingCheckByte",
+    ];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
@@ -640,6 +720,5 @@ fn smoke() {
         metrics_to_measure: Some(metrics.iter().map(|it| it.to_string()).collect::<Vec<_>>())
             .filter(|it| !it.is_empty()),
     };
-    let table = run(config);
-    eprintln!("{}", table);
+    let _table = run(config);
 }
