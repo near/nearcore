@@ -1502,7 +1502,7 @@ mod test {
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..21 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1544,7 +1544,7 @@ mod test {
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..31 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
