@@ -62,6 +62,10 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::Utf16DecodingByte, utf16_decoding_byte),
     (Cost::Sha256Base, sha256_base),
     (Cost::Sha256Byte, sha256_byte),
+    (Cost::Keccak256Base, keccak256_base),
+    (Cost::Keccak256Byte, keccak256_byte),
+    (Cost::Keccak512Base, keccak512_base),
+    (Cost::Keccak512Byte, keccak512_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -536,6 +540,20 @@ fn sha256_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "sha256_10kib_10k", ExtCosts::sha256_byte, 10 * 1024 * 10_000)
 }
 
+fn keccak256_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "keccak256_10b_10k", ExtCosts::keccak256_base, 10_000)
+}
+fn keccak256_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "keccak256_10kib_10k", ExtCosts::keccak256_byte, 10 * 1024 * 10_000)
+}
+
+fn keccak512_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "keccak512_10b_10k", ExtCosts::keccak512_base, 10_000)
+}
+fn keccak512_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "keccak512_10kib_10k", ExtCosts::keccak512_byte, 10 * 1024 * 10_000)
+}
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -596,7 +614,14 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["Utf16DecodingBase", "Utf16DecodingByte", "Sha256Base", "Sha256Byte"];
+    let metrics = [
+        "Sha256Base",
+        "Sha256Byte",
+        "Keccak256Base",
+        "Keccak256Byte",
+        "Keccak512Base",
+        "Keccak512Byte",
+    ];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
