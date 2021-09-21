@@ -9,7 +9,9 @@ use borsh::BorshDeserialize;
 use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
+use near_chain::types::{
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
+};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
@@ -31,10 +33,11 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::ConsolidatedStateChangesExt;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot,
-    StateRootNode,
+    AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache,
+    ConsolidatedStateChanges, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NumShards,
+    ShardId, StateChangeCause, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -61,7 +64,9 @@ use crate::migrations::load_migration_data;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{
+    account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
+};
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_store::split_state::get_delayed_receipts;
@@ -362,6 +367,7 @@ impl NightshadeRuntime {
         &self,
         trie: Trie,
         state_root: CryptoHash,
+        split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
         shard_id: ShardId,
         block_height: BlockHeight,
         block_hash: &CryptoHash,
@@ -528,19 +534,45 @@ impl NightshadeRuntime {
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
         // Outgoing receipts should be sorted by shards of the epoch of the next block
-        let next_block_epoch_id = if self.is_next_block_epoch_start(prev_block_hash)? {
-            self.get_next_epoch_id_from_prev_block(prev_block_hash)?
-        } else {
-            self.get_epoch_id_from_prev_block(prev_block_hash)?
+        let next_shard_layout = {
+            let next_block_epoch_id = if self.is_next_block_epoch_start(prev_block_hash)? {
+                self.get_next_epoch_id_from_prev_block(prev_block_hash)?
+            } else {
+                self.get_epoch_id_from_prev_block(prev_block_hash)?
+            };
+            self.get_shard_layout(&next_block_epoch_id)?
         };
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
+        let (consolidated_state_changes, split_state_apply_results) =
+            if self.will_shard_layout_change(prev_block_hash)? {
+                let consolidated_state_changes =
+                    ConsolidatedStateChanges::from_raw_state_changes(&apply_result.state_changes);
+                // split states are ready, apply update to them now
+                if let Some(state_roots) = split_state_roots {
+                    let split_state_results = Some(self.apply_update_to_split_states(
+                        block_hash,
+                        shard_uid.clone(),
+                        state_root,
+                        state_roots,
+                        &next_shard_layout,
+                        consolidated_state_changes,
+                    )?);
+                    (None, split_state_results)
+                } else {
+                    // split states are not ready yet, store state changes in consolidated_state_changes
+                    (Some(consolidated_state_changes), None)
+                }
+            } else {
+                (None, None)
+            };
+
         for receipt in apply_result.outgoing_receipts {
             receipt_result
-                .entry(self.account_id_to_shard_id(&receipt.receiver_id, &next_block_epoch_id)?)
+                .entry(account_id_to_shard_id(&receipt.receiver_id, &next_shard_layout))
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
 
-        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -556,6 +588,8 @@ impl NightshadeRuntime {
             total_gas_burnt,
             total_balance_burnt,
             proof: apply_result.proof,
+            consolidated_state_changes,
+            split_state_apply_results,
         };
 
         Ok(result)
@@ -606,10 +640,18 @@ fn apply_delayed_receipts(
     {
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
             &new_state_roots,
-            &receipts,
+            receipts,
             &|account_id| {
                 let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
-                ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout)
+                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout);
+                assert!(
+                    state_roots.contains_key(&shard_uid),
+                    "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+                    account_id,
+                    orig_shard_uid,
+                    shard_uid,
+                );
+                shard_uid
             },
         )?;
         new_state_roots = updated_state_roots;
@@ -1267,6 +1309,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
+        split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -1288,6 +1331,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         match self.process_state_update(
             trie,
             *state_root,
+            split_state_roots,
             shard_id,
             height,
             block_hash,
@@ -1337,6 +1381,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.process_state_update(
             trie,
             *state_root,
+            None,
             shard_id,
             height,
             block_hash,
@@ -1553,6 +1598,38 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn apply_update_to_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        shard_uid: ShardUId,
+        state_root: StateRoot,
+        state_roots: HashMap<ShardUId, StateRoot>,
+        next_shard_layout: &ShardLayout,
+        state_changes: ConsolidatedStateChanges,
+    ) -> Result<Vec<ApplySplitStateResult>, Error> {
+        let trie_changes = self.tries.apply_state_changes_to_split_states(
+            shard_uid.clone(),
+            state_root,
+            &state_roots,
+            state_changes,
+            &|account_id| account_id_to_shard_uid(account_id, next_shard_layout),
+        )?;
+
+        Ok(trie_changes
+            .into_iter()
+            .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
+                new_root: trie_changes.new_root,
+                trie_changes: WrappedTrieChanges::new(
+                    self.get_tries(),
+                    shard_uid,
+                    trie_changes,
+                    vec![],
+                    block_hash.clone(),
+                ),
+            })
+            .collect())
+    }
+
     fn build_state_for_split_shards(
         &self,
         shard_uid: ShardUId,
@@ -1561,15 +1638,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
         let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let shard_id = shard_uid.shard_id();
-        let new_shards: Vec<_> = {
-            let split_shards = next_epoch_shard_layout
-                .get_split_shards(shard_id)
-                .ok_or(ErrorKind::InvalidShardId(shard_id))?;
-            split_shards
-                .iter()
-                .map(|id| ShardUId::from_shard_id_and_layout(*id, &next_epoch_shard_layout))
-                .collect()
-        };
+        let new_shards = next_epoch_shard_layout
+            .get_split_shards(shard_id)
+            .ok_or(ErrorKind::InvalidShardId(shard_id))?;
         self.tries.add_new_shards(&new_shards);
         let mut state_roots: HashMap<_, _> =
             new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
@@ -1579,7 +1650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
-            let (store_update, new_state_roots) = self.tries.apply_changes_to_new_states(
+            let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
                 &|raw_key| {
@@ -1741,7 +1812,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_split_shards_if_shards_will_change(parent_hash, vec![])?.is_some())
+        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 }
 
@@ -1903,6 +1974,7 @@ mod test {
                 .apply_transactions(
                     shard_id,
                     &state_root,
+                    None,
                     height,
                     block_timestamp,
                     prev_block_hash,

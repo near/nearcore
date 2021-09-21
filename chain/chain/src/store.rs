@@ -29,8 +29,9 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    AccountId, BlockExtra, BlockHeight, ConsolidatedStateChanges, EpochId, GCCount, NumBlocks,
+    ShardId, StateChanges, StateChangesExt, StateChangesKinds, StateChangesKindsExt,
+    StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -51,6 +52,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use near_store::db::DBCol::ColConsolidatedStateChanges;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -424,6 +426,18 @@ impl ChainStore {
                 )
             })
             .collect()
+    }
+
+    pub fn get_consolidated_state_changes(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ConsolidatedStateChanges, Error> {
+        let key = &get_block_shard_id(block_hash, shard_id);
+        option_to_not_found(
+            self.store.get_ser::<ConsolidatedStateChanges>(ColConsolidatedStateChanges, key),
+            &format!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
+        )
     }
 
     pub fn get_outgoing_receipts_for_shard(
@@ -1150,6 +1164,9 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
+    // All state changes made by a chunk, this is only used for splitting states
+    add_consolidated_state_changes: HashMap<(CryptoHash, ShardId), ConsolidatedStateChanges>,
+    remove_consolidated_state_changes: Vec<(CryptoHash, ShardId)>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1174,6 +1191,8 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
+            add_consolidated_state_changes: HashMap::new(),
+            remove_consolidated_state_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1583,6 +1602,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    pub fn get_consolidated_state_changes(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ConsolidatedStateChanges, Error> {
+        self.chain_store.get_consolidated_state_changes(block_hash, shard_id)
+    }
+
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
@@ -1851,6 +1878,19 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
         self.trie_changes.push(trie_changes);
+    }
+
+    pub fn remove_consolidated_state_changes(&mut self, block_hash: CryptoHash, shard_id: ShardId) {
+        self.remove_consolidated_state_changes.push((block_hash, shard_id));
+    }
+
+    pub fn add_consolidated_state_changes(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        state_changes: ConsolidatedStateChanges,
+    ) {
+        self.add_consolidated_state_changes.insert((block_hash, shard_id), state_changes);
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2408,6 +2448,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColEpochValidatorInfo
             | DBCol::ColBlockOrdinal
             | DBCol::_ColTransactionRefCount
+            | DBCol::ColConsolidatedStateChanges
             | DBCol::ColCachedContractCode => {
                 unreachable!();
             }
@@ -2640,6 +2681,17 @@ impl<'a> ChainStoreUpdate<'a> {
             wrapped_trie_changes
                 .wrapped_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+        }
+        for ((block_hash, shard_id), state_changes) in self.add_consolidated_state_changes.drain() {
+            store_update.set_ser(
+                ColConsolidatedStateChanges,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_changes,
+            )?;
+        }
+        for (block_hash, shard_id) in self.remove_consolidated_state_changes.drain(..) {
+            store_update
+                .delete(ColConsolidatedStateChanges, &get_block_shard_id(&block_hash, shard_id));
         }
 
         let mut affected_catchup_blocks = HashSet::new();

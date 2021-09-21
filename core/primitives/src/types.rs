@@ -173,6 +173,28 @@ pub struct RawStateChangesWithTrieKey {
     pub changes: Vec<RawStateChange>,
 }
 
+/// Consolidate state change of trie_key and the final value the trie key will be changed to
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct ConsolidatedStateChange {
+    pub trie_key: TrieKey,
+    pub value: Option<Vec<u8>>,
+}
+
+pub type ConsolidatedStateChanges = Vec<ConsolidatedStateChange>;
+
+#[easy_ext::ext(ConsolidatedStateChangesExt)]
+impl ConsolidatedStateChanges {
+    pub fn from_raw_state_changes(changes: &[RawStateChangesWithTrieKey]) -> Self {
+        changes
+            .iter()
+            .map(|RawStateChangesWithTrieKey { trie_key, changes }| {
+                let value = changes.last().expect("state_changes must not be empty").data.clone();
+                ConsolidatedStateChange { trie_key: trie_key.clone(), value }
+            })
+            .collect()
+    }
+}
+
 /// key that was updated -> list of updates with the corresponding indexing event.
 pub type RawStateChanges = std::collections::BTreeMap<Vec<u8>, RawStateChangesWithTrieKey>;
 
