@@ -68,6 +68,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::Keccak512Byte, keccak512_byte),
     (Cost::Ripemd160Base, ripemd160_base),
     (Cost::Ripemd160Block, ripemd160_block),
+    (Cost::EcrecoverBase, ecrecover_base),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -563,6 +564,10 @@ fn ripemd160_block(ctx: &mut Ctx) -> GasCost {
     fn_cost(ctx, "ripemd160_10kib_10k", ExtCosts::ripemd160_block, (10 * 1024 / 64 + 1) * 10_000)
 }
 
+fn ecrecover_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
+}
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -623,7 +628,7 @@ fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = ["Ripemd160Base", "Ripemd160Block"];
+    let metrics = ["EcrecoverBase"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
