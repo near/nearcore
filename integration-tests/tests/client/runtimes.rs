@@ -74,8 +74,6 @@ fn test_pending_approvals() {
 fn test_invalid_approvals() {
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .clients_count(1)
-        .validators_seats(1)
         .runtime_adapters(create_runtimes(1))
         .network_adapters(vec![network_adapter.clone()])
         .build();

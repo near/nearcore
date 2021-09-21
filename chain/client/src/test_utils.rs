@@ -1128,11 +1128,11 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn clients_count(mut self, num_clients: usize) -> Self {
+    pub fn clients_count(self, num_clients: usize) -> Self {
         self.clients_with_formatter(num_clients, Self::default_formatter)
     }
 
-    pub fn clients_with_formatter<F>(mut self, num_clients: usize, formatter: F) -> Self
+    pub fn clients_with_formatter<F>(self, num_clients: usize, formatter: F) -> Self
     where
         F: Fn(usize) -> std::string::String,
     {
@@ -1145,11 +1145,11 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn validators_seats(mut self, num_validators: usize) -> Self {
+    pub fn validators_seats(self, num_validators: usize) -> Self {
         self.validators_with_formatter(num_validators, Self::default_formatter)
     }
 
-    pub fn validators_with_formatter<F>(mut self, num_validators: usize, formatter: F) -> Self
+    pub fn validators_with_formatter<F>(self, num_validators: usize, formatter: F) -> Self
     where
         F: Fn(usize) -> std::string::String,
     {

@@ -2940,7 +2940,6 @@ fn test_not_broadcast_block_on_accept() {
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(2)
-        .validators_seats(1)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
         .network_adapters(vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()])
         .build();
