@@ -33,7 +33,6 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use near_primitives::types::ConsolidatedStateChangesExt;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache,
     ConsolidatedStateChanges, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash, NumShards,
@@ -48,8 +47,8 @@ use near_vm_runner::precompile_contract;
 
 use near_store::{
     get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ApplyStatePartResult, ColState, PartialStorage, ShardTries, StorageError, Store,
-    StoreCompiledContractCache, StoreUpdate, Trie, WrappedTrieChanges,
+    ApplyStatePartResult, ColState, PartialStorage, ShardTries, Store, StoreCompiledContractCache,
+    StoreUpdate, Trie, WrappedTrieChanges,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
@@ -68,7 +67,6 @@ use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_store::split_state::get_delayed_receipts;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
@@ -545,14 +543,14 @@ impl NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
         let (consolidated_state_changes, split_state_apply_results) =
             if self.will_shard_layout_change(prev_block_hash)? {
-                let consolidated_state_changes =
-                    ConsolidatedStateChanges::from_raw_state_changes(&apply_result.state_changes);
+                let consolidated_state_changes = ConsolidatedStateChanges::from_raw_state_changes(
+                    &apply_result.state_changes,
+                    apply_result.processed_delayed_receipts,
+                );
                 // split states are ready, apply update to them now
                 if let Some(state_roots) = split_state_roots {
                     let split_state_results = Some(self.apply_update_to_split_states(
                         block_hash,
-                        shard_uid.clone(),
-                        state_root,
                         state_roots,
                         &next_shard_layout,
                         consolidated_state_changes,
@@ -1601,15 +1599,11 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_update_to_split_states(
         &self,
         block_hash: &CryptoHash,
-        shard_uid: ShardUId,
-        state_root: StateRoot,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
         state_changes: ConsolidatedStateChanges,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         let trie_changes = self.tries.apply_state_changes_to_split_states(
-            shard_uid.clone(),
-            state_root,
             &state_roots,
             state_changes,
             &|account_id| account_id_to_shard_uid(account_id, next_shard_layout),
@@ -1653,35 +1647,16 @@ impl RuntimeAdapter for NightshadeRuntime {
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
-                &|raw_key| {
-                    // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
-                    // This is because we cannot migrate delayed receipts part by part. They have to be
-                    // reconstructed in the new states after all DelayedReceipts are ready in the original
-                    // shard.
-                    if let Some(account_id) =
-                        parse_account_id_from_raw_key(&raw_key).map_err(|e| {
-                            let err = format!(
-                                "error parsing account id from trie key {:?}: {:?}",
-                                raw_key, e
-                            );
-                            StorageError::StorageInconsistentState(err)
-                        })?
-                    {
-                        let new_shard_uid = ShardUId::from_shard_id_and_layout(
-                            account_id_to_shard_id(&account_id, &next_epoch_shard_layout),
-                            &next_epoch_shard_layout,
-                        );
-                        assert!(
-                            state_roots.contains_key(&new_shard_uid),
-                            "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
-                            account_id,
-                            shard_uid,
-                            new_shard_uid,
-                        );
-                        Ok(Some(new_shard_uid))
-                    } else {
-                        Ok(None)
-                    }
+                &|account_id| {
+                    let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
+                    assert!(
+                        state_roots.contains_key(&new_shard_uid),
+                        "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+                        account_id,
+                        shard_uid,
+                        new_shard_uid,
+                    );
+                    new_shard_uid
                 },
             )?;
             state_roots = new_state_roots;

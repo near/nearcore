@@ -11,6 +11,7 @@ use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
 
+use crate::receipt::Receipt;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 
@@ -180,18 +181,28 @@ pub struct ConsolidatedStateChange {
     pub value: Option<Vec<u8>>,
 }
 
-pub type ConsolidatedStateChanges = Vec<ConsolidatedStateChange>;
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct ConsolidatedStateChanges {
+    pub changes: Vec<ConsolidatedStateChange>,
+    // we need to store deleted receipts here because StateChanges will only include
+    // trie keys for removed values and account information can not be inferred from
+    // trie key for delayed receipts
+    pub processed_delayed_receipts: Vec<Receipt>,
+}
 
-#[easy_ext::ext(ConsolidatedStateChangesExt)]
 impl ConsolidatedStateChanges {
-    pub fn from_raw_state_changes(changes: &[RawStateChangesWithTrieKey]) -> Self {
-        changes
+    pub fn from_raw_state_changes(
+        changes: &[RawStateChangesWithTrieKey],
+        processed_delayed_receipts: Vec<Receipt>,
+    ) -> Self {
+        let changes = changes
             .iter()
             .map(|RawStateChangesWithTrieKey { trie_key, changes }| {
                 let value = changes.last().expect("state_changes must not be empty").data.clone();
                 ConsolidatedStateChange { trie_key: trie_key.clone(), value }
             })
-            .collect()
+            .collect();
+        Self { changes, processed_delayed_receipts }
     }
 }
 

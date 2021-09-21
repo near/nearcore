@@ -1172,8 +1172,6 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_update_to_split_states(
         &self,
         _block_hash: &CryptoHash,
-        _shard_uid: ShardUId,
-        _state_root: StateRoot,
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
         _state_changes: ConsolidatedStateChanges,

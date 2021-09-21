@@ -670,8 +670,6 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_update_to_split_states(
         &self,
         block_hash: &CryptoHash,
-        shard_uid: ShardUId,
-        state_root: StateRoot,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
         state_changes: ConsolidatedStateChanges,

@@ -128,20 +128,6 @@ impl TrieKey {
         }
     }
 
-    pub fn get_account(&self) -> Option<&AccountId> {
-        match self {
-            TrieKey::Account { account_id } => Some(account_id),
-            TrieKey::ContractCode { account_id } => Some(account_id),
-            TrieKey::AccessKey { account_id, .. } => Some(account_id),
-            TrieKey::ReceivedData { receiver_id, .. } => Some(receiver_id),
-            TrieKey::PostponedReceiptId { receiver_id, .. } => Some(receiver_id),
-            TrieKey::PendingDataCount { receiver_id, .. } => Some(receiver_id),
-            TrieKey::PostponedReceipt { receiver_id, .. } => Some(receiver_id),
-            TrieKey::ContractData { account_id, .. } => Some(account_id),
-            _ => None,
-        }
-    }
-
     pub fn to_vec(&self) -> Vec<u8> {
         let expected_len = self.len();
         let mut res = Vec::with_capacity(expected_len);

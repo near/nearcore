@@ -3158,8 +3158,6 @@ impl<'a> ChainUpdate<'a> {
                 // Split state are ready. Read the state changes from the database and apply them
                 // to the split states.
                 let split_state_roots = self.get_split_state_roots(block, shard_id)?;
-                let prev_chunk_extra =
-                    self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?.clone();
                 let next_shard_layout =
                     self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
                 let state_changes = self
@@ -3174,8 +3172,6 @@ impl<'a> ChainUpdate<'a> {
                         shard_id,
                         runtime_adapter.apply_update_to_split_states(
                             &block_hash,
-                            shard_uid,
-                            prev_chunk_extra.state_root().clone(),
                             split_state_roots,
                             &next_shard_layout,
                             state_changes,

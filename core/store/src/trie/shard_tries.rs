@@ -7,10 +7,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::ConsolidatedStateChangesExt;
 use near_primitives::types::{
-    ConsolidatedStateChanges, NumShards, RawStateChange, RawStateChangesWithTrieKey,
-    StateChangeCause, StateRoot,
+    NumShards, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 
 use crate::db::{DBCol, DBOp, DBTransaction};
@@ -290,10 +288,6 @@ impl WrappedTrieChanges {
         block_hash: CryptoHash,
     ) -> Self {
         WrappedTrieChanges { tries, shard_uid, trie_changes, state_changes, block_hash }
-    }
-
-    pub fn get_final_state_changes(&self) -> ConsolidatedStateChanges {
-        ConsolidatedStateChanges::from_raw_state_changes(&self.state_changes)
     }
 
     pub fn insertions_into(&self, store_update: &mut StoreUpdate) -> Result<(), StorageError> {
