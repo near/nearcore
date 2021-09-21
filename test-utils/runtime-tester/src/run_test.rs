@@ -38,11 +38,8 @@ impl Scenario {
             create_store(tempdir.path())
         };
 
-        let mut env = TestEnv::new_with_runtime(
-            ChainGenesis::from(&genesis),
-            1,
-            1,
-            vec![Arc::new(NightshadeRuntime::new(
+        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+            .runtime_adapters(vec![Arc::new(NightshadeRuntime::new(
                 Path::new("."),
                 store,
                 &genesis,
@@ -51,8 +48,8 @@ impl Scenario {
                 None,
                 None,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>],
-        );
+            )) as Arc<dyn RuntimeAdapter>])
+            .build();
 
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 

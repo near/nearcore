@@ -1272,23 +1272,6 @@ impl TestEnv {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
-    /// Create a `TestEnv` with custom runtime adapters. This allows us to construct `TestEnv` with `NightshadeRuntime`.
-    pub fn new_with_runtime(
-        chain_genesis: ChainGenesis,
-        num_clients: usize,
-        num_validator_seats: NumSeats,
-        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
-    ) -> Self {
-        let network_adapters =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
-        Self::builder(chain_genesis)
-            .clients_count(num_clients)
-            .validator_seats(usize::try_from(num_validator_seats).unwrap())
-            .network_adapters(network_adapters)
-            .runtime_adapters(runtime_adapters)
-            .build()
-    }
-
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
