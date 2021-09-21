@@ -44,6 +44,7 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> io::Result<()> {
 fn cargo_build_cmd() -> Command {
     let mut res = Command::new("cargo");
     res.env("RUSTFLAGS", "-C link-arg=-s");
+    res.env_remove("CARGO_ENCODED_RUSTFLAGS");
     if let Some(target_dir) = shared_target_dir() {
         res.env("CARGO_TARGET_DIR", target_dir);
     }
