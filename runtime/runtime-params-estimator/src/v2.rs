@@ -1,6 +1,6 @@
 mod support;
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::time::Instant;
 
 use near_crypto::{KeyType, SecretKey};
@@ -41,6 +41,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionDeployContractPerByte, action_deploy_contract_per_byte),
     (Cost::ActionFunctionCallBase, action_function_call_base),
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
+    (Cost::ActionFunctionCallBaseV2, action_function_call_base_v2),
+    (Cost::ActionFunctionCallPerByteV2, action_function_call_per_byte_v2),
     //
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
@@ -378,7 +380,6 @@ fn action_function_call_base(ctx: &mut Ctx) -> GasCost {
 
     total_cost - base_cost
 }
-
 fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed_with_contracts();
@@ -395,6 +396,33 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
     let bytes_per_transaction = 1024 * 1024;
 
     (total_cost - base_cost) / bytes_per_transaction
+}
+
+fn action_function_call_base_v2(ctx: &mut Ctx) -> GasCost {
+    let (base, _per_byte) = action_function_call_base_per_byte_v2(ctx);
+    base
+}
+fn action_function_call_per_byte_v2(ctx: &mut Ctx) -> GasCost {
+    let (_base, per_byte) = action_function_call_base_per_byte_v2(ctx);
+    per_byte
+}
+fn action_function_call_base_per_byte_v2(ctx: &mut Ctx) -> (GasCost, GasCost) {
+    if let Some(base_byte_cost) = ctx.cached.action_function_call_base_per_byte_v2.clone() {
+        return base_byte_cost;
+    }
+
+    let (base, byte) =
+        crate::function_call::test_function_call(ctx.config.metric, ctx.config.vm_kind);
+    let convert_ratio = |r: Ratio<i128>| -> Ratio<u64> {
+        Ratio::new((*r.numer()).try_into().unwrap(), (*r.denom()).try_into().unwrap())
+    };
+    let base_byte_cost = (
+        GasCost { value: convert_ratio(base), metric: ctx.config.metric },
+        GasCost { value: convert_ratio(byte), metric: ctx.config.metric },
+    );
+
+    ctx.cached.action_function_call_base_per_byte_v2 = Some(base_byte_cost.clone());
+    base_byte_cost
 }
 
 fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {

@@ -26,6 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) action_add_function_access_key_base: Option<GasCost>,
     pub(crate) action_deploy_contract_base: Option<GasCost>,
     pub(crate) noop_host_function_call_cost: Option<GasCost>,
+    pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
 }
 
 /// Global context shared by all cost calculating functions.
