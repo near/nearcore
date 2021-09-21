@@ -143,9 +143,8 @@ def main():
 
     while True:
         print('Sending request ...')
-        res = requests.post(
-            'http://nayduck.eastus.cloudapp.azure.com:5005/api/run/new',
-            json=post, cookies={'nay-code': code})
+        res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
+                            json=post, cookies={'nay-code': code})
         if res.status_code != 401:
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')
