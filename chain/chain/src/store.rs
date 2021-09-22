@@ -1166,7 +1166,7 @@ pub struct ChainStoreUpdate<'a> {
     trie_changes: Vec<WrappedTrieChanges>,
     // All state changes made by a chunk, this is only used for splitting states
     add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
-    remove_state_changes_for_split_states: Vec<(CryptoHash, ShardId)>,
+    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1192,7 +1192,7 @@ impl<'a> ChainStoreUpdate<'a> {
             largest_target_height: None,
             trie_changes: vec![],
             add_state_changes_for_split_states: HashMap::new(),
-            remove_state_changes_for_split_states: vec![],
+            remove_state_changes_for_split_states: HashSet::new(),
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1897,7 +1897,8 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         shard_id: ShardId,
     ) {
-        self.remove_state_changes_for_split_states.push((block_hash, shard_id));
+        // We should not remove state changes for the same chunk twice
+        assert!(self.remove_state_changes_for_split_states.insert((block_hash, shard_id)));
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2698,7 +2699,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 &state_changes,
             )?;
         }
-        for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain(..) {
+        for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain() {
             store_update
                 .delete(ColStateChangesForSplitStates, &get_block_shard_id(&block_hash, shard_id));
         }

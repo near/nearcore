@@ -626,12 +626,12 @@ impl NightshadeRuntime {
     }
 }
 
-fn apply_delayed_receipts(
+fn apply_delayed_receipts<'a>(
     tries: &ShardTries,
     orig_shard_uid: ShardUId,
     orig_state_root: StateRoot,
     state_roots: HashMap<ShardUId, StateRoot>,
-    next_shard_layout: &ShardLayout,
+    account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
 ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
     let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
 
@@ -643,18 +643,7 @@ fn apply_delayed_receipts(
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
             &new_state_roots,
             &receipts,
-            &|account_id| {
-                let shard_id = account_id_to_shard_id(&account_id, next_shard_layout);
-                let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, next_shard_layout);
-                assert!(
-                    state_roots.contains_key(&shard_uid),
-                    "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
-                    account_id,
-                    orig_shard_uid,
-                    shard_uid,
-                );
-                shard_uid
-            },
+            account_id_to_shard_id,
         )?;
         new_state_roots = updated_state_roots;
         start_index = Some(next_index);
@@ -1642,7 +1631,21 @@ impl RuntimeAdapter for NightshadeRuntime {
             .ok_or(ErrorKind::InvalidShardId(shard_id))?;
         self.tries.add_new_shards(&new_shards);
         let mut state_roots: HashMap<_, _> =
-            new_shards.into_iter().map(|shard_uid| (shard_uid, StateRoot::default())).collect();
+            new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
+        let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
+        let checked_account_id_to_shard_id = |account_id: &AccountId| {
+            let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
+            // check that all accounts in the shard are mapped the shards that this shard will split
+            // to according to shard layout
+            assert!(
+                split_shard_ids.contains(&new_shard_uid),
+                "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+                account_id,
+                shard_uid,
+                new_shard_uid,
+            );
+            new_shard_uid
+        };
 
         let state_root_node = trie.retrieve_root_node(state_root)?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
@@ -1652,17 +1655,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
                 &state_roots,
                 trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
-                &|account_id| {
-                    let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
-                    assert!(
-                        state_roots.contains_key(&new_shard_uid),
-                        "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
-                        account_id,
-                        shard_uid,
-                        new_shard_uid,
-                    );
-                    new_shard_uid
-                },
+                &checked_account_id_to_shard_id,
             )?;
             state_roots = new_state_roots;
             store_update.commit()?;
@@ -1672,7 +1665,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             shard_uid,
             state_root.clone(),
             state_roots,
-            &next_epoch_shard_layout,
+            &checked_account_id_to_shard_id,
         )?;
         Ok(state_roots)
     }
