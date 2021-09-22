@@ -116,7 +116,7 @@ mod test {
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
         let env = TestEnv::builder(chain_genesis)
-            .validators_seats(2)
+            .validator_seats(2)
             .runtime_adapters(vec![Arc::new(nightshade_runtime)])
             .build();
         (store, genesis, env)
@@ -324,7 +324,7 @@ mod test {
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
-            .validators_seats(2)
+            .validator_seats(2)
             .runtime_adapters(vec![Arc::new(nightshade_runtime)])
             .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
