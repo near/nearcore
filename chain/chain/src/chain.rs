@@ -2968,9 +2968,11 @@ impl<'a> ChainUpdate<'a> {
             };
             let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
             // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
-            // if should_apply_transactions == true && split_state_roots.is_some()
+            // if should_apply_transactions == true && split_state_roots.is_some(),
+            //     that means split states are ready.
             //    `apply_transactions` will apply updates to split_states
-            // if should_apply_transactions == true && split_state_roots.is_none()
+            // if should_apply_transactions == true && split_state_roots.is_none(),
+            //     that means split states are not ready yet.
             //    `apply_transactions` will return `state_changes_for_split_states`,
             //     which will be stored to the database in `process_apply_chunks`
             // if should_apply_transactions == false && split_state_roots.is_some()
