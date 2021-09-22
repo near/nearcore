@@ -6,7 +6,7 @@ pub struct RpcStatusResponse {
     pub status_response: near_primitives::views::StatusResponse,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RpcHealthResponse;
 
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]

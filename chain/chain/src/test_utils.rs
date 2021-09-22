@@ -305,6 +305,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
     }
 
+    fn get_store(&self) -> Arc<Store> {
+        self.store.clone()
+    }
+
     fn get_tries(&self) -> ShardTries {
         self.tries.clone()
     }

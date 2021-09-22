@@ -70,6 +70,7 @@ pub fn setup(
     network_adapter: Arc<dyn NetworkAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
+    ctx: &Context<ClientActor>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
@@ -138,11 +139,87 @@ pub fn setup(
         Some(signer),
         telemetry,
         enable_doomslug,
+        ctx,
         #[cfg(feature = "adversarial")]
         adv,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
+}
+
+pub fn setup_only_view(
+    validators: Vec<Vec<AccountId>>,
+    validator_groups: u64,
+    num_shards: NumShards,
+    epoch_length: BlockHeightDelta,
+    account_id: AccountId,
+    skip_sync_wait: bool,
+    min_block_prod_time: u64,
+    max_block_prod_time: u64,
+    enable_doomslug: bool,
+    archive: bool,
+    epoch_sync_enabled: bool,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    transaction_validity_period: NumBlocks,
+    genesis_time: DateTime<Utc>,
+) -> Addr<ViewClientActor> {
+    let store = create_test_store();
+    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
+        store,
+        validators,
+        validator_groups,
+        num_shards,
+        epoch_length,
+        archive,
+    ));
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        gas_price_adjustment_rate: Rational::from_integer(0),
+        transaction_validity_period,
+        epoch_length,
+        protocol_version: PROTOCOL_VERSION,
+    };
+
+    let doomslug_threshold_mode = if enable_doomslug {
+        DoomslugThresholdMode::TwoThirds
+    } else {
+        DoomslugThresholdMode::NoApprovals
+    };
+    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
+
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        account_id.clone(),
+        KeyType::ED25519,
+        account_id.as_ref(),
+    ));
+    TelemetryActor::default().start();
+    let config = ClientConfig::test(
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validator_seats,
+        archive,
+        epoch_sync_enabled,
+    );
+
+    #[cfg(feature = "adversarial")]
+    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+
+    start_view_client(
+        Some(signer.validator_id().clone()),
+        chain_genesis.clone(),
+        runtime.clone(),
+        network_adapter.clone(),
+        config.clone(),
+        #[cfg(feature = "adversarial")]
+        adv.clone(),
+    )
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -184,23 +261,28 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client_addr) = setup(
-        vec![validators],
-        1,
-        1,
-        5,
-        account_id,
-        skip_sync_wait,
-        100,
-        200,
-        enable_doomslug,
-        false,
-        false,
-        network_adapter.clone(),
-        transaction_validity_period,
-        Utc::now(),
-    );
-    let client_addr = client.start();
+    let mut vca: Option<Addr<ViewClientActor>> = None;
+    let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
+        let (_, client, view_client_addr) = setup(
+            vec![validators],
+            1,
+            1,
+            5,
+            account_id,
+            skip_sync_wait,
+            100,
+            200,
+            enable_doomslug,
+            false,
+            false,
+            network_adapter.clone(),
+            transaction_validity_period,
+            Utc::now(),
+            ctx,
+        );
+        vca = Some(view_client_addr);
+        client
+    });
     let client_addr1 = client_addr.clone();
 
     let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
@@ -212,7 +294,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
 
     network_adapter.set_recipient(network_actor.recipient());
 
-    (client_addr, view_client_addr)
+    (client_addr, vca.unwrap())
 }
 
 fn sample_binary(n: u64, k: u64) -> bool {
@@ -904,6 +986,7 @@ pub fn setup_mock_all_validators(
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
+                &ctx,
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
@@ -1019,7 +1102,151 @@ pub struct TestEnv {
     pub clients: Vec<Client>,
 }
 
+/// A builder for the TestEnv structure.
+pub struct TestEnvBuilder {
+    chain_genesis: ChainGenesis,
+    clients: Vec<AccountId>,
+    validators: Vec<AccountId>,
+    runtime_adapters: Option<Vec<Arc<dyn RuntimeAdapter>>>,
+    network_adapters: Option<Vec<Arc<MockNetworkAdapter>>>,
+}
+
+/// Builder for the `TestEnv` structure.
+impl TestEnvBuilder {
+    /// Constructs a new builder.
+    fn new(chain_genesis: ChainGenesis) -> Self {
+        Self {
+            chain_genesis,
+            clients: Self::make_accounts(1, Self::default_formatter),
+            validators: Self::make_accounts(1, Self::default_formatter),
+            runtime_adapters: None,
+            network_adapters: None,
+        }
+    }
+
+    /// Sets list of client `AccountId`s to the one provided.  Panics if the
+    /// vector is empty.
+    pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
+        assert!(!clients.is_empty());
+        self.clients = clients;
+        self
+    }
+
+    /// Sets number of clients to given one.  Each client will use `AccountId`
+    /// in the form `test{}` where `{}` will count from zero.
+    pub fn clients_count(self, num: usize) -> Self {
+        self.clients(Self::make_accounts(num, Self::default_formatter))
+    }
+
+    /// Sets list of validator `AccountId`s to the one provided.  Panics if the
+    /// vector is empty.
+    pub fn validators(mut self, validators: Vec<AccountId>) -> Self {
+        assert!(!validators.is_empty());
+        self.validators = validators;
+        self
+    }
+
+    /// Sets number of validator seats to given one.  Each validator will use
+    /// `AccountId` in the form `test{}` where `{}` will count from zero.
+    pub fn validator_seats(self, num: usize) -> Self {
+        self.validators(Self::make_accounts(num, Self::default_formatter))
+    }
+
+    /// Specifies custom runtime adaptors for each client.  This allows us to
+    /// construct `TestEnv` with `NightshadeRuntime`.
+    ///
+    /// The vector must have the same number of elements as they are clients.
+    /// If that does not hold, `build` method will panic.
+    pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
+        self.runtime_adapters = Some(adapters);
+        self
+    }
+
+    /// Specifies custom network adaptors for each client.
+    ///
+    /// The vector must have the same number of elements as they are clients.
+    /// If that does not hold, `build` method will panic.
+    pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
+        self.network_adapters = Some(adapters);
+        self
+    }
+
+    /// Constructs new `TestEnv` structure.
+    ///
+    /// If no clients were configured (either through count or vector) one
+    /// client is created.  Similarly, if no validator seats were configured,
+    /// one seat is configured.
+    ///
+    /// Panics if `runtime_adapters` or `network_adapters` methods were used and
+    /// the length of the vectors passed to them did not equal number of
+    /// configured clients.
+    pub fn build(self) -> TestEnv {
+        let chain_genesis = self.chain_genesis;
+        let clients = self.clients;
+        let num_clients = clients.len();
+        let validators = self.validators;
+        let num_validators = validators.len();
+        let network_adapters = self
+            .network_adapters
+            .unwrap_or_else(|| (0..num_clients).map(|_| Arc::new(Default::default())).collect());
+        assert!(clients.len() == network_adapters.len());
+        let clients = match self.runtime_adapters {
+            None => clients
+                .into_iter()
+                .zip(network_adapters.iter())
+                .map(|(account_id, network_adapter)| {
+                    setup_client(
+                        create_test_store(),
+                        vec![validators.clone()],
+                        1,
+                        1,
+                        Some(account_id),
+                        false,
+                        network_adapter.clone(),
+                        chain_genesis.clone(),
+                    )
+                })
+                .collect(),
+            Some(runtime_adapters) => {
+                assert!(clients.len() == runtime_adapters.len());
+                clients
+                    .into_iter()
+                    .zip((&network_adapters).iter())
+                    .zip(runtime_adapters.into_iter())
+                    .map(|((account_id, network_adapter), runtime_adapter)| {
+                        setup_client_with_runtime(
+                            u64::try_from(num_validators).unwrap(),
+                            Some(account_id),
+                            false,
+                            network_adapter.clone(),
+                            chain_genesis.clone(),
+                            runtime_adapter,
+                        )
+                    })
+                    .collect()
+            }
+        };
+
+        TestEnv { chain_genesis, validators, network_adapters, clients }
+    }
+
+    fn default_formatter(id: usize) -> std::string::String {
+        format!("test{}", id)
+    }
+
+    fn make_accounts<F>(count: usize, formatter: F) -> Vec<AccountId>
+    where
+        F: Fn(usize) -> std::string::String,
+    {
+        (0..count).map(|i| AccountId::try_from(formatter(i)).unwrap()).collect()
+    }
+}
+
 impl TestEnv {
+    pub fn builder(chain_genesis: ChainGenesis) -> TestEnvBuilder {
+        TestEnvBuilder::new(chain_genesis)
+    }
+
     /// Create a `TestEnv` with `KeyValueRuntime`.
     pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
         let validators: Vec<AccountId> = (0..num_validators)
@@ -1052,41 +1279,14 @@ impl TestEnv {
         num_validator_seats: NumSeats,
         runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
     ) -> Self {
-        let network_adapters: Vec<Arc<MockNetworkAdapter>> =
+        let network_adapters =
             (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
-        Self::new_with_runtime_and_network_adapter(
-            chain_genesis,
-            num_clients,
-            num_validator_seats,
-            runtime_adapters,
-            network_adapters,
-        )
-    }
-
-    /// Create a `TestEnv` with custom runtime adapters and `MockNetworkAdapter`s.
-    pub fn new_with_runtime_and_network_adapter(
-        chain_genesis: ChainGenesis,
-        num_clients: usize,
-        num_validator_seats: NumSeats,
-        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
-        network_adapters: Vec<Arc<MockNetworkAdapter>>,
-    ) -> Self {
-        let validators: Vec<AccountId> = (0..num_validator_seats)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
-        let clients = (0..num_clients)
-            .map(|i| {
-                setup_client_with_runtime(
-                    num_validator_seats,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
-                    false,
-                    network_adapters[i].clone(),
-                    chain_genesis.clone(),
-                    runtime_adapters[i].clone(),
-                )
-            })
-            .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+        Self::builder(chain_genesis)
+            .clients_count(num_clients)
+            .validator_seats(usize::try_from(num_validator_seats).unwrap())
+            .network_adapters(network_adapters)
+            .runtime_adapters(runtime_adapters)
+            .build()
     }
 
     /// Process a given block in the client with index `id`.
@@ -1094,7 +1294,8 @@ impl TestEnv {
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
+        let f = |_| {};
+        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
