@@ -252,6 +252,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         let db_version = get_store_version(path);
         debug_assert_eq!(db_version, near_primitives::version::DB_VERSION);
     }
+    if db_version <= 27 {
+        // version 27 => 28: add ColStateChangesForSplitStates
+        // Does not need to do anything since open db with option `create_missing_column_families`
+        // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
+        info!(target: "near", "Migrate DB from version 27 to 28");
+        let store = create_store(&path);
+        set_store_version(&store, 28);
+    }
 }
 
 pub fn init_and_migrate_store(home_dir: &Path, near_config: &NearConfig) -> Arc<Store> {
