@@ -94,7 +94,9 @@ macro_rules! wrapped_imports {
                             }
                         });
                         let logic: &mut VMLogic<'_> = unsafe { &mut *(data as *mut VMLogic<'_>) };
-                        match logic.$func( $( $arg_name as $arg_type, )* ) {
+                        // TODO: convert this error instead of unwrap
+                        logic.sync_from_wasm_counter().unwrap();
+                        let r = match logic.$func( $( $arg_name as $arg_type, )* ) {
                             Ok(result) => Ok(result as ($( rust2wasm!($returns) ),* ) ),
                             Err(err) => {
                                 // Wasmtime doesn't have proper mechanism for wrapping custom errors
@@ -104,7 +106,9 @@ macro_rules! wrapped_imports {
                                 });
                                 Err(Trap::i32_exit(239))
                             }
-                        }
+                        };
+                        logic.sync_to_wasm_counter();
+                        r
                     }
                 )*
             }

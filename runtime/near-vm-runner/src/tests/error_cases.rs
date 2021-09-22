@@ -45,6 +45,11 @@ fn infinite_initializer_contract() -> Vec<u8> {
 #[test]
 fn test_infinite_initializer() {
     with_vm_variants(|vm_kind: VMKind| {
+        match vm_kind {
+            VMKind::Wasmer0 | VMKind::Wasmer2 => {}
+            // TODO: wasmtime need handle initialization in the same way as wasmer 0 (two-step initialization)
+            VMKind::Wasmtime => return,
+        }
         assert_eq!(
             make_simple_contract_call_vm(&infinite_initializer_contract(), "hello", vm_kind),
             (

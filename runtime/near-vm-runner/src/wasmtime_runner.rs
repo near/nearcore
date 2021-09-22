@@ -266,6 +266,11 @@ pub mod wasmtime_runner {
         match linker.instantiate(&module) {
             Ok(instance) => {
                 let instance = WasmtimeInstance(instance);
+                if logic.gas_counter_mode() == GasCounterMode::Wasm {
+                    if let GasMode::Paid(available_ops) = gas_mode {
+                        instance.set_remaining_ops(available_ops);
+                    }
+                }
                 logic.set_instance(Some(&instance as *const dyn InstanceLike));
                 let result = run_method_inner(&instance.0, method_name, gas_mode, &mut logic);
                 logic.set_instance(None);
