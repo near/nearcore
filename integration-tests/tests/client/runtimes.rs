@@ -72,15 +72,11 @@ fn test_pending_approvals() {
 
 #[test]
 fn test_invalid_approvals() {
-    let runtimes = create_runtimes(1);
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let mut env = TestEnv::new_with_runtime_and_network_adapter(
-        ChainGenesis::test(),
-        1,
-        1,
-        runtimes,
-        vec![network_adapter.clone()],
-    );
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(create_runtimes(1))
+        .network_adapters(vec![network_adapter.clone()])
+        .build();
     let signer =
         InMemoryValidatorSigner::from_seed("random".parse().unwrap(), KeyType::ED25519, "random");
     let parent_hash = hash(&[1]);
