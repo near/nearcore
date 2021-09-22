@@ -121,6 +121,7 @@ pub struct ApplyResult {
     pub outcomes: Vec<ExecutionOutcomeWithId>,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
+    pub processed_delayed_receipts: Vec<Receipt>,
     pub proof: Option<PartialStorage>,
 }
 
@@ -1231,6 +1232,7 @@ impl Runtime {
                 outcomes: vec![],
                 state_changes,
                 stats,
+                processed_delayed_receipts: vec![],
                 proof,
             });
         }
@@ -1239,6 +1241,7 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
+        let mut processed_delayed_receipts = vec![];
         // This contains the gas "burnt" for refund receipts. Even though we don't actually
         // charge any gas for refund receipts, we still count the gas use towards the block gas
         // limit
@@ -1331,6 +1334,7 @@ impl Runtime {
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
             process_receipt(&receipt, &mut state_update, &mut total_gas_burnt)?;
+            processed_delayed_receipts.push(receipt);
         }
 
         // And then we process the new incoming receipts. These are receipts from other shards.
@@ -1393,6 +1397,7 @@ impl Runtime {
             outcomes,
             state_changes,
             stats,
+            processed_delayed_receipts,
             proof,
         })
     }
