@@ -1898,7 +1898,9 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_id: ShardId,
     ) {
         // We should not remove state changes for the same chunk twice
-        assert!(self.remove_state_changes_for_split_states.insert((block_hash, shard_id)));
+        let value_not_present =
+            self.remove_state_changes_for_split_states.insert((block_hash, shard_id));
+        assert!(value_not_present);
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {

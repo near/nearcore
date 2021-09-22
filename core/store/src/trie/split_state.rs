@@ -40,6 +40,12 @@ impl Trie {
 }
 
 impl ShardTries {
+    /// applies `changes` to split states
+    /// and returns the generated TrieChanges for all split states
+    /// Note that this function is different from the function `add_values_to_split_states`
+    /// This function is used for applying updates to split states when processing blocks
+    /// `add_values_to_split_states` are used to generate the initial states for shards split
+    /// from the original parent shard.
     pub fn apply_state_changes_to_split_states<'a>(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
@@ -106,13 +112,12 @@ impl ShardTries {
         Ok(trie_changes_map)
     }
 
-    /// Apply `changes` to build states for new shards
+    /// add `values` (key-value pairs of items stored in states) to build states for new shards
     /// `state_roots` contains state roots for the new shards
     /// The caller must guarantee that `state_roots` contains all shard_ids
     /// that `key_to_shard_id` that may return
     /// Ignore changes on DelayedReceipts or DelayedReceiptsIndices
-    /// Update `store_update` and return new state_roots
-    /// used for building states for new shards in resharding
+    /// Returns `store_update` and the new state_roots for split states
     pub fn add_values_to_split_states<'a>(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
