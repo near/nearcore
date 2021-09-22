@@ -428,7 +428,7 @@ impl ChainStore {
             .collect()
     }
 
-    pub fn get_consolidated_state_changes(
+    pub fn get_state_changes_for_split_states(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
@@ -1602,12 +1602,12 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
-    pub fn get_consolidated_state_changes(
+    pub fn get_state_changes_for_split_states(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<StateChangesForSplitStates, Error> {
-        self.chain_store.get_consolidated_state_changes(block_hash, shard_id)
+        self.chain_store.get_state_changes_for_split_states(block_hash, shard_id)
     }
 
     /// Update both header and block body head.

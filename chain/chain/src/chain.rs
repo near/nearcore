@@ -2966,31 +2966,33 @@ impl<'a> ChainUpdate<'a> {
                     !cares_about_shard_this_epoch && cares_about_shard_next_epoch
                 }
             };
-            // For splitting states, there are two possibilities
-            // 1) split states for next epoch are not ready when the block is processed
-            //    In this case, apply_chunks is first called with ApplyChunksMode::NotCaughtUp and
-            //    then ApplyChunksMode::CatchingUp.
-            //     With mode NotCaughtUp, state changes will be stored in
-            //       ApplyTransactionResult::consolidated_state_changes, which will be stored
-            //       in the database by `process_apply_chunk_result` through `process_apply_chunk_result`
-            //     With mode CatchingUp, these stored state_changes are read from the database and
-            //       applied to shards for which the split states were not ready when transactions
-            //       were applied.
-            // 2) split states for next epoch are ready.
-            //    In this case, the split states will be updated by `apply_transactions` and
-            //    results for applying these updates will be stored in
-            //    ApplyTransactionResult::split_state_apply_result
-            let need_to_split_state = will_shard_layout_change && cares_about_shard_next_epoch;
+            let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
+            // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
+            // if should_apply_transactions == true && split_state_roots.is_some()
+            //    `apply_transactions` will apply updates to split_states
+            // if should_apply_transactions == true && split_state_roots.is_none()
+            //    `apply_transactions` will return `state_changes_for_split_states`,
+            //     which will be stored to the database in `process_apply_chunks`
+            // if should_apply_transactions == false && split_state_roots.is_some()
+            //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
+            //    otherwise should_apply_transactions will be true
+            //    That means transactions have already been applied last time when apply_chunks are
+            //    called with mode NotCaughtUp, therefore `state_changes_for_split_states` have been
+            //    stored in the database. Then we can safely read that and apply that to the split
+            //    states
+            let split_state_roots = if need_to_split_states {
+                match mode {
+                    ApplyChunksMode::IsCaughtUp | ApplyChunksMode::CatchingUp => {
+                        Some(self.get_split_state_roots(block, shard_id)?)
+                    }
+                    ApplyChunksMode::NotCaughtUp => None,
+                }
+            } else {
+                None
+            };
             let shard_uid =
                 self.runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id())?;
             if should_apply_transactions {
-                let split_state_roots =
-                    if need_to_split_state && mode != ApplyChunksMode::NotCaughtUp {
-                        Some(self.get_split_state_roots(block, shard_id)?)
-                    } else {
-                        None
-                    };
-
                 if chunk_header.height_included() == block.header().height() {
                     // Validate state root.
                     let prev_chunk_extra =
@@ -3168,18 +3170,15 @@ impl<'a> ChainUpdate<'a> {
                         }
                     }));
                 }
-            } else if mode == ApplyChunksMode::CatchingUp
-                && need_to_split_state
-                && cares_about_shard_this_epoch
-            {
+            } else if let Some(split_state_roots) = split_state_roots {
+                assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
                 // Split state are ready. Read the state changes from the database and apply them
                 // to the split states.
-                let split_state_roots = self.get_split_state_roots(block, shard_id)?;
                 let next_shard_layout =
                     self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
                 let state_changes = self
                     .chain_store_update
-                    .get_consolidated_state_changes(block.hash(), shard_id)?;
+                    .get_state_changes_for_split_states(block.hash(), shard_id)?;
                 self.chain_store_update
                     .remove_state_changes_for_split_states(block.hash().clone(), shard_id);
                 let runtime_adapter = self.runtime_adapter.clone();
