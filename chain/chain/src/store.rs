@@ -30,7 +30,8 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
+    StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -51,6 +52,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use near_store::db::DBCol::ColStateChangesForSplitStates;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -424,6 +426,18 @@ impl ChainStore {
                 )
             })
             .collect()
+    }
+
+    pub fn get_state_changes_for_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<StateChangesForSplitStates, Error> {
+        let key = &get_block_shard_id(block_hash, shard_id);
+        option_to_not_found(
+            self.store.get_ser::<StateChangesForSplitStates>(ColStateChangesForSplitStates, key),
+            &format!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
+        )
     }
 
     pub fn get_outgoing_receipts_for_shard(
@@ -1150,6 +1164,9 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
+    // All state changes made by a chunk, this is only used for splitting states
+    add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
+    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1174,6 +1191,8 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
+            add_state_changes_for_split_states: HashMap::new(),
+            remove_state_changes_for_split_states: HashSet::new(),
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1583,6 +1602,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    pub fn get_state_changes_for_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<StateChangesForSplitStates, Error> {
+        self.chain_store.get_state_changes_for_split_states(block_hash, shard_id)
+    }
+
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
@@ -1851,6 +1878,29 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
         self.trie_changes.push(trie_changes);
+    }
+
+    pub fn add_state_changes_for_split_states(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        state_changes: StateChangesForSplitStates,
+    ) {
+        let prev =
+            self.add_state_changes_for_split_states.insert((block_hash, shard_id), state_changes);
+        // We should not save state changes for the same chunk twice
+        assert!(prev.is_none());
+    }
+
+    pub fn remove_state_changes_for_split_states(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+    ) {
+        // We should not remove state changes for the same chunk twice
+        let value_not_present =
+            self.remove_state_changes_for_split_states.insert((block_hash, shard_id));
+        assert!(value_not_present);
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2408,6 +2458,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColEpochValidatorInfo
             | DBCol::ColBlockOrdinal
             | DBCol::_ColTransactionRefCount
+            | DBCol::ColStateChangesForSplitStates
             | DBCol::ColCachedContractCode => {
                 unreachable!();
             }
@@ -2640,6 +2691,19 @@ impl<'a> ChainStoreUpdate<'a> {
             wrapped_trie_changes
                 .wrapped_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
+        }
+        for ((block_hash, shard_id), state_changes) in
+            self.add_state_changes_for_split_states.drain()
+        {
+            store_update.set_ser(
+                ColStateChangesForSplitStates,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_changes,
+            )?;
+        }
+        for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain() {
+            store_update
+                .delete(ColStateChangesForSplitStates, &get_block_shard_id(&block_hash, shard_id));
         }
 
         let mut affected_catchup_blocks = HashSet::new();

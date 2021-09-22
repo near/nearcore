@@ -48,24 +48,31 @@ pub fn test_populate_trie(
     root
 }
 
-pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
+pub fn gen_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
     let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
     let size = rng.gen_range(0, max_size) + 1;
 
-    let mut receipts = vec![];
+    let mut accounts = vec![];
     for _ in 0..size {
         let str_length = rng.gen_range(4, 8);
         let s: Vec<u8> = (0..str_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
         let account_id: AccountId = from_utf8(&s).unwrap().parse().unwrap();
-        let receipt = Receipt {
+        accounts.push(account_id);
+    }
+    accounts
+}
+
+pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
+    let accounts = gen_accounts(rng, max_size);
+    accounts
+        .iter()
+        .map(|account_id| Receipt {
             predecessor_id: account_id.clone(),
             receiver_id: account_id.clone(),
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
-        };
-        receipts.push(receipt);
-    }
-    receipts
+        })
+        .collect()
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {

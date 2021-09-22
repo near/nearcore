@@ -67,11 +67,19 @@ impl ShardLayout {
     }
 
     #[inline]
-    pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<&Vec<ShardId>> {
+    pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
-                Some(shards_split_map) => shards_split_map.get(parent_shard_id as usize),
+                Some(shards_split_map) => match shards_split_map.get(parent_shard_id as usize) {
+                    Some(shards) => Some(
+                        shards
+                            .iter()
+                            .map(|&x| ShardUId::from_shard_id_and_layout(x, &self))
+                            .collect(),
+                    ),
+                    None => None,
+                },
                 None => None,
             },
         }
@@ -126,6 +134,13 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             shard_id
         }
     }
+}
+
+pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
+    ShardUId::from_shard_id_and_layout(
+        account_id_to_shard_id(account_id, shard_layout),
+        shard_layout,
+    )
 }
 
 fn is_top_level_account(top_account: &AccountId, account: &AccountId) -> bool {
