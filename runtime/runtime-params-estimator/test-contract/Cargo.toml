@@ -21,5 +21,6 @@ members = []
 [features]
 nightly_protocol_features = ["protocol_feature_alt_bn128"]
 protocol_feature_alt_bn128 = []
+small = []
 
 payload = []

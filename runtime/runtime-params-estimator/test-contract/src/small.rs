@@ -1,6 +1,3 @@
-#![no_std]
-#![allow(non_snake_case)]
-
 #[panic_handler]
 #[no_mangle]
 pub fn panic(_info: &::core::panic::PanicInfo) -> ! {

@@ -1,4 +1,6 @@
 near-sdk-rs/
 core-contracts/
+test-contract/res/payload
+test-contract/res/smallest_contract.wasm
 test-contract/res/stable_*
 test-contract/res/nightly_*

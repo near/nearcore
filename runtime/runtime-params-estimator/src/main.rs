@@ -36,9 +36,6 @@ struct CliArgs {
     /// Number of additional accounts to add to the state, among which active accounts are selected.
     #[clap(long, default_value = "200000")]
     additional_accounts_num: u64,
-    /// Skip building test contract which is used in metrics computation.
-    #[clap(long)]
-    skip_build_test_contract: bool,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
@@ -110,18 +107,6 @@ fn main() -> anyhow::Result<()> {
             state_dump_path
         }
     };
-
-    // TODO: consider implementing the same in Rust to reduce complexity.
-    // Good example: runtime/near-test-contracts/build.rs
-    if !cli_args.skip_build_test_contract {
-        let build_test_contract = "./build.sh";
-        let project_root = project_root();
-        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
-        std::process::Command::new(build_test_contract)
-            .current_dir(estimator_dir)
-            .output()
-            .context("could not build test contract")?;
-    }
 
     if cli_args.docker {
         return main_docker(&state_dump_path, cli_args.full);
