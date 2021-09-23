@@ -1903,69 +1903,60 @@ impl Chain {
         Ok(chain_store_update.commit()?)
     }
 
+    pub fn catchup_blocks_step(
+        &mut self,
+        me: &Option<AccountId>,
+        blocks_catch_up_state: &mut BlocksCatchUpState,
+    ) -> Result<(), Error> {
+        for queued_block in blocks_catch_up_state.queued_blocks.drain(..) {
+            let mut saw_one = false;
+            for next_block_hash in self.store.get_blocks_to_catchup(&queued_block)?.clone() {
+                saw_one = true;
+                blocks_catch_up_state.pending_blocks.push(next_block_hash.clone());
+            }
+            if saw_one {
+                assert_eq!(
+                    self.runtime_adapter.get_epoch_id_from_prev_block(&queued_block)?,
+                    blocks_catch_up_state.epoch_id
+                );
+            }
+            blocks_catch_up_state.processed_blocks.push(queued_block);
+        }
+
+        for pending_block in blocks_catch_up_state.pending_blocks.drain(..) {
+            let block = self.store.get_block(&pending_block)?.clone();
+            let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
+
+            let mut chain_update = self.chain_update();
+            chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::CatchingUp)?;
+            chain_update.commit()?;
+            blocks_catch_up_state.queued_blocks.push(pending_block);
+        }
+
+        Ok(())
+    }
+
     /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
-    pub fn catchup_blocks<F, F2, F3>(
+    pub fn finish_catchup_blocks<F, F2, F3>(
         &mut self,
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
         block_accepted: F,
         block_misses_chunks: F2,
         on_challenge: F3,
+        affected_blocks: &Vec<CryptoHash>,
     ) -> Result<(), Error>
     where
         F: Copy + FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
         F3: Copy + FnMut(ChallengeBody) -> (),
     {
-        debug!("Catching up blocks after syncing pre {:?}, me: {:?}", epoch_first_block, me);
+        debug!(
+            "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
+            epoch_first_block, me
+        );
 
-        let mut affected_blocks: HashSet<CryptoHash> = HashSet::new();
-
-        // Apply the epoch start block separately, since it doesn't follow the pattern
-        let block = self.store.get_block(&epoch_first_block)?.clone();
-        let prev_block = self.store.get_block(block.header().prev_hash())?.clone();
-
-        let mut chain_update = self.chain_update();
-        chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::CatchingUp)?;
-        chain_update.commit()?;
-
-        affected_blocks.insert(*block.header().hash());
-
-        let first_epoch = block.header().epoch_id().clone();
-
-        let mut queue = vec![*epoch_first_block];
-        let mut cur = 0;
-
-        while cur < queue.len() {
-            let block_hash = queue[cur];
-
-            // TODO: cloning these blocks is extremely wasteful, figure out how to not to clone them
-            //    without summoning mutable references tomfoolery
-            let prev_block = self.store.get_block(&block_hash).unwrap().clone();
-
-            let mut saw_one = false;
-            for next_block_hash in self.store.get_blocks_to_catchup(&block_hash)?.clone() {
-                saw_one = true;
-                let block = self.store.get_block(&next_block_hash).unwrap().clone();
-
-                let mut chain_update = self.chain_update();
-
-                chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::CatchingUp)?;
-
-                chain_update.commit()?;
-
-                affected_blocks.insert(*block.header().hash());
-                queue.push(next_block_hash);
-            }
-            if saw_one {
-                assert_eq!(
-                    self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)?,
-                    first_epoch
-                );
-            }
-
-            cur += 1;
-        }
+        let first_block = self.store.get_block(epoch_first_block)?.clone();
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
@@ -1973,11 +1964,12 @@ impl Chain {
         // `epoch_first_block` we should only remove the pair with hash = epoch_first_block, while
         // for all the blocks in the queue we can remove all the pairs that have them as `prev_hash`
         // since we processed all the blocks built on top of them above during the BFS
-        chain_store_update.remove_block_to_catchup(*block.header().prev_hash(), *epoch_first_block);
+        chain_store_update
+            .remove_block_to_catchup(*first_block.header().prev_hash(), *epoch_first_block);
 
-        for block_hash in queue {
+        for block_hash in affected_blocks {
             debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
-            chain_store_update.remove_prev_block_to_catchup(block_hash);
+            chain_store_update.remove_prev_block_to_catchup(block_hash.clone());
         }
         chain_store_update.remove_state_dl_info(*epoch_first_block);
 
@@ -4210,4 +4202,39 @@ pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
+}
+
+/// Helper to track blocks catch up
+pub struct BlocksCatchUpState {
+    /// Hash of first block of an epoch
+    pub first_block_hash: CryptoHash,
+    /// Epoch id
+    pub epoch_id: EpochId,
+    /// Collection of block hashes that are yet to be sent for processed
+    pub pending_blocks: Vec<CryptoHash>,
+    /// Collection of block hashes that are sent for processing
+    pub processing_blocks: Vec<CryptoHash>,
+    /// Collection of block hashes that were processed, but following blocks are not yet processed
+    pub queued_blocks: Vec<CryptoHash>,
+    /// Collection of block hashes that are fully processed
+    pub processed_blocks: Vec<CryptoHash>,
+}
+
+impl BlocksCatchUpState {
+    pub fn new(first_block_hash: CryptoHash, epoch_id: EpochId) -> Self {
+        Self {
+            first_block_hash,
+            epoch_id,
+            pending_blocks: vec![first_block_hash.clone()],
+            processing_blocks: vec![],
+            queued_blocks: vec![],
+            processed_blocks: vec![],
+        }
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.pending_blocks.is_empty()
+            && self.processing_blocks.is_empty()
+            && self.queued_blocks.is_empty()
+    }
 }

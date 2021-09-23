@@ -427,7 +427,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
 
                     // ... Or one of the catchups
-                    if let Some((_, shards_to_download)) =
+                    if let Some((_, shards_to_download, _)) =
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
                         if let Some(part_id) = state_response.part_id() {
@@ -1574,7 +1574,7 @@ impl Handler<ApplyStatePartsResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
-        if let Some((sync, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
         } else {
