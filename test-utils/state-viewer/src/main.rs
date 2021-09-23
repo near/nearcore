@@ -307,8 +307,6 @@ fn apply_chain_range(
     }
     let mut applied_blocks = 0;
     let mut skipped_blocks = 0;
-    let mut different_outcomes_cnt = 0;
-    let mut same_outcomes_cnt = 0;
     for height in start_height..=end_height {
         let block_hash = if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             block_hash
@@ -426,14 +424,9 @@ fn apply_chain_range(
             let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
             println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
             println!("outcomes: {:#?}", apply_result.outcomes);
+            assert!(existing_chunk_extra.is_ok());
             if let Ok(existing_chunk_extra) = existing_chunk_extra {
-                if *existing_chunk_extra == chunk_extra {
-                    same_outcomes_cnt += 1;
-                } else {
-                    different_outcomes_cnt += 1;
-                }
-            } else {
-                different_outcomes_cnt += 1;
+                assert_eq!(*existing_chunk_extra,chunk_extra);
             }
         }
 
@@ -466,10 +459,6 @@ fn apply_chain_range(
     println!("Receipt gas burnt stats:    {}", receipts_gas_burnt_stats);
     println!("Receipt tokens burnt stats: {}", receipts_tokens_burnt_stats);
     println!("Applied blocks: {}. Skipped blocks: {}.", applied_blocks, skipped_blocks);
-    println!(
-        "Different chunk extra: {}. Identical chunk extra: {}.",
-        different_outcomes_cnt, same_outcomes_cnt
-    );
 }
 
 fn apply_block_at_height(
