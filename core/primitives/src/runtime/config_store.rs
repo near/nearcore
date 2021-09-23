@@ -20,6 +20,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (42, include_config!("42.json")),
     #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
     (116, include_config!("116.json")),
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+    (117, include_config!("117.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -84,6 +86,8 @@ mod tests {
     use crate::serialize::to_base;
     #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
     use crate::version::ProtocolFeature::LowerDataReceiptCost;
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+    use crate::version::ProtocolFeature::LowerEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
 
@@ -113,6 +117,7 @@ mod tests {
             "9T3VNaNdGTiZZvuWiymSxtPdwWKNoJmqoTAaZ4JkuSoL",
             "E82ThZS7KFjpdKmogbMGPwv8nTztxqgSbuCTPRH73XFh",
             "EMAAhdji1d9HjweDAM4pb9mu9nioGZRZQe1BsKwjF2iN",
+            "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
             assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
@@ -196,6 +201,22 @@ mod tests {
         assert_eq!(
             config.as_ref(),
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[2].1).unwrap()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+    fn test_lower_ecrecover_base_cost() {
+        let store = RuntimeConfigStore::new(None);
+        let base_cfg = store.get_config(LowerStorageCost.protocol_version());
+        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        assert!(
+            base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
+                > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
+        );
+        assert!(
+            base_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+                > new_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
         );
     }
 }
