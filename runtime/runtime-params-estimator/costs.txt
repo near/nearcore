@@ -1,6 +1,6 @@
 ActionReceiptCreation                         216_119_000_000
-DataReceiptCreationBase                     9_394_678_838_750
-DataReceiptCreationPerByte                        118_714_928
+DataReceiptCreationBase                        72_973_464_625
+DataReceiptCreationPerByte                         34_424_023
 ActionCreateAccount                           199_214_750_000
 ActionDeployContractBase                      369_531_500_000
 ActionDeployContractPerByte                        13_625_998
@@ -14,7 +14,7 @@ ActionAddFunctionAccessKeyPerByte                   3_850_662
 ActionDeleteKey                               189_893_250_000
 ActionDeleteAccount                           294_978_000_000
 HostFunctionCall                                   88_256_037
-WasmInstruction                                     3_856_371
+WasmInstruction                                     1_285_457
 ReadMemoryBase                                    869_954_400
 ReadMemoryByte                                      1_267_111
 WriteMemoryBase                                   934_598_287

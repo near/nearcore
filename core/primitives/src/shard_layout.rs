@@ -155,6 +155,10 @@ impl ShardUId {
         assert!(shard_id < shard_layout.num_shards());
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
+
+    pub fn shard_id(&self) -> ShardId {
+        ShardId::from(self.shard_id)
+    }
 }
 
 impl TryFrom<&[u8]> for ShardUId {
@@ -169,7 +173,7 @@ impl TryFrom<&[u8]> for ShardUId {
         Ok(Self { version, shard_id })
     }
 }
-pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: ShardUId) -> Vec<u8> {
+pub fn get_block_shard_uid(block_hash: &CryptoHash, shard_uid: &ShardUId) -> Vec<u8> {
     let mut res = Vec::with_capacity(40);
     res.extend_from_slice(block_hash.as_ref());
     res.extend_from_slice(&shard_uid.to_bytes());

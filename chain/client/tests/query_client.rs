@@ -3,7 +3,7 @@ use futures::{future, FutureExt};
 
 use chrono::Utc;
 use near_actix_test_utils::run_actix;
-use near_client::test_utils::{setup, setup_no_network};
+use near_client::test_utils::{setup_no_network, setup_only_view};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
@@ -176,7 +176,7 @@ fn test_execution_outcome_for_chunk() {
 #[test]
 fn test_state_request() {
     run_actix(async {
-        let (_, _, view_client) = setup(
+        let view_client = setup_only_view(
             vec![vec!["test".parse().unwrap()]],
             1,
             1,

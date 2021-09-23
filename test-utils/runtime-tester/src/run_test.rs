@@ -35,8 +35,7 @@ impl Scenario {
             tempdir = tempfile::tempdir().map_err(|err| {
                 Error::Other(format!("failed to create temporary directory: {}", err))
             })?;
-            let path = tempdir.path().to_str().unwrap();
-            create_store(path)
+            create_store(tempdir.path())
         };
 
         let mut env = TestEnv::new_with_runtime(

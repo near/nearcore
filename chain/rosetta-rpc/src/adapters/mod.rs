@@ -189,6 +189,11 @@ fn convert_block_changes_to_transactions(
             StateChangeCauseView::Migration => {
                 format!("migration:{}", block_hash)
             }
+            StateChangeCauseView::Resharding => {
+                return Err(crate::errors::ErrorKind::InternalInvariantError(
+                    "State Change 'Resharding' should never be observed".to_string(),
+                ));
+            }
         };
 
         let current_transaction =
@@ -541,6 +546,18 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 near_primitives::transaction::Action::Stake(action) => {
+                    operations.push(
+                        validated_operations::StakeOperation {
+                            account: receiver_account_identifier.clone(),
+                            amount: action.stake,
+                            public_key: (&action.public_key).into(),
+                        }
+                        .into_operation(crate::models::OperationIdentifier::new(&operations)),
+                    );
+                }
+
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                near_primitives::transaction::Action::StakeChunkOnly(action) => {
                     operations.push(
                         validated_operations::StakeOperation {
                             account: receiver_account_identifier.clone(),

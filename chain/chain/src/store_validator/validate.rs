@@ -23,7 +23,7 @@ use near_store::{
 };
 
 use crate::StoreValidator;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 
 #[derive(Error, Debug)]
 pub enum StoreValidatorError {
@@ -385,10 +385,16 @@ pub(crate) fn block_chunks_exist(
                         chunk_header
                     );
                     if cares_about_shard {
-                        let block_shard_id =
-                            get_block_shard_id(block.hash(), chunk_header.shard_id());
+                        let shard_uid = sv
+                            .runtime_adapter
+                            .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
+                            .map_err(|err| StoreValidatorError::DBNotFound {
+                                func_name: String::from("get_shard_layout"),
+                                reason: err.to_string(),
+                            })?;
+                        let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
                         unwrap_or_err_db!(
-                            sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_id.as_ref()),
+                            sv.store.get_ser::<ChunkExtra>(ColChunkExtra, block_shard_uid.as_ref()),
                             "Can't get chunk extra for chunk {:?} from storage",
                             chunk_header
                         );
@@ -543,11 +549,11 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             let chunk_extra = unwrap_or_err_db!(
                 sv.store.get_ser::<ChunkExtra>(
                     ColChunkExtra,
-                    &get_block_shard_id(block_hash, shard_id)
+                    &get_block_shard_uid(block_hash, shard_uid)
                 ),
                 "Can't get Chunk Extra from storage with key {:?} {:?}",
                 block_hash,
-                shard_id
+                shard_uid
             );
             let trie = sv.runtime_adapter.get_tries().get_trie_for_shard(*shard_uid);
             let trie_iterator = unwrap_or_err!(
@@ -571,7 +577,7 @@ pub(crate) fn trie_changes_chunk_extra_exists(
             }
             if let Ok(Some(prev_chunk_extra)) = sv.store.get_ser::<ChunkExtra>(
                 ColChunkExtra,
-                &get_block_shard_id(block.header().prev_hash(), shard_id),
+                &get_block_shard_uid(block.header().prev_hash(), shard_uid),
             ) {
                 check_discrepancy!(
                     prev_chunk_extra.state_root(),
@@ -678,26 +684,17 @@ pub(crate) fn outcome_indexed_by_block_hash(
         let mut outcome_ids = vec![];
         for chunk_header in block.chunks().iter() {
             if chunk_header.height_included() == block.header().height() {
-                if let Some(me) = &sv.me {
-                    if sv.runtime_adapter.cares_about_shard(
-                        Some(&me),
-                        block.header().prev_hash(),
-                        chunk_header.shard_id(),
-                        true,
-                    ) || sv.runtime_adapter.will_care_about_shard(
-                        Some(&me),
-                        block.header().prev_hash(),
-                        chunk_header.shard_id(),
-                        true,
-                    ) {
-                        outcome_ids.extend(unwrap_or_err_db!(
-                            sv.store.get_ser::<Vec<CryptoHash>>(
-                                ColOutcomeIds,
-                                &get_block_shard_id(block.hash(), chunk_header.shard_id())
-                            ),
-                            "Can't get Outcome ids by Block Hash"
-                        ));
-                    }
+                if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
+                    ColChunkExtra,
+                    &get_block_shard_id(block.hash(), chunk_header.shard_id()),
+                ) {
+                    outcome_ids.extend(unwrap_or_err_db!(
+                        sv.store.get_ser::<Vec<CryptoHash>>(
+                            ColOutcomeIds,
+                            &get_block_shard_id(block.hash(), chunk_header.shard_id())
+                        ),
+                        "Can't get Outcome ids by Block Hash"
+                    ));
                 }
             }
         }

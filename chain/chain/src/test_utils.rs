@@ -180,6 +180,8 @@ impl KeyValueRuntime {
                                 SecretKey::from_seed(KeyType::ED25519, account_id.as_ref())
                                     .public_key(),
                                 1_000_000,
+                                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                                false,
                             )
                         })
                         .collect()
@@ -300,6 +302,10 @@ impl KeyValueRuntime {
 impl RuntimeAdapter for KeyValueRuntime {
     fn genesis_state(&self) -> (Arc<Store>, Vec<StateRoot>) {
         (self.store.clone(), ((0..self.num_shards).map(|_| StateRoot::default()).collect()))
+    }
+
+    fn get_store(&self) -> Arc<Store> {
+        self.store.clone()
     }
 
     fn get_tries(&self) -> ShardTries {
@@ -472,6 +478,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
 
     fn num_total_parts(&self) -> usize {
@@ -832,7 +842,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        _shard_id: ShardId,
+        _shard_id: ShardUId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         _block_timestamp: u64,
@@ -1157,6 +1167,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
         Ok(false)
+    }
+
+    fn build_state_for_split_shards(
+        &self,
+        _shard_uid: ShardUId,
+        _state_root: &StateRoot,
+        _next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        Ok(HashMap::new())
     }
 }
 

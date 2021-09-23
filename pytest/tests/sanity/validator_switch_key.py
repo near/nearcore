@@ -15,14 +15,27 @@ from transaction import sign_staking_tx
 EPOCH_LENGTH = 30
 TIMEOUT = 200
 
-client_config = {"network": {"ttl_account_id_router": {"secs": 0, "nanos": 100000000}}}
-nodes = start_cluster(2, 1, 1, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
-                                      ["chunk_producer_kickout_threshold", 10]], {1: client_config, 2: client_config})
+client_config = {
+    "network": {
+        "ttl_account_id_router": {
+            "secs": 0,
+            "nanos": 100000000
+        }
+    }
+}
+nodes = start_cluster(
+    2, 1, 1, None,
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]], {
+         1: client_config,
+         2: client_config
+     })
 time.sleep(2)
 
 nodes[2].kill()
 
-validator_key = Key(nodes[1].validator_key.account_id, nodes[2].signer_key.pk, nodes[2].signer_key.sk)
+validator_key = Key(nodes[1].validator_key.account_id, nodes[2].signer_key.pk,
+                    nodes[2].signer_key.sk)
 nodes[2].reset_validator_key(validator_key)
 nodes[2].reset_data()
 nodes[2].start(nodes[0].node_key.pk, nodes[0].addr())
@@ -32,7 +45,8 @@ status = nodes[0].get_status()
 block_hash = status['sync_info']['latest_block_hash']
 block_height = status['sync_info']['latest_block_height']
 
-tx = sign_staking_tx(nodes[1].signer_key, validator_key, 50000000000000000000000000000000, 1,
+tx = sign_staking_tx(nodes[1].signer_key, validator_key,
+                     50000000000000000000000000000000, 1,
                      base58.b58decode(block_hash.encode('utf8')))
 res = nodes[0].send_tx_and_wait(tx, timeout=15)
 assert 'error' not in res

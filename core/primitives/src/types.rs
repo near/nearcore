@@ -155,6 +155,8 @@ pub enum StateChangeCause {
     /// State change that is happens due to migration that happens in first block of an epoch
     /// after protocol upgrade
     Migration,
+    /// State changes for building states for re-sharding
+    Resharding,
 }
 
 /// This represents the committed changes in the Trie with a change cause.
@@ -428,6 +430,22 @@ pub mod validator_stake {
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        V2(ValidatorStakeV2),
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+    pub struct ValidatorStakeV2 {
+        /// Account that stakes money.
+        pub account_id: AccountId,
+        /// Public key of the proposed validator.
+        pub public_key: PublicKey,
+        /// Stake / weight of the validator.
+        pub stake: Balance,
+        /// Flag indicating if this validator proposed to be a chunk-only producer
+        /// (i.e. cannot become a block producer).
+        pub is_chunk_only: bool,
     }
 
     pub struct ValidatorStakeIter<'a> {
@@ -487,14 +505,48 @@ pub mod validator_stake {
     }
 
     impl ValidatorStake {
-        pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
+        pub fn new_v1(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
             Self::V1(ValidatorStakeV1 { account_id, public_key, stake })
         }
 
-        #[inline]
+        #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
+        pub fn new(account_id: AccountId, public_key: PublicKey, stake: Balance) -> Self {
+            Self::new_v1(account_id, public_key, stake)
+        }
+
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        pub fn new(
+            account_id: AccountId,
+            public_key: PublicKey,
+            stake: Balance,
+            is_chunk_only: bool,
+        ) -> Self {
+            Self::V2(ValidatorStakeV2 { account_id, public_key, stake, is_chunk_only })
+        }
+
         pub fn into_v1(self) -> ValidatorStakeV1 {
             match self {
                 Self::V1(v1) => v1,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => {
+                    // This function should never be called on a V2 variant, it
+                    // is only for backwards compatibility purposes.
+                    debug_assert!(false);
+                    ValidatorStakeV1 {
+                        account_id: v2.account_id,
+                        public_key: v2.public_key,
+                        stake: v2.stake,
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        #[inline]
+        pub fn is_chunk_only(&self) -> bool {
+            match self {
+                Self::V1(_) => false,
+                Self::V2(v2) => v2.is_chunk_only,
             }
         }
 
@@ -502,6 +554,8 @@ pub mod validator_stake {
         pub fn account_and_stake(self) -> (AccountId, Balance) {
             match self {
                 Self::V1(v1) => (v1.account_id, v1.stake),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => (v2.account_id, v2.stake),
             }
         }
 
@@ -509,6 +563,8 @@ pub mod validator_stake {
         pub fn destructure(self) -> (AccountId, PublicKey, Balance) {
             match self {
                 Self::V1(v1) => (v1.account_id, v1.public_key, v1.stake),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => (v2.account_id, v2.public_key, v2.stake),
             }
         }
 
@@ -516,6 +572,8 @@ pub mod validator_stake {
         pub fn take_account_id(self) -> AccountId {
             match self {
                 Self::V1(v1) => v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => v2.account_id,
             }
         }
 
@@ -523,6 +581,8 @@ pub mod validator_stake {
         pub fn account_id(&self) -> &AccountId {
             match self {
                 Self::V1(v1) => &v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => &v2.account_id,
             }
         }
 
@@ -530,6 +590,8 @@ pub mod validator_stake {
         pub fn take_public_key(self) -> PublicKey {
             match self {
                 Self::V1(v1) => v1.public_key,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => v2.public_key,
             }
         }
 
@@ -537,6 +599,8 @@ pub mod validator_stake {
         pub fn public_key(&self) -> &PublicKey {
             match self {
                 Self::V1(v1) => &v1.public_key,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => &v2.public_key,
             }
         }
 
@@ -544,6 +608,8 @@ pub mod validator_stake {
         pub fn stake(&self) -> Balance {
             match self {
                 Self::V1(v1) => v1.stake,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => v2.stake,
             }
         }
 
@@ -551,6 +617,8 @@ pub mod validator_stake {
         pub fn stake_mut(&mut self) -> &mut Balance {
             match self {
                 Self::V1(v1) => &mut v1.stake,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => &mut v2.stake,
             }
         }
 
@@ -930,12 +998,31 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
     BlockId(BlockId),
     Latest,
+}
+
+impl Serialize for EpochReference {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            EpochReference::EpochId(epoch_id) => {
+                s.serialize_newtype_variant("EpochReference", 0, "epoch_id", epoch_id)
+            }
+            EpochReference::BlockId(block_id) => {
+                s.serialize_newtype_variant("EpochReference", 1, "block_id", block_id)
+            }
+            EpochReference::Latest => {
+                s.serialize_newtype_variant("EpochReference", 2, "latest", &())
+            }
+        }
+    }
 }
 
 /// Reasons for removing a validator from the validator set.

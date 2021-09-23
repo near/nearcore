@@ -17,7 +17,7 @@ no_txs_in_parallel = False
 if 'no_txs_in_parallel' in sys.argv:
     no_txs_in_parallel = True
 
-assert not (no_txs_in_same_block and no_txs_in_parallel) # to avoid errors
+assert not (no_txs_in_same_block and no_txs_in_parallel)  # to avoid errors
 
 eth2near_tx_number = int(sys.argv[1])
 near2eth_tx_number = int(sys.argv[2])
@@ -50,7 +50,8 @@ txs = []
 for _ in range(near2eth_tx_number):
     txs.append(bridge.transfer_near2eth(alice, 1))
     if no_txs_in_same_block:
-        time.sleep(bridge_cluster_config_changes['consensus']['min_block_production_delay']['secs'] + 2)
+        time.sleep(bridge_cluster_config_changes['consensus']
+                   ['min_block_production_delay']['secs'] + 2)
     if no_txs_in_parallel:
         [p.join() for p in txs]
 [p.join() for p in txs]
@@ -58,6 +59,5 @@ exit_codes = [p.exitcode for p in txs]
 
 assert exit_codes == [0 for _ in txs]
 bridge.check_balances(alice)
-
 
 logger.info('EPIC')

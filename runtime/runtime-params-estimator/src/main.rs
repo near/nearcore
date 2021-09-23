@@ -35,11 +35,14 @@ struct CliArgs {
     /// Number of additional accounts to add to the state, among which active accounts are selected.
     #[clap(long, default_value = "200000")]
     additional_accounts_num: usize,
+    /// Skip building test contract which is used in metrics computation.
+    #[clap(long)]
+    skip_build_test_contract: bool,
     /// What metric to use.
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer1", "wasmtime"])]
+    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: String,
     /// Only test contract compilation costs.
     #[clap(long)]
@@ -53,6 +56,11 @@ struct CliArgs {
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
+    /// If docker is also set, run estimator in the fully production setting to get usable cost
+    /// table. See runtime-params-estimator/emu-cost/README.md for more details.
+    /// Works only with enabled docker, because precise computations without it doesn't make sense.
+    #[clap(long)]
+    full: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -80,8 +88,20 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     }
 
+    // TODO: consider implementing the same in Rust to reduce complexity.
+    // Good example: runtime/near-test-contracts/build.rs
+    if !cli_args.skip_build_test_contract {
+        let build_test_contract = "./build.sh";
+        let project_root = project_root();
+        let estimator_dir = project_root.join("runtime/runtime-params-estimator/test-contract");
+        std::process::Command::new(build_test_contract)
+            .current_dir(estimator_dir)
+            .output()
+            .context("could not build test contract")?;
+    }
+
     if cli_args.docker {
-        return main_docker(&state_dump_path);
+        return main_docker(&state_dump_path, cli_args.full);
     }
 
     if let Some(path) = cli_args.costs_file {
@@ -116,7 +136,7 @@ fn main() -> anyhow::Result<()> {
     };
     let vm_kind = match cli_args.vm_kind.as_str() {
         "wasmer" => VMKind::Wasmer0,
-        "wasmer1" => VMKind::Wasmer1,
+        "wasmer2" => VMKind::Wasmer2,
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
@@ -155,7 +175,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path) -> anyhow::Result<()> {
+fn main_docker(state_dump_path: &Path, full: bool) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -197,13 +217,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         let _binary_name = args.next();
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--docker" => continue,
-                "--additional-accounts-num" => {
-                    args.next();
-                    write!(buf, " {:?} 0", arg).unwrap();
-                    continue;
-                }
-                "--home" => {
+                "--docker" | "--full" => continue,
+                "--additional-accounts-num" | "--home" => {
                     args.next();
                     continue;
                 }
@@ -212,6 +227,9 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
                 }
             }
         }
+
+        write!(buf, " --skip-build-test-contract").unwrap();
+        write!(buf, " --additional-accounts-num 0").unwrap();
 
         buf
     };
@@ -227,8 +245,12 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
         .args(&["--interactive", "--tty"])
-        .arg("rust-emu")
-        .args(&["/usr/bin/env", "bash", "-c", &init]);
+        .args(&["--env", "RUST_BACKTRACE=full"]);
+    if full {
+        cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
+            .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
+    }
+    cmd.arg("rust-emu").args(&["/usr/bin/env", "bash", "-c", &init]);
 
     cmd.status()?;
     Ok(())

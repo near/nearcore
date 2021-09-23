@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use borsh::BorshSerialize;
 use near_primitives::borsh::maybestd::collections::HashMap;
@@ -13,38 +13,50 @@ use near_primitives::types::{
 
 use crate::db::{DBCol, DBOp, DBTransaction};
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::TrieRefcountChange;
+use crate::trie::{TrieRefcountChange, POISONED_LOCK_ERR};
 use crate::{StorageError, Store, StoreUpdate, Trie, TrieChanges, TrieUpdate};
 
-#[derive(Clone)]
-pub struct ShardTries {
-    pub(crate) store: Arc<Store>,
+struct ShardTriesInner {
+    store: Arc<Store>,
     /// Cache reserved for client actor to use
-    pub(crate) caches: Arc<HashMap<ShardUId, TrieCache>>,
+    caches: RwLock<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
-    pub(crate) view_caches: Arc<HashMap<ShardUId, TrieCache>>,
+    view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
 }
 
+#[derive(Clone)]
+pub struct ShardTries(Arc<ShardTriesInner>);
+
 impl ShardTries {
-    fn get_new_cache(shards: &Vec<ShardUId>) -> Arc<HashMap<ShardUId, TrieCache>> {
-        let mut cache = HashMap::new();
-        shards.iter().for_each(|x| {
-            cache.insert(*x, TrieCache::new());
-            ()
-        });
-        Arc::new(cache)
+    fn get_new_cache(shards: &[ShardUId]) -> HashMap<ShardUId, TrieCache> {
+        shards.iter().map(|&shard_id| (shard_id, TrieCache::new())).collect()
     }
 
     pub fn new(store: Arc<Store>, shard_version: ShardVersion, num_shards: NumShards) -> Self {
         assert_ne!(num_shards, 0);
-        let shards = (0..num_shards)
+        let shards: Vec<_> = (0..num_shards)
             .map(|shard_id| ShardUId { version: shard_version, shard_id: shard_id as u32 })
             .collect();
-        ShardTries {
+        ShardTries(Arc::new(ShardTriesInner {
             store,
-            caches: Self::get_new_cache(&shards),
-            view_caches: Self::get_new_cache(&shards),
-        }
+            caches: RwLock::new(Self::get_new_cache(&shards)),
+            view_caches: RwLock::new(Self::get_new_cache(&shards)),
+        }))
+    }
+
+    pub fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    // add new shards to ShardTries, only used when shard layout changes and we are building
+    // states for new shards
+    pub fn add_new_shards(&self, shards: &[ShardUId]) {
+        let add_empty_caches = |old_caches: &RwLock<HashMap<ShardUId, TrieCache>>| {
+            let mut caches = old_caches.write().expect(POISONED_LOCK_ERR);
+            caches.extend(shards.iter().map(|shard| (*shard, TrieCache::new())));
+        };
+        add_empty_caches(&self.0.caches);
+        add_empty_caches(&self.0.view_caches);
     }
 
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
@@ -56,12 +68,13 @@ impl ShardTries {
     }
 
     fn get_trie_for_shard_internal(&self, shard_uid: ShardUId, is_view: bool) -> Trie {
-        let cache = if is_view {
-            self.view_caches[&shard_uid].clone()
-        } else {
-            self.caches[&shard_uid].clone()
-        };
-        let store = Box::new(TrieCachingStorage::new(self.store.clone(), cache, shard_uid));
+        let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
+        let caches = caches_to_use.read().expect(POISONED_LOCK_ERR);
+        let store = Box::new(TrieCachingStorage::new(
+            self.0.store.clone(),
+            caches[&shard_uid].clone(),
+            shard_uid,
+        ));
         Trie::new(store, shard_uid)
     }
 
@@ -74,15 +87,13 @@ impl ShardTries {
     }
 
     pub fn get_store(&self) -> Arc<Store> {
-        self.store.clone()
+        self.0.store.clone()
     }
 
     pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
-        let mut shards = self
-            .caches
-            .iter()
-            .map(|(shard_uid, ..)| (*shard_uid, Vec::new()))
-            .collect::<HashMap<_, _>>();
+        let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
+        let mut shards =
+            caches.keys().map(|shard_uid| (*shard_uid, Vec::new())).collect::<HashMap<_, _>>();
         for op in &transaction.ops {
             match op {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
@@ -94,7 +105,7 @@ impl ShardTries {
                 DBOp::Delete { col, .. } if *col == DBCol::ColState => unreachable!(),
                 DBOp::DeleteAll { col } if *col == DBCol::ColState => {
                     // Delete is possible in reset_data_pre_state_sync
-                    for (_, cache) in self.caches.iter() {
+                    for (_, cache) in caches.iter() {
                         cache.clear();
                     }
                 }
@@ -102,7 +113,7 @@ impl ShardTries {
             }
         }
         for (shard_uid, ops) in shards {
-            self.caches[&shard_uid].update_cache(ops);
+            caches[&shard_uid].update_cache(ops);
         }
         Ok(())
     }
@@ -259,7 +270,7 @@ impl ShardTries {
 
 pub struct WrappedTrieChanges {
     tries: ShardTries,
-    shard_uid: ShardUId,
+    pub shard_uid: ShardUId,
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,
@@ -292,6 +303,15 @@ impl WrappedTrieChanges {
                 )),
                 "NotWritableToDisk changes must never be finalized."
             );
+
+            assert!(
+                !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
+                    cause,
+                    StateChangeCause::Resharding
+                )),
+                "Resharding changes must never be finalized."
+            );
+
             // Filtering trie keys for user facing RPC reporting.
             // NOTE: If the trie key is not one of the account specific, it may cause key conflict
             // when the node tracks multiple shards. See #2563.
@@ -322,7 +342,7 @@ impl WrappedTrieChanges {
         self.state_changes_into(&mut store_update);
         store_update.set_ser(
             DBCol::ColTrieChanges,
-            &shard_layout::get_block_shard_uid(&self.block_hash, self.shard_uid),
+            &shard_layout::get_block_shard_uid(&self.block_hash, &self.shard_uid),
             &self.trie_changes,
         )?;
         Ok(())

@@ -57,6 +57,8 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    StakeChunkOnly(StakeAction),
 }
 
 impl Action {

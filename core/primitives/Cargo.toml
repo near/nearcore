@@ -15,6 +15,7 @@ regex = "1"
 bs58 = "0.4"
 base64 = "0.13"
 byteorder = "1.3"
+bytesize = "1"
 chrono = { version = "0.4.4", features = ["serde"] }
 derive_more = "0.99.3"
 easy-ext = "0.2"
@@ -30,7 +31,7 @@ hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"] }
 primitive-types = "0.10"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-primitives-core = { path = "../primitives-core" }
 near-crypto = { path = "../crypto" }
@@ -43,7 +44,9 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_block_header_v3 = []
 protocol_feature_alt_bn128 = ["near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 protocol_feature_simple_nightshade = []
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_simple_nightshade"]
+protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3"]
+protocol_feature_lower_data_receipt_cost = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_simple_nightshade", "protocol_feature_lower_data_receipt_cost"]
 nightly_protocol = []
 
 [dev-dependencies]

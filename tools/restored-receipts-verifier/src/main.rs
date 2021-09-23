@@ -43,7 +43,7 @@ fn main() -> Result<()> {
     let matches = App::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .about("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -85,9 +85,10 @@ fn main() -> Result<()> {
             eprintln!("{} included, skip", height);
             continue;
         }
+        let shard_uid = runtime.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
 
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
