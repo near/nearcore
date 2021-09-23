@@ -11,10 +11,6 @@ fn main() {
 }
 
 fn try_main() -> io::Result<()> {
-    let mut cmd = Command::new("rustup");
-    cmd.args(&["target", "add", "wasm32-unknown-unknown"]);
-    check_status(cmd)?;
-
     let res = Path::new("./test-contract/res");
 
     fs::create_dir_all(res)?;

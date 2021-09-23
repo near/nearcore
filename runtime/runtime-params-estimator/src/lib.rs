@@ -30,13 +30,13 @@ pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 
 /// Lazily loads contract's code from a directory in the source tree.
-pub(crate) struct TestContract {
+pub struct TestContract {
     path: &'static str,
     cell: OnceCell<Vec<u8>>,
 }
 
 impl TestContract {
-    pub(crate) const fn new(path: &'static str) -> TestContract {
+    pub const fn new(path: &'static str) -> TestContract {
         TestContract { path, cell: OnceCell::new() }
     }
 }

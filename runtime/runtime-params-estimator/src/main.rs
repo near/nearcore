@@ -9,6 +9,7 @@ use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
 use runtime_params_estimator::CostTable;
+use runtime_params_estimator::TestContract;
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -91,13 +92,14 @@ fn main() -> anyhow::Result<()> {
 
             let near_config = load_config(&state_dump_path);
             let store = create_store(&get_store_path(&state_dump_path));
+            let smallest_contract = TestContract::new("test-contract/res/smallest_contract.wasm");
             GenesisBuilder::from_config_and_store(
                 &state_dump_path,
                 Arc::new(near_config.genesis),
                 store,
             )
             .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+            .add_additional_accounts_contract(smallest_contract.to_vec())
             .print_progress()
             .build()
             .unwrap()
