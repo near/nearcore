@@ -211,12 +211,8 @@ mod tests {
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
         let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
         assert!(
-            base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
-                > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
-        );
-        assert!(
-            base_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
-                > new_cfg.transaction_costs.data_receipt_creation_config.cost_per_byte.send_sir
+            base_cfg.wasm_config.ext_costs.ecrecover_base
+                > new_cfg.wasm_config.ext_costs.ecrecover_base
         );
     }
 }
