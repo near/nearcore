@@ -2884,25 +2884,33 @@ impl<'a> ChainUpdate<'a> {
         mode: ApplyChunksMode,
     ) -> Result<(), Error> {
         let work = self.apply_chunks_preprocessing(me, block, prev_block, mode)?;
-        self.do_apply_chunks(block, prev_block, work)
+        self.apply_chunks_and_process_results(block, prev_block, work)
     }
 
     /// Applies chunks and processes results
-    fn do_apply_chunks(
+    fn apply_chunks_and_process_results(
         &mut self,
         block: &Block,
         prev_block: &Block,
         work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send + 'static>>,
     ) -> Result<(), Error> {
-        work.into_par_iter().map(|task| task()).collect::<Vec<_>>().into_iter().try_for_each(
-            |result| -> Result<(), Error> {
-                self.process_apply_chunk_result(
-                    result?,
-                    block.hash().clone(),
-                    prev_block.hash().clone(),
-                )
-            },
-        )
+        let apply_results = do_apply_chunks(work);
+        self.apply_chunk_postprocessing(block, prev_block, apply_results)
+    }
+
+    fn apply_chunk_postprocessing(
+        &mut self,
+        block: &Block,
+        prev_block: &Block,
+        apply_results: Vec<Result<ApplyChunkResult, Error>>,
+    ) -> Result<(), Error> {
+        apply_results.into_iter().try_for_each(|result| -> Result<(), Error> {
+            self.process_apply_chunk_result(
+                result?,
+                block.hash().clone(),
+                prev_block.hash().clone(),
+            )
+        })
     }
 
     fn get_split_state_roots(
@@ -3478,7 +3486,7 @@ impl<'a> ChainUpdate<'a> {
             self.apply_chunks_preprocessing(me, block, &prev_block, ApplyChunksMode::NotCaughtUp)?
         };
 
-        self.do_apply_chunks(block, &prev_block, apply_chunk_work)?;
+        self.apply_chunks_and_process_results(block, &prev_block, apply_chunk_work)?;
 
         // Verify that proposals from chunks match block header proposals.
         let block_height = block.header().height();
@@ -4163,6 +4171,12 @@ impl<'a> ChainUpdate<'a> {
         )?;
         Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
+}
+
+fn do_apply_chunks(
+    work: Vec<Box<dyn FnOnce() -> Result<ApplyChunkResult, Error> + Send>>,
+) -> Vec<Result<ApplyChunkResult, Error>> {
+    work.into_par_iter().map(|task| task()).collect::<Vec<_>>()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
