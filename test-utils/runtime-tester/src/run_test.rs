@@ -31,10 +31,10 @@ impl Scenario {
     }
 
     pub fn run(&self) -> ScenarioResult<RuntimeStats, Error> {
-        let genesis = Genesis::test(
-            self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect(),
-            1,
-        );
+        let accounts: Vec<AccountId> =
+            self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect();
+        let clients = vec![accounts[0].clone()];
+        let genesis = Genesis::test(accounts, 1);
 
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
@@ -56,6 +56,8 @@ impl Scenario {
         };
 
         let env = TestEnv::builder(ChainGenesis::from(&genesis))
+            .clients(clients.clone())
+            .validators(clients)
             .runtime_adapters(vec![Arc::new(NightshadeRuntime::new(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
