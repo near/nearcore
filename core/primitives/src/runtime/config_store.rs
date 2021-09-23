@@ -18,8 +18,6 @@ macro_rules! include_config {
 static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
-    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
-    (116, include_config!("116.json")),
     #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     (117, include_config!("117.json")),
 ];
@@ -84,8 +82,6 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
-    use crate::version::ProtocolFeature::LowerDataReceiptCost;
     #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     use crate::version::ProtocolFeature::LowerEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
@@ -114,9 +110,8 @@ mod tests {
     #[test]
     fn test_runtime_config_data() {
         let expected_hashes = vec![
-            "9T3VNaNdGTiZZvuWiymSxtPdwWKNoJmqoTAaZ4JkuSoL",
-            "E82ThZS7KFjpdKmogbMGPwv8nTztxqgSbuCTPRH73XFh",
-            "EMAAhdji1d9HjweDAM4pb9mu9nioGZRZQe1BsKwjF2iN",
+            "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
+            "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
@@ -164,11 +159,11 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_lower_data_receipt_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerDataReceiptCost.protocol_version());
+        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
                 > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
@@ -182,7 +177,7 @@ mod tests {
     // Check that for protocol version with lowered data receipt cost, runtime config passed to
     // config store is overridden.
     #[test]
-    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_override_runtime_config() {
         let store = RuntimeConfigStore::new(Some(&RuntimeConfig::free()));
         let config = store.get_config(0);
@@ -196,7 +191,7 @@ mod tests {
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
         );
 
-        let config = store.get_config(LowerDataReceiptCost.protocol_version());
+        let config = store.get_config(LowerEcrecoverBaseCost.protocol_version());
         assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
             config.as_ref(),
