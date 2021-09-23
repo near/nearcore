@@ -251,7 +251,6 @@ fn display_sync_status(
                             ShardSyncStatus::StateDownloadApplying => format!("applying"),
                             ShardSyncStatus::StateDownloadComplete => format!("download complete"),
                             ShardSyncStatus::StateSplit => format!("split"),
-                            ShardSyncStatus::BlockCatchUp => format!("catching up blocks"),
                         }
                     )
                     .as_str();

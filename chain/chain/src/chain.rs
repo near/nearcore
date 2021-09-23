@@ -25,7 +25,7 @@ use near_primitives::merkle::{
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptList, ReceiptProof, ShardChunk, ShardChunkHeader, ShardInfo,
-    ShardProof, SyncInfo,
+    ShardProof, StateSyncInfo,
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
@@ -1043,20 +1043,20 @@ impl Chain {
         }
         debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_dl, me);
 
-        let sync_info = SyncInfo::new(
-            *block.header().hash(),
-            shards_to_dl
+        let state_dl_info = StateSyncInfo {
+            epoch_tail_hash: *block.header().hash(),
+            shards: shards_to_dl
                 .iter()
                 .map(|shard_id| {
                     let chunk = &prev_block.chunks()[*shard_id as usize];
                     ShardInfo(*shard_id, chunk.chunk_hash())
                 })
                 .collect(),
-        );
+        };
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        chain_store_update.add_sync_info(sync_info);
+        chain_store_update.add_state_dl_info(state_dl_info);
 
         chain_store_update.commit()?;
 
@@ -1979,7 +1979,7 @@ impl Chain {
             debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
             chain_store_update.remove_prev_block_to_catchup(block_hash);
         }
-        chain_store_update.remove_sync_info(*epoch_first_block);
+        chain_store_update.remove_state_dl_info(*epoch_first_block);
 
         chain_store_update.commit()?;
 

@@ -17,8 +17,7 @@ use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{
     EncodedShardChunk, EncodedShardChunkV1, PartialEncodedChunk, PartialEncodedChunkV1,
-    ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardInfo, ShardProof,
-    SyncInfo,
+    ReceiptList, ReceiptProof, ReedSolomonWrapper, ShardChunk, ShardChunkV1, ShardProof,
 };
 use near_primitives::syncing::{ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
@@ -34,7 +33,7 @@ use near_primitives::version::DbVersion;
 
 use crate::db::DBCol::{
     ColBlockHeader, ColBlockHeight, ColBlockMerkleTree, ColBlockMisc, ColBlockOrdinal, ColChunks,
-    ColPartialChunks, ColStateParts, ColSyncInfos,
+    ColPartialChunks, ColStateParts,
 };
 use crate::db::{DBCol, RocksDB, GENESIS_JSON_HASH_KEY, VERSION_KEY};
 use crate::migrations::v6_to_v7::{
@@ -740,21 +739,6 @@ pub fn migrate_26_to_27(path: &Path, is_archival: bool) {
         store_update.finish().unwrap();
     }
     set_store_version(&store, 27);
-}
-
-pub fn migrate_28_to_29(path: &Path) {
-    let store = create_store(path);
-    #[derive(BorshDeserialize)]
-    struct OldSyncInfo {
-        epoch_tail_hash: CryptoHash,
-        shards: Vec<ShardInfo>,
-    }
-    map_col_from_key(&store, ColSyncInfos, |key| {
-        let old_sync_info = store.get_ser::<OldSyncInfo>(ColSyncInfos, key).unwrap().unwrap();
-        SyncInfo::new(old_sync_info.epoch_tail_hash, old_sync_info.shards)
-    })
-    .unwrap();
-    set_store_version(&store, 29);
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
