@@ -1314,11 +1314,13 @@ impl TestEnv {
     }
 
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let account_id = self.get_client_id(0);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let tx = SignedTransaction::send_money(
             1,
-            "test1".parse().unwrap(),
-            "test1".parse().unwrap(),
+            account_id.clone(),
+            account_id.clone(),
             &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
@@ -1376,18 +1378,28 @@ impl TestEnv {
         self.query_account(account_id).amount
     }
 
-    pub fn restart(&mut self, id: usize) {
-        let store = self.clients[id].chain.store().owned_store();
-        self.clients[id] = setup_client(
+    /// Restarts client at given index.  Note that the client is restarted with
+    /// the default runtime adapter (i.e. [`KeyValueRuntime`]).  That is, if
+    /// this `TestEnv` was created with custom runtime adapters that
+    /// customisation will be lost.
+    pub fn restart(&mut self, idx: usize) {
+        let store = self.clients[idx].chain.store().owned_store();
+        self.clients[idx] = setup_client(
             store,
             vec![self.validators.clone()],
             1,
             1,
-            Some(AccountId::try_from(format!("test{}", id)).unwrap()),
+            Some(self.get_client_id(idx).clone()),
             false,
-            self.network_adapters[id].clone(),
+            self.network_adapters[idx].clone(),
             self.chain_genesis.clone(),
         )
+    }
+
+    /// Returns an [`AccountId`] used by a client at given index.  More
+    /// specifically, returns validator id of the client’s validator signer.
+    pub fn get_client_id(&self, idx: usize) -> &AccountId {
+        self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
     }
 }
 
