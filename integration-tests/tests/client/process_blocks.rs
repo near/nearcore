@@ -2598,7 +2598,7 @@ fn test_shard_layout_upgrade() {
     // ShardLayout changes at epoch 2
     // Test that state is caught up correctly at epoch 1 (block height 6-10)
     // TODO: change this number to 16 once splitting states is fully implemented
-    for i in 1..=6 {
+    for i in 1..=10 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
             .runtime_adapter
@@ -2636,7 +2636,7 @@ fn test_shard_layout_upgrade() {
         let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok());
+            assert!(res.is_ok(), "{:?}", res);
             env.clients[j].run_catchup(&vec![], &f).unwrap();
         }
     }
@@ -2938,13 +2938,11 @@ fn test_not_broadcast_block_on_accept() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let mut env = TestEnv::new_with_runtime_and_network_adapter(
-        ChainGenesis::test(),
-        2,
-        1,
-        create_nightshade_runtimes(&genesis, 2),
-        vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()],
-    );
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .clients_count(2)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
+        .network_adapters(vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()])
+        .build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     for i in 0..2 {
         env.process_block(i, b1.clone(), Provenance::NONE);
