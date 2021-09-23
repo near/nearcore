@@ -115,6 +115,7 @@ pub fn run_vm(
             promise_results,
             current_protocol_version,
             cache,
+            gas_counter_mode,
         ),
         #[cfg(not(feature = "wasmer2_vm"))]
         VMKind::Wasmer2 => panic!("Wasmer2 is not supported, compile with '--features wasmer2_vm'"),

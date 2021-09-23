@@ -8,12 +8,14 @@ use near_vm_errors::{
 };
 use near_vm_logic::types::{PromiseResult, ProtocolVersion};
 use near_vm_logic::{
-    External, GasCounterMode, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError, VMOutcome,
+    External, GasCounterMode, InstanceLike, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicError,
+    VMOutcome,
 };
 use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 
 use crate::cache::StableHasher;
+use crate::wasmer_runner::GasMode;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_types::Value;
 use wasmer_vm::TrapCode;
@@ -170,9 +172,27 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     }
 }
 
-fn wasmer1_set_available_gas(instance: &wasmer::Instance, available_gas: u64) {
-    let remaining_gas = instance.exports.get_global("remaining_gas").unwrap();
-    remaining_gas.set(Value::I32(available_gas as i32)).unwrap();
+pub struct Wasmer2Instance(pub wasmer::Instance);
+
+impl InstanceLike for Wasmer2Instance {
+    fn get_remaining_ops(&self) -> u64 {
+        let remaining_ops = self
+            .0
+            .exports
+            .get_global("remaining_ops")
+            .expect("Global based gas meter is not injected");
+        let ops = remaining_ops.get().unwrap_i64();
+        ops as u64
+    }
+
+    fn set_remaining_ops(&self, ops: u64) {
+        let remaining_ops = self
+            .0
+            .exports
+            .get_global("remaining_ops")
+            .expect("Global based gas meter is not injected");
+        remaining_ops.set(Value::I64(ops as i64)).expect("Set global gas meter failed");
+    }
 }
 
 pub fn run_wasmer2(
@@ -185,6 +205,7 @@ pub fn run_wasmer2(
     promise_results: &[PromiseResult],
     current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
+    gas_counter_mode: GasCounterMode,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let _span = tracing::debug_span!(target: "vm", "run_wasmer2").entered();
     // NaN behavior is deterministic as of now: https://github.com/wasmerio/wasmer/issues/1269
@@ -226,8 +247,6 @@ pub fn run_wasmer2(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let available_gas = context.prepaid_gas;
-
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -236,8 +255,14 @@ pub fn run_wasmer2(
         promise_results,
         &mut memory,
         current_protocol_version,
-        GasCounterMode::HostFunction,
+        gas_counter_mode,
     );
+
+    let gas_mode = if wasm_config.regular_op_cost > 0 {
+        GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
+    } else {
+        GasMode::Free
+    };
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
@@ -256,7 +281,7 @@ pub fn run_wasmer2(
         return (None, Some(e));
     }
 
-    let err = run_method(&module, &import_object, method_name, available_gas).err();
+    let err = run_method(&module, &import_object, method_name, gas_mode, &mut logic).err();
     (Some(logic.outcome()), err)
 }
 
@@ -264,7 +289,8 @@ fn run_method(
     module: &Module,
     import: &ImportObject,
     method_name: &str,
-    available_gas: u64,
+    gas_mode: GasMode,
+    logic: &mut VMLogic,
 ) -> Result<(), VMError> {
     let _span = tracing::debug_span!(target: "vm", "run_method").entered();
 
@@ -272,10 +298,34 @@ fn run_method(
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
     };
-    wasmer1_set_available_gas(&instance, available_gas);
+    let instance = Wasmer2Instance(instance);
+    if logic.gas_counter_mode() == GasCounterMode::Wasm {
+        if let GasMode::Paid(available_ops) = gas_mode {
+            instance.set_remaining_ops(available_ops);
+        }
+    }
+
+    logic.set_instance(Some(&instance as *const dyn InstanceLike));
+    let result = run_method_inner(&instance.0, method_name, gas_mode, logic);
+    logic.set_instance(None);
+
+    result
+}
+
+fn run_method_inner(
+    instance: &wasmer::Instance,
+    method_name: &str,
+    gas_mode: GasMode,
+    logic: &mut VMLogic,
+) -> Result<(), VMError> {
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
 
+    if logic.gas_counter_mode() == GasCounterMode::Wasm {
+        if let GasMode::Paid(_) = gas_mode {
+            logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+        }
+    }
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
         f.call().map_err(|err| err.into_vm_error())?
@@ -374,8 +424,6 @@ pub(crate) fn run_wasmer2_module<'a>(
     // Note that we don't clone the actual backing memory, just increase the RC.
     let memory_copy = memory.clone();
 
-    let available_gas = context.prepaid_gas;
-
     let mut logic = VMLogic::new_with_protocol_version(
         ext,
         context,
@@ -387,12 +435,18 @@ pub(crate) fn run_wasmer2_module<'a>(
         GasCounterMode::HostFunction,
     );
 
+    let gas_mode = if wasm_config.regular_op_cost > 0 {
+        GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
+    } else {
+        GasMode::Free
+    };
+
     let import = imports::build_wasmer2(store, memory_copy, &mut logic, current_protocol_version);
 
     if let Err(e) = check_method(&module, method_name) {
         return (None, Some(e));
     }
 
-    let err = run_method(module, &import, method_name, available_gas).err();
+    let err = run_method(module, &import, method_name, gas_mode, &mut logic).err();
     (Some(logic.outcome()), err)
 }

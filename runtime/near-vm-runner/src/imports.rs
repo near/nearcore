@@ -66,7 +66,10 @@ macro_rules! wrapped_imports {
                 $(#[cfg(feature = $feature_name)])*
                 pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
-                    logic.$func( $( $arg_name, )* )
+                    logic.sync_from_wasm_counter()?;
+                    let r = logic.$func( $( $arg_name, )* );
+                    logic.sync_to_wasm_counter();
+                    r
                 }
             )*
             }
