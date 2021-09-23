@@ -2616,7 +2616,7 @@ fn test_shard_layout_upgrade() {
     // ShardLayout changes at epoch 2
     // Test that state is caught up correctly at epoch 1 (block height 6-10)
     // TODO: change this number to 16 once splitting states is fully implemented
-    for i in 1..=6 {
+    for i in 1..=10 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
             .runtime_adapter
@@ -2654,7 +2654,7 @@ fn test_shard_layout_upgrade() {
         let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok());
+            assert!(res.is_ok(), "{:?}", res);
             env.clients[j].run_catchup(&vec![], &f).unwrap();
         }
     }

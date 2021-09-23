@@ -72,7 +72,10 @@ impl ShardTries {
         let caches = caches_to_use.read().expect(POISONED_LOCK_ERR);
         let store = Box::new(TrieCachingStorage::new(
             self.0.store.clone(),
-            caches[&shard_uid].clone(),
+            caches
+                .get(&shard_uid)
+                .unwrap_or_else(|| panic!("cache for shard {:?} must exist", shard_uid))
+                .clone(),
             shard_uid,
         ));
         Trie::new(store, shard_uid)
@@ -270,7 +273,7 @@ impl ShardTries {
 
 pub struct WrappedTrieChanges {
     tries: ShardTries,
-    pub shard_uid: ShardUId,
+    shard_uid: ShardUId,
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
     block_hash: CryptoHash,

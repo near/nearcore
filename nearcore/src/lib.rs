@@ -234,6 +234,14 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 26 to 27");
         migrate_26_to_27(&path, near_config.client_config.archive);
     }
+    if db_version <= 27 {
+        // version 27 => 28: add ColStateChangesForSplitStates
+        // Does not need to do anything since open db with option `create_missing_column_families`
+        // Nevertheless need to bump db version, because db_version 1 binary can't open db_version 2 db
+        info!(target: "near", "Migrate DB from version 27 to 28");
+        let store = create_store(&path);
+        set_store_version(&store, 28);
+    }
     #[cfg(feature = "nightly_protocol")]
     {
         let store = create_store(&path);
