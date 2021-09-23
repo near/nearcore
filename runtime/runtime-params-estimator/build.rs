@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -30,10 +29,8 @@ fn try_main() -> io::Result<()> {
 
             move |desired_size: u64| -> io::Result<()> {
                 let payload_size = desired_size.saturating_sub(size);
-                let urandom = fs::File::open("/dev/urandom")?;
-                let mut payload = fs::File::create(res.join("payload"))?;
-                io::copy(&mut urandom.take(payload_size), &mut payload)?;
-                Ok(())
+                let payload: Vec<u8> = random_bytes().take(payload_size as usize).collect();
+                fs::write(res.join("payload"), &payload)
             }
         };
 
@@ -97,4 +94,20 @@ fn shared_target_dir() -> Option<PathBuf> {
     //
     //    CARGO_TARGET_DIR=/tmp cargo build -p param-estimator --release
     Some(Path::new(&target_dir).join("estimator-test-contract"))
+}
+
+// This is build.rs, so we are relatively sensitive to compile times and don't
+// want or need to pull in `rand`.
+//
+// Source:
+// <https://github.com/rust-lang/rust/blob/1.55.0/library/core/src/slice/sort.rs#L559-L573>
+fn random_bytes() -> impl Iterator<Item = u8> {
+    let mut random = 92u32;
+    std::iter::repeat_with(move || {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        random.to_le_bytes()
+    })
+    .flatten()
 }
