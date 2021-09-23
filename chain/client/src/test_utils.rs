@@ -43,6 +43,8 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_chain::types::AcceptedBlock;
+use near_client_primitives::types::Error;
 use near_network::test_utils::MockNetworkAdapter;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -1294,8 +1296,7 @@ impl TestEnv {
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let f = |_| {};
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f).unwrap();
+        let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
@@ -1511,4 +1512,17 @@ pub fn create_chunk(
         block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)
+}
+
+pub fn run_catchup(
+    client: &mut Client,
+    highest_height_peers: &Vec<FullPeerInfo>,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let mut result = vec![];
+    let f = |_| {};
+    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+        let call = client.run_catchup(highest_height_peers, &f)?;
+        result.extend(call);
+    }
+    Ok(result)
 }

@@ -1577,6 +1577,7 @@ impl Client {
         highest_height_peers: &Vec<FullPeerInfo>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        let mut result = vec![];
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1685,15 +1686,13 @@ impl Client {
                             PROTOCOL_VERSION,
                         );
 
-                        let unwrapped_accepted_blocks =
-                            accepted_blocks.write().unwrap().drain(..).collect();
-                        return Ok(unwrapped_accepted_blocks);
+                        result.extend(accepted_blocks.write().unwrap().drain(..));
                     }
                 }
             }
         }
 
-        Ok(vec![])
+        Ok(result)
     }
 
     /// When accepting challenge, we verify that it's valid given signature with current validators.

@@ -19,7 +19,7 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
+use near_client::test_utils::{create_chunk_on_height, run_catchup, setup_mock_all_validators};
 use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
@@ -943,8 +943,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let f = |_| {};
-        let more_accepted_blocks = client.run_catchup(&vec![], &f).unwrap();
+        let more_accepted_blocks = run_catchup(client, &vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
@@ -2633,11 +2632,10 @@ fn test_shard_layout_upgrade() {
                 simple_nightshade_protocol_version,
             );
         }
-        let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok(), "{:?}", res);
-            env.clients[j].run_catchup(&vec![], &f).unwrap();
+            run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }
 }
@@ -2694,11 +2692,10 @@ fn test_epoch_protocol_version_change() {
         if i != 10 {
             set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION + 1);
         }
-        let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            env.clients[j].run_catchup(&vec![], &f).unwrap();
+            run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap().clone();
@@ -3522,8 +3519,7 @@ mod storage_usage_fix_tests {
 
             let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            let f = |_| {};
-            env.clients[0].run_catchup(&vec![], &f).unwrap();
+            run_catchup(&mut env.clients[0], &vec![]).unwrap();
 
             let root = env.clients[0]
                 .chain

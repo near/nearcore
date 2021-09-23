@@ -11,7 +11,7 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
-use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
+use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
@@ -687,8 +687,7 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
-        let f = |_| {};
-        match env.clients[0].run_catchup(&vec![], &f) {
+        match run_catchup(&mut env.clients[0], &vec![]) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
                     env.clients[0].on_block_accepted(
