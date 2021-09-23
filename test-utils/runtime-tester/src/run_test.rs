@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use near_chain::{Block, ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{Block, ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
@@ -29,21 +29,25 @@ impl Scenario {
         );
 
         let tempdir;
-        let store = if self.use_in_memory_store {
-            create_test_store()
+        let home_dir = if self.use_in_memory_store {
+            Path::new(".")
+        } else if let Some(home_dir) = &self.home_dir {
+            home_dir.as_path()
         } else {
             tempdir = tempfile::tempdir().map_err(|err| {
                 Error::Other(format!("failed to create temporary directory: {}", err))
             })?;
-            create_store(tempdir.path())
+            tempdir.path()
+        };
+        let store = if self.use_in_memory_store {
+            create_test_store()
+        } else {
+            create_store(&nearcore::get_store_path(home_dir))
         };
 
-        let mut env = TestEnv::new_with_runtime(
-            ChainGenesis::from(&genesis),
-            1,
-            1,
-            vec![Arc::new(NightshadeRuntime::new(
-                Path::new("."),
+        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+            .runtime_adapters(vec![Arc::new(NightshadeRuntime::new(
+                home_dir,
                 store,
                 &genesis,
                 vec![],
@@ -51,8 +55,8 @@ impl Scenario {
                 None,
                 None,
                 RuntimeConfigStore::test(),
-            )) as Arc<dyn RuntimeAdapter>],
-        );
+            ))])
+            .build();
 
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
@@ -86,6 +90,26 @@ pub struct Scenario {
     pub network_config: NetworkConfig,
     pub blocks: Vec<BlockConfig>,
     pub use_in_memory_store: bool,
+
+    /// Path to the on-disk home directory; relevant only if
+    /// `use_in_memory_store` is `false`.
+    ///
+    /// If this is `None` (and scenario is configured with an on-disk store) the
+    /// scenario will be run with a temporary directory as home directory.  Once
+    /// the scenario finishes, that temporary directory is deleted.  On the
+    /// other hand, if this is set it is caller’s responsible to clean the
+    /// directory *before and after* the test runs.
+    ///
+    /// This is useful when wanting to save the storage on-disk and investigate
+    /// it after the test runs and it’s also why the directory is not cleared.
+    ///
+    /// Note that this field is not serialised thus a scenario read from file
+    /// won’t have this path set.  This is motivated partially by security
+    /// considerations since if this could be stored in JSON file than user
+    /// might be tricked to run a test against `/home/foo/.near/mainnet`
+    /// directory.
+    #[serde(skip_serializing)]
+    pub home_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -51,7 +51,12 @@ impl ScenarioBuilder {
         ScenarioBuilder {
             height: 1,
             nonce: 1,
-            scenario: Scenario { network_config, blocks: vec![], use_in_memory_store: true },
+            scenario: Scenario {
+                network_config,
+                blocks: vec![],
+                use_in_memory_store: true,
+                home_dir: None,
+            },
         }
     }
 
@@ -65,6 +70,21 @@ impl ScenarioBuilder {
     /// Changes `use_in_memory_store`.
     pub fn in_memory_store(mut self, in_memory_store: bool) -> Self {
         self.scenario.use_in_memory_store = in_memory_store;
+        self
+    }
+
+    /// Changes `home_dir` to the one specified as well as setting
+    /// `use_in_memory_store` to `false`.
+    ///
+    /// Note that if all you want is to use on-disk store you should call
+    /// `in_memory_store(false)`.  Setting home directory means that the caller
+    /// is responsible for cleaning the directory before and after the test is
+    /// run.  This setting is intended only for one-off cases where someone
+    /// wants to manually inspect the store and thus does not want the home
+    /// directory to be deleted after the test finishes.
+    pub fn home_dir(mut self, home_dir: impl Into<std::path::PathBuf>) -> Self {
+        self.scenario.use_in_memory_store = false;
+        self.scenario.home_dir = Some(home_dir.into());
         self
     }
 

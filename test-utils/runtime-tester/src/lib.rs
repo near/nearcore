@@ -27,6 +27,7 @@ fn scenario_smoke_test() {
         network_config: NetworkConfig { seeds: seeds },
         blocks: Vec::new(),
         use_in_memory_store: true,
+        home_dir: None,
     };
 
     for h in 1..5 {
