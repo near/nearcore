@@ -33,7 +33,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochId, Gas, Nonce, NumBlocks, NumShards,
-    ShardId, StateRoot, StateRootNode,
+    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -50,7 +50,8 @@ use near_store::{
 use crate::chain::{Chain, NUM_EPOCHS_TO_KEEP_STORE_DATA};
 use crate::store::ChainStoreAccess;
 use crate::types::{
-    ApplyTransactionResult, BlockHeaderInfo, ChainGenesis, ValidatorInfoIdentifier,
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ChainGenesis,
+    ValidatorInfoIdentifier,
 };
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
@@ -626,6 +627,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
+        _state_roots: Option<HashMap<ShardUId, StateRoot>>,
         _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
@@ -815,6 +817,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_gas_burnt: 0,
             total_balance_burnt: 0,
             proof: None,
+            apply_split_state_result_or_state_changes: None,
         })
     }
 
@@ -1167,6 +1170,16 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
         Ok(false)
+    }
+
+    fn apply_update_to_split_states(
+        &self,
+        _block_hash: &CryptoHash,
+        _state_roots: HashMap<ShardUId, StateRoot>,
+        _next_shard_layout: &ShardLayout,
+        _state_changes: StateChangesForSplitStates,
+    ) -> Result<Vec<ApplySplitStateResult>, Error> {
+        Ok(vec![])
     }
 
     fn build_state_for_split_shards(

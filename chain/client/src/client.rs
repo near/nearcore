@@ -1613,6 +1613,7 @@ impl Client {
                     debug!(target: "catchup", "need to split states for shards {:?}", new_shard_sync);
                     new_shard_sync
                 } else {
+                    debug!(target: "catchup", "do not need to split states for shards");
                     HashMap::new()
                 }
             };
