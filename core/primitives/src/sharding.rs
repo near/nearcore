@@ -65,7 +65,7 @@ pub struct SyncInfo {
     /// Collection of block hashes that are yet to be sent for processed
     pub pending_blocks: Vec<CryptoHash>,
     /// Collection of block hashes that are sent for processing
-    pub processing_blocks: Vec<CryptoHash>,
+    pub processing_blocks: HashSet<CryptoHash>,
     /// Collection of block hashes that were processed, but following blocks are not yet processed
     pub queued_blocks: Vec<CryptoHash>,
     /// Collection of block hashes that are fully processed
@@ -78,7 +78,7 @@ impl SyncInfo {
             epoch_tail_hash,
             shards,
             pending_blocks: vec![epoch_tail_hash.clone()],
-            processing_blocks: Vec::new(),
+            processing_blocks: HashSet::new(),
             queued_blocks: Vec::new(),
             processed_blocks: Vec::new(),
         }
@@ -91,6 +91,7 @@ pub mod shard_chunk_header_inner;
 pub use shard_chunk_header_inner::{
     ShardChunkHeaderInner, ShardChunkHeaderInnerV1, ShardChunkHeaderInnerV2,
 };
+use std::collections::HashSet;
 
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
