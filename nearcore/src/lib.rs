@@ -21,8 +21,8 @@ use near_store::migrations::migrate_18_to_new_validator_stake;
 use near_store::migrations::{
     fill_col_outcomes_by_hash, fill_col_transaction_refcount, get_store_version, migrate_10_to_11,
     migrate_11_to_12, migrate_13_to_14, migrate_14_to_15, migrate_17_to_18, migrate_21_to_22,
-    migrate_25_to_26, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9, migrate_9_to_10,
-    set_store_version,
+    migrate_25_to_26, migrate_28_to_29, migrate_6_to_7, migrate_7_to_8, migrate_8_to_9,
+    migrate_9_to_10, set_store_version,
 };
 use near_store::migrations::{migrate_20_to_21, migrate_26_to_27};
 use near_store::{create_store, Store};
@@ -241,6 +241,10 @@ pub fn apply_store_migrations(path: &Path, near_config: &NearConfig) {
         info!(target: "near", "Migrate DB from version 27 to 28");
         let store = create_store(&path);
         set_store_version(&store, 28);
+    }
+    if db_version <= 28 {
+        info!(target: "near", "Migrate DB from version 28 to 29");
+        migrate_28_to_29(&path);
     }
     #[cfg(feature = "nightly_protocol")]
     {

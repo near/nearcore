@@ -54,13 +54,35 @@ impl From<CryptoHash> for ChunkHash {
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
 
-/// Contains the information that is used to sync state for shards as epochs switch
+/// Contains the information that is used to sync state and catch up blocks for shards as epochs
+/// switch
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct StateSyncInfo {
+pub struct SyncInfo {
     /// The first block of the epoch for which syncing is happening
     pub epoch_tail_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
+    /// Collection of block hashes that are yet to be sent for processed
+    pub pending_blocks: Vec<CryptoHash>,
+    /// Collection of block hashes that are sent for processing
+    pub processing_blocks: Vec<CryptoHash>,
+    /// Collection of block hashes that were processed, but following blocks are not yet processed
+    pub queued_blocks: Vec<CryptoHash>,
+    /// Collection of block hashes that are fully processed
+    pub processed_blocks: Vec<CryptoHash>,
+}
+
+impl SyncInfo {
+    pub fn new(epoch_tail_hash: CryptoHash, shards: Vec<ShardInfo>) -> Self {
+        SyncInfo {
+            epoch_tail_hash,
+            shards,
+            pending_blocks: vec![epoch_tail_hash.clone()],
+            processing_blocks: Vec::new(),
+            queued_blocks: Vec::new(),
+            processed_blocks: Vec::new(),
+        }
+    }
 }
 
 #[cfg(feature = "protocol_feature_block_header_v3")]

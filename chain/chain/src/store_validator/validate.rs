@@ -7,7 +7,7 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, ShardChunk, SyncInfo};
 use near_primitives::syncing::{
     get_num_state_parts, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
 };
@@ -706,23 +706,19 @@ pub(crate) fn outcome_indexed_by_block_hash(
     Ok(())
 }
 
-pub(crate) fn state_sync_info_valid(
+pub(crate) fn sync_info_valid(
     _sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    state_sync_info: &StateSyncInfo,
+    state_sync_info: &SyncInfo,
 ) -> Result<(), StoreValidatorError> {
-    check_discrepancy!(
-        state_sync_info.epoch_tail_hash,
-        *block_hash,
-        "Invalid StateSyncInfo stored"
-    );
+    check_discrepancy!(state_sync_info.epoch_tail_hash, *block_hash, "Invalid SyncInfo stored");
     Ok(())
 }
 
-pub(crate) fn state_sync_info_block_exists(
+pub(crate) fn sync_info_block_exists(
     sv: &mut StoreValidator,
     block_hash: &CryptoHash,
-    _state_sync_info: &StateSyncInfo,
+    _state_sync_info: &SyncInfo,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(
         sv.store.get_ser::<Block>(ColBlock, block_hash.as_ref()),

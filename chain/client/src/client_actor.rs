@@ -1223,7 +1223,6 @@ impl ClientActor {
     }
 
     /// Runs catchup on repeat, if this client is a validator.
-    /// Schedules itself again if it was not ran as response to state parts job result
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client catchup".into());

@@ -67,7 +67,7 @@ pub enum DBCol {
     /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
     ColBlocksToCatchup = 15,
     /// Blocks for which the state is being downloaded
-    ColStateDlInfos = 16,
+    ColSyncInfos = 16,
     ColChallengedBlocks = 17,
     ColStateHeaders = 18,
     ColInvalidChunks = 19,
@@ -145,7 +145,7 @@ impl std::fmt::Display for DBCol {
             Self::ColChunks => "chunks",
             Self::ColPartialChunks => "partial chunks",
             Self::ColBlocksToCatchup => "blocks need to apply chunks",
-            Self::ColStateDlInfos => "blocks downloading",
+            Self::ColSyncInfos => "state downloading and blocks catch up",
             Self::ColChallengedBlocks => "challenged blocks",
             Self::ColStateHeaders => "state headers",
             Self::ColInvalidChunks => "invalid chunks",

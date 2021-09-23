@@ -17,7 +17,7 @@ use near_primitives::receipt::{Receipt, ReceiptResult};
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
-    StateSyncInfo,
+    SyncInfo,
 };
 use near_primitives::syncing::{
     get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
@@ -43,7 +43,7 @@ use near_store::{
     ColHeaderHashesByHeight, ColIncomingReceipts, ColInvalidChunks, ColLastBlockWithNewChunk,
     ColNextBlockHashes, ColNextBlockWithNewChunk, ColOutcomeIds, ColOutgoingReceipts,
     ColPartialChunks, ColProcessedBlockHeights, ColReceiptIdToShardId, ColReceipts, ColState,
-    ColStateChanges, ColStateDlInfos, ColStateHeaders, ColStateParts, ColTransactionResult,
+    ColStateChanges, ColStateHeaders, ColStateParts, ColSyncInfos, ColTransactionResult,
     ColTransactions, ColTrieChanges, DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate,
     TrieChanges, WrappedTrieChanges, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY,
     HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, SHOULD_COL_GC,
@@ -416,13 +416,13 @@ impl ChainStore {
         ChainStoreUpdate::new(self)
     }
 
-    pub fn iterate_state_sync_infos(&self) -> Vec<(CryptoHash, StateSyncInfo)> {
+    pub fn iterate_sync_infos(&self) -> Vec<(CryptoHash, SyncInfo)> {
         self.store
-            .iter(ColStateDlInfos)
+            .iter(ColSyncInfos)
             .map(|(k, v)| {
                 (
                     CryptoHash::try_from(k.as_ref()).unwrap(),
-                    StateSyncInfo::try_from_slice(v.as_ref()).unwrap(),
+                    SyncInfo::try_from_slice(v.as_ref()).unwrap(),
                 )
             })
             .collect()
@@ -1172,8 +1172,8 @@ pub struct ChainStoreUpdate<'a> {
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A prev_hash to be removed with all the hashes associated with it
     remove_prev_blocks_to_catchup: Vec<CryptoHash>,
-    add_state_dl_infos: Vec<StateSyncInfo>,
-    remove_state_dl_infos: Vec<CryptoHash>,
+    add_sync_infos: Vec<SyncInfo>,
+    remove_sync_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
 
@@ -1196,8 +1196,8 @@ impl<'a> ChainStoreUpdate<'a> {
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
-            add_state_dl_infos: vec![],
-            remove_state_dl_infos: vec![],
+            add_sync_infos: vec![],
+            remove_sync_infos: vec![],
             challenged_blocks: HashSet::default(),
         }
     }
@@ -1915,12 +1915,12 @@ impl<'a> ChainStoreUpdate<'a> {
         self.remove_prev_blocks_to_catchup.push(hash);
     }
 
-    pub fn add_state_dl_info(&mut self, info: StateSyncInfo) {
-        self.add_state_dl_infos.push(info);
+    pub fn add_sync_info(&mut self, info: SyncInfo) {
+        self.add_sync_infos.push(info);
     }
 
-    pub fn remove_state_dl_info(&mut self, hash: CryptoHash) {
-        self.remove_state_dl_infos.push(hash);
+    pub fn remove_sync_info(&mut self, hash: CryptoHash) {
+        self.remove_sync_infos.push(hash);
     }
 
     pub fn save_challenged_block(&mut self, hash: CryptoHash) {
@@ -2179,7 +2179,7 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::StateSync { clear_block_info: false } => {}
             _ => self.gc_col(ColBlockInfo, &block_hash_vec),
         }
-        self.gc_col(ColStateDlInfos, &block_hash_vec);
+        self.gc_col(ColSyncInfos, &block_hash_vec);
 
         // 4. Update or delete block_hash_per_height
         self.gc_col_block_per_height(&block_hash, height, &block.header().epoch_id())?;
@@ -2425,7 +2425,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::ColOutcomeIds => {
                 store_update.delete(col, key);
             }
-            DBCol::ColStateDlInfos => {
+            DBCol::ColSyncInfos => {
                 store_update.delete(col, key);
             }
             DBCol::ColBlockInfo => {
@@ -2763,15 +2763,11 @@ impl<'a> ChainStoreUpdate<'a> {
             prev_table.push(new_hash);
             store_update.set_ser(ColBlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
         }
-        for state_dl_info in self.add_state_dl_infos.drain(..) {
-            store_update.set_ser(
-                ColStateDlInfos,
-                state_dl_info.epoch_tail_hash.as_ref(),
-                &state_dl_info,
-            )?;
+        for sync_info in self.add_sync_infos.drain(..) {
+            store_update.set_ser(ColSyncInfos, sync_info.epoch_tail_hash.as_ref(), &sync_info)?;
         }
-        for hash in self.remove_state_dl_infos.drain(..) {
-            store_update.delete(ColStateDlInfos, hash.as_ref());
+        for hash in self.remove_sync_infos.drain(..) {
+            store_update.delete(ColSyncInfos, hash.as_ref());
         }
         for hash in self.challenged_blocks.drain() {
             store_update.set_ser(ColChallengedBlocks, hash.as_ref(), &true)?;
@@ -3246,7 +3242,7 @@ mod tests {
             DBCol::ColBlockInfo,
             DBCol::ColBlocksToCatchup,
             DBCol::ColChallengedBlocks,
-            DBCol::ColStateDlInfos,
+            DBCol::ColSyncInfos,
             DBCol::ColBlockExtra,
             DBCol::ColBlockPerHeight,
             DBCol::ColNextBlockHashes,

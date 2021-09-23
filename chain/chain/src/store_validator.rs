@@ -14,7 +14,7 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, ShardChunk, SyncInfo};
 use near_primitives::syncing::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -257,19 +257,14 @@ impl StoreValidator {
                         col,
                     );
                 }
-                DBCol::ColStateDlInfos => {
+                DBCol::ColSyncInfos => {
                     let block_hash = CryptoHash::try_from(key_ref)?;
-                    let state_sync_info = StateSyncInfo::try_from_slice(value_ref)?;
-                    // StateSyncInfo is valid
-                    self.check(
-                        &validate::state_sync_info_valid,
-                        &block_hash,
-                        &state_sync_info,
-                        col,
-                    );
+                    let state_sync_info = SyncInfo::try_from_slice(value_ref)?;
+                    // SyncInfo is valid
+                    self.check(&validate::sync_info_valid, &block_hash, &state_sync_info, col);
                     // Block which can be indexed by StateSyncInfo exists
                     self.check(
-                        &validate::state_sync_info_block_exists,
+                        &validate::sync_info_block_exists,
                         &block_hash,
                         &state_sync_info,
                         col,
