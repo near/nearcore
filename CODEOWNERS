@@ -25,7 +25,7 @@
 /neard/ @bowenwang1996 @frol
 /nearcore/ @bowenwang1996 @frol
 /test-utils/state-viewer @nikurt
-/test-utils/runtime-tester @posvyatokum
+/test-utils/runtime-tester @posvyatokum @matklad
 
 /.buildkite/ @chefsale @mhalambek
 /scripts/ @chefsale @mhalambek
