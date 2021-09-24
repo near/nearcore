@@ -73,10 +73,8 @@ impl ShardLayout {
             for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
                 for &shard_id in shard_ids {
                     let prev = to_parent_shard_map.insert(shard_id, parent_shard_id as ShardId);
-                    // check that no shard appears in shards_split_map twice
-                    assert!(prev.is_none());
-                    // check shard id is value
-                    assert!(shard_id < num_shards);
+                    assert!(prev.is_none(), "no shard should appear in the map twice");
+                    assert!(shard_id < num_shards, "shard id should be valid");
                 }
             }
             Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id]).collect())
