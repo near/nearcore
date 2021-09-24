@@ -4,15 +4,15 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tracing::{debug, info};
 
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::Store;
 use nearcore::{NearConfig, NightshadeRuntime};
 
@@ -48,11 +48,7 @@ pub fn apply_chain_range(
     debug!("Printing results including outcomes of applying receipts");
 
     let progress_bar = ProgressBar::new(end_height - start_height + 1);
-    progress_bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:80} {pos:>8}/{len:8}")
-            .progress_chars("##-"),
-    );
+    progress_bar.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:80} {pos:>8}/{len:8}").progress_chars("##-"));
     (start_height..=end_height).collect::<Vec<u64>>().par_iter().progress_with(progress_bar).for_each(|height| {
         let height = *height;
         let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
