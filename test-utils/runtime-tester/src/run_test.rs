@@ -17,37 +17,47 @@ use nearcore::{config::GenesisExt, NightshadeRuntime};
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
+pub struct ScenarioResult<T, E> {
+    pub result: std::result::Result<T, E>,
+
+    /// If scenario was run with on-disk storage (i.e. `use_in_memory_store` was
+    /// `false`, the home directory of the node.
+    pub homedir: Option<tempfile::TempDir>,
+}
+
 impl Scenario {
     pub fn from_file(path: &Path) -> io::Result<Scenario> {
         serde_json::from_str::<Scenario>(&std::fs::read_to_string(path)?).map_err(io::Error::from)
     }
 
-    pub fn run(&self) -> Result<RuntimeStats, Error> {
+    pub fn run(&self) -> ScenarioResult<RuntimeStats, Error> {
         let genesis = Genesis::test(
             self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect(),
             1,
         );
 
-        let tempdir;
-        let home_dir = if self.use_in_memory_store {
-            Path::new(".")
-        } else if let Some(home_dir) = &self.home_dir {
-            home_dir.as_path()
+        let (tempdir, store) = if self.use_in_memory_store {
+            (None, create_test_store())
         } else {
-            tempdir = tempfile::tempdir().map_err(|err| {
-                Error::Other(format!("failed to create temporary directory: {}", err))
-            })?;
-            tempdir.path()
-        };
-        let store = if self.use_in_memory_store {
-            create_test_store()
-        } else {
-            create_store(&nearcore::get_store_path(home_dir))
+            let tempdir = match tempfile::tempdir() {
+                Err(err) => {
+                    return ScenarioResult {
+                        result: Err(Error::Other(format!(
+                            "failed to create temporary directory: {}",
+                            err
+                        ))),
+                        homedir: None,
+                    }
+                }
+                Ok(tempdir) => tempdir,
+            };
+            let store = create_store(&nearcore::get_store_path(tempdir.path()));
+            (Some(tempdir), store)
         };
 
-        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
+        let env = TestEnv::builder(ChainGenesis::from(&genesis))
             .runtime_adapters(vec![Arc::new(NightshadeRuntime::new(
-                home_dir,
+                if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
                 vec![],
@@ -58,6 +68,11 @@ impl Scenario {
             ))])
             .build();
 
+        let result = self.process_blocks(env);
+        ScenarioResult { result: result, homedir: tempdir }
+    }
+
+    fn process_blocks(&self, mut env: TestEnv) -> Result<RuntimeStats, Error> {
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
         let mut runtime_stats = RuntimeStats::default();
@@ -90,26 +105,6 @@ pub struct Scenario {
     pub network_config: NetworkConfig,
     pub blocks: Vec<BlockConfig>,
     pub use_in_memory_store: bool,
-
-    /// Path to the on-disk home directory; relevant only if
-    /// `use_in_memory_store` is `false`.
-    ///
-    /// If this is `None` (and scenario is configured with an on-disk store) the
-    /// scenario will be run with a temporary directory as home directory.  Once
-    /// the scenario finishes, that temporary directory is deleted.  On the
-    /// other hand, if this is set it is caller’s responsible to clean the
-    /// directory *before and after* the test runs.
-    ///
-    /// This is useful when wanting to save the storage on-disk and investigate
-    /// it after the test runs and it’s also why the directory is not cleared.
-    ///
-    /// Note that this field is not serialised thus a scenario read from file
-    /// won’t have this path set.  This is motivated partially by security
-    /// considerations since if this could be stored in JSON file than user
-    /// might be tricked to run a test against `/home/foo/.near/mainnet`
-    /// directory.
-    #[serde(skip_serializing)]
-    pub home_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,7 +187,7 @@ mod test {
 
         let scenario = Scenario::from_file(path).expect("Failed to deserialize the scenario file.");
         let starting_time = Instant::now();
-        let runtime_stats = scenario.run().expect("Error while running scenario");
+        let runtime_stats = scenario.run().result.expect("Error while running scenario");
         info!("Time to run: {:?}", starting_time.elapsed());
         for block_stats in runtime_stats.blocks_stats {
             if block_stats.block_production_time > Duration::from_secs(1) {
