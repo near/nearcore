@@ -1247,31 +1247,6 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    /// Create a `TestEnv` with `KeyValueRuntime`.
-    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
-        let validators: Vec<AccountId> = (0..num_validators)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
-        let network_adapters =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
-        let clients = (0..num_clients)
-            .map(|i| {
-                let store = create_test_store();
-                setup_client(
-                    store,
-                    vec![validators.clone()],
-                    1,
-                    1,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
-                    false,
-                    network_adapters[i].clone(),
-                    chain_genesis.clone(),
-                )
-            })
-            .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
-    }
-
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {

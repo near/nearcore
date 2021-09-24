@@ -37,7 +37,7 @@ use nearcore::NightshadeRuntime;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -132,7 +132,7 @@ fn create_invalid_proofs_chunk(
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
@@ -144,7 +144,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     let (encoded_chunk, _merkle_paths, _receipts, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -159,7 +159,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     // Valid chunk
     let (chunk, _merkle_paths, _receipts, block) = create_chunk(&mut env.clients[0], None, None);
@@ -172,7 +172,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -208,7 +208,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
 #[test]
 fn test_verify_chunk_proofs_challenge_transaction_order() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -460,7 +460,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 #[ignore]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
     let block1 = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
     env.process_block(1, block1, Provenance::NONE);
@@ -542,7 +542,7 @@ fn test_receive_two_blocks_from_one_producer() {}
 #[ignore]
 fn test_block_challenge() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
