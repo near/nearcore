@@ -1892,7 +1892,6 @@ mod test {
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::receipt::ReceiptResult;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -1940,7 +1939,7 @@ mod test {
             gas_price: Balance,
             gas_limit: Gas,
             challenges: &ChallengesResult,
-        ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
+        ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
             let mut result = self
                 .apply_transactions(
                     shard_id,
@@ -1966,7 +1965,7 @@ mod test {
             result.trie_changes.insertions_into(&mut store_update).unwrap();
             result.trie_changes.state_changes_into(&mut store_update);
             store_update.commit().unwrap();
-            (result.new_root, result.validator_proposals, result.receipt_result)
+            (result.new_root, result.validator_proposals, result.outgoing_receipts)
         }
     }
 
@@ -2067,7 +2066,7 @@ mod test {
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];
-            let mut new_receipts = HashMap::new();
+            let mut all_receipts = vec![];
             for i in 0..num_shards {
                 let (state_root, proposals, receipts) = self.runtime.update(
                     &self.state_roots[i as usize],
@@ -2084,12 +2083,7 @@ mod test {
                     &challenges_result,
                 );
                 self.state_roots[i as usize] = state_root;
-                for (shard_id, mut shard_receipts) in receipts {
-                    new_receipts
-                        .entry(shard_id)
-                        .or_insert_with(|| vec![])
-                        .append(&mut shard_receipts);
-                }
+                all_receipts.extend(receipts);
                 all_proposals.append(&mut proposals.clone());
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
@@ -2111,6 +2105,12 @@ mod test {
                 .unwrap()
                 .commit()
                 .unwrap();
+            let shard_layout = self.runtime.get_shard_layout_from_prev_block(&new_hash).unwrap();
+            let mut new_receipts = HashMap::new();
+            for receipt in all_receipts {
+                let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+                new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
+            }
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
             self.time += 10u64.pow(9);
