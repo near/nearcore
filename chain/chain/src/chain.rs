@@ -1911,7 +1911,7 @@ impl Chain {
         block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<(), Error> {
         for (queued_block, (saved_store_update, results)) in
-            blocks_catch_up_state.queued_blocks.drain()
+            blocks_catch_up_state.processed_blocks.drain()
         {
             match self.block_catch_up_postprocess(&queued_block, results, saved_store_update) {
                 Ok(_) => {
@@ -1927,7 +1927,7 @@ impl Chain {
                             blocks_catch_up_state.epoch_id
                         );
                     }
-                    blocks_catch_up_state.processed_blocks.push(queued_block);
+                    blocks_catch_up_state.done_blocks.push(queued_block);
                 }
                 Err(_) => {
                     error!("Error processing block during catch up, retrying");
@@ -1948,7 +1948,7 @@ impl Chain {
                 ApplyChunksMode::CatchingUp,
             )?;
             blocks_catch_up_state
-                .processing_blocks
+                .scheduled_blocks
                 .insert(pending_block, chain_update.save_store_update());
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: sync_hash.clone(),
@@ -4325,6 +4325,16 @@ pub struct BlockCatchUpResponse {
 }
 
 /// Helper to track blocks catch up
+/// Lifetime of a block_hash is as follows:
+/// 1. It is added to pending blocks, either as first block of an epoch or because we (post)
+///     processed previous block
+/// 2. Block is preprocessed and scheduled for processing in sync jobs actor. Block hash
+///     and state changes from preprocessing goes to scheduled blocks
+/// 3. We've got response from sync jobs actor that block was processed. Block hash, state
+///     changes from preprocessing and result of processing block are moved to processed blocks
+/// 4. Results are postprocessed. If there is any error block goes back to pending to try again.
+///     Otherwise results are commited, block is moved to done blocks and any blocks that
+///     have this block as previous are added to pending
 pub struct BlocksCatchUpState {
     /// Hash of first block of an epoch
     pub first_block_hash: CryptoHash,
@@ -4332,14 +4342,14 @@ pub struct BlocksCatchUpState {
     pub epoch_id: EpochId,
     /// Collection of block hashes that are yet to be sent for processed
     pub pending_blocks: Vec<CryptoHash>,
-    /// Map from block hashes that are sent for processing to saved store updates from their
+    /// Map from block hashes that are scheduled for processing to saved store updates from their
     /// preprocessing
-    pub processing_blocks: HashMap<CryptoHash, SavedStoreUpdate>,
+    pub scheduled_blocks: HashMap<CryptoHash, SavedStoreUpdate>,
     /// Map from block hashes that were processed to (saved store update, process results)
-    pub queued_blocks:
+    pub processed_blocks:
         HashMap<CryptoHash, (SavedStoreUpdate, Vec<Result<ApplyChunkResult, Error>>)>,
     /// Collection of block hashes that are fully processed
-    pub processed_blocks: Vec<CryptoHash>,
+    pub done_blocks: Vec<CryptoHash>,
 }
 
 impl BlocksCatchUpState {
@@ -4348,15 +4358,15 @@ impl BlocksCatchUpState {
             first_block_hash,
             epoch_id,
             pending_blocks: vec![first_block_hash.clone()],
-            processing_blocks: HashMap::new(),
-            queued_blocks: HashMap::new(),
-            processed_blocks: vec![],
+            scheduled_blocks: HashMap::new(),
+            processed_blocks: HashMap::new(),
+            done_blocks: vec![],
         }
     }
 
     pub fn is_finished(&self) -> bool {
         self.pending_blocks.is_empty()
-            && self.processing_blocks.is_empty()
-            && self.queued_blocks.is_empty()
+            && self.scheduled_blocks.is_empty()
+            && self.processed_blocks.is_empty()
     }
 }

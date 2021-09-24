@@ -54,6 +54,7 @@ use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
+use actix::dev::SendError;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse,
@@ -184,13 +185,27 @@ impl ClientActor {
             chunk_request_retry_next_attempt: now,
             sync_started: false,
             state_parts_task_scheduler: Box::new(move |msg: ApplyStatePartsRequest| {
-                if let Err(_) = sync_jobs_actor_addr.try_send(msg) {
-                    panic!("Can't send message to StatePartsActor");
+                if let Err(err) = sync_jobs_actor_addr.try_send(msg) {
+                    match err {
+                        SendError::Full(request) => {
+                            sync_jobs_actor_addr.do_send(request);
+                        }
+                        SendError::Closed(_) => {
+                            panic!("Can't send message to SyncJobsActor, mailbox is closed");
+                        }
+                    }
                 }
             }),
             block_catch_up_scheduler: Box::new(move |msg: BlockCatchUpRequest| {
-                if let Err(_) = sync_jobs_actor_addr2.try_send(msg) {
-                    panic!("Can't send message to StatePartsActor");
+                if let Err(err) = sync_jobs_actor_addr2.try_send(msg) {
+                    match err {
+                        SendError::Full(request) => {
+                            sync_jobs_actor_addr2.do_send(request);
+                        }
+                        SendError::Closed(_) => {
+                            panic!("Can't send message to SyncJobsActor, mailbox is closed");
+                        }
+                    }
                 }
             }),
             state_parts_client_arbiter: state_parts_arbiter,
@@ -1618,11 +1633,11 @@ impl Handler<BlockCatchUpResponse> for ClientActor {
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
             let saved_store_update = blocks_catch_up_state
-                .processing_blocks
+                .scheduled_blocks
                 .remove(&msg.block_hash)
                 .expect("block caught up, but is not in processing");
             blocks_catch_up_state
-                .queued_blocks
+                .processed_blocks
                 .insert(msg.block_hash, (saved_store_update, msg.results));
         } else {
             panic!("block catch up processing result from unknown sync hash");

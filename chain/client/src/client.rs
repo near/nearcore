@@ -1674,7 +1674,7 @@ impl Client {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
                             |challenge| challenges.write().unwrap().push(challenge),
-                            &blocks_catch_up_state.processed_blocks,
+                            &blocks_catch_up_state.done_blocks,
                         )?;
 
                         self.send_challenges(challenges);
