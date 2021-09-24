@@ -8,7 +8,6 @@ use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
-    RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
@@ -272,17 +271,18 @@ fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let transaction_validity_period = genesis.config.transaction_validity_period;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
-        Path::new("."),
-        store1,
-        &genesis,
-        vec![],
-        vec![],
-        None,
-        None,
-        RuntimeConfigStore::test(),
-    ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::new(
+            Path::new("."),
+            store1,
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+            RuntimeConfigStore::test(),
+        ))])
+        .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -589,8 +589,10 @@ fn test_fishermen_challenge() {
     let runtime1 = create_runtime();
     let runtime2 = create_runtime();
     let runtime3 = create_runtime();
-    let mut env =
-        TestEnv::new_with_runtime(ChainGenesis::test(), 3, 1, vec![runtime1, runtime2, runtime3]);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .clients_count(3)
+        .runtime_adapters(vec![runtime1, runtime2, runtime3])
+        .build();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let stake_transaction = SignedTransaction::stake(
