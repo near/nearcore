@@ -34,7 +34,7 @@ pub struct ScenarioBuilder {
 ///     builder.add_block();
 ///     builder.add_block();
 ///
-///     let runtime_stats = builder.scenario().run().unwrap();
+///     let runtime_stats = builder.scenario().run().result.unwrap();
 ///
 ///     for block_stats in runtime_stats.blocks_stats {
 ///         assert!(block_stats.block_production_time < Duration::from_secs(1),
