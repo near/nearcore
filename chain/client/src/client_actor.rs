@@ -1267,7 +1267,8 @@ impl ClientActor {
             ctx,
             file!(),
             line!(),
-            self.client.config.catchup_step_period,
+            // self.client.config.catchup_step_period,
+            Duration::from_millis(1),
             move |act, ctx| {
                 act.catchup(ctx);
             },
