@@ -10,6 +10,7 @@ use near_primitives_core::types::ShardId;
 use crate::borsh::maybestd::io::Cursor;
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
+use std::collections::HashMap;
 
 pub type ShardVersion = u32;
 
@@ -44,6 +45,9 @@ pub struct ShardLayoutV1 {
     /// Useful for constructing states for the shards.
     /// None for the genesis shard layout
     shards_split_map: Option<ShardSplitMap>,
+    /// Maps shard in this shard layout to their parent shard
+    /// Since shard_ids always range from 0 to num_shards - 1, we use vec instead of a hashmap
+    to_parent_shard_map: Option<Vec<ShardId>>,
     /// Version of the shard layout, this is useful for uniquely identify the shard layout
     version: ShardVersion,
 }
@@ -63,7 +67,29 @@ impl ShardLayout {
         shards_split_map: Option<ShardSplitMap>,
         version: ShardVersion,
     ) -> Self {
-        Self::V1(ShardLayoutV1 { fixed_shards, boundary_accounts, shards_split_map, version })
+        let to_parent_shard_map = if let Some(shards_split_map) = &shards_split_map {
+            let mut to_parent_shard_map = HashMap::new();
+            let num_shards = (fixed_shards.len() + boundary_accounts.len() + 1) as NumShards;
+            for (parent_shard_id, shard_ids) in shards_split_map.iter().enumerate() {
+                for &shard_id in shard_ids {
+                    let prev = to_parent_shard_map.insert(shard_id, parent_shard_id as ShardId);
+                    // check that no shard appears in shards_split_map twice
+                    assert!(prev.is_none());
+                    // check shard id is value
+                    assert!(shard_id < num_shards);
+                }
+            }
+            Some((0..num_shards).map(|shard_id| to_parent_shard_map[&shard_id]).collect())
+        } else {
+            None
+        };
+        Self::V1(ShardLayoutV1 {
+            fixed_shards,
+            boundary_accounts,
+            shards_split_map,
+            to_parent_shard_map,
+            version,
+        })
     }
 
     #[inline]
@@ -80,6 +106,17 @@ impl ShardLayout {
                     ),
                     None => None,
                 },
+                None => None,
+            },
+        }
+    }
+
+    #[inline]
+    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Option<ShardId> {
+        match self {
+            Self::V0(_) => None,
+            Self::V1(v1) => match &v1.to_parent_shard_map {
+                Some(to_parent_shard_map) => Some(to_parent_shard_map[shard_id as usize]),
                 None => None,
             },
         }
@@ -212,14 +249,14 @@ pub fn get_block_shard_uid_rev(
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_layout::{account_id_to_shard_id, ShardLayout};
+    use crate::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
     use std::collections::HashMap;
 
     #[test]
-    fn test_account_id_to_shard_id_v0() {
+    fn test_shard_layout_v0() {
         let num_shards = 4;
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<_, _> =
@@ -238,16 +275,29 @@ mod tests {
     }
 
     #[test]
-    fn test_account_id_to_shard_id_v1() {
+    fn test_shard_layout_v1() {
         let shard_layout = ShardLayout::v1(
             vec!["aurora", "bar", "foo", "foo.baz"]
                 .into_iter()
                 .map(|s| s.parse().unwrap())
                 .collect(),
             vec!["abc", "foo", "paz"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            None,
-            0,
+            Some(vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]]),
+            1,
         );
+        assert_eq!(
+            shard_layout.get_split_shards(0).unwrap(),
+            (0..4).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            shard_layout.get_split_shards(1).unwrap(),
+            (4..8).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
+        );
+        for x in 0..4 {
+            assert_eq!(shard_layout.get_parent_shard_id(x).unwrap(), 0);
+            assert_eq!(shard_layout.get_parent_shard_id(x + 4).unwrap(), 1);
+        }
+
         assert_eq!(account_id_to_shard_id(&"aurora".parse().unwrap(), &shard_layout), 0);
         assert_eq!(account_id_to_shard_id(&"foo.aurora".parse().unwrap(), &shard_layout), 0);
         assert_eq!(account_id_to_shard_id(&"bar.foo.aurora".parse().unwrap(), &shard_layout), 0);

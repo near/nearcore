@@ -530,17 +530,6 @@ impl NightshadeRuntime {
                 ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
             })?;
 
-        // Sort the receipts into appropriate outgoing shards.
-        let mut receipt_result = HashMap::default();
-        // Outgoing receipts should be sorted by shards of the epoch of the next block
-        let next_shard_layout = {
-            let next_block_epoch_id = if self.is_next_block_epoch_start(prev_block_hash)? {
-                self.get_next_epoch_id_from_prev_block(prev_block_hash)?
-            } else {
-                self.get_epoch_id_from_prev_block(prev_block_hash)?
-            };
-            self.get_shard_layout(&next_block_epoch_id)?
-        };
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
         let apply_split_state_result_or_state_changes =
             if self.will_shard_layout_change(prev_block_hash)? {
@@ -548,12 +537,16 @@ impl NightshadeRuntime {
                     &apply_result.state_changes,
                     apply_result.processed_delayed_receipts,
                 );
+                let next_epoch_shard_layout = {
+                    let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_block_hash)?;
+                    self.get_shard_layout(&next_epoch_id)?
+                };
                 // split states are ready, apply update to them now
                 if let Some(state_roots) = split_state_roots {
                     let split_state_results = self.apply_update_to_split_states(
                         block_hash,
                         state_roots,
-                        &next_shard_layout,
+                        &next_epoch_shard_layout,
                         consolidated_state_changes,
                     )?;
                     Some(ApplySplitStateResultOrStateChanges::ApplySplitStateResults(
@@ -569,13 +562,6 @@ impl NightshadeRuntime {
                 None
             };
 
-        for receipt in apply_result.outgoing_receipts {
-            receipt_result
-                .entry(account_id_to_shard_id(&receipt.receiver_id, &next_shard_layout))
-                .or_insert_with(|| vec![])
-                .push(receipt);
-        }
-
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -586,7 +572,7 @@ impl NightshadeRuntime {
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
-            receipt_result,
+            outgoing_receipts: apply_result.outgoing_receipts,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
             total_balance_burnt,
@@ -1063,6 +1049,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        self.get_shard_layout(&epoch_id)
     }
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
@@ -1597,13 +1591,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         block_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
-        next_shard_layout: &ShardLayout,
+        next_epoch_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         let trie_changes = self.tries.apply_state_changes_to_split_states(
             &state_roots,
             state_changes,
-            &|account_id| account_id_to_shard_uid(account_id, next_shard_layout),
+            &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
 
         Ok(trie_changes

@@ -2234,7 +2234,7 @@ fn test_validate_chunk_extra() {
         &*env.clients[0].runtime_adapter,
         block1.hash(),
         &chunk_extra,
-        &block1.chunks()[0],
+        block1.chunks()[0].height_included(),
         &chunks.get(&0).cloned().unwrap(),
     )
     .is_ok());

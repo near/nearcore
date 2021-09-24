@@ -13,15 +13,15 @@ use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{Receipt, ReceiptResult};
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
 use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
-    StateHeaderKey, StatePartKey,
+    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
+    StatePartKey,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -50,8 +50,8 @@ use near_store::{
     TAIL_KEY,
 };
 
-use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::DBCol::ColStateChangesForSplitStates;
 
 /// lru cache size
@@ -440,25 +440,70 @@ impl ChainStore {
         )
     }
 
+    // Get outgoing receipts that will be sent from shard `shard_id` from block whose prev block
+    // is `prev_block_hash`
+    // Note that the meaning of outgoing receipts here are slightly different from save_outgoing_receipts
+    // There, outgoing receipts are generated after they are generated from a chunk from the last block
+    // at height h-1
+    // Here, outgoing receipt are about to be send from shard with `shard_id` for block at height h
+    // The difference is important because shard layout may change between epochs, or, between
+    // when outgoing_receipts are saved and when this function is called
+    // Note, the current way of implementation only works when there are two shard layouts, or
+    // at least one chunk is generated before shard layout changed again when shard layout changed
+    // more than twice. This is not a problem right now for simple nightshade migration, since
+    // we are changing shard layout for the first time.
+    // But we need to implement a more general algorithm should we upgrade shard layout again
+    // in the future
     pub fn get_outgoing_receipts_for_shard(
         &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_included_height: BlockHeight,
-    ) -> Result<ReceiptResponse, Error> {
+    ) -> Result<Vec<Receipt>, Error> {
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() == last_included_height {
+                let receipts_shard_layout =
+                    runtime_adapter.get_shard_layout(block_header.epoch_id())?;
+
+                // get the shard from which the outgoing receipt were generated
+                let receipts_shard_id = if shard_layout != receipts_shard_layout {
+                    // we unwrap here because otherwise it means the shard layout is invalid
+                    shard_layout.get_parent_shard_id(shard_id).unwrap()
+                } else {
+                    shard_id
+                };
                 let receipts = if let Ok(cur_receipts) =
-                    self.get_outgoing_receipts(&receipts_block_hash, shard_id)
+                    self.get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
                 {
                     cur_receipts.clone()
                 } else {
                     vec![]
                 };
-                return Ok(ReceiptResponse(receipts_block_hash, receipts));
+
+                // filter to receipts that belong to `shard_id` in the current shard layout
+                let receipts = if shard_layout != receipts_shard_layout {
+                    receipts
+                        .into_iter()
+                        .filter_map(|receipt| {
+                            if account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
+                                == shard_id
+                            {
+                                Some(receipt)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                } else {
+                    receipts
+                };
+
+                return Ok(receipts);
             } else {
                 receipts_block_hash = *block_header.prev_hash();
             }
@@ -964,7 +1009,7 @@ impl ChainStoreAccess for ChainStore {
 
     fn get_outgoing_receipts(
         &mut self,
-        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<Receipt>, Error> {
         option_to_not_found(
@@ -972,9 +1017,9 @@ impl ChainStoreAccess for ChainStore {
                 &*self.store,
                 ColOutgoingReceipts,
                 &mut self.outgoing_receipts,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_id(prev_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", block_hash),
+            &format!("OUTGOING RECEIPT: {}", prev_hash),
         )
     }
 
@@ -1824,24 +1869,39 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(epoch_hash.clone(), light_client_block);
     }
 
+    // save the outgoing receipts generated by chunk from block `hash` for shard `shard_id`
     pub fn save_outgoing_receipt(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipt_result: ReceiptResult,
+        outgoing_receipts: Vec<Receipt>,
     ) {
-        let mut outgoing_receipts = Vec::new();
-        for (receipt_shard_id, receipts) in receipt_result {
-            for receipt in receipts {
-                self.chain_store_cache_update
-                    .receipt_id_to_shard_id
-                    .insert(receipt.receipt_id, receipt_shard_id);
-                outgoing_receipts.push(receipt);
-            }
-        }
         self.chain_store_cache_update
             .outgoing_receipts
             .insert((*hash, shard_id), outgoing_receipts);
+    }
+
+    pub fn save_receipt_id_to_shard_id(
+        &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+        last_height_included: BlockHeight,
+    ) -> Result<(), Error> {
+        let outgoing_receipts = self.chain_store.get_outgoing_receipts_for_shard(
+            runtime_adapter,
+            *prev_hash,
+            shard_id,
+            last_height_included,
+        )?;
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_hash)?;
+        for receipt in outgoing_receipts {
+            let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+            self.chain_store_cache_update
+                .receipt_id_to_shard_id
+                .insert(receipt.receipt_id, to_shard_id);
+        }
+        Ok(())
     }
 
     pub fn save_incoming_receipt(
