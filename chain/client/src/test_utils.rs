@@ -43,6 +43,7 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 use near_network::test_utils::MockNetworkAdapter;
@@ -1532,8 +1533,27 @@ pub fn run_catchup(
 ) -> Result<Vec<AcceptedBlock>, Error> {
     let mut result = vec![];
     let f = |_| {};
+    let messages = Arc::new(RwLock::new(vec![]));
+    let inside_messages = messages.clone();
+    let block_catch_up = move |msg: BlockCatchUpRequest| {
+        inside_messages.write().unwrap().push(msg);
+    };
     while !client.chain.store().iterate_state_sync_infos().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f)?;
+        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up)?;
+        for msg in messages.write().unwrap().drain(..) {
+            let results = do_apply_chunks(msg.work);
+            if let Some((_, _, blocks_catch_up_state)) =
+                client.catchup_state_syncs.get_mut(&msg.sync_hash)
+            {
+                let saved_store_update =
+                    blocks_catch_up_state.processing_blocks.remove(&msg.block_hash).unwrap();
+                blocks_catch_up_state
+                    .queued_blocks
+                    .insert(msg.block_hash, (saved_store_update, results));
+            } else {
+                panic!("block catch up processing result from unknown sync hash");
+            }
+        }
         result.extend(call);
     }
     Ok(result)

@@ -2933,6 +2933,78 @@ impl<'a> ChainStoreUpdate<'a> {
 
         Ok(())
     }
+
+    pub fn save(self) -> SavedStoreUpdate {
+        SavedStoreUpdate {
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
+    }
+}
+
+/// Saves changes from ChainStoreUpdate without link to ChainStore. Needed to preserve changes while
+/// applying block in other thread
+pub struct SavedStoreUpdate {
+    store_updates: Vec<StoreUpdate>,
+    chain_store_cache_update: ChainStoreCacheUpdate,
+    head: Option<Tip>,
+    tail: Option<BlockHeight>,
+    chunk_tail: Option<BlockHeight>,
+    fork_tail: Option<BlockHeight>,
+    header_head: Option<Tip>,
+    final_head: Option<Tip>,
+    largest_target_height: Option<BlockHeight>,
+    trie_changes: Vec<WrappedTrieChanges>,
+    add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
+    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
+    add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
+    remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
+    remove_prev_blocks_to_catchup: Vec<CryptoHash>,
+    add_state_dl_infos: Vec<StateSyncInfo>,
+    remove_state_dl_infos: Vec<CryptoHash>,
+    challenged_blocks: HashSet<CryptoHash>,
+}
+
+impl SavedStoreUpdate {
+    pub fn restore<'a>(self, chain_store: &'a mut ChainStore) -> ChainStoreUpdate<'a> {
+        ChainStoreUpdate {
+            chain_store,
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
+    }
 }
 
 #[cfg(test)]
