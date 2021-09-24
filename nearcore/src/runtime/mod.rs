@@ -614,9 +614,12 @@ impl NightshadeRuntime {
             .unwrap()
             .install(|| {
                 contract_codes.par_iter().for_each(|code| {
+                    // FIXME: fetch the correct protocol version somehow?
+                    let current_protocol_version = ProtocolVersion::MAX;
                     precompile_contract(
                         &code,
                         &runtime_config.wasm_config,
+                        current_protocol_version,
                         compiled_contract_cache.as_deref(),
                     )
                     .ok();

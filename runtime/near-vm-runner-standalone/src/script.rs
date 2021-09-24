@@ -41,11 +41,12 @@ pub struct ScriptResults {
 
 impl Default for Script {
     fn default() -> Self {
+        let protocol_version = ProtocolVersion::MAX;
         Script {
             contracts: Vec::new(),
-            vm_kind: VMKind::default(),
+            vm_kind: VMKind::for_protocol_version(protocol_version),
             vm_config: VMConfig::default(),
-            protocol_version: ProtocolVersion::MAX,
+            protocol_version,
             contract_cache: None,
             initial_state: None,
             steps: Vec::new(),

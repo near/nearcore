@@ -3710,9 +3710,10 @@ mod contract_precompilation_tests {
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
+        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let key = get_contract_cache_key(
             &contract_code,
-            VMKind::default(),
+            vm_kind,
             &genesis_config.runtime_config.wasm_config,
         );
         for i in 0..num_clients {
@@ -3825,14 +3826,15 @@ mod contract_precompilation_tests {
             .iter()
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
+        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let tiny_contract_key = get_contract_cache_key(
             &ContractCode::new(tiny_wasm_code.clone(), None),
-            VMKind::default(),
+            vm_kind,
             &genesis_config.runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
-            VMKind::default(),
+            vm_kind,
             &genesis_config.runtime_config.wasm_config,
         );
 
@@ -3908,9 +3910,11 @@ mod contract_precompilation_tests {
             .iter()
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
+
+        let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
-            VMKind::default(),
+            vm_kind,
             &genesis_config.runtime_config.wasm_config,
         );
 
