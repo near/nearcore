@@ -116,7 +116,7 @@ impl ShardLayout {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.to_parent_shard_map {
-                Some(to_parent_shard_map) => Some(to_parent_shard_map[shard_id as usize]),
+                Some(to_parent_shard_map) => to_parent_shard_map.get(shard_id as usize).cloned(),
                 None => None,
             },
         }

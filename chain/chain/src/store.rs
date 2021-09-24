@@ -440,20 +440,23 @@ impl ChainStore {
         )
     }
 
-    // Get outgoing receipts that will be sent from shard `shard_id` from block whose prev block
-    // is `prev_block_hash`
-    // Note that the meaning of outgoing receipts here are slightly different from save_outgoing_receipts
-    // There, outgoing receipts are generated after they are generated from a chunk from the last block
-    // at height h-1
-    // Here, outgoing receipt are about to be send from shard with `shard_id` for block at height h
-    // The difference is important because shard layout may change between epochs, or, between
-    // when outgoing_receipts are saved and when this function is called
-    // Note, the current way of implementation only works when there are two shard layouts, or
-    // at least one chunk is generated before shard layout changed again when shard layout changed
-    // more than twice. This is not a problem right now for simple nightshade migration, since
-    // we are changing shard layout for the first time.
-    // But we need to implement a more general algorithm should we upgrade shard layout again
-    // in the future
+    /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
+    /// is `prev_block_hash`
+    /// Note that the meaning of outgoing receipts here are slightly different from
+    /// `save_outgoing_receipts` or `get_outgoing_receipts`.
+    /// There, outgoing receipts for a shard refers to receipts that are generated
+    /// from the shard from block `prev_block_hash`.
+    /// Here, outgoing receipts for a shard refers to receipts that will be sent from this shard
+    /// to other shards in the block after `prev_block_hash`
+    /// The difference of one block is important because shard layout may change between the previous
+    /// block and the current block and the meaning of `shard_id` will change.
+    ///
+    /// Note, the current way of implementation assumes that at least one chunk is generated before
+    /// shard layout are changed twice. This is not a problem right now because we are changing shard
+    /// layout for the first time for simple nightshade and generally not a problem if shard layout
+    /// changes very rarely.
+    /// But we need to implement a more theoretically correct algorithm if shard layouts will change
+    /// more often in the future
     pub fn get_outgoing_receipts_for_shard(
         &mut self,
         runtime_adapter: &dyn RuntimeAdapter,
@@ -472,36 +475,23 @@ impl ChainStore {
 
                 // get the shard from which the outgoing receipt were generated
                 let receipts_shard_id = if shard_layout != receipts_shard_layout {
-                    // we unwrap here because otherwise it means the shard layout is invalid
-                    shard_layout.get_parent_shard_id(shard_id).unwrap()
+                    shard_layout
+                        .get_parent_shard_id(shard_id)
+                        .ok_or(ErrorKind::InvalidShardId(shard_id))?
                 } else {
                     shard_id
                 };
-                let receipts = if let Ok(cur_receipts) =
-                    self.get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
-                {
-                    cur_receipts.clone()
-                } else {
-                    vec![]
-                };
+                let mut receipts = self
+                    .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
+                    .map(|v| v.clone())
+                    .unwrap_or_default();
 
                 // filter to receipts that belong to `shard_id` in the current shard layout
-                let receipts = if shard_layout != receipts_shard_layout {
-                    receipts
-                        .into_iter()
-                        .filter_map(|receipt| {
-                            if account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
-                                == shard_id
-                            {
-                                Some(receipt)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                } else {
-                    receipts
-                };
+                if shard_layout != receipts_shard_layout {
+                    receipts.retain(|receipt| {
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout) == shard_id
+                    });
+                }
 
                 return Ok(receipts);
             } else {
@@ -1007,9 +997,11 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
+    /// Note that this function is different from get_outgoing_receipts_for_shard, see comments there
     fn get_outgoing_receipts(
         &mut self,
-        prev_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<Receipt>, Error> {
         option_to_not_found(
@@ -1017,9 +1009,9 @@ impl ChainStoreAccess for ChainStore {
                 &*self.store,
                 ColOutgoingReceipts,
                 &mut self.outgoing_receipts,
-                &get_block_shard_id(prev_hash, shard_id),
+                &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", prev_hash),
+            &format!("OUTGOING RECEIPT: {}", prev_block_hash),
         )
     }
 
