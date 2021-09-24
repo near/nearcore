@@ -64,6 +64,7 @@ impl GasCounter {
     }
 
     fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
+        println!("deduct gas {} {}", burn_gas, use_gas);
         assert!(burn_gas <= use_gas);
         let new_burnt_gas =
             self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
@@ -107,6 +108,7 @@ impl GasCounter {
     }
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
+        println!("pay wasm gas {}", value);
         self.deduct_gas(value, value)
     }
 

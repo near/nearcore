@@ -158,6 +158,7 @@ pub fn precompile<'a>(
                 code,
                 code_hash,
                 wasm_config,
+                GasCounterMode::HostFunction,
                 cache,
                 &store,
             );

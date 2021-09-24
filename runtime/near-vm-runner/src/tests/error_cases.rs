@@ -835,7 +835,7 @@ fn external_indirect_call_contract() -> Vec<u8> {
 }
 
 #[test]
-fn test_external_call_indirect() {
+fn xtest_external_call_indirect() {
     with_vm_variants(|vm_kind: VMKind| {
         let (outcome, err) =
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);

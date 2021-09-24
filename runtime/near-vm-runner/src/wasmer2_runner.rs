@@ -231,6 +231,7 @@ pub fn run_wasmer2(
     let module = match cache::wasmer2_cache::compile_module_cached_wasmer2(
         &code,
         wasm_config,
+        gas_counter_mode,
         cache,
         &store,
     ) {
@@ -258,12 +259,6 @@ pub fn run_wasmer2(
         gas_counter_mode,
     );
 
-    let gas_mode = if wasm_config.regular_op_cost > 0 {
-        GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
-    } else {
-        GasMode::Free
-    };
-
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
         return (
@@ -273,6 +268,12 @@ pub fn run_wasmer2(
             ))),
         );
     }
+
+    let gas_mode = if wasm_config.regular_op_cost > 0 {
+        GasMode::Paid(logic.gas_to_use() / wasm_config.regular_op_cost as u64)
+    } else {
+        GasMode::Free
+    };
 
     let import_object =
         imports::build_wasmer2(&store, memory_copy, &mut logic, current_protocol_version);
@@ -296,11 +297,13 @@ fn run_method(
 
     let instance = {
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
-        Instance::new(&module, &import).map_err(|err| err.into_vm_error())?
+        Instance::new_without_start_func(&module, &import).map_err(|err| err.into_vm_error())?
     };
+
     let instance = Wasmer2Instance(instance);
     if logic.gas_counter_mode() == GasCounterMode::Wasm {
         if let GasMode::Paid(available_ops) = gas_mode {
+            println!("remaining_ops {}", available_ops);
             instance.set_remaining_ops(available_ops);
         }
     }
@@ -321,15 +324,17 @@ fn run_method_inner(
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
 
+    let result = {
+        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
+        f.call()
+    };
+
     if logic.gas_counter_mode() == GasCounterMode::Wasm {
         if let GasMode::Paid(_) = gas_mode {
             logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
         }
     }
-    {
-        let _span = tracing::debug_span!(target: "vm", "run_method/call").entered();
-        f.call().map_err(|err| err.into_vm_error())?
-    }
+    result.map_err(|err| err.into_vm_error())?;
 
     {
         let _span = tracing::debug_span!(target: "vm", "run_method/drop_instance").entered();

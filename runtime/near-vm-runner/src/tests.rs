@@ -24,9 +24,9 @@ const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 fn with_vm_variants(runner: fn(VMKind) -> ()) {
     // #[cfg(feature = "wasmer0_vm")]
     runner(VMKind::Wasmer0);
-    println!("========");
-    #[cfg(feature = "wasmtime_vm")]
-    runner(VMKind::Wasmtime);
+    // println!("========");
+    // #[cfg(feature = "wasmtime_vm")]
+    // runner(VMKind::Wasmtime);
     println!("========");
     #[cfg(feature = "wasmer2_vm")]
     runner(VMKind::Wasmer2);

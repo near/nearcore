@@ -259,6 +259,7 @@ fn preload_in_thread(
             cache::wasmer2_cache::compile_module_cached_wasmer2(
                 &request.code,
                 &vm_config,
+                gas_counter_mode,
                 cache,
                 &store,
             )

@@ -260,9 +260,11 @@ pub mod wasmer2_cache {
     fn compile_module_wasmer2(
         code: &[u8],
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let prepared_code = prepare::prepare_contract(code, config, GasCounterMode::HostFunction)?;
+        println!("{:?}", gas_counter_mode);
+        let prepared_code = prepare::prepare_contract(code, config, gas_counter_mode)?;
         wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error())
     }
 
@@ -270,12 +272,13 @@ pub mod wasmer2_cache {
         wasm_code: &[u8],
         key: &CryptoHash,
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer2").entered();
 
-        let module = compile_module_wasmer2(wasm_code, config, store)
+        let module = compile_module_wasmer2(wasm_code, config, gas_counter_mode, store)
             .map_err(|e| cache_error(e, &key, cache))?;
         let code = module
             .serialize()
@@ -306,11 +309,12 @@ pub mod wasmer2_cache {
         key: CryptoHash,
         wasm_code: &[u8],
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
         if cache.is_none() {
-            return compile_module_wasmer2(wasm_code, config, store);
+            return compile_module_wasmer2(wasm_code, config, gas_counter_mode, store);
         }
 
         let cache = cache.unwrap();
@@ -318,7 +322,14 @@ pub mod wasmer2_cache {
             Ok(serialized) => match serialized {
                 Some(serialized) => deserialize_wasmer2(serialized.as_slice(), store)
                     .map_err(VMError::CacheError)?,
-                None => compile_and_serialize_wasmer2(wasm_code, &key, config, cache, store),
+                None => compile_and_serialize_wasmer2(
+                    wasm_code,
+                    &key,
+                    config,
+                    gas_counter_mode,
+                    cache,
+                    store,
+                ),
             },
             Err(_) => Err(VMError::CacheError(ReadError)),
         }
@@ -336,24 +347,39 @@ pub mod wasmer2_cache {
             key: CryptoHash,
             wasm_code: &[u8],
             config: &VMConfig,
+            gas_counter_mode: GasCounterMode,
             cache: Option<&dyn CompiledContractCache>,
             store: &wasmer::Store) -> Result<wasmer::Module, VMError> = {
-            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store)
+            compile_module_cached_wasmer2_impl(key, wasm_code, config, gas_counter_mode, cache, store)
         }
     }
 
     pub(crate) fn compile_module_cached_wasmer2(
         code: &ContractCode,
         config: &VMConfig,
+        gas_counter_mode: GasCounterMode,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        let key =
-            get_contract_cache_key(code, VMKind::Wasmer2, config, GasCounterMode::HostFunction);
+        let key = get_contract_cache_key(code, VMKind::Wasmer2, config, gas_counter_mode);
         #[cfg(not(feature = "no_cache"))]
-        return memcache_compile_module_cached_wasmer2(key, &code.code(), config, cache, store);
+        return memcache_compile_module_cached_wasmer2(
+            key,
+            &code.code(),
+            config,
+            gas_counter_mode,
+            cache,
+            store,
+        );
         #[cfg(feature = "no_cache")]
-        return compile_module_cached_wasmer2_impl(key, &code.code(), config, cache, store);
+        return compile_module_cached_wasmer2_impl(
+            key,
+            &code.code(),
+            config,
+            gas_counter_mode,
+            cache,
+            store,
+        );
     }
 }
 
@@ -394,6 +420,7 @@ pub fn precompile_contract_vm(
                 wasm_code.code(),
                 &key,
                 config,
+                gas_counter_mode,
                 cache,
                 &store,
             ) {
