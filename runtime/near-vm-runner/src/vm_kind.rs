@@ -21,6 +21,16 @@ pub enum VMKind {
 
 impl VMKind {
     pub fn for_protocol_version(protocol_version: ProtocolVersion) -> VMKind {
+        if cfg!(feature = "force_wasmer0") {
+            return VMKind::Wasmer0;
+        }
+        if cfg!(feature = "force_wasmtime") {
+            return VMKind::Wasmtime;
+        }
+        if cfg!(feature = "force_wasmer2") {
+            return VMKind::Wasmer2;
+        }
+
         if checked_feature!("protocol_feature_wasmer2", Wasmer2, protocol_version) {
             VMKind::Wasmer2
         } else {

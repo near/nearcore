@@ -77,16 +77,11 @@ protocol_feature_wasmer2 = ["near-primitives/protocol_feature_wasmer2", "near-vm
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_simple_nightshade", "protocol_feature_lower_data_receipt_cost", "protocol_feature_routing_exchange_algorithm", "protocol_feature_wasmer2"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 
-# enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer2_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer2_default = ["node-runtime/wasmer2_default"]
-wasmer0_default = ["node-runtime/wasmer0_default"]
-wasmtime_default = ["node-runtime/wasmtime_default"]
-# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
-# but would not change default runner used by neard
-wasmer2_vm = ["node-runtime/wasmer2_vm"]
-wasmer0_vm = ["node-runtime/wasmer0_vm"]
-wasmtime_vm = ["node-runtime/wasmtime_vm"]
+# Force usage of a specific wasm vm irrespective of protocol version.
+force_wasmer2 = ["near-vm-runner/force_wasmer2"]
+force_wasmer0 = ["near-vm-runner/force_wasmer0"]
+force_wasmtime = ["near-vm-runner/force_wasmtime"]
+
 sandbox = ["near-client/sandbox", "node-runtime/sandbox", "near-jsonrpc/sandbox"]
 
 [package.metadata.workspaces]
