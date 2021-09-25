@@ -1267,7 +1267,10 @@ impl ClientActor {
             ctx,
             file!(),
             line!(),
-            // self.client.config.catchup_step_period,
+            // Some tests require quite fast blocks catch up
+            #[cfg(not(test))]
+            self.client.config.catchup_step_period,
+            #[cfg(test)]
             Duration::from_millis(1),
             move |act, ctx| {
                 act.catchup(ctx);
