@@ -1,7 +1,8 @@
-use cached::SizedCache;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::{hash::Hash, net::IpAddr};
+
+use cached::SizedCache;
 
 use crate::types::{BlockedPorts, PatternAddr};
 

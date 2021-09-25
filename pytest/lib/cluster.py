@@ -734,7 +734,7 @@ def start_cluster(num_nodes,
         node_dirs = [
             str(dot_near / name)
             for name in os.listdir(dot_near)
-            if name.starts_with('test') and not name.endswith('_finished')
+            if name.startswith('test') and not name.endswith('_finished')
         ]
     else:
         near_root, node_dirs = init_cluster(num_nodes, num_observers,

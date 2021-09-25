@@ -13,3 +13,6 @@ near-primitives = { path = "../../../core/primitives" }
 near-client = { path = "../../client" }
 near-network = { path = "../../network" }
 near-jsonrpc = { path = "../" }
+
+[features]
+adversarial = []
