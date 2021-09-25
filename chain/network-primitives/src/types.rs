@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::{Into, TryFrom};
 use std::fmt;
+use std::fmt::{Debug, Error, Formatter};
+use std::hash::Hash;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
@@ -17,6 +19,7 @@ use tracing::{error, warn};
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::block::{Approval, Block, BlockHeader, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,
@@ -32,10 +35,6 @@ use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransac
 use near_primitives::types::{AccountId, BlockHeight, BlockReference, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::{FinalExecutionOutcomeView, QueryRequest, QueryResponse};
-
-use std::fmt::{Debug, Error, Formatter};
-
-use near_primitives::merkle::combine_hash;
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -159,7 +158,7 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
 }
 
 /// Peer type.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum PeerType {
     /// Inbound session
     Inbound,

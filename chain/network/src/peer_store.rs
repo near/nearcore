@@ -197,6 +197,10 @@ impl PeerStore {
         peers.iter().take(count as usize).cloned().collect::<Vec<_>>()
     }
 
+    pub fn all_peers(&self) -> Vec<KnownPeerState> {
+        self.peer_states.iter().map(|(_, v)| v.clone()).collect()
+    }
+
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
     pub fn unconnected_peers(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Vec<PeerInfo> {
@@ -219,6 +223,10 @@ impl PeerStore {
             },
             max_count,
         )
+    }
+
+    pub fn connected_peers(&self, max_count: u32) -> Vec<PeerInfo> {
+        self.find_peers(|p| matches!(p.status, KnownPeerStatus::Connected), max_count)
     }
 
     /// Return iterator over all known peers.

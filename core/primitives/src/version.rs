@@ -111,6 +111,8 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
     LowerDataReceiptCost,
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    RoutingExchangeAlgorithm,
 }
 
 /// Current latest stable version of the protocol.
@@ -121,7 +123,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 116;
+pub const PROTOCOL_VERSION: ProtocolVersion = 117;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -152,6 +154,8 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
             ProtocolFeature::LowerDataReceiptCost => 116,
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            ProtocolFeature::RoutingExchangeAlgorithm => 117,
         }
     }
 }

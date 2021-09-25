@@ -1217,7 +1217,6 @@ mod test {
     use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
-    use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
@@ -1226,6 +1225,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_network::routing::EdgeInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
