@@ -2,14 +2,17 @@ use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
+use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt};
+use num_rational::Rational;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -18,6 +21,8 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_network::routing::EdgeInfo;
+use near_network::test_utils::MockNetworkAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
     PeerChainInfoV2,
@@ -28,6 +33,10 @@ use near_network::{
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
@@ -42,16 +51,6 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_network::routing::EdgeInfo;
-use near_network::test_utils::MockNetworkAdapter;
-use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use num_rational::Rational;
-use std::mem::swap;
-use std::time::Instant;
-
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
