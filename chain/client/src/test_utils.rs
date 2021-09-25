@@ -1097,7 +1097,7 @@ pub fn setup_client(
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
-    validators: Vec<AccountId>,
+    pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
 }
@@ -1111,20 +1111,16 @@ pub struct TestEnvBuilder {
     network_adapters: Option<Vec<Arc<MockNetworkAdapter>>>,
 }
 
-/// Builder for the `TestEnv` structure.
+/// Builder for the [`TestEnv`] structure.
 impl TestEnvBuilder {
     /// Constructs a new builder.
     fn new(chain_genesis: ChainGenesis) -> Self {
-        Self {
-            chain_genesis,
-            clients: Self::make_accounts(1, Self::default_formatter),
-            validators: Self::make_accounts(1, Self::default_formatter),
-            runtime_adapters: None,
-            network_adapters: None,
-        }
+        let clients = Self::make_accounts(1);
+        let validators = clients.clone();
+        Self { chain_genesis, clients, validators, runtime_adapters: None, network_adapters: None }
     }
 
-    /// Sets list of client `AccountId`s to the one provided.  Panics if the
+    /// Sets list of client [`AccountId`]s to the one provided.  Panics if the
     /// vector is empty.
     pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
         assert!(!clients.is_empty());
@@ -1132,31 +1128,35 @@ impl TestEnvBuilder {
         self
     }
 
-    /// Sets number of clients to given one.  Each client will use `AccountId`
-    /// in the form `test{}` where `{}` will count from zero.
+    /// Sets number of clients to given one.  To get [`AccountId`] used by the
+    /// validator associated with the client the [`TestEnv::get_client_id`]
+    /// method can be used.  Tests should not rely on any particular format of
+    /// account identifiers used by the builder.  Panics if `num` is zero.
     pub fn clients_count(self, num: usize) -> Self {
-        self.clients(Self::make_accounts(num, Self::default_formatter))
+        self.clients(Self::make_accounts(num))
     }
 
-    /// Sets list of validator `AccountId`s to the one provided.  Panics if the
-    /// vector is empty.
+    /// Sets list of validator [`AccountId`]s to the one provided.  Panics if
+    /// the vector is empty.
     pub fn validators(mut self, validators: Vec<AccountId>) -> Self {
         assert!(!validators.is_empty());
         self.validators = validators;
         self
     }
 
-    /// Sets number of validator seats to given one.  Each validator will use
-    /// `AccountId` in the form `test{}` where `{}` will count from zero.
+    /// Sets number of validator seats to given one.  To get [`AccountId`] used
+    /// in the test environment the `validators` field of the built [`TestEnv`]
+    /// object can be used.  Tests should not rely on any particular format of
+    /// account identifiers used by the builder.  Panics if `num` is zero.
     pub fn validator_seats(self, num: usize) -> Self {
-        self.validators(Self::make_accounts(num, Self::default_formatter))
+        self.validators(Self::make_accounts(num))
     }
 
     /// Specifies custom runtime adaptors for each client.  This allows us to
-    /// construct `TestEnv` with `NightshadeRuntime`.
+    /// construct [`TestEnv`] with [`NightshadeRuntime`].
     ///
-    /// The vector must have the same number of elements as they are clients.
-    /// If that does not hold, `build` method will panic.
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`build`] method will panic.
     pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
         self.runtime_adapters = Some(adapters);
         self
@@ -1164,8 +1164,8 @@ impl TestEnvBuilder {
 
     /// Specifies custom network adaptors for each client.
     ///
-    /// The vector must have the same number of elements as they are clients.
-    /// If that does not hold, `build` method will panic.
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`build`] method will panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
@@ -1230,15 +1230,8 @@ impl TestEnvBuilder {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
-    fn default_formatter(id: usize) -> std::string::String {
-        format!("test{}", id)
-    }
-
-    fn make_accounts<F>(count: usize, formatter: F) -> Vec<AccountId>
-    where
-        F: Fn(usize) -> std::string::String,
-    {
-        (0..count).map(|i| AccountId::try_from(formatter(i)).unwrap()).collect()
+    fn make_accounts(count: usize) -> Vec<AccountId> {
+        (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 }
 
