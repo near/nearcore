@@ -52,7 +52,7 @@ use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
 #[cfg(feature = "adversarial")]
 use crate::routing::SetAdvOptionsResult;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::ValidIBFLevel;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::MIN_IBF_LEVEL;
