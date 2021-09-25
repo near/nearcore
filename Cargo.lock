@@ -2991,7 +2991,6 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "borsh 0.9.0",
- "byteorder",
  "chrono",
  "near-crypto",
  "near-primitives",
