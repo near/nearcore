@@ -30,9 +30,6 @@ use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 #[cfg(feature = "adversarial")]
 use near_crypto::Signature;
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use near_network_primitives::types::MIN_IBF_LEVEL;
-use near_network_primitives::types::{Edge, EdgeInfo, EdgeType, SimpleEdge};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -53,26 +50,34 @@ use crate::ibf_set::IbfSet;
 use crate::metrics;
 use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
+#[cfg(feature = "adversarial")]
+use crate::routing::SetAdvOptionsResult;
+#[cfg(feature = "adversarial")]
+use crate::routing::ValidIBFLevel;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::MIN_IBF_LEVEL;
+
 use crate::routing::{
-    EdgeVerifierHelper, ProcessEdgeResult, RoutingTable, MAX_NUM_PEERS, SAVE_PEERS_AFTER_TIME,
+    Edge, EdgeInfo, EdgeType, EdgeVerifierHelper, GetRoutingTableResult, PeerRequestResult,
+    ProcessEdgeResult, RoutingTable, SimpleEdge, MAX_NUM_PEERS, SAVE_PEERS_AFTER_TIME,
 };
+
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
-    FullPeerInfo, GetRoutingTable, GetRoutingTableResult, InboundTcpConnect, KnownPeerState,
-    KnownPeerStatus, KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo,
-    NetworkRequests, NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses,
-    OutboundTcpConnect, PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest,
-    PeerRequestResult, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
+    FullPeerInfo, GetRoutingTable, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
+    KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests,
+    NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData,
+    Unregister,
 };
 #[cfg(feature = "adversarial")]
 use crate::types::{
-    GetPeerId, GetPeerIdResult, SetAdvOptions, SetAdvOptionsResult, SetRoutingTable,
-    StartRoutingTableSync,
+    GetPeerId, GetPeerIdResult, SetAdvOptions, SetRoutingTable, StartRoutingTableSync,
 };
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2, ValidIBFLevel};
+use crate::types::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;

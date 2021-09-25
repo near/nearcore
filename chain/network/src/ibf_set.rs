@@ -6,12 +6,11 @@ use std::marker::PhantomData;
 
 use tracing::{error, warn};
 
-use near_network_primitives::types::{MAX_IBF_LEVEL, MIN_IBF_LEVEL};
 use near_stable_hasher::StableHasher;
 
 use crate::ibf::{Ibf, IbfBox};
 use crate::ibf_peer_set::SlotMapId;
-use crate::types::ValidIBFLevel;
+use crate::routing::{ValidIBFLevel, MAX_IBF_LEVEL, MIN_IBF_LEVEL};
 
 /// Stores list of `Ibf` data structures of various sizes.
 /// In the current implementation we use sizes from 2^10+  2 ... 2^17 + 2.
@@ -108,7 +107,7 @@ where
 mod test {
     use crate::ibf_peer_set::SlotMapId;
     use crate::ibf_set::IbfSet;
-    use crate::types::ValidIBFLevel;
+    use crate::routing::ValidIBFLevel;
 
     #[test]
     fn test_ibf_set() {

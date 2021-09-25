@@ -10,6 +10,8 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future::BoxFuture, FutureExt};
+#[cfg(feature = "adversarial")]
+use serde::Serialize;
 use strum::AsStaticStr;
 
 use conqueue::QueueSender;
@@ -31,7 +33,12 @@ use near_primitives::views::QueryRequest;
 
 use crate::ibf::IbfBox;
 use crate::peer::Peer;
-use crate::routing::RoutingTableInfo;
+#[cfg(feature = "adversarial")]
+use crate::routing::SetAdvOptionsResult;
+use crate::routing::{
+    Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
+    ValidIBFLevel,
+};
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
@@ -449,6 +456,12 @@ pub struct GetPeerId {}
 
 impl Message for GetPeerId {
     type Result = GetPeerIdResult;
+}
+
+#[derive(MessageResponse, Debug)]
+#[cfg_attr(feature = "adversarial", derive(Serialize))]
+pub struct GetPeerIdResult {
+    pub peer_id: PeerId,
 }
 
 pub struct GetRoutingTable {}

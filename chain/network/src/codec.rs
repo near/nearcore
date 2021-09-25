@@ -179,7 +179,7 @@ mod test {
     };
 
     use super::*;
-    use near_network_primitives::types::EdgeInfo;
+    use crate::routing::EdgeInfo;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();

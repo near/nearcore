@@ -25,7 +25,7 @@ use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{EdgeInfo, NetworkInfo, PeerChainInfoV2, ReasonForBan};
+use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -33,6 +33,7 @@ use near_network::{
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
+use near_network::routing::EdgeInfo;
 #[cfg(feature = "protocol_feature_simple_nightshade")]
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::InvalidTxError;

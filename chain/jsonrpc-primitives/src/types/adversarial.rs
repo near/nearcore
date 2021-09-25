@@ -1,5 +1,5 @@
 use crate::errors::RpcError;
-use near_network_primitives::types::{Edge, SimpleEdge};
+use near_network::routing::{Edge, SimpleEdge};
 use near_primitives::network::PeerId;
 use serde::Deserialize;
 use serde_json::Value;
