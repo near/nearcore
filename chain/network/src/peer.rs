@@ -744,7 +744,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 return;
             }
         };
-        // Drop duplicated messages routed within 1s
+        // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
         if let PeerMessage::Routed(msg) = &peer_msg {
             let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
             let now = Utc::now();
