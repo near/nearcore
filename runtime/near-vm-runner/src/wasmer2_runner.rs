@@ -11,7 +11,7 @@ use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicE
 use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 
-use crate::cache::StableHasher;
+use near_stable_hasher::StableHasher;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_vm::TrapCode;
 

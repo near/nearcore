@@ -11,20 +11,25 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
-use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use tracing::{debug, error, info, trace, warn};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_metrics;
 use near_performance_metrics;
+use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
+use near_performance_metrics_macros::perf;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
+use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
+use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
@@ -43,11 +48,6 @@ use crate::{
     metrics::{self, NetworkMetrics},
     NetworkResponses,
 };
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
-use near_performance_metrics_macros::perf;
-use near_primitives::sharding::PartialEncodedChunk;
-use near_rust_allocator_proxy::allocator::get_tid;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -562,6 +562,7 @@ impl Peer {
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_)
             | PeerMessage::RoutingTableSync(_)
+            | PeerMessage::RoutingTableSyncV2(_)
             | PeerMessage::LastEdge(_)
             | PeerMessage::Disconnect
             | PeerMessage::RequestUpdateNonce(_)
@@ -867,6 +868,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         chain_info: handshake.chain_info.clone(),
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
+                        peer_protocol_version: self.protocol_version,
                     })
                     .into_actor(self)
                     .then(move |res, act, ctx| {
@@ -982,6 +984,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
                 self.peer_manager_addr
                     .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
+            }
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+                self.peer_manager_addr.do_send(NetworkRequests::IbfMessage {
+                    peer_id: self.peer_id().unwrap(),
+                    ibf_msg: ibf_message,
+                });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
