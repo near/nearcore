@@ -1724,6 +1724,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            // For unit tests
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -1831,10 +1832,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
+            // For unit tests
             NetworkRequests::PingTo(nonce, target) => {
                 self.send_ping(ctx, nonce, target);
                 NetworkResponses::NoResponse
             }
+            // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table.fetch_ping_pong();
                 NetworkResponses::PingPongInfo { pings, pongs }

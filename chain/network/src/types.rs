@@ -638,7 +638,7 @@ pub enum NetworkRequests {
     ReceiptOutComeRequest(AccountId, CryptoHash),
 
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
-    /// Fetch current routing table.
+    /// (Unit tests) Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
     Sync {
@@ -649,9 +649,9 @@ pub enum NetworkRequests {
     RequestUpdateNonce(PeerId, EdgeInfo),
     ResponseUpdateNonce(Edge),
 
-    /// Start ping to `PeerId` with `nonce`.
+    /// (Unit tests) Start ping to `PeerId` with `nonce`.
     PingTo(usize, PeerId),
-    /// Fetch all received ping and pong so far.
+    /// (Unit tests) Fetch all received ping and pong so far.
     FetchPingPongInfo,
 
     /// A challenge to invalidate a block.
