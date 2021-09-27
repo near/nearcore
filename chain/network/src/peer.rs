@@ -11,11 +11,14 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use cached::{Cached, SizedCache};
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_crypto::Signature;
 use near_metrics;
+use near_network_primitives::types::PeerIdOrHash;
 use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -48,10 +51,6 @@ use crate::{
     metrics::{self, NetworkMetrics},
     NetworkResponses,
 };
-use cached::{Cached, SizedCache};
-
-use near_crypto::Signature;
-use near_network_primitives::types::PeerIdOrHash;
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
