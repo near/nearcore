@@ -926,14 +926,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 if self.peer_type == PeerType::Inbound {
                     info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
-                    return ();
+                    return;
                 }
 
                 // Disconnect if neighbor propose invalid edge.
                 if !edge.verify() {
                     info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
-                    return ();
+                    return;
                 }
 
                 self.peer_manager_addr
