@@ -1149,10 +1149,8 @@ struct ChainStoreCacheUpdate {
     processed_block_heights: HashSet<BlockHeight>,
 }
 
-/// Provides layer to update chain without touching the underlying database.
-/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub struct ChainStoreUpdate<'a> {
-    chain_store: &'a mut ChainStore,
+pub struct ChainStoreUpdateImpl<T> {
+    chain_store: T,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
@@ -1176,6 +1174,10 @@ pub struct ChainStoreUpdate<'a> {
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
+
+/// Provides layer to update chain without touching the underlying database.
+/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
+pub type ChainStoreUpdate<'a> = ChainStoreUpdateImpl<&'a mut ChainStore>;
 
 impl<'a> ChainStoreUpdate<'a> {
     pub fn new(chain_store: &'a mut ChainStore) -> Self {
@@ -2933,9 +2935,12 @@ impl<'a> ChainStoreUpdate<'a> {
 
         Ok(())
     }
+}
 
-    pub fn save(self) -> SavedStoreUpdate {
+impl Into<SavedStoreUpdate> for ChainStoreUpdate<'_> {
+    fn into(self) -> SavedStoreUpdate {
         SavedStoreUpdate {
+            chain_store: (),
             store_updates: self.store_updates,
             chain_store_cache_update: self.chain_store_cache_update,
             head: self.head,
@@ -2960,26 +2965,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
 /// Saves changes from ChainStoreUpdate without link to ChainStore. Needed to preserve changes while
 /// applying block in other thread
-pub struct SavedStoreUpdate {
-    store_updates: Vec<StoreUpdate>,
-    chain_store_cache_update: ChainStoreCacheUpdate,
-    head: Option<Tip>,
-    tail: Option<BlockHeight>,
-    chunk_tail: Option<BlockHeight>,
-    fork_tail: Option<BlockHeight>,
-    header_head: Option<Tip>,
-    final_head: Option<Tip>,
-    largest_target_height: Option<BlockHeight>,
-    trie_changes: Vec<WrappedTrieChanges>,
-    add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
-    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
-    add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
-    remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
-    remove_prev_blocks_to_catchup: Vec<CryptoHash>,
-    add_state_dl_infos: Vec<StateSyncInfo>,
-    remove_state_dl_infos: Vec<CryptoHash>,
-    challenged_blocks: HashSet<CryptoHash>,
-}
+pub type SavedStoreUpdate = ChainStoreUpdateImpl<()>;
 
 impl SavedStoreUpdate {
     pub fn restore<'a>(self, chain_store: &'a mut ChainStore) -> ChainStoreUpdate<'a> {

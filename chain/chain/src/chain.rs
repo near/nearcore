@@ -1949,7 +1949,7 @@ impl Chain {
             )?;
             blocks_catch_up_state
                 .scheduled_blocks
-                .insert(pending_block, chain_update.save_store_update());
+                .insert(pending_block, chain_update.into_saved_store_update());
             block_catch_up_scheduler(BlockCatchUpRequest {
                 sync_hash: sync_hash.clone(),
                 block_hash: pending_block,
@@ -2763,8 +2763,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Saves store update to preserve between passing work to other thread
-    pub fn save_store_update(self) -> SavedStoreUpdate {
-        self.chain_store_update.save()
+    pub fn into_saved_store_update(self) -> SavedStoreUpdate {
+        self.chain_store_update.into()
     }
 
     /// Process block header as part of "header first" block propagation.
