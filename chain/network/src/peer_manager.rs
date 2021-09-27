@@ -28,8 +28,6 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
-#[cfg(feature = "adversarial")]
-use near_crypto::Signature;
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -73,9 +71,7 @@ use crate::types::{
     Unregister,
 };
 #[cfg(feature = "adversarial")]
-use crate::types::{
-    GetPeerId, GetPeerIdResult, SetAdvOptions, SetRoutingTable, StartRoutingTableSync,
-};
+use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 
@@ -1099,12 +1095,12 @@ impl PeerManagerActor {
     }
 
     #[cfg(feature = "adversarial")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     fn adv_remove_edges_from_routing_table(
         &mut self,
         ctx: &mut Context<Self>,
         edges: Vec<SimpleEdge>,
     ) {
-        let edges = edges;
         // Create fake edges with no signature for unit test purposes
         let edges: Vec<Edge> = edges
             .iter()
@@ -1113,8 +1109,8 @@ impl PeerManagerActor {
                     se.key().0.clone(),
                     se.key().1.clone(),
                     se.nonce(),
-                    Signature::default(),
-                    Signature::default(),
+                    near_crypto::Signature::default(),
+                    near_crypto::Signature::default(),
                 )
             })
             .collect();
@@ -2129,11 +2125,12 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
 
 #[cfg(feature = "adversarial")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl Handler<StartRoutingTableSync> for PeerManagerActor {
+impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
     type Result = ();
 
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     #[perf]
-    fn handle(&mut self, msg: StartRoutingTableSync, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: crate::types::StartRoutingTableSync, ctx: &mut Self::Context) {
         if let Some(active_peer) = self.active_peers.get(&msg.peer_id) {
             let addr = active_peer.addr.clone();
             self.initialize_routing_table_exchange(msg.peer_id, PeerType::Inbound, addr, ctx);
@@ -2177,11 +2174,12 @@ impl Handler<GetRoutingTable> for PeerManagerActor {
 }
 
 #[cfg(feature = "adversarial")]
-impl Handler<SetRoutingTable> for PeerManagerActor {
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: SetRoutingTable, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: crate::types::SetRoutingTable, ctx: &mut Self::Context) {
         if let Some(add_edges) = msg.add_edges {
             debug!(target: "network", "adversarial add_edges {}", add_edges.len());
             self.add_verified_edges_to_routing_table(ctx, add_edges);
