@@ -709,6 +709,7 @@ impl RoutingTable {
         res
     }
 
+    // for unit tests
     pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
         let entry = if let Some(entry) = self.waiting_pong.cache_get_mut(&target) {
             entry
@@ -730,6 +731,7 @@ impl RoutingTable {
         }
     }
 
+    // for unit tests
     pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {
         (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
     }

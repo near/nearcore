@@ -1337,6 +1337,7 @@ impl PeerManagerActor {
 
     // Ping pong useful functions.
 
+    // for unit tests
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
