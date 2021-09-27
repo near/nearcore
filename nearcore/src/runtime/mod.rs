@@ -617,6 +617,7 @@ impl NightshadeRuntime {
                     precompile_contract(
                         &code,
                         &runtime_config.wasm_config,
+                        protocol_version,
                         compiled_contract_cache.as_deref(),
                     )
                     .ok();
