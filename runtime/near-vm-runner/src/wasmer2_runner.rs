@@ -299,11 +299,9 @@ fn run_method(
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new_without_start_func(&module, &import).map_err(|err| err.into_vm_error())?
     };
-
     let instance = Wasmer2Instance(instance);
     if logic.gas_counter_mode() == GasCounterMode::Wasm {
         if let GasMode::Paid(available_ops) = gas_mode {
-            println!("remaining_ops {}", available_ops);
             instance.set_remaining_ops(available_ops);
         }
     }
@@ -321,6 +319,17 @@ fn run_method_inner(
     gas_mode: GasMode,
     logic: &mut VMLogic,
 ) -> Result<(), VMError> {
+    let call_start_func_result = {
+        let _span = tracing::debug_span!(target: "vm", "run_method/call_start_func").entered();
+        instance.call_start_func()
+    };
+    if logic.gas_counter_mode() == GasCounterMode::Wasm {
+        if let GasMode::Paid(_) = gas_mode {
+            logic.sync_from_wasm_counter().map_err(|e: VMLogicError| -> VMError { (&e).into() })?;
+        }
+    }
+    call_start_func_result.map_err(|err| err.into_vm_error())?;
+
     let f = instance.exports.get_function(method_name).map_err(|err| err.into_vm_error())?;
     let f = f.native::<(), ()>().map_err(|err| err.into_vm_error())?;
 

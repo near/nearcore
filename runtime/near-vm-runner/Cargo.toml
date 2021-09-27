@@ -21,16 +21,16 @@ wasmer-runtime-core = { git = "https://github.com/near/wasmer", rev = "8defdd0c8
 wasmparser = "0.51"
 
 # Use the following for development versions of Wasmer.
-# wasmer = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
-# wasmer-types = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-engine-universal = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-vm = { git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer = { path = "../../../wasmer/lib/api",  package = "wasmer-near", version = "2.0.0", optional = true, default-features = false, features = ["singlepass", "universal"] }
-wasmer-types = { path = "../../../wasmer/lib/types", package = "wasmer-types-near", version = "2.0.0", optional = true }
-wasmer-compiler-singlepass = { path = "../../../wasmer/lib/compiler-singlepass", package = "wasmer-compiler-singlepass-near", version = "2.0.0", optional = true }
-wasmer-engine-universal = { path = "../../../wasmer/lib/engine-universal", package = "wasmer-engine-universal-near", version = "2.0.0", optional = true }
-wasmer-vm = { path = "../../../wasmer/lib/vm", package = "wasmer-vm-near", version = "2.0.0" }
+wasmer = { package = "wasmer-near", git = "https://github.com/near/wasmer", rev = "e18f1fde753cf9b2f17759c39c3579b5f4d8dc9e", optional = true, default-features = false, features = ["singlepass", "universal"] }
+wasmer-types = { package = "wasmer-types-near", git = "https://github.com/near/wasmer", rev = "e18f1fde753cf9b2f17759c39c3579b5f4d8dc9e", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", git = "https://github.com/near/wasmer", rev = "e18f1fde753cf9b2f17759c39c3579b5f4d8dc9e", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", git = "https://github.com/near/wasmer", rev = "e18f1fde753cf9b2f17759c39c3579b5f4d8dc9e", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", git = "https://github.com/near/wasmer", rev = "e18f1fde753cf9b2f17759c39c3579b5f4d8dc9e" }
+# wasmer = { package = "wasmer-near", version = "2.0.1", optional = true, default-features = false, features = ["singlepass", "universal"] }
+# wasmer-types = { package = "wasmer-types-near", version = "2.0.1", optional = true }
+# wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "2.0.1", optional = true }
+# wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "2.0.1", optional = true }
+# wasmer-vm = { package = "wasmer-vm-near", version = "2.0.1" }
 
 pwasm-utils = { git = "https://github.com/near/wasm-utils", rev = "5d1385ff790de0527c654eb79a4198f725ed2d80" }
 parity-wasm = "0.41"

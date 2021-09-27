@@ -22,12 +22,12 @@ const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
 
 fn with_vm_variants(runner: fn(VMKind) -> ()) {
-    // #[cfg(feature = "wasmer0_vm")]
+    #[cfg(feature = "wasmer0_vm")]
     runner(VMKind::Wasmer0);
-    // println!("========");
-    // #[cfg(feature = "wasmtime_vm")]
-    // runner(VMKind::Wasmtime);
-    println!("========");
+
+    #[cfg(feature = "wasmtime_vm")]
+    runner(VMKind::Wasmtime);
+
     #[cfg(feature = "wasmer2_vm")]
     runner(VMKind::Wasmer2);
 }
@@ -96,7 +96,6 @@ fn make_simple_contract_call_vm(
         vm_kind,
         GasCounterMode::HostFunction,
     );
-    println!("-------");
     let with_new_counter = make_simple_contract_call_with_gas_vm(
         code,
         method_name,
