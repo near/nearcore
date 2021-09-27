@@ -212,9 +212,9 @@ impl Ibf {
     ) {
         let pos_list = self.generate_idx(elem_hash);
 
-        for pos in pos_list {
-            self.data[pos].merge(&IbfBox::new(elem, elem_hash));
-            queue.push(pos);
+        for pos in pos_list.iter() {
+            self.data[*pos].merge(&IbfBox::new(elem, elem_hash));
+            queue.push(*pos);
         }
     }
 
@@ -223,8 +223,8 @@ impl Ibf {
         let elem_hash = self.compute_hash(elem);
         let pos_list = self.generate_idx(elem_hash);
 
-        for pos in pos_list {
-            self.data[pos].merge(&IbfBox::new(elem, elem_hash));
+        for pos in pos_list.iter() {
+            self.data[*pos].merge(&IbfBox::new(elem, elem_hash));
         }
     }
 }
