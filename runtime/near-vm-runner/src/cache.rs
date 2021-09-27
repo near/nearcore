@@ -15,8 +15,6 @@ use near_vm_errors::{CacheError, VMError};
 use near_vm_logic::VMConfig;
 use std::collections::HashMap;
 use std::fmt;
-#[allow(deprecated)]
-use std::hash::{Hasher, SipHasher};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshSerialize)]
@@ -378,24 +376,4 @@ pub fn precompile_contract(
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
     precompile_contract_vm(VMKind::default(), wasm_code, config, cache)
-}
-
-/// We not use stable hasher as it could change with Rust releases, so rely on stable SIP hash.
-#[allow(deprecated)]
-pub(crate) struct StableHasher(SipHasher);
-
-impl StableHasher {
-    #[allow(deprecated)]
-    pub fn new() -> StableHasher {
-        StableHasher(SipHasher::new())
-    }
-}
-
-impl Hasher for StableHasher {
-    fn finish(&self) -> u64 {
-        self.0.finish()
-    }
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.write(bytes)
-    }
 }
