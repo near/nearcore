@@ -480,6 +480,7 @@ pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
     pub disable_edge_propagation: Option<bool>,
     pub disable_edge_pruning: Option<bool>,
+    pub set_max_peers: Option<u64>,
 }
 
 #[cfg(feature = "test_features")]
@@ -714,7 +715,7 @@ where
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
-    PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
+    PingPongInfo { pings: HashMap<usize, (Ping, usize)>, pongs: HashMap<usize, (Pong, usize)> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Box<Edge>),
     RouteNotFound,

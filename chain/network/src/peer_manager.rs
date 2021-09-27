@@ -1897,6 +1897,9 @@ impl Handler<SetAdvOptions> for PeerManagerActor {
         if let Some(disable_edge_pruning) = msg.disable_edge_pruning {
             self.adv_disable_edge_pruning = disable_edge_pruning;
         }
+        if let Some(set_max_peers) = msg.set_max_peers {
+            self.config.max_num_peers = set_max_peers as u32;
+        }
         SetAdvOptionsResult {}
     }
 }

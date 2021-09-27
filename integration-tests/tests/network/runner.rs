@@ -19,6 +19,9 @@ use near_network::test_utils::{
     convert_boot_nodes, expected_routing_tables, make_ibf_routing_pool, open_port,
     peer_id_from_seed, BanPeerSignal, GetInfo, StopSignal, WaitOrTimeout,
 };
+
+#[cfg(feature = "adversarial")]
+use near_network::types::SetAdvOptions;
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
@@ -115,12 +118,16 @@ pub enum Action {
     // Send ping from `source` with `nonce` to `target`
     PingTo(usize, usize, usize),
     // Check for `source` received pings and pongs.
-    CheckPingPong(usize, Vec<(usize, usize)>, Vec<(usize, usize)>),
+    CheckPingPong(usize, Vec<(usize, usize, Option<usize>)>, Vec<(usize, usize, Option<usize>)>),
     // Send stop signal to some node.
     Stop(usize),
     // Wait time in milliseconds
     Wait(usize),
-    SetOptions { target: usize, max_num_peers: Option<usize> },
+    #[cfg(feature = "adversarial")]
+    SetOptions {
+        target: usize,
+        max_num_peers: Option<u64>,
+    },
 }
 
 #[derive(Clone)]
@@ -151,19 +158,24 @@ impl StateMachine {
                           flag: Arc<AtomicBool>,
                           _ctx: &mut Context<WaitOrTimeout>,
                           _runner| {
-                        let addr = info.read().unwrap().pm_addr[u].clone();
-                        let peer_info = info.read().unwrap().peers_info[v].clone();
-                        actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(
-                            move |res| match res {
+                        let addr = info.read().unwrap().pm_addr[target].clone();
+                        actix::spawn(
+                            addr.send(SetAdvOptions {
+                                disable_edge_signature_verification: None,
+                                disable_edge_propagation: None,
+                                disable_edge_pruning: None,
+                                set_max_peers: max_num_peers,
+                            })
+                            .then(move |res| match res {
                                 Ok(_) => {
                                     flag.store(true, Ordering::Relaxed);
                                     future::ready(())
                                 }
                                 Err(e) => {
-                                    panic!("Error adding edge. {:?}", e);
+                                    panic!("Error setting options. {:?}", e);
                                 }
-                            },
-                        ));
+                            }),
+                        );
                     },
                 ));
             }
@@ -323,16 +335,16 @@ impl StateMachine {
                         let pings_expected: Vec<_> = pings
                             .clone()
                             .into_iter()
-                            .map(|(nonce, source)| {
-                                (nonce, info.read().unwrap().peers_info[source].id.clone())
+                            .map(|(nonce, source, count)| {
+                                (nonce, info.read().unwrap().peers_info[source].id.clone(), count)
                             })
                             .collect();
 
                         let pongs_expected: Vec<_> = pongs
                             .clone()
                             .into_iter()
-                            .map(|(nonce, source)| {
-                                (nonce, info.read().unwrap().peers_info[source].id.clone())
+                            .map(|(nonce, source, count)| {
+                                (nonce, info.read().unwrap().peers_info[source].id.clone(), count)
                             })
                             .collect();
 
@@ -346,24 +358,29 @@ impl StateMachine {
                                 .map_err(|_| ())
                                 .and_then(move |res| {
                                     if let NetworkResponses::PingPongInfo { pings, pongs } = res {
-                                        let len_matches = pings.len() == pings_expected.len()
-                                            && pongs.len() == pongs_expected.len();
+                                        let ping_ok = pings.len() == pings_expected.len()
+                                            && pings_expected.into_iter().all(
+                                                |(nonce, source, count)| {
+                                                    pings.get(&nonce).map_or(false, |ping| {
+                                                        ping.0.source == source
+                                                            && (count.is_none()
+                                                                || count.unwrap() == ping.1)
+                                                    })
+                                                },
+                                            );
 
-                                        let ping_ok = len_matches
-                                            && pings_expected.into_iter().all(|(nonce, source)| {
-                                                pings
-                                                    .get(&nonce)
-                                                    .map_or(false, |ping| ping.source == source)
-                                            });
+                                        let pong_ok = pongs.len() == pongs_expected.len()
+                                            && pongs_expected.into_iter().all(
+                                                |(nonce, source, count)| {
+                                                    pongs.get(&nonce).map_or(false, |pong| {
+                                                        pong.0.source == source
+                                                            && (count.is_none()
+                                                                || count.unwrap() == pong.1)
+                                                    })
+                                                },
+                                            );
 
-                                        let pong_ok = len_matches
-                                            && pongs_expected.into_iter().all(|(nonce, source)| {
-                                                pongs
-                                                    .get(&nonce)
-                                                    .map_or(false, |pong| pong.source == source)
-                                            });
-
-                                        if len_matches && ping_ok && pong_ok {
+                                        if ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
                                         }
                                     }
