@@ -5,7 +5,8 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use actix::dev::ToEnvelope;
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::Duration as OldDuration;
@@ -145,7 +146,6 @@ impl ClientActor {
                 SyncJobsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
             },
         );
-        let sync_jobs_actor_addr2 = sync_jobs_actor_addr.clone();
         wait_until_genesis(&chain_genesis.time);
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -184,33 +184,36 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
-            state_parts_task_scheduler: Box::new(move |msg: ApplyStatePartsRequest| {
-                if let Err(err) = sync_jobs_actor_addr.try_send(msg) {
-                    match err {
-                        SendError::Full(request) => {
-                            sync_jobs_actor_addr.do_send(request);
-                        }
-                        SendError::Closed(_) => {
-                            panic!("Can't send message to SyncJobsActor, mailbox is closed");
-                        }
-                    }
-                }
-            }),
-            block_catch_up_scheduler: Box::new(move |msg: BlockCatchUpRequest| {
-                if let Err(err) = sync_jobs_actor_addr2.try_send(msg) {
-                    match err {
-                        SendError::Full(request) => {
-                            sync_jobs_actor_addr2.do_send(request);
-                        }
-                        SendError::Closed(_) => {
-                            panic!("Can't send message to SyncJobsActor, mailbox is closed");
-                        }
-                    }
-                }
-            }),
+            state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
+                sync_jobs_actor_addr.clone(),
+            ),
+            block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
+                sync_jobs_actor_addr,
+            ),
             state_parts_client_arbiter: state_parts_arbiter,
         })
     }
+}
+
+fn create_sync_job_scheduler<M>(address: Addr<SyncJobsActor>) -> Box<dyn Fn(M)>
+where
+    M: Message + Send + 'static,
+    M::Result: Send,
+    SyncJobsActor: Handler<M>,
+    Context<SyncJobsActor>: ToEnvelope<SyncJobsActor, M>,
+{
+    Box::new(move |msg: M| {
+        if let Err(err) = address.try_send(msg) {
+            match err {
+                SendError::Full(request) => {
+                    address.do_send(request);
+                }
+                SendError::Closed(_) => {
+                    panic!("Can't send message, mailbox is closed");
+                }
+            }
+        }
+    })
 }
 
 impl Actor for ClientActor {
@@ -353,7 +356,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             ),
                         )
                     }
-                }
+                };
             }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
                 self.client.process_tx(transaction, is_forwarded, check_only)
@@ -1260,7 +1263,9 @@ impl ClientActor {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
-            Err(err) => self.handle_catchup_error(err),
+            Err(err) => {
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
+            }
         }
 
         near_performance_metrics::actix::run_later(
@@ -1301,7 +1306,7 @@ impl ClientActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
-        macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
+        macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
@@ -1535,10 +1540,6 @@ impl ClientActor {
                 act.log_summary(ctx);
             },
         );
-    }
-
-    fn handle_catchup_error(&self, err: Error) {
-        error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
     }
 }
 
