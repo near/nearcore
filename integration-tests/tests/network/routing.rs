@@ -304,6 +304,7 @@ fn test_dropping_routing_messages() {
     runner.push(Action::PingTo(0, 0, 2));
     runner.push(Action::Wait(300));
     runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::Wait(300));
     runner.push(Action::CheckPingPong(2, vec![(0, 0, Some(3))], vec![]));
     runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, Some(3))]));
 

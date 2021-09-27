@@ -382,6 +382,11 @@ impl StateMachine {
 
                                         if ping_ok && pong_ok {
                                             flag.store(true, Ordering::Relaxed);
+                                        } else {
+                                            panic!(
+                                                "ping, pong check failed got: {:?} {:?}",
+                                                pings, pongs
+                                            );
                                         }
                                     }
 
