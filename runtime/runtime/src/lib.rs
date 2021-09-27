@@ -352,6 +352,7 @@ impl Runtime {
                     &account_id,
                     deploy_contract,
                     &apply_state,
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -2407,11 +2408,8 @@ mod tests {
         store_update.commit().unwrap();
 
         let contract_code = ContractCode::new(wasm_code, None);
-        let key = get_contract_cache_key(
-            &contract_code,
-            VMKind::default(),
-            &apply_state.config.wasm_config,
-        );
+        let vm_kind = VMKind::for_protocol_version(apply_state.current_protocol_version);
+        let key = get_contract_cache_key(&contract_code, vm_kind, &apply_state.config.wasm_config);
         apply_state
             .cache
             .unwrap()
