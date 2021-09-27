@@ -34,7 +34,6 @@ use state_dump::state_dump;
 
 mod apply_chain_range;
 mod state_dump;
-mod apply_chain_range;
 
 #[allow(unused)]
 enum LoadTrieMode {
