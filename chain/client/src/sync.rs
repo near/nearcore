@@ -825,7 +825,7 @@ impl StateSync {
                     } else {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
-                            status: ShardSyncStatus::BlocksCatchingUp,
+                            status: ShardSyncStatus::StateSyncDone,
                         };
                         this_done = true;
                     }
@@ -836,11 +836,11 @@ impl StateSync {
                     debug!(target: "sync", "State sync split: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
                     *shard_sync_download = ShardSyncDownload {
                         downloads: vec![],
-                        status: ShardSyncStatus::BlocksCatchingUp,
+                        status: ShardSyncStatus::StateSyncDone,
                     };
                     this_done = true;
                 }
-                ShardSyncStatus::BlocksCatchingUp => {
+                ShardSyncStatus::StateSyncDone => {
                     this_done = true;
                 }
             }
