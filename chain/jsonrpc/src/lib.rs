@@ -22,18 +22,24 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 #[cfg(feature = "adversarial")]
-use near_jsonrpc_primitives::types::adversarial::{
-    SetAdvOptionsRequest, SetRoutingTableRequest, StartRoutingTableSyncRequest,
-};
+use near_jsonrpc_primitives::types::adversarial::SetAdvOptionsRequest;
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_jsonrpc_primitives::types::adversarial::SetRoutingTableRequest;
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_jsonrpc_primitives::types::adversarial::StartRoutingTableSyncRequest;
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
 use near_network::types::{
-    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
-    SetAdvOptions, SetRoutingTable, StartRoutingTableSync,
+    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_network::types::{SetRoutingTable, StartRoutingTableSync};
 #[cfg(feature = "adversarial")]
 use near_network::PeerManagerActor;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
@@ -263,6 +269,7 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
+                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
                     let request = SetRoutingTableRequest::parse(params)?;
                     let result = self
@@ -278,6 +285,7 @@ impl JsonRpcHandler {
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
+                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_start_routing_table_syncv2" => {
                     let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
 
