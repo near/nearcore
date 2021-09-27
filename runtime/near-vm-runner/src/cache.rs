@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::{CacheError, VMError};
-use near_vm_logic::VMConfig;
+use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -373,7 +373,9 @@ pub fn precompile_contract_vm(
 pub fn precompile_contract(
     wasm_code: &ContractCode,
     config: &VMConfig,
+    current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
-    precompile_contract_vm(VMKind::default(), wasm_code, config, cache)
+    let vm_kind = VMKind::for_protocol_version(current_protocol_version);
+    precompile_contract_vm(vm_kind, wasm_code, config, cache)
 }
