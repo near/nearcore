@@ -1534,7 +1534,7 @@ impl ShardsManager {
             .decode_chunk(self.runtime_adapter.num_data_parts())
             .map_err(|err| Error::from(err))
             .and_then(|shard_chunk| {
-                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter) {
+                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter)? {
                     return Err(Error::InvalidChunk);
                 }
                 Ok(shard_chunk)
@@ -1576,13 +1576,8 @@ impl ShardsManager {
     ) -> Result<(), Error> {
         let header = encoded_chunk.cloned_header();
         let shard_id = header.shard_id();
-        let shard_layout = {
-            let epoch_id = self
-                .runtime_adapter
-                .get_epoch_id_from_prev_block(&header.prev_block_hash())
-                .unwrap();
-            self.runtime_adapter.get_shard_layout(&epoch_id)?
-        };
+        let shard_layout =
+            self.runtime_adapter.get_shard_layout_from_prev_block(&header.prev_block_hash())?;
         let outgoing_receipts_hashes =
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
@@ -1639,10 +1634,8 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
-        let shard_layout = {
-            let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
-            self.runtime_adapter.get_shard_layout(&epoch_id)?
-        };
+        let shard_layout =
+            self.runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let outgoing_receipts_hashes =
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
