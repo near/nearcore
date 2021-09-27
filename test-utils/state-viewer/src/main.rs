@@ -322,10 +322,14 @@ fn apply_block_at_height(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, chunk_extra
     );
-    if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
-        println!("Existing chunk extra: {:?}", chunk_extra);
+    if block.chunks()[shard_id as usize].height_included() == height {
+        if let Ok(chunk_extra) = chain_store.get_chunk_extra(&block_hash, &shard_uid) {
+            println!("Existing chunk extra: {:?}", chunk_extra);
+        } else {
+            println!("No existing chunk extra available");
+        }
     } else {
-        println!("no existing chunk extra available");
+        println!("No existing chunk extra available");
     }
 }
 
@@ -682,13 +686,24 @@ fn main() {
             let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap());
             let shard_id =
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+
+            let runtime = NightshadeRuntime::new(
+                &home_dir,
+                store.clone(),
+                &near_config.genesis,
+                near_config.client_config.tracked_accounts.clone(),
+                near_config.client_config.tracked_shards.clone(),
+                None,
+                near_config.client_config.max_gas_burnt_view,
+                RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
+            );
             apply_chain_range::apply_chain_range(
                 store,
-                home_dir,
-                &near_config,
+                &near_config.genesis,
                 start_index,
                 end_index,
                 shard_id,
+                runtime,
             );
         }
         ("view_chain", Some(args)) => {

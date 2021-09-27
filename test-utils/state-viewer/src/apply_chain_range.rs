@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
@@ -9,13 +8,13 @@ use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
+use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::Store;
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
 
 fn inc_and_report_progress(cnt: &AtomicU64) {
     let prev = cnt.fetch_add(1, Ordering::Relaxed);
@@ -26,24 +25,14 @@ fn inc_and_report_progress(cnt: &AtomicU64) {
 
 pub fn apply_chain_range(
     store: Arc<Store>,
-    home_dir: &Path,
-    near_config: &NearConfig,
+    genesis: &Genesis,
     start_height: Option<BlockHeight>,
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
+    runtime: NightshadeRuntime,
 ) {
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new(
-        &home_dir,
-        store.clone(),
-        &near_config.genesis,
-        near_config.client_config.tracked_accounts.clone(),
-        near_config.client_config.tracked_shards.clone(),
-        None,
-        near_config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-    ));
-
-    let chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
+    let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
 
@@ -63,7 +52,7 @@ pub fn apply_chain_range(
     // For some reason I can't call `par_iter` directly on the range.
     (start_height..=end_height).collect::<Vec<u64>>().par_iter().progress_with(progress_bar).for_each(|height| {
         let height = *height;
-        let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
+        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
         let block_hash = if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
             block_hash
         } else {
@@ -167,6 +156,7 @@ pub fn apply_chain_range(
                 .unwrap()
         };
 
+        println!("outcomes: {:#?}", apply_result.outcomes);
         let (outcome_root, _) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
         let chunk_extra = ChunkExtra::new(
@@ -174,17 +164,19 @@ pub fn apply_chain_range(
             outcome_root,
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
-            near_config.genesis.config.gas_limit,
+            genesis.config.gas_limit,
             apply_result.total_balance_burnt,
         );
 
         if let Some(existing_chunk_extra) = existing_chunk_extra {
+            println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
             debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
         } else {
             assert!(prev_chunk_extra.is_some());
             assert!(apply_result.outcomes.is_empty());
             debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+            println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
         }
         inc_and_report_progress(&processed_blocks_cnt);
     });
@@ -193,4 +185,104 @@ pub fn apply_chain_range(
         "No differences found after applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
     );
+}
+
+#[cfg(test)]
+mod test {
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use near_chain::{ChainGenesis, Provenance};
+    use near_chain_configs::Genesis;
+    use near_client::test_utils::TestEnv;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::runtime::config_store::RuntimeConfigStore;
+    use near_primitives::transaction::SignedTransaction;
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_store::test_utils::create_test_store;
+    use near_store::Store;
+    use nearcore::config::GenesisExt;
+    use nearcore::config::TESTING_INIT_STAKE;
+    use nearcore::NightshadeRuntime;
+
+    use crate::apply_chain_range::apply_chain_range;
+
+    fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.num_block_producer_seats = 2;
+        genesis.config.num_block_producer_seats_per_shard = vec![2];
+        genesis.config.epoch_length = epoch_length;
+        let store = create_test_store();
+        let nightshade_runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+            RuntimeConfigStore::test(),
+        );
+        let mut chain_genesis = ChainGenesis::test();
+        chain_genesis.epoch_length = epoch_length;
+        chain_genesis.gas_limit = genesis.config.gas_limit;
+        let env = TestEnv::builder(chain_genesis)
+            .validator_seats(2)
+            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .build();
+        (store, genesis, env)
+    }
+
+    /// Produces blocks, avoiding the potential failure where the client is not the
+    /// block producer for each subsequent height (this can happen when a new validator
+    /// is staked since they will also have heights where they should produce the block instead).
+    fn safe_produce_blocks(
+        env: &mut TestEnv,
+        initial_height: BlockHeight,
+        num_blocks: BlockHeightDelta,
+    ) {
+        let mut h = initial_height;
+        for _ in 1..=num_blocks {
+            let mut block = None;
+            // `env.clients[0]` may not be the block producer at `h`,
+            // loop until we find a height env.clients[0] should produce.
+            while block.is_none() {
+                block = env.clients[0].produce_block(h).unwrap();
+                h += 1;
+            }
+            env.process_block(0, block.unwrap(), Provenance::PRODUCED);
+        }
+    }
+
+    #[test]
+    fn test_apply_chain_range() {
+        let epoch_length = 4;
+        let (store, genesis, mut env) = setup(epoch_length);
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::stake(
+            1,
+            "test1".parse().unwrap(),
+            &signer,
+            TESTING_INIT_STAKE,
+            signer.public_key.clone(),
+            genesis_hash,
+        );
+        env.clients[0].process_tx(tx, false, false);
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+
+        let runtime = NightshadeRuntime::new(
+            Path::new("."),
+            store.clone(),
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+            RuntimeConfigStore::test(),
+        );
+        apply_chain_range(store, &genesis, None, None, 0, runtime);
+    }
 }
