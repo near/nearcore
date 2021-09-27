@@ -1,12 +1,19 @@
 use rand::seq::{IteratorRandom, SliceRandom};
 use std::cmp;
+use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use std::mem::swap;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use actix::dev::MessageResponse;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use actix::Message;
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, SyncContext, WrapFuture,
@@ -18,38 +25,55 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::codec::Codec;
-use crate::peer::Peer;
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::AccountId;
-use near_primitives::utils::from_timestamp;
-use near_store::Store;
-
-use crate::metrics;
-use crate::peer_store::{PeerStore, TrustLevel};
-use crate::routing::{
-    Edge, EdgeInfo, EdgeType, EdgeVerifierHelper, ProcessEdgeResult, RoutingTable, MAX_NUM_PEERS,
-};
-use crate::types::{
-    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, KnownProducer, NetworkInfo, NetworkViewClientMessages,
-    NetworkViewClientResponses, OutboundTcpConnect, PeerIdOrHash, PeerList, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping, Pong,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData, Unregister,
-};
-use crate::types::{
-    EdgeList, KnownPeerState, NetworkClientMessages, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerInfo,
-};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use metrics::NetworkMetrics;
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
+use near_primitives::checked_feature;
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::types::{AccountId, ProtocolVersion};
+use near_primitives::utils::from_timestamp;
+use near_store::Store;
 use rand::thread_rng;
-use std::cmp::max;
+
+use crate::codec::Codec;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::ibf::{Ibf, IbfBox};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::ibf_peer_set::IbfPeerSet;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::ibf_set::IbfSet;
+use crate::metrics;
+use crate::peer::Peer;
+use crate::peer_store::{PeerStore, TrustLevel};
+#[cfg(feature = "adversarial")]
+use crate::routing::SetAdvOptionsResult;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::ValidIBFLevel;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::routing::MIN_IBF_LEVEL;
+
+use crate::routing::{
+    Edge, EdgeInfo, EdgeType, EdgeVerifierHelper, GetRoutingTableResult, PeerRequestResult,
+    ProcessEdgeResult, RoutingTable, SimpleEdge, MAX_NUM_PEERS, SAVE_PEERS_AFTER_TIME,
+};
+
+use crate::types::{
+    AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
+    FullPeerInfo, GetRoutingTable, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
+    KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests,
+    NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData,
+    Unregister,
+};
+#[cfg(feature = "adversarial")]
+use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use crate::types::{PartialSync, RoutingState, RoutingSyncV2, RoutingVersion2};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: u64 = 60;
@@ -78,6 +102,8 @@ const LIMIT_PENDING_PEERS: usize = 60;
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
 const BROAD_CAST_EDGES_MAX_WORK_ALLOVED: Duration = Duration::from_millis(50);
+/// Delay syncinc for 1 second to avoid race condition
+const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_secs(1);
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -105,6 +131,243 @@ struct ActivePeer {
     peer_type: PeerType,
 }
 
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[derive(Default)]
+struct IbfRoutingTableExchangeActor {
+    edges: HashMap<(PeerId, PeerId), Edge>,
+    /// Data structure used for exchanging routing tables.
+    pub peer_ibf_set: IbfPeerSet,
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl IbfRoutingTableExchangeActor {
+    pub fn split_edges_for_peer(
+        &self,
+        peer_id: &PeerId,
+        unknown_edges: &[u64],
+    ) -> (Vec<SimpleEdge>, Vec<u64>) {
+        self.peer_ibf_set.split_edges_for_peer(peer_id, unknown_edges)
+    }
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl Actor for IbfRoutingTableExchangeActor {
+    type Context = SyncContext<Self>;
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[derive(Debug)]
+pub enum IbfRoutingTableExchangeMessages {
+    AddEdges(Arc<Vec<Edge>>),
+    RemoveEdges(Vec<Edge>),
+    AddPeerIfMissing(PeerId, Option<u64>),
+    RemovePeer(PeerId),
+    ProcessIbfMessage { peer_id: PeerId, ibf_msg: RoutingVersion2 },
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl Message for IbfRoutingTableExchangeMessages {
+    type Result = IbfRoutingTableExchangeMessagesResponse;
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+#[derive(MessageResponse, Debug)]
+pub enum IbfRoutingTableExchangeMessagesResponse {
+    AddPeerResponse { seed: u64 },
+    Empty,
+    ProcessIbfMessageResponse { ibf_msg: Option<RoutingVersion2> },
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl IbfRoutingTableExchangeActor {
+    pub fn exchange_routing_tables_using_ibf(
+        &self,
+        peer_id: &PeerId,
+        ibf_set: &IbfSet<SimpleEdge>,
+        ibf_level: ValidIBFLevel,
+        ibf_vec: &[IbfBox],
+        seed: u64,
+    ) -> (Vec<SimpleEdge>, Vec<u64>, u64) {
+        let ibf = ibf_set.get_ibf(ibf_level);
+
+        let mut new_ibf = Ibf::from_vec(ibf_vec.clone(), seed ^ (ibf_level.0 as u64));
+
+        if !new_ibf.merge(&ibf.data, seed ^ (ibf_level.0 as u64)) {
+            error!(target: "network", "exchange routing tables failed with peer {}", peer_id);
+            return (Default::default(), Default::default(), 0);
+        }
+
+        let (edge_hashes, unknown_edges_count) = new_ibf.try_recover();
+        let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
+
+        (known, unknown_edges, unknown_edges_count)
+    }
+}
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
+    type Result = IbfRoutingTableExchangeMessagesResponse;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: IbfRoutingTableExchangeMessages,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        match msg {
+            IbfRoutingTableExchangeMessages::AddEdges(edges) => {
+                for edge in edges.iter() {
+                    let se = edge.to_simple_edge();
+                    self.peer_ibf_set.add_edge(&se);
+                    self.edges.insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
+                }
+                IbfRoutingTableExchangeMessagesResponse::Empty
+            }
+            IbfRoutingTableExchangeMessages::RemoveEdges(edges) => {
+                for edge in edges.iter() {
+                    self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
+                }
+                IbfRoutingTableExchangeMessagesResponse::Empty
+            }
+            IbfRoutingTableExchangeMessages::AddPeerIfMissing(peer_id, ibf_set) => {
+                let seed = self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges);
+                IbfRoutingTableExchangeMessagesResponse::AddPeerResponse { seed }
+            }
+            IbfRoutingTableExchangeMessages::RemovePeer(peer_id) => {
+                self.peer_ibf_set.remove_peer(&peer_id);
+                IbfRoutingTableExchangeMessagesResponse::Empty
+            }
+            IbfRoutingTableExchangeMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
+                match ibf_msg.routing_state {
+                    RoutingState::PartialSync(partial_sync) => {
+                        if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
+                            let seed = ibf_msg.seed;
+                            let (edges_for_peer, unknown_edge_hashes, unknown_edges_count) = self
+                                .exchange_routing_tables_using_ibf(
+                                    &peer_id,
+                                    ibf_set,
+                                    partial_sync.ibf_level,
+                                    &partial_sync.ibf,
+                                    ibf_msg.seed,
+                                );
+
+                            let edges_for_peer = edges_for_peer
+                                .iter()
+                                .filter_map(|x| self.edges.get(&x.key()).cloned())
+                                .collect();
+                            // Prepare message
+                            let ibf_msg = if unknown_edges_count == 0
+                                && unknown_edge_hashes.len() > 0
+                            {
+                                RoutingVersion2 {
+                                    known_edges: self.edges.len() as u64,
+                                    seed,
+                                    edges: edges_for_peer,
+                                    routing_state: RoutingState::RequestMissingEdges(
+                                        unknown_edge_hashes,
+                                    ),
+                                }
+                            } else if unknown_edges_count == 0 && unknown_edge_hashes.len() == 0 {
+                                RoutingVersion2 {
+                                    known_edges: self.edges.len() as u64,
+                                    seed,
+                                    edges: edges_for_peer,
+                                    routing_state: RoutingState::Done,
+                                }
+                            } else {
+                                if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
+                                    let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
+                                    RoutingVersion2 {
+                                        known_edges: self.edges.len() as u64,
+                                        seed,
+                                        edges: edges_for_peer,
+                                        routing_state: RoutingState::PartialSync(PartialSync {
+                                            ibf_level: new_ibf_level,
+                                            ibf: ibf_vec,
+                                        }),
+                                    }
+                                } else {
+                                    RoutingVersion2 {
+                                        known_edges: self.edges.len() as u64,
+                                        seed,
+                                        edges: self.edges.iter().map(|x| x.1.clone()).collect(),
+                                        routing_state: RoutingState::RequestAllEdges,
+                                    }
+                                }
+                            };
+                            IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                                ibf_msg: Some(ibf_msg),
+                            }
+                        } else {
+                            error!(target: "network", "Peer not found {}", peer_id);
+                            IbfRoutingTableExchangeMessagesResponse::Empty
+                        }
+                    }
+                    RoutingState::InitializeIbf => {
+                        self.peer_ibf_set.add_peer(
+                            peer_id.clone(),
+                            Some(ibf_msg.seed),
+                            &mut self.edges,
+                        );
+                        if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
+                            let seed = ibf_set.get_seed();
+                            let ibf_vec = ibf_set.get_ibf_vec(MIN_IBF_LEVEL);
+                            IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                                ibf_msg: Some(RoutingVersion2 {
+                                    known_edges: self.edges.len() as u64,
+                                    seed,
+                                    edges: Default::default(),
+                                    routing_state: RoutingState::PartialSync(PartialSync {
+                                        ibf_level: MIN_IBF_LEVEL,
+                                        ibf: ibf_vec,
+                                    }),
+                                }),
+                            }
+                        } else {
+                            error!(target: "network", "Peer not found {}", peer_id);
+                            IbfRoutingTableExchangeMessagesResponse::Empty
+                        }
+                    }
+                    RoutingState::RequestMissingEdges(requested_edges) => {
+                        let seed = ibf_msg.seed;
+                        let (edges_for_peer, _) =
+                            self.split_edges_for_peer(&peer_id, &requested_edges);
+
+                        let edges_for_peer = edges_for_peer
+                            .iter()
+                            .filter_map(|x| self.edges.get(&x.key()).cloned())
+                            .collect();
+
+                        let ibf_msg = RoutingVersion2 {
+                            known_edges: self.edges.len() as u64,
+                            seed,
+                            edges: edges_for_peer,
+                            routing_state: RoutingState::Done,
+                        };
+                        IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                            ibf_msg: Some(ibf_msg),
+                        }
+                    }
+                    RoutingState::RequestAllEdges => {
+                        IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                            ibf_msg: Some(RoutingVersion2 {
+                                known_edges: self.edges.len() as u64,
+                                seed: ibf_msg.seed,
+                                edges: self.edges.iter().map(|x| x.1.clone()).collect(),
+                                routing_state: RoutingState::Done,
+                            }),
+                        }
+                    }
+                    RoutingState::Done => {
+                        IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                            ibf_msg: None,
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct EdgeVerifier {}
 
 impl Actor for EdgeVerifier {
@@ -123,6 +386,13 @@ impl Handler<EdgeList> for EdgeVerifier {
             {
                 continue;
             }
+
+            #[cfg(feature = "adversarial")]
+            if !msg.adv_disable_edge_signature_verification && !edge.verify() {
+                return false;
+            }
+
+            #[cfg(not(feature = "adversarial"))]
             if !edge.verify() {
                 return false;
             }
@@ -168,11 +438,20 @@ pub struct PeerManagerActor {
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     edge_verifier_pool: Addr<EdgeVerifier>,
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
     txns_since_last_block: Arc<AtomicUsize>,
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     peer_counter: Arc<AtomicUsize>,
     scheduled_routing_table_update: bool,
     edge_verifier_requests_in_progress: u64,
+
+    #[cfg(feature = "adversarial")]
+    adv_disable_edge_propagation: bool,
+    #[cfg(feature = "adversarial")]
+    adv_disable_edge_signature_verification: bool,
+    #[cfg(feature = "adversarial")]
+    adv_disable_edge_pruning: bool,
 }
 
 impl PeerManagerActor {
@@ -190,6 +469,9 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
+        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+        let ibf_constructor_pool =
+            SyncArbiter::start(1, move || IbfRoutingTableExchangeActor::default());
         let edge_verifier_pool = SyncArbiter::start(4, || EdgeVerifier {});
 
         let me: PeerId = config.public_key.clone().into();
@@ -212,11 +494,19 @@ impl PeerManagerActor {
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            ibf_routing_pool: ibf_constructor_pool,
             txns_since_last_block,
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
             scheduled_routing_table_update: false,
             edge_verifier_requests_in_progress: 0,
+            #[cfg(feature = "adversarial")]
+            adv_disable_edge_propagation: false,
+            #[cfg(feature = "adversarial")]
+            adv_disable_edge_signature_verification: false,
+            #[cfg(feature = "adversarial")]
+            adv_disable_edge_pruning: false,
         })
     }
 
@@ -242,6 +532,8 @@ impl PeerManagerActor {
         };
     }
 
+    /// Receives list of edges that were verified, in a trigger every 20ms, and adds them to
+    /// the routing table.
     fn broadcast_edges(&mut self, ctx: &mut Context<PeerManagerActor>) {
         let me = self.peer_id.clone();
 
@@ -257,7 +549,7 @@ impl PeerManagerActor {
                 }
             }
             // Add new edge update to the routing table.
-            self.process_edges(ctx, vec![edge.clone()]);
+            self.add_verified_edges_to_routing_table(ctx, vec![edge.clone()]);
             if let Some(other) = edge.other(&me) {
                 // We belong to this edge.
                 if self.active_peers.contains_key(&other) {
@@ -289,10 +581,17 @@ impl PeerManagerActor {
         let new_data = SyncData { edges: new_edges, accounts: Default::default() };
 
         if !new_data.is_empty() {
-            self.broadcast_message(
-                ctx,
-                SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
-            )
+            #[cfg(not(feature = "adversarial"))]
+            let condition = true;
+            #[cfg(feature = "adversarial")]
+            let condition = !self.adv_disable_edge_propagation;
+
+            if condition {
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::RoutingTableSync(new_data) },
+                )
+            }
         };
 
         near_performance_metrics::actix::run_later(
@@ -321,6 +620,47 @@ impl PeerManagerActor {
         }
     }
 
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    fn initialize_routing_table_exchange(
+        &mut self,
+        peer_id: PeerId,
+        peer_type: PeerType,
+        addr: Addr<Peer>,
+        ctx: &mut Context<Self>,
+    ) {
+        near_performance_metrics::actix::run_later(
+            ctx,
+            file!(),
+            line!(),
+            WAIT_FOR_SYNC_DELAY,
+            move |act, ctx2| {
+                if peer_type == PeerType::Inbound {
+                    act.ibf_routing_pool
+                        .send(IbfRoutingTableExchangeMessages::AddPeerIfMissing(peer_id, None))
+                        .into_actor(act)
+                        .map(move |response, act2, _ctx| match response {
+                            Ok(IbfRoutingTableExchangeMessagesResponse::AddPeerResponse {
+                                seed,
+                            }) => act2.start_routing_table_syncv2(addr, seed),
+                            _ => error!(target: "network", "expected AddIbfSetResponse"),
+                        })
+                        .spawn(ctx2);
+                }
+            },
+        );
+    }
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    fn start_routing_table_syncv2(&self, addr: Addr<Peer>, seed: u64) {
+        let _ = addr.do_send(SendMessage {
+            message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(RoutingVersion2 {
+                known_edges: self.routing_table.get_edges_len(),
+                seed,
+                edges: Default::default(),
+                routing_state: RoutingState::InitializeIbf,
+            })),
+        });
+    }
+
     /// Register a direct connection to a new peer. This will be called after successfully
     /// establishing a connection with another peer. It become part of the active peers.
     ///
@@ -333,8 +673,11 @@ impl PeerManagerActor {
         edge_info: EdgeInfo,
         peer_type: PeerType,
         addr: Addr<Peer>,
+        peer_protocol_version: ProtocolVersion,
         ctx: &mut Context<Self>,
     ) {
+        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+        let peer_id = full_peer_info.peer_info.id.clone();
         debug!(target: "network", "Consolidated connection with {:?}", full_peer_info);
 
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
@@ -369,13 +712,34 @@ impl PeerManagerActor {
             },
         );
 
-        self.process_edges(ctx, vec![new_edge.clone()]);
+        self.add_verified_edges_to_routing_table(ctx, vec![new_edge.clone()]);
 
-        // TODO(MarX, #1363): Implement sync service. Right now all edges and known validators
-        //  are sent during handshake.
+        checked_feature!(
+            "protocol_feature_routing_exchange_algorithm",
+            RoutingExchangeAlgorithm,
+            peer_protocol_version,
+            {
+                self.initialize_routing_table_exchange(peer_id, peer_type, addr.clone(), ctx);
+                self.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, Vec::new());
+                return;
+            }
+        );
+
+        // TODO #4859: This operation is expensive. Move creating `known_edges` to another thread.
         let known_edges = self.routing_table.get_edges();
+        self.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
+    }
+
+    fn send_sync(
+        &mut self,
+        peer_type: PeerType,
+        addr: Addr<Peer>,
+        ctx: &mut Context<PeerManagerActor>,
+        target_peer_id: PeerId,
+        new_edge: Edge,
+        known_edges: Vec<Edge>,
+    ) {
         let known_accounts = self.routing_table.get_announce_accounts();
-        let wait_for_sync = 1;
 
         // Start syncing network point of view. Wait until both parties are connected before start
         // sending messages.
@@ -384,7 +748,7 @@ impl PeerManagerActor {
             ctx,
             file!(),
             line!(),
-            Duration::from_secs(wait_for_sync),
+            WAIT_FOR_SYNC_DELAY,
             move |act, ctx| {
                 let _ = addr.do_send(SendMessage {
                     message: PeerMessage::RoutingTableSync(SyncData {
@@ -435,10 +799,17 @@ impl PeerManagerActor {
         // update that represents the connection removal.
         self.active_peers.remove(&peer_id);
 
+        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+        self.ibf_routing_pool
+            .send(IbfRoutingTableExchangeMessages::RemovePeer(peer_id.clone()))
+            .into_actor(self)
+            .map(|_, _, _| ())
+            .spawn(ctx);
+
         if let Some(edge) = self.routing_table.get_edge(self.peer_id.clone(), peer_id.clone()) {
             if edge.edge_type() == EdgeType::Added {
                 let edge_update = edge.remove_edge(self.peer_id.clone(), &self.config.secret_key);
-                self.process_edges(ctx, vec![edge_update.clone()]);
+                self.add_verified_edges_to_routing_table(ctx, vec![edge_update.clone()]);
                 self.broadcast_message(
                     ctx,
                     SendMessage {
@@ -673,7 +1044,18 @@ impl PeerManagerActor {
     }
 
     /// Add an edge update to the routing table and return if it is a new edge update.
-    fn process_edges(&mut self, ctx: &mut Context<Self>, edges: Vec<Edge>) -> bool {
+    fn add_verified_edges_to_routing_table(
+        &mut self,
+        ctx: &mut Context<Self>,
+        edges: Vec<Edge>,
+    ) -> bool {
+        let edges = Arc::new(edges);
+        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+        self.ibf_routing_pool
+            .send(IbfRoutingTableExchangeMessages::AddEdges(edges.clone()))
+            .into_actor(self)
+            .map(|_, _, _| ())
+            .spawn(ctx);
         let ProcessEdgeResult { new_edge } = self.routing_table.process_edges(edges);
 
         if !self.scheduled_routing_table_update {
@@ -686,12 +1068,58 @@ impl PeerManagerActor {
                 |act, _ctx| {
                     act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
-                    act.routing_table.update(act.edge_verifier_requests_in_progress == 0);
+
+                    #[cfg(feature = "adversarial")]
+                    let cond = act.edge_verifier_requests_in_progress == 0
+                        && !act.adv_disable_edge_pruning;
+                    #[cfg(not(feature = "adversarial"))]
+                    let cond = act.edge_verifier_requests_in_progress == 0;
+
+                    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                    let edges_to_remove =
+                        act.routing_table.update(cond, false, SAVE_PEERS_AFTER_TIME);
+                    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                    act.ibf_routing_pool
+                        .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges_to_remove))
+                        .into_actor(act)
+                        .map(|_, _, _| ())
+                        .spawn(_ctx);
+
+                    #[cfg(not(feature = "protocol_feature_routing_exchange_algorithm"))]
+                    act.routing_table.update(cond, false, SAVE_PEERS_AFTER_TIME);
                 },
             );
         }
 
         new_edge
+    }
+
+    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    fn adv_remove_edges_from_routing_table(
+        &mut self,
+        ctx: &mut Context<Self>,
+        edges: Vec<SimpleEdge>,
+    ) {
+        // Create fake edges with no signature for unit test purposes
+        let edges: Vec<Edge> = edges
+            .iter()
+            .map(|se| {
+                Edge::new(
+                    se.key().0.clone(),
+                    se.key().1.clone(),
+                    se.nonce(),
+                    near_crypto::Signature::default(),
+                    near_crypto::Signature::default(),
+                )
+            })
+            .collect();
+        self.routing_table.remove_edges(&edges);
+        self.ibf_routing_pool
+            .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges))
+            .into_actor(self)
+            .map(|_, _, _| ())
+            .spawn(ctx);
     }
 
     fn wait_peer_or_remove(&mut self, ctx: &mut Context<Self>, edge: Edge) {
@@ -964,6 +1392,32 @@ impl PeerManagerActor {
         );
     }
 
+    fn verify_edges(&mut self, ctx: &mut Context<Self>, peer_id: PeerId, edges: Vec<Edge>) {
+        if edges.is_empty() {
+            return;
+        }
+        self.edge_verifier_requests_in_progress += 1;
+        self.edge_verifier_pool
+            .send(EdgeList {
+                edges,
+                edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
+                sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
+                #[cfg(feature = "adversarial")]
+                adv_disable_edge_signature_verification: self
+                    .adv_disable_edge_signature_verification,
+            })
+            .into_actor(self)
+            .then(move |response, act, ctx| {
+                act.edge_verifier_requests_in_progress -= 1;
+                match response {
+                    Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
+                    Ok(true) => {}
+                    Err(err) => warn!(target: "network", "error validating edges: {}", err),
+                }
+                actix::fut::ready(())
+            })
+            .spawn(ctx);
+    }
     /// Broadcast message to all active peers.
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
         // TODO(MarX, #1363): Implement smart broadcasting. (MST)
@@ -1250,11 +1704,6 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
 
-            let pending_incoming_connections_counter =
-                self.pending_incoming_connections_counter.clone();
-            let peer_counter = self.peer_counter.clone();
-            let max_num_peers: usize = self.config.max_num_peers as usize;
-
             ctx.spawn(TcpListener::bind(server_addr).into_actor(self).then(
                 move |listener, act, ctx| {
                     let listener = listener.unwrap();
@@ -1262,6 +1711,10 @@ impl Actor for PeerManagerActor {
                         listener: tokio_stream::wrappers::TcpListenerStream::new(listener),
                     };
                     info!(target: "stats", "Server listening at {}@{}", act.peer_id, server_addr);
+                    let pending_incoming_connections_counter =
+                        act.pending_incoming_connections_counter.clone();
+                    let peer_counter = act.peer_counter.clone();
+                    let max_num_peers: usize = act.config.max_num_peers as usize;
 
                     ctx.add_message_stream(incoming.filter_map(move |conn| {
                         if let Ok(conn) = conn {
@@ -1576,31 +2029,19 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         actix::fut::ready(())
                     }).spawn(ctx);
 
-                // Broadcast edges once EdgeVerifier finishes
-                self.edge_verifier_requests_in_progress += 1;
-                self.edge_verifier_pool
-                    .send(EdgeList {
-                        edges,
-                        edges_info_shared: self
-                            .routing_table_exchange_helper
-                            .edges_info_shared
-                            .clone(),
-                        sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-                    })
-                    .into_actor(self)
-                    .then(move |response, act, ctx| {
-                        act.edge_verifier_requests_in_progress -= 1;
-                        match response {
-                            Ok(false) => act.try_ban_peer(ctx, &peer_id, ReasonForBan::InvalidEdge),
-                            Ok(true) => {}
-                            Err(err) => warn!(target: "network", "error validating edges: {}", err),
-                        }
-                        actix::fut::ready(())
-                    })
-                    .spawn(ctx);
+                self.verify_edges(ctx, peer_id, edges);
 
                 NetworkResponses::NoResponse
             }
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            NetworkRequests::IbfMessage { peer_id, ibf_msg } => match ibf_msg {
+                RoutingSyncV2::Version2(ibf_msg) => {
+                    if let Some(addr) = self.active_peers.get(&peer_id).map(|p| p.addr.clone()) {
+                        self.process_ibf_msg(ctx, &peer_id, ibf_msg, addr)
+                    }
+                    NetworkResponses::NoResponse
+                }
+            },
             NetworkRequests::Challenge(challenge) => {
                 // TODO(illia): smarter routing?
                 self.broadcast_message(
@@ -1629,7 +2070,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                         edge_info.signature,
                     );
 
-                    self.process_edges(ctx, vec![new_edge.clone()]);
+                    self.add_verified_edges_to_routing_table(ctx, vec![new_edge.clone()]);
                     NetworkResponses::EdgeUpdate(Box::new(new_edge))
                 } else {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
@@ -1637,7 +2078,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::ResponseUpdateNonce(edge) => {
                 if edge.contains_peer(&self.peer_id) && edge.verify() {
-                    if self.process_edges(ctx, vec![edge.clone()]) {
+                    if self.add_verified_edges_to_routing_table(ctx, vec![edge.clone()]) {
                         let other = edge.other(&self.peer_id).unwrap();
                         if let Some(nonce) = self.pending_update_nonce_request.get(&other) {
                             if edge.nonce >= *nonce {
@@ -1667,8 +2108,11 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
 
     #[perf]
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new("inbound tcp connect".into());
+        {
+            #[cfg(feature = "delay_detector")]
+            let _d = DelayDetector::new("inbound tcp connect".into());
+        }
+
         if self.is_inbound_allowed() {
             self.try_connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
         } else {
@@ -1676,6 +2120,88 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
             debug!(target: "network", "Inbound connection dropped (network at max capacity).");
         }
         self.pending_incoming_connections_counter.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
+    type Result = ();
+
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    #[perf]
+    fn handle(&mut self, msg: crate::types::StartRoutingTableSync, ctx: &mut Self::Context) {
+        if let Some(active_peer) = self.active_peers.get(&msg.peer_id) {
+            let addr = active_peer.addr.clone();
+            self.initialize_routing_table_exchange(msg.peer_id, PeerType::Inbound, addr, ctx);
+        }
+    }
+}
+
+#[cfg(feature = "adversarial")]
+impl Handler<SetAdvOptions> for PeerManagerActor {
+    type Result = SetAdvOptionsResult;
+
+    #[perf]
+    fn handle(&mut self, msg: SetAdvOptions, _ctx: &mut Self::Context) -> SetAdvOptionsResult {
+        if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
+            self.adv_disable_edge_propagation = disable_edge_propagation;
+        }
+        if let Some(disable_edge_signature_verification) = msg.disable_edge_signature_verification {
+            self.adv_disable_edge_signature_verification = disable_edge_signature_verification;
+        }
+        if let Some(disable_edge_pruning) = msg.disable_edge_pruning {
+            self.adv_disable_edge_pruning = disable_edge_pruning;
+        }
+        SetAdvOptionsResult {}
+    }
+}
+
+impl Handler<GetRoutingTable> for PeerManagerActor {
+    type Result = GetRoutingTableResult;
+
+    #[perf]
+    fn handle(&mut self, msg: GetRoutingTable, _ctx: &mut Self::Context) -> GetRoutingTableResult {
+        GetRoutingTableResult {
+            edges_info: self
+                .routing_table
+                .edges_info
+                .iter()
+                .map(|(_, e)| (SimpleEdge::new(e.peer0.clone(), e.peer1.clone(), e.nonce)))
+                .collect(),
+        }
+    }
+}
+
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: crate::types::SetRoutingTable, ctx: &mut Self::Context) {
+        if let Some(add_edges) = msg.add_edges {
+            debug!(target: "network", "adversarial add_edges {}", add_edges.len());
+            self.add_verified_edges_to_routing_table(ctx, add_edges);
+        }
+        if let Some(remove_edges) = msg.remove_edges {
+            debug!(target: "network", "adversarial remove_edges {}", remove_edges.len());
+            self.adv_remove_edges_from_routing_table(ctx, remove_edges);
+        }
+        if let Some(true) = msg.prune_edges {
+            debug!(target: "network", "adversarial prune_edges");
+            self.routing_table.update(true, true, 2);
+        }
+    }
+}
+
+#[cfg(feature = "adversarial")]
+impl Handler<GetPeerId> for PeerManagerActor {
+    type Result = GetPeerIdResult;
+
+    #[perf]
+    fn handle(&mut self, msg: GetPeerId, _ctx: &mut Self::Context) -> GetPeerIdResult {
+        GetPeerIdResult { peer_id: self.peer_id.clone() }
     }
 }
 
@@ -1739,6 +2265,7 @@ impl Handler<Consolidate> for PeerManagerActor {
     fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("consolidate".into());
+
         // Check if this is a blacklisted peer.
         if msg.peer_info.addr.as_ref().map_or(true, |addr| self.is_blacklisted(addr)) {
             debug!(target: "network", "Dropping connection from blacklisted peer or unknown address: {:?}", msg.peer_info);
@@ -1810,6 +2337,7 @@ impl Handler<Consolidate> for PeerManagerActor {
             edge_info,
             msg.peer_type,
             msg.actor,
+            msg.peer_protocol_version,
             ctx,
         );
 
@@ -1840,13 +2368,13 @@ impl Handler<Ban> for PeerManagerActor {
 }
 
 impl Handler<PeersRequest> for PeerManagerActor {
-    type Result = PeerList;
+    type Result = PeerRequestResult;
 
     #[perf]
     fn handle(&mut self, msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers request".into());
-        PeerList { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
+        PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
     }
 }
 
@@ -1954,5 +2482,41 @@ impl Handler<PeerRequest> for PeerManagerActor {
                 PeerResponse::NoResponse
             }
         }
+    }
+}
+
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl PeerManagerActor {
+    fn process_ibf_msg(
+        &mut self,
+        ctx: &mut Context<PeerManagerActor>,
+        peer_id: &PeerId,
+        mut ibf_msg: RoutingVersion2,
+        addr: Addr<Peer>,
+    ) {
+        let mut edges: Vec<Edge> = Vec::new();
+        swap(&mut edges, &mut ibf_msg.edges);
+        self.verify_edges(ctx, peer_id.clone(), edges);
+        self.ibf_routing_pool
+            .send(IbfRoutingTableExchangeMessages::ProcessIbfMessage {
+                peer_id: peer_id.clone(),
+                ibf_msg,
+            })
+            .into_actor(self)
+            .map(move |response, _act2: &mut PeerManagerActor, _ctx2| match response {
+                Ok(IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                    ibf_msg: response_ibf_msg,
+                }) => {
+                    if let Some(response_ibf_msg) = response_ibf_msg {
+                        let _ = addr.do_send(SendMessage {
+                            message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(
+                                response_ibf_msg,
+                            )),
+                        });
+                    }
+                }
+                _ => error!(target: "network", "expected ProcessIbfMessageResponse"),
+            })
+            .spawn(ctx);
     }
 }

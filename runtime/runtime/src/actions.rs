@@ -429,6 +429,7 @@ pub(crate) fn action_deploy_contract(
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
     apply_state: &ApplyState,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -447,7 +448,13 @@ pub(crate) fn action_deploy_contract(
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).
-    precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref()).ok();
+    precompile_contract(
+        &code,
+        &apply_state.config.wasm_config,
+        current_protocol_version,
+        apply_state.cache.as_deref(),
+    )
+    .ok();
     Ok(())
 }
 

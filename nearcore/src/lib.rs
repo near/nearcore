@@ -327,6 +327,14 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
 
     #[allow(unused_mut)]
     let mut rpc_servers = Vec::new();
+    let arbiter = Arbiter::new();
+    let client_actor1 = client_actor.clone().recipient();
+    let view_client1 = view_client.clone().recipient();
+    config.network_config.verify();
+    let network_config = config.network_config;
+    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
+        PeerManagerActor::new(store, network_config, client_actor1, view_client1).unwrap()
+    });
 
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
@@ -335,6 +343,8 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
+            #[cfg(feature = "adversarial")]
+            network_actor.clone(),
         ));
     }
 
@@ -350,18 +360,6 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             ),
         ));
     }
-
-    config.network_config.verify();
-
-    let arbiter = Arbiter::new();
-
-    let client_actor1 = client_actor.clone().recipient();
-    let view_client1 = view_client.clone().recipient();
-    let network_config = config.network_config;
-
-    let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(store, network_config, client_actor1, view_client1).unwrap()
-    });
 
     network_adapter.set_recipient(network_actor.recipient());
 

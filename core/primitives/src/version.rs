@@ -111,6 +111,19 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
     LowerDataReceiptCost,
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    RoutingExchangeAlgorithm,
+    /// This feature switch our WASM engine implementation from wasmer 0.* to
+    /// wasmer 2.*, brining better performance and reliability.
+    ///
+    /// The implementations should be sufficiently similar for this to not be a
+    /// protocol upgrade, but we concervatively do a protocol upgrade to be on
+    /// the safe side.
+    ///
+    /// Although wasmer2 is faster, we don't change fees with this protocol
+    /// version -- we can safely do that in a separate step.
+    #[cfg(feature = "protocol_feature_wasmer2")]
+    Wasmer2,
     #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     LowerEcrecoverBaseCost,
 }
@@ -123,7 +136,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 117;
+pub const PROTOCOL_VERSION: ProtocolVersion = 119;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -154,8 +167,12 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
             ProtocolFeature::LowerDataReceiptCost => 116,
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_wasmer2")]
+            ProtocolFeature::Wasmer2 => 118,
             #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
-            ProtocolFeature::LowerEcrecoverBaseCost => 117,
+            ProtocolFeature::LowerEcrecoverBaseCost => 119,
         }
     }
 }

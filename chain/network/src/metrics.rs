@@ -1,12 +1,14 @@
-use crate::types::{PeerMessage, RoutedMessageBody};
+use std::collections::HashMap;
+
+use lazy_static::lazy_static;
+use strum::VariantNames;
+
 use near_metrics::{
     inc_counter_by_opt, inc_counter_opt, try_create_histogram, try_create_int_counter,
     try_create_int_gauge, Histogram, IntCounter, IntGauge,
 };
-use std::collections::HashMap;
-use strum::VariantNames;
 
-use lazy_static::lazy_static;
+use crate::types::{PeerMessage, RoutedMessageBody};
 
 lazy_static! {
     pub static ref PEER_CONNECTIONS_TOTAL: near_metrics::Result<IntGauge> =

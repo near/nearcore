@@ -2,14 +2,17 @@ use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
+use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt};
+use num_rational::Rational;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -19,6 +22,7 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
+use near_network::test_utils::MockNetworkAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
     PeerChainInfoV2,
@@ -29,6 +33,10 @@ use near_network::{
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
@@ -43,15 +51,6 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_network::test_utils::MockNetworkAdapter;
-use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use num_rational::Rational;
-use std::mem::swap;
-use std::time::Instant;
-
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
@@ -964,6 +963,8 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                        | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }
                 Box::new(Some(resp))
@@ -1097,7 +1098,7 @@ pub fn setup_client(
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
-    validators: Vec<AccountId>,
+    pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
 }
@@ -1111,20 +1112,16 @@ pub struct TestEnvBuilder {
     network_adapters: Option<Vec<Arc<MockNetworkAdapter>>>,
 }
 
-/// Builder for the `TestEnv` structure.
+/// Builder for the [`TestEnv`] structure.
 impl TestEnvBuilder {
     /// Constructs a new builder.
     fn new(chain_genesis: ChainGenesis) -> Self {
-        Self {
-            chain_genesis,
-            clients: Self::make_accounts(1, Self::default_formatter),
-            validators: Self::make_accounts(1, Self::default_formatter),
-            runtime_adapters: None,
-            network_adapters: None,
-        }
+        let clients = Self::make_accounts(1);
+        let validators = clients.clone();
+        Self { chain_genesis, clients, validators, runtime_adapters: None, network_adapters: None }
     }
 
-    /// Sets list of client `AccountId`s to the one provided.  Panics if the
+    /// Sets list of client [`AccountId`]s to the one provided.  Panics if the
     /// vector is empty.
     pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
         assert!(!clients.is_empty());
@@ -1132,31 +1129,35 @@ impl TestEnvBuilder {
         self
     }
 
-    /// Sets number of clients to given one.  Each client will use `AccountId`
-    /// in the form `test{}` where `{}` will count from zero.
+    /// Sets number of clients to given one.  To get [`AccountId`] used by the
+    /// validator associated with the client the [`TestEnv::get_client_id`]
+    /// method can be used.  Tests should not rely on any particular format of
+    /// account identifiers used by the builder.  Panics if `num` is zero.
     pub fn clients_count(self, num: usize) -> Self {
-        self.clients(Self::make_accounts(num, Self::default_formatter))
+        self.clients(Self::make_accounts(num))
     }
 
-    /// Sets list of validator `AccountId`s to the one provided.  Panics if the
-    /// vector is empty.
+    /// Sets list of validator [`AccountId`]s to the one provided.  Panics if
+    /// the vector is empty.
     pub fn validators(mut self, validators: Vec<AccountId>) -> Self {
         assert!(!validators.is_empty());
         self.validators = validators;
         self
     }
 
-    /// Sets number of validator seats to given one.  Each validator will use
-    /// `AccountId` in the form `test{}` where `{}` will count from zero.
+    /// Sets number of validator seats to given one.  To get [`AccountId`] used
+    /// in the test environment the `validators` field of the built [`TestEnv`]
+    /// object can be used.  Tests should not rely on any particular format of
+    /// account identifiers used by the builder.  Panics if `num` is zero.
     pub fn validator_seats(self, num: usize) -> Self {
-        self.validators(Self::make_accounts(num, Self::default_formatter))
+        self.validators(Self::make_accounts(num))
     }
 
     /// Specifies custom runtime adaptors for each client.  This allows us to
-    /// construct `TestEnv` with `NightshadeRuntime`.
+    /// construct [`TestEnv`] with [`NightshadeRuntime`].
     ///
-    /// The vector must have the same number of elements as they are clients.
-    /// If that does not hold, `build` method will panic.
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`build`] method will panic.
     pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
         self.runtime_adapters = Some(adapters);
         self
@@ -1164,8 +1165,8 @@ impl TestEnvBuilder {
 
     /// Specifies custom network adaptors for each client.
     ///
-    /// The vector must have the same number of elements as they are clients.
-    /// If that does not hold, `build` method will panic.
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`build`] method will panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
@@ -1230,63 +1231,14 @@ impl TestEnvBuilder {
         TestEnv { chain_genesis, validators, network_adapters, clients }
     }
 
-    fn default_formatter(id: usize) -> std::string::String {
-        format!("test{}", id)
-    }
-
-    fn make_accounts<F>(count: usize, formatter: F) -> Vec<AccountId>
-    where
-        F: Fn(usize) -> std::string::String,
-    {
-        (0..count).map(|i| AccountId::try_from(formatter(i)).unwrap()).collect()
+    fn make_accounts(count: usize) -> Vec<AccountId> {
+        (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 }
 
 impl TestEnv {
     pub fn builder(chain_genesis: ChainGenesis) -> TestEnvBuilder {
         TestEnvBuilder::new(chain_genesis)
-    }
-
-    /// Create a `TestEnv` with `KeyValueRuntime`.
-    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
-        let validators: Vec<AccountId> = (0..num_validators)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
-        let network_adapters =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
-        let clients = (0..num_clients)
-            .map(|i| {
-                let store = create_test_store();
-                setup_client(
-                    store,
-                    vec![validators.clone()],
-                    1,
-                    1,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
-                    false,
-                    network_adapters[i].clone(),
-                    chain_genesis.clone(),
-                )
-            })
-            .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
-    }
-
-    /// Create a `TestEnv` with custom runtime adapters. This allows us to construct `TestEnv` with `NightshadeRuntime`.
-    pub fn new_with_runtime(
-        chain_genesis: ChainGenesis,
-        num_clients: usize,
-        num_validator_seats: NumSeats,
-        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
-    ) -> Self {
-        let network_adapters =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
-        Self::builder(chain_genesis)
-            .clients_count(num_clients)
-            .validator_seats(usize::try_from(num_validator_seats).unwrap())
-            .network_adapters(network_adapters)
-            .runtime_adapters(runtime_adapters)
-            .build()
     }
 
     /// Process a given block in the client with index `id`.

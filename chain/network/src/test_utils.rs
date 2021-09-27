@@ -1,24 +1,36 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use actix::actors::mocker::Mocker;
 use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use futures::future::BoxFuture;
 use futures::{future, FutureExt};
+use lazy_static::lazy_static;
 use rand::{thread_rng, RngCore};
 use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::block::GenesisId;
+use near_primitives::borsh::maybestd::sync::atomic::AtomicUsize;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
+use near_store::test_utils::create_test_store;
 
-use crate::types::{NetworkInfo, PeerInfo, ReasonForBan};
-use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
-use futures::future::BoxFuture;
-use std::sync::{Arc, Mutex, RwLock};
+use crate::types::{
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo, ReasonForBan,
+};
+use crate::{
+    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
+    NetworkResponses, PeerManagerActor,
+};
 
-use lazy_static::lazy_static;
+type ClientMock = Mocker<NetworkClientMessages>;
+type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
 lazy_static! {
     static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
@@ -267,4 +279,54 @@ impl MockNetworkAdapter {
     pub fn pop(&self) -> Option<NetworkRequests> {
         self.requests.write().unwrap().pop_front()
     }
+}
+
+#[allow(dead_code)]
+pub fn make_peer_manager(
+    seed: &str,
+    port: u16,
+    boot_nodes: Vec<(&str, u16)>,
+    peer_max_count: u32,
+) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
+    let store = create_test_store();
+    let mut config = NetworkConfig::from_seed(seed, port);
+    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.max_num_peers = peer_max_count;
+    let counter = Arc::new(AtomicUsize::new(0));
+    let counter1 = counter.clone();
+    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
+        Box::new(Some(NetworkClientResponses::NoResponse))
+    }))
+    .start();
+
+    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
+        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
+        match msg {
+            NetworkViewClientMessages::AnnounceAccount(accounts) => {
+                if !accounts.is_empty() {
+                    counter1.fetch_add(1, Ordering::SeqCst);
+                }
+                Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
+                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                )))
+            }
+            NetworkViewClientMessages::GetChainInfo => {
+                Box::new(Some(NetworkViewClientResponses::ChainInfo {
+                    genesis_id: GenesisId::default(),
+                    height: 1,
+                    tracked_shards: vec![],
+                    archival: false,
+                }))
+            }
+            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
+        }
+    }))
+    .start();
+    let peer_id = config.public_key.clone().into();
+    (
+        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
+            .unwrap(),
+        peer_id,
+        counter,
+    )
 }
