@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -15,6 +16,13 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::Store;
 use nearcore::{NearConfig, NightshadeRuntime};
+
+fn inc_and_report_progress(cnt: &AtomicU64) {
+    let prev = cnt.fetch_add(1, Ordering::Relaxed);
+    if (prev + 1) % 10000 == 0 {
+        info!("Processed {} blocks", prev + 1);
+    }
+}
 
 pub fn apply_chain_range(
     store: Arc<Store>,
@@ -49,10 +57,10 @@ pub fn apply_chain_range(
 
     let progress_bar = ProgressBar::new(end_height - start_height + 1);
     progress_bar.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:80} {pos:>8}/{len:8}")
-            .progress_chars("##-"),
+        ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:80} {pos:>8}/{len:8}"),
     );
+    let processed_blocks_cnt = AtomicU64::new(0);
+    // For some reason I can't call `par_iter` directly on the range.
     (start_height..=end_height).collect::<Vec<u64>>().par_iter().progress_with(progress_bar).for_each(|height| {
         let height = *height;
         let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
@@ -60,15 +68,23 @@ pub fn apply_chain_range(
             block_hash
         } else {
             // Skipping block because it's not available in ChainStore.
+            inc_and_report_progress(&processed_blocks_cnt);
             return;
         };
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         let shard_uid =
             runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+        assert!(block.chunks().len() > 0);
+        let mut existing_chunk_extra = None;
+        let mut prev_chunk_extra = None;
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
             info!(target:"state-viewer", "Skipping the genesis block #{}.", height);
+            inc_and_report_progress(&processed_blocks_cnt);
             return;
         } else if block.chunks()[shard_id as usize].height_included() == height {
+            let res_existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
+            assert!(res_existing_chunk_extra.is_ok(), "Can't get existing chunk extra for block {} at shard {:?}", block_hash, shard_uid);
+            existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
             let chunk = chain_store
                 .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
                 .unwrap()
@@ -80,6 +96,7 @@ pub fn apply_chain_range(
                 prev_block.clone()
             } else {
                 info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                inc_and_report_progress(&processed_blocks_cnt);
                 return;
             };
 
@@ -124,10 +141,8 @@ pub fn apply_chain_range(
                 )
                 .unwrap()
         } else {
-            let chunk_extra = chain_store
-                .get_chunk_extra(block.header().prev_hash(), &shard_uid)
-                .unwrap()
-                .clone();
+            let chunk_extra = chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
+            prev_chunk_extra = Some(chunk_extra.clone());
 
             runtime_adapter
                 .apply_transactions(
@@ -162,13 +177,16 @@ pub fn apply_chain_range(
             near_config.genesis.config.gas_limit,
             apply_result.total_balance_burnt,
         );
-        let existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
-        assert!(existing_chunk_extra.is_ok(), "Missing an existing chunk extra at block_height: {}, block_hash: {}", height, block_hash);
-        if let Ok(existing_chunk_extra) = existing_chunk_extra {
-            assert_eq!(*existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-        }
 
-        debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+        if let Some(existing_chunk_extra) = existing_chunk_extra {
+            assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+            debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+        } else {
+            assert!(prev_chunk_extra.is_some());
+            assert!(apply_result.outcomes.is_empty());
+            debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+        }
+        inc_and_report_progress(&processed_blocks_cnt);
     });
 
     info!(
