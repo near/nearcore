@@ -87,7 +87,7 @@ const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOVED: Duration = Duration::from_millis(50);
+const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_secs(1);
 
@@ -292,7 +292,7 @@ impl PeerManagerActor {
                 }
             }
             new_edges.push(edge);
-            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOVED {
+            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
                 break;
             }
         }

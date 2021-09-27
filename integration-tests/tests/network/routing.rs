@@ -274,3 +274,21 @@ fn archival_node() {
 
     start_test(runner);
 }
+
+/// Spawn 3 nodes
+#[test]
+fn test_dropping_routing_messages() {
+    let mut runner = Runner::new(3, 3).max_num_peers(2).enable_outbound();
+
+    runner.push(Action::SetOptions { target: 0, max_num_peers: Some(1) });
+    runner.push(Action::SetOptions { target: 1, max_num_peers: Some(1) });
+    runner.push(Action::SetOptions { target: 2, max_num_peers: Some(1) });
+    runner.push(Action::AddEdge(0, 1));
+    runner.push(Action::AddEdge(1, 2));
+    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1])]));
+    runner.push(Action::Wait(100));
+
+    start_test(runner);
+}

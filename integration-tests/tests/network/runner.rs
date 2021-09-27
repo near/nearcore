@@ -120,6 +120,7 @@ pub enum Action {
     Stop(usize),
     // Wait time in milliseconds
     Wait(usize),
+    SetOptions { target: usize, max_num_peers: Option<usize> },
 }
 
 #[derive(Clone)]
@@ -143,6 +144,29 @@ impl StateMachine {
 
     pub fn push(&mut self, action: Action) {
         match action {
+            #[cfg(feature = "adversarial")]
+            Action::SetOptions { target, max_num_peers } => {
+                self.actions.push(Box::new(
+                    move |info: SharedRunningInfo,
+                          flag: Arc<AtomicBool>,
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
+                        let addr = info.read().unwrap().pm_addr[u].clone();
+                        let peer_info = info.read().unwrap().peers_info[v].clone();
+                        actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(
+                            move |res| match res {
+                                Ok(_) => {
+                                    flag.store(true, Ordering::Relaxed);
+                                    future::ready(())
+                                }
+                                Err(e) => {
+                                    panic!("Error adding edge. {:?}", e);
+                                }
+                            },
+                        ));
+                    },
+                ));
+            }
             Action::AddEdge(u, v) => {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
