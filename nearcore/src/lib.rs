@@ -334,8 +334,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     config.network_config.verify();
     let network_config = config.network_config;
     let ibf_routing_pool = make_ibf_routing_pool();
-    #[cfg(feature = "json_rpc")]
-    #[cfg(feature = "adversarial")]
+    #[cfg(all(feature = "json_rpc", feature = "adversarial"))]
     let ibf_routing_pool2 = ibf_routing_pool.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
         PeerManagerActor::new(
