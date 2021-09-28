@@ -124,6 +124,8 @@ pub enum ProtocolFeature {
     /// version -- we can safely do that in a separate step.
     #[cfg(feature = "protocol_feature_wasmer2")]
     Wasmer2,
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+    LowerEcrecoverBaseCost,
 }
 
 /// Current latest stable version of the protocol.
@@ -134,7 +136,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 118;
+pub const PROTOCOL_VERSION: ProtocolVersion = 119;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -169,6 +171,8 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_wasmer2")]
             ProtocolFeature::Wasmer2 => 118,
+            #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+            ProtocolFeature::LowerEcrecoverBaseCost => 119,
         }
     }
 }
