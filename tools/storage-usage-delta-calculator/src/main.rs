@@ -19,7 +19,8 @@ fn main() -> Result<(), Error> {
     let genesis = Genesis::from_file("output.json");
     debug!("Genesis read");
 
-    let config = RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION);
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
     let storage_usage = Runtime::new().compute_storage_usage(&genesis.records.0[..], config);
     debug!("Storage usage calculated");
 

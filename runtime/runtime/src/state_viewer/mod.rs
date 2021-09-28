@@ -12,7 +12,6 @@ use near_primitives::{
     receipt::ActionReceipt,
     runtime::{
         apply_state::ApplyState,
-        config::RuntimeConfig,
         migration_data::{MigrationData, MigrationFlags},
     },
     serialize::to_base64,
@@ -193,7 +192,8 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION);
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
