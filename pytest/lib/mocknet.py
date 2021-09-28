@@ -1,3 +1,4 @@
+import base58
 import json
 import os
 import os.path
