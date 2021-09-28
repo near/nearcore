@@ -197,6 +197,8 @@ for (left, right, common, TIMEOUT) in tests:
 
     a, b = adv_get_routing_table(nodes)
     a2, b2 = adv_get_routing_table_new(nodes)
+    logger.info("case 3: %s %s" % (len(a), len(b)))
     assert(len(a) == 1 and len(b) == 1)
+    logger.info("case 3: %s %s" % (len(a2), len(b2)))
     assert(len(a2) == 1 and len(b2) == 1)
     logger.info("test took %s" % round(time.time() - start))

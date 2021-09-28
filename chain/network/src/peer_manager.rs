@@ -238,6 +238,7 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                 for edge in edges.iter() {
                     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                     self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
+
                     self.edges.remove(&(edge.peer0.clone(), edge.peer1.clone()));
                 }
                 IbfRoutingTableExchangeMessagesResponse::Empty

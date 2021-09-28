@@ -793,16 +793,6 @@ impl RoutingTable {
                 true
             }
         });
-        if force_pruning {
-            let mut edges_to_remove2 = vec![];
-            for (k, edge) in self.edges_info.iter() {
-                if !self.peer_last_time_reachable.contains_key(&k.0)
-                    || !self.peer_last_time_reachable.contains_key(&k.1)
-                {
-                    edges_to_remove2.push(edge.clone());
-                }
-            }
-        }
 
         let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
