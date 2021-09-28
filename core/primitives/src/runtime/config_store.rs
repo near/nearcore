@@ -142,7 +142,7 @@ mod tests {
         // That's why we need to enforce that the cost of the data receipt is not less than a
         // function call. Otherwise we'd have to modify the way we compute the maximum depth.
         let store = RuntimeConfigStore::new(None);
-        for (protocol_version, config) in store.store.iter() {
+        for config in store.store.values() {
             let transaction_costs = &config.transaction_costs;
             assert!(
                 transaction_costs.data_receipt_creation_config.base_cost.min_send_and_exec_fee()
