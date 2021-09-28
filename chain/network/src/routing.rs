@@ -667,6 +667,7 @@ impl RoutingTable {
         self.edges_info.get(&key).cloned()
     }
 
+    #[cfg(not(feature = "protocol_feature_routing_exchange_algorithm"))]
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
