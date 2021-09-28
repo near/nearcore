@@ -209,7 +209,7 @@ where
                     address.do_send(request);
                 }
                 SendError::Closed(_) => {
-                    panic!("Can't send message, mailbox is closed");
+                    error!("Can't send message to SyncJobsActor, mailbox is closed");
                 }
             }
         }
