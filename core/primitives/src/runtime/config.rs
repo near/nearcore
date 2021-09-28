@@ -8,7 +8,6 @@ use crate::types::{AccountId, Balance};
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(default)]
 pub struct RuntimeConfig {
     /// Amount of yN per byte required to have on the account.
     /// See https://nomicon.io/Economics/README.html#state-stake for details.
