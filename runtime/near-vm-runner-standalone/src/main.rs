@@ -98,7 +98,7 @@ struct CliArgs {
     #[clap(long)]
     wasm_file: PathBuf,
     /// Select VM kind to run.
-    #[clap(long, possible_values = &["wasmer", "wasmer1", "wasmtime"])]
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: Option<String>,
     /// Prints execution times of various components.
     #[clap(long)]
@@ -128,7 +128,7 @@ fn main() {
     match cli_args.vm_kind.as_deref() {
         Some("wasmtime") => script.vm_kind(VMKind::Wasmtime),
         Some("wasmer") => script.vm_kind(VMKind::Wasmer0),
-        Some("wasmer1") => script.vm_kind(VMKind::Wasmer1),
+        Some("wasmer2") => script.vm_kind(VMKind::Wasmer2),
         _ => (),
     };
     if let Some(config) = &cli_args.config {

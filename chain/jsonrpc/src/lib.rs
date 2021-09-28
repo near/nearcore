@@ -21,12 +21,27 @@ use near_client::{
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
+#[cfg(feature = "adversarial")]
+use near_jsonrpc_primitives::types::adversarial::SetAdvOptionsRequest;
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_jsonrpc_primitives::types::adversarial::SetRoutingTableRequest;
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_jsonrpc_primitives::types::adversarial::StartRoutingTableSyncRequest;
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
-use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
+use near_network::types::{
+    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
+};
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
+#[cfg(feature = "adversarial")]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_network::types::{SetRoutingTable, StartRoutingTableSync};
+#[cfg(feature = "adversarial")]
+use near_network::PeerManagerActor;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
@@ -201,6 +216,8 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+    #[cfg(feature = "adversarial")]
+    peer_manager_addr: Addr<PeerManagerActor>,
 }
 
 impl JsonRpcHandler {
@@ -236,6 +253,65 @@ impl JsonRpcHandler {
                 "adv_switch_to_height" => Some(self.adv_switch_to_height(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
+                "adv_set_options" => {
+                    let params = parse_params::<SetAdvOptionsRequest>(params)?;
+                    let result = self
+                        .peer_manager_addr
+                        .send(SetAdvOptions {
+                            disable_edge_signature_verification: params
+                                .disable_edge_signature_verification,
+                            disable_edge_propagation: params.disable_edge_propagation,
+                            disable_edge_pruning: params.disable_edge_pruning,
+                        })
+                        .await?;
+                    Some(
+                        serde_json::to_value(result)
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                "adv_set_routing_table" => {
+                    let request = SetRoutingTableRequest::parse(params)?;
+                    let result = self
+                        .peer_manager_addr
+                        .send(SetRoutingTable {
+                            add_edges: request.add_edges,
+                            remove_edges: request.remove_edges,
+                            prune_edges: request.prune_edges,
+                        })
+                        .await?;
+                    Some(
+                        serde_json::to_value(result)
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                "adv_start_routing_table_syncv2" => {
+                    let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
+
+                    let result = self
+                        .peer_manager_addr
+                        .send(StartRoutingTableSync { peer_id: params.peer_id })
+                        .await?;
+                    Some(
+                        serde_json::to_value(result)
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                "adv_get_peer_id" => {
+                    let response = self.peer_manager_addr.send(GetPeerId {}).await?;
+                    Some(
+                        serde_json::to_value(response)
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                "adv_get_routing_table" => {
+                    let result = self.peer_manager_addr.send(GetRoutingTable {}).await?;
+                    Some(
+                        serde_json::to_value(result)
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
                 _ => None,
             };
 
@@ -1218,6 +1294,7 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
+    #[cfg(feature = "adversarial")] peer_manager_addr: Addr<PeerManagerActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
@@ -1233,6 +1310,8 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
+                #[cfg(feature = "adversarial")]
+                peer_manager_addr: peer_manager_addr.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

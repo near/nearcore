@@ -38,6 +38,15 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
+    # Wasmer 2.0 uses newer object
+    { name = "object", version = "=0.25.3" },
+    # Wasmer 2.0 uses both reion 2.2.0 and 3.0.0 via dependencies
+    { name = "region", version = "=2.2.0" },
+    # Wasmtime 0.17 use rely older wasmparser.
+    { name = "wasmparser", version = "=0.76.0" },
+    # Wasmtime 0.17 use older target-lexicon.
+    { name = "target-lexicon", version = "=0.11.2" },
+
     # param estimator uses newer imports, but it's not part of neard
     { name = "indicatif", version = "=0.15.0" },
     { name = "rand_xorshift", version = "=0.2.0" },
@@ -79,16 +88,6 @@ skip = [
     # criterion and criterion-plot use conflicting versions
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
-
-    # wasmer 1.0 use some older version of crates than wasmtime
-    { name = "cranelift-bforest", version = "=0.68.0" },
-    { name = "cranelift-codegen", version = "=0.68.0" },
-    { name = "cranelift-codegen-meta", version = "=0.68.0" },
-    { name = "cranelift-codegen-shared", version = "=0.68.0" },
-    { name = "cranelift-entity", version = "=0.68.0" },
-    { name = "cranelift-frontend", version = "=0.68.0" },
-    { name = "wasmparser", version = "=0.65.0" },
-    { name = "object", version = "=0.22.0" },
 
     # cached uses an older version
     { name = "strsim", version = "=0.9.3" },

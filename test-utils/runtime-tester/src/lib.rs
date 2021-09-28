@@ -49,5 +49,5 @@ fn scenario_smoke_test() {
         scenario.blocks.push(block)
     }
 
-    scenario.run().unwrap();
+    scenario.run().result.unwrap();
 }

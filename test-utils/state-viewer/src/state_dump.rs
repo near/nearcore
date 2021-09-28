@@ -79,7 +79,7 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
-    use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+    use near_chain::{ChainGenesis, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
@@ -110,11 +110,13 @@ mod test {
             None,
             None,
         );
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
-        let env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
+        let env = TestEnv::builder(chain_genesis)
+            .validator_seats(2)
+            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .build();
         (store, genesis, env)
     }
 
@@ -247,14 +249,16 @@ mod test {
         let create_runtime = |store| -> NightshadeRuntime {
             NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![], None, None)
         };
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![
-            Arc::new(create_runtime(store1.clone())),
-            Arc::new(create_runtime(store2.clone())),
-        ];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
-        let mut env = TestEnv::new_with_runtime(chain_genesis, 2, 1, runtimes);
+        let mut env = TestEnv::builder(chain_genesis)
+            .clients_count(2)
+            .runtime_adapters(vec![
+                Arc::new(create_runtime(store1.clone())),
+                Arc::new(create_runtime(store2.clone())),
+            ])
+            .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
@@ -303,10 +307,12 @@ mod test {
             None,
             None,
         );
-        let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nightshade_runtime)];
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
-        let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 2, runtimes);
+        let mut env = TestEnv::builder(chain_genesis)
+            .validator_seats(2)
+            .runtime_adapters(vec![Arc::new(nightshade_runtime)])
+            .build();
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(

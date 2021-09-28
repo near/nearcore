@@ -3,13 +3,15 @@ use std::ops::Sub;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, WriteBytesExt};
 use cached::{Cached, SizedCache};
 use chrono;
-use tracing::{trace, warn};
+use conqueue::{QueueReceiver, QueueSender};
+#[cfg(feature = "adversarial")]
+use serde::{Deserialize, Serialize};
+use tracing::{debug, trace, warn};
 
-use near_crypto::{SecretKey, Signature};
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -20,15 +22,18 @@ use near_store::{
     StoreUpdate,
 };
 
-use crate::metrics;
 use crate::{
     cache::RouteBackCache,
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
-use conqueue::{QueueReceiver, QueueSender};
-#[cfg(feature = "delay_detector")]
-use delay_detector::DelayDetector;
+use crate::{metrics, PeerInfo};
+use actix::dev::{MessageResponse, ResponseChannel};
+use actix::{Actor, Message};
+use borsh::{BorshDeserialize, BorshSerialize};
+use byteorder::{LittleEndian, WriteBytesExt};
+use near_crypto::{KeyType, SecretKey, Signature};
+use std::hash::{Hash, Hasher};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -72,6 +77,7 @@ pub enum EdgeType {
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "adversarial", derive(Serialize, Deserialize))]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
     pub peer0: PeerId,
@@ -86,6 +92,14 @@ pub struct Edge {
     /// The bool says which party is removing the edge: false for Peer0, true for Peer1
     /// The signature from the party removing the edge.
     removal_info: Option<(bool, Signature)>,
+}
+
+impl Hash for Edge {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.peer0.0.try_to_vec().unwrap());
+        state.write(&self.peer1.0.try_to_vec().unwrap());
+        state.write_u64(self.nonce)
+    }
 }
 
 impl Edge {
@@ -104,6 +118,21 @@ impl Edge {
         };
 
         Self { peer0, peer1, nonce, signature0, signature1, removal_info: None }
+    }
+
+    pub fn to_simple_edge(&self) -> SimpleEdge {
+        SimpleEdge::new(self.peer0.clone(), self.peer1.clone(), self.nonce)
+    }
+
+    pub fn make_fake_edge(peer0: PeerId, peer1: PeerId, nonce: u64) -> Self {
+        Self {
+            peer0,
+            peer1,
+            nonce,
+            signature0: Signature::empty(KeyType::ED25519),
+            signature1: Signature::empty(KeyType::ED25519),
+            removal_info: None,
+        }
     }
 
     /// Build a new edge with given information from the other party.
@@ -210,7 +239,7 @@ impl Edge {
         edge_info.signature.verify(data.as_ref(), &pk)
     }
 
-    fn get_pair(&self) -> (PeerId, PeerId) {
+    pub fn get_pair(&self) -> (PeerId, PeerId) {
         (self.peer0.clone(), self.peer1.clone())
     }
 
@@ -254,6 +283,86 @@ impl Edge {
     }
 }
 
+/// Represents edge between two nodes. Unlike `Edge` it doesn't contain signatures.
+#[derive(Hash, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "adversarial", derive(Serialize, Deserialize))]
+pub struct SimpleEdge {
+    key: (PeerId, PeerId),
+    nonce: u64,
+}
+
+impl SimpleEdge {
+    pub fn new(peer0: PeerId, peer1: PeerId, nonce: u64) -> SimpleEdge {
+        let (peer0, peer1) = Edge::key(peer0, peer1);
+        SimpleEdge { key: (peer0, peer1), nonce }
+    }
+
+    pub fn key(&self) -> &(PeerId, PeerId) {
+        &self.key
+    }
+
+    pub fn nonce(&self) -> u64 {
+        self.nonce
+    }
+
+    pub fn edge_type(&self) -> EdgeType {
+        if self.nonce % 2 == 1 {
+            EdgeType::Added
+        } else {
+            EdgeType::Removed
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Copy)]
+pub struct ValidIBFLevel(pub u64);
+
+/// We create IbfSets of various sizes from 2^10+2 up to 2^17+2. Those constants specify valid ranges.
+pub const MIN_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(10);
+pub const MAX_IBF_LEVEL: ValidIBFLevel = ValidIBFLevel(17);
+
+/// Represents IbfLevel from 10 to 17.
+impl ValidIBFLevel {
+    pub fn inc(&self) -> Option<ValidIBFLevel> {
+        if self.0 + 1 >= MIN_IBF_LEVEL.0 && self.0 + 1 <= MAX_IBF_LEVEL.0 {
+            Some(ValidIBFLevel(self.0 + 1))
+        } else {
+            None
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        return self.0 >= MIN_IBF_LEVEL.0 && self.0 <= MAX_IBF_LEVEL.0;
+    }
+}
+
+#[cfg_attr(feature = "adversarial", derive(Serialize))]
+pub struct PeerRequestResult {
+    pub peers: Vec<PeerInfo>,
+}
+
+impl<A, M> MessageResponse<A, M> for PeerRequestResult
+where
+    A: Actor,
+    M: Message<Result = PeerRequestResult>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+#[derive(MessageResponse, Debug)]
+#[cfg_attr(feature = "adversarial", derive(Serialize))]
+pub struct SetAdvOptionsResult {}
+
+#[derive(MessageResponse, Debug)]
+#[cfg_attr(feature = "adversarial", derive(Serialize))]
+pub struct GetRoutingTableResult {
+    pub edges_info: Vec<SimpleEdge>,
+}
+
 pub struct EdgeVerifierHelper {
     /// Shared version of edges_info used by multiple threads
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
@@ -287,7 +396,7 @@ pub struct RoutingTable {
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
-    raw_graph: Graph,
+    pub raw_graph: Graph,
     /// Number of times each active connection was used to route a message.
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
@@ -494,6 +603,16 @@ impl RoutingTable {
         }
     }
 
+    #[cfg(feature = "adversarial")]
+    pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
+        for edge in edges.iter() {
+            let key = (edge.peer0.clone(), edge.peer1.clone());
+            if self.edges_info.remove(&key).is_some() {
+                self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            }
+        }
+    }
+
     fn add_edge(&mut self, edge: Edge) -> bool {
         let key = edge.get_pair();
 
@@ -517,17 +636,17 @@ impl RoutingTable {
     /// Add several edges to the current view of the network.
     /// These edges are assumed to be valid at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+    pub fn process_edges(&mut self, edges: Arc<Vec<Edge>>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
 
-        for edge in edges {
+        for edge in edges.iter() {
             let key = edge.get_pair();
 
             self.touch(&key.0);
             self.touch(&key.1);
 
-            if self.add_edge(edge) {
+            if self.add_edge(edge.clone()) {
                 new_edge = true;
             }
         }
@@ -550,6 +669,14 @@ impl RoutingTable {
 
     pub fn get_edges(&self) -> Vec<Edge> {
         self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
+    }
+
+    pub fn get_edges_by_id(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
+        edges.iter().filter_map(|k| self.edges_info.get(&k.key()).cloned()).collect()
+    }
+
+    pub fn get_edges_len(&self) -> u64 {
+        self.edges_info.len() as u64
     }
 
     pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
@@ -618,7 +745,7 @@ impl RoutingTable {
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
-    fn try_save_edges(&mut self) {
+    fn try_save_edges(&mut self, force_pruning: bool, timeout: u64) -> Vec<Edge> {
         let now = chrono::Utc::now();
         let mut oldest_time = now;
         let to_save = self
@@ -626,9 +753,7 @@ impl RoutingTable {
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.signed_duration_since(*last_time).num_seconds()
-                    >= SAVE_PEERS_AFTER_TIME as i64
-                {
+                if now.signed_duration_since(*last_time).num_seconds() >= timeout as i64 {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -638,9 +763,12 @@ impl RoutingTable {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64 {
-            return;
+        if !force_pruning
+            && now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64
+        {
+            return Vec::new();
         }
+        debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
 
         let component_nonce = self.component_nonce;
         self.component_nonce += 1;
@@ -659,26 +787,37 @@ impl RoutingTable {
         }
 
         let component_nonce = index_to_bytes(component_nonce);
-        let mut edges_in_component = vec![];
+        let mut edges_to_remove = vec![];
 
         self.edges_info.retain(|(peer0, peer1), edge| {
             if to_save.contains(peer0) || to_save.contains(peer1) {
-                edges_in_component.push(edge.clone());
+                edges_to_remove.push(edge.clone());
                 false
             } else {
                 true
             }
         });
+        if force_pruning {
+            let mut edges_to_remove2 = vec![];
+            for (k, edge) in self.edges_info.iter() {
+                if !self.peer_last_time_reachable.contains_key(&k.0)
+                    || !self.peer_last_time_reachable.contains_key(&k.1)
+                {
+                    edges_to_remove2.push(edge.clone());
+                }
+            }
+        }
 
-        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_in_component);
+        let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
         if let Err(e) = update.commit() {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
         }
+        edges_to_remove
     }
 
     /// Recalculate routing table.
-    pub fn update(&mut self, can_save_edges: bool) {
+    pub fn update(&mut self, can_save_edges: bool, force_pruning: bool, timeout: u64) -> Vec<Edge> {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -693,12 +832,14 @@ impl RoutingTable {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
+        let mut edges_to_remove = Vec::new();
         if can_save_edges {
-            self.try_save_edges();
+            edges_to_remove = self.try_save_edges(force_pruning, timeout);
         }
 
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+        edges_to_remove
     }
 
     /// Public interface for `account_peers`
@@ -711,6 +852,11 @@ impl RoutingTable {
     /// Get announce accounts on cache.
     pub fn get_announce_accounts(&mut self) -> Vec<AnnounceAccount> {
         self.account_peers.value_order().cloned().collect()
+    }
+
+    /// Get number of accounts
+    pub fn get_announce_accounts_size(&mut self) -> usize {
+        self.account_peers.cache_size()
     }
 
     /// Get account announce from
@@ -752,11 +898,11 @@ pub struct Graph {
     source_id: u32,
     p2id: HashMap<PeerId, u32>,
     id2p: Vec<PeerId>,
-    used: Vec<bool>,
-    unused: Vec<u32>,
+    pub used: Vec<bool>,
+    pub unused: Vec<u32>,
     adjacency: Vec<Vec<u32>>,
 
-    total_active_edges: u64,
+    pub total_active_edges: u64,
 }
 
 impl Graph {

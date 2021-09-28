@@ -44,18 +44,14 @@ json_rpc = ["nearcore/json_rpc"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["nearcore/protocol_feature_block_header_v3"]
 protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_producers"]
+protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
+protocol_feature_wasmer2 = ["nearcore/protocol_feature_wasmer2"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
 sandbox = ["nearcore/sandbox"]
 
-# enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer1_default = ["nearcore/wasmer1_default"]
-wasmer0_default = ["nearcore/wasmer0_default"]
-wasmtime_default = ["nearcore/wasmtime_default"]
-# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
-# but would not change default runner used by neard
-wasmer1_vm = ["nearcore/wasmer1_vm"]
-wasmer0_vm = ["nearcore/wasmer0_vm"]
-wasmtime_vm = ["nearcore/wasmtime_vm"]
+# Force usage of a specific wasm vm irrespective of protocol version.
+force_wasmer2 = ["nearcore/force_wasmer2"]
+force_wasmer0 = ["nearcore/force_wasmer0"]
+force_wasmtime = ["nearcore/force_wasmtime"]

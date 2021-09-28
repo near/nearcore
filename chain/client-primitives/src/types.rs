@@ -105,7 +105,8 @@ impl Clone for DownloadStatus {
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
-    StateDownloadFinalize,
+    StateDownloadScheduling,
+    StateDownloadApplying,
     StateDownloadComplete,
     StateSplit,
 }

@@ -230,8 +230,9 @@ fn connection_spam_security_test() {
         let arbiter = Arbiter::new();
         let port = open_port();
 
-        let pm = make_peer_manager("test1", port, vec![], 10);
-        let pm = PeerManagerActor::start_in_arbiter(&arbiter.handle(), |_ctx| pm);
+        let pm = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
+            make_peer_manager("test1", port, vec![], 10)
+        });
 
         let addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
 

@@ -11,6 +11,7 @@ use crate::hash::CryptoHash;
 use crate::serialize::u128_dec_format;
 use crate::trie_key::TrieKey;
 
+use crate::receipt::Receipt;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
 
@@ -171,6 +172,38 @@ pub struct RawStateChange {
 pub struct RawStateChangesWithTrieKey {
     pub trie_key: TrieKey,
     pub changes: Vec<RawStateChange>,
+}
+
+/// Consolidate state change of trie_key and the final value the trie key will be changed to
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct ConsolidatedStateChange {
+    pub trie_key: TrieKey,
+    pub value: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub struct StateChangesForSplitStates {
+    pub changes: Vec<ConsolidatedStateChange>,
+    // we need to store deleted receipts here because StateChanges will only include
+    // trie keys for removed values and account information can not be inferred from
+    // trie key for delayed receipts
+    pub processed_delayed_receipts: Vec<Receipt>,
+}
+
+impl StateChangesForSplitStates {
+    pub fn from_raw_state_changes(
+        changes: &[RawStateChangesWithTrieKey],
+        processed_delayed_receipts: Vec<Receipt>,
+    ) -> Self {
+        let changes = changes
+            .iter()
+            .map(|RawStateChangesWithTrieKey { trie_key, changes }| {
+                let value = changes.last().expect("state_changes must not be empty").data.clone();
+                ConsolidatedStateChange { trie_key: trie_key.clone(), value }
+            })
+            .collect();
+        Self { changes, processed_delayed_receipts }
+    }
 }
 
 /// key that was updated -> list of updates with the corresponding indexing event.
@@ -785,6 +818,10 @@ pub mod chunk_extra {
     }
 
     impl ChunkExtra {
+        pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
+            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+        }
+
         pub fn new(
             state_root: &StateRoot,
             outcome_root: CryptoHash,
@@ -872,6 +909,10 @@ pub mod chunk_extra {
     pub type ChunkExtra = ChunkExtraV1;
 
     impl ChunkExtra {
+        pub fn new_with_only_state_root(state_root: &StateRoot) -> Self {
+            Self::new(state_root, CryptoHash::default(), vec![], 0, 0, 0)
+        }
+
         pub fn new(
             state_root: &StateRoot,
             outcome_root: CryptoHash,
@@ -998,12 +1039,31 @@ pub struct BlockChunkValidatorStats {
     pub chunk_stats: ValidatorStats,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochReference {
     EpochId(EpochId),
     BlockId(BlockId),
     Latest,
+}
+
+impl Serialize for EpochReference {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            EpochReference::EpochId(epoch_id) => {
+                s.serialize_newtype_variant("EpochReference", 0, "epoch_id", epoch_id)
+            }
+            EpochReference::BlockId(block_id) => {
+                s.serialize_newtype_variant("EpochReference", 1, "block_id", block_id)
+            }
+            EpochReference::Latest => {
+                s.serialize_newtype_variant("EpochReference", 2, "latest", &())
+            }
+        }
+    }
 }
 
 /// Reasons for removing a validator from the validator set.

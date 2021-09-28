@@ -3,6 +3,7 @@ use std::path::Path;
 
 use near_primitives::contract::ContractCode;
 use near_primitives::types::CompiledContractCache;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
@@ -41,11 +42,12 @@ pub struct ScriptResults {
 
 impl Default for Script {
     fn default() -> Self {
+        let protocol_version = PROTOCOL_VERSION;
         Script {
             contracts: Vec::new(),
-            vm_kind: VMKind::default(),
+            vm_kind: VMKind::for_protocol_version(protocol_version),
             vm_config: VMConfig::default(),
-            protocol_version: ProtocolVersion::MAX,
+            protocol_version,
             contract_cache: None,
             initial_state: None,
             steps: Vec::new(),
@@ -263,5 +265,5 @@ fn test_evm_slow_deserialize_repro() {
     }
 
     evm_slow_deserialize_repro(VMKind::Wasmer0);
-    evm_slow_deserialize_repro(VMKind::Wasmer1);
+    evm_slow_deserialize_repro(VMKind::Wasmer2);
 }

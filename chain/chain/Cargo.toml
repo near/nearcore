@@ -5,6 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+actix = "=0.11.0-beta.2"
 chrono = { version = "0.4.4", features = ["serde"] }
 failure = "0.1"
 failure_derive = "0.1"
@@ -43,6 +44,7 @@ delay_detector = ["delay-detector"]
 no_cache = ["near-store/no_cache"]
 protocol_feature_block_header_v3 = []
 protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3", "near-primitives/protocol_feature_chunk_only_producers"]
-nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3", "protocol_feature_chunk_only_producers"]
+protocol_feature_routing_exchange_algorithm = []
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm"]
 nightly_protocol = []
 sandbox = []

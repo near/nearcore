@@ -93,6 +93,7 @@ fn main() -> Result<()> {
             .apply_transactions(
                 shard_id,
                 chunk_extra.state_root(),
+                None,
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -110,9 +111,7 @@ fn main() -> Result<()> {
             )
             .unwrap();
 
-        let receipts_missing_after_apply: Vec<Receipt> =
-            apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
-        receipts_missing.extend(receipts_missing_after_apply.into_iter());
+        receipts_missing.extend(apply_result.outgoing_receipts.into_iter());
         eprintln!("{} applied", height);
     }
 

@@ -123,7 +123,7 @@ In `VMLogic`, interaction with NEAR blockchain happens in the following two ways
 
 `run_vm` function in `runner.rs` is the entry point to the vm runner.
 This function essentially spins up the vm and executes some function in a contract.
-It supports different wasm compilers including wasmer0, wasmer1, and wasmtime through compile-time feature flags.
+It supports different wasm compilers including wasmer0, wasmer2, and wasmtime through compile-time feature flags.
 However, currently we only use wasmer0 in production.
 The `imports` module exposes host functions defined in `near-vm-logic` to WASM code. 
 In other words, it defines the ABI of the contracts on NEAR.

@@ -1,8 +1,10 @@
-use chrono::Utc;
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use std::collections::btree_map;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use chrono::Utc;
+
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 
 type Time = u64;
 type Size = u64;

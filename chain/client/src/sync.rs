@@ -1,4 +1,4 @@
-use near_chain::{ChainStoreAccess, Error};
+use near_chain::{near_chain_primitives, ChainStoreAccess, Error};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,6 +24,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, 
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
+use near_chain::chain::ApplyStatePartsRequest;
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
@@ -603,6 +604,9 @@ pub struct StateSync {
     requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 
     timeout: Duration,
+
+    /// Maps shard_id to result of applying downloaded state
+    state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 }
 
 impl StateSync {
@@ -614,6 +618,7 @@ impl StateSync {
             last_part_id_requested: Default::default(),
             requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
             timeout: Duration::from_std(timeout).unwrap(),
+            state_parts_apply_results: HashMap::new(),
         }
     }
 
@@ -655,6 +660,7 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
@@ -744,20 +750,25 @@ impl StateSync {
                         update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
-                            status: ShardSyncStatus::StateDownloadFinalize,
+                            status: ShardSyncStatus::StateDownloadScheduling,
                         };
                     }
                 }
-                ShardSyncStatus::StateDownloadFinalize => {
+                ShardSyncStatus::StateDownloadScheduling => {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
-                        Ok(_) => {
+                    match chain.schedule_apply_state_parts(
+                        shard_id,
+                        sync_hash,
+                        state_num_parts,
+                        state_parts_task_scheduler,
+                    ) {
+                        Ok(()) => {
                             update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
                                 downloads: vec![],
-                                status: ShardSyncStatus::StateDownloadComplete,
+                                status: ShardSyncStatus::StateDownloadApplying,
                             }
                         }
                         Err(e) => {
@@ -767,6 +778,37 @@ impl StateSync {
                             update_sync_status = true;
                             *shard_sync_download = init_sync_download.clone();
                             chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                        }
+                    }
+                }
+                ShardSyncStatus::StateDownloadApplying => {
+                    let result = self.state_parts_apply_results.remove(&shard_id);
+                    if let Some(result) = result {
+                        match chain.set_state_finalize(shard_id, sync_hash, result) {
+                            Ok(()) => {
+                                update_sync_status = true;
+                                *shard_sync_download = ShardSyncDownload {
+                                    downloads: vec![],
+                                    status: ShardSyncStatus::StateDownloadComplete,
+                                }
+                            }
+                            Err(e) => {
+                                // Cannot finalize the downloaded state.
+                                // The reasonable behavior here is to start from the very beginning.
+                                error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
+                                update_sync_status = true;
+                                *shard_sync_download = init_sync_download.clone();
+                                let shard_state_header =
+                                    chain.get_state_header(shard_id, sync_hash)?;
+                                let state_num_parts = get_num_state_parts(
+                                    shard_state_header.state_root_node().memory_usage,
+                                );
+                                chain.clear_downloaded_parts(
+                                    shard_id,
+                                    sync_hash,
+                                    state_num_parts,
+                                )?;
+                            }
                         }
                     }
                 }
@@ -837,6 +879,10 @@ impl StateSync {
         }
 
         Ok((update_sync_status, all_done))
+    }
+
+    pub fn set_apply_result(&mut self, shard_id: ShardId, apply_result: Result<(), Error>) {
+        self.state_parts_apply_results.insert(shard_id, apply_result);
     }
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
@@ -1058,6 +1104,7 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();
@@ -1084,6 +1131,7 @@ impl StateSync {
             highest_height_peers,
             tracking_shards,
             now,
+            state_parts_task_scheduler,
         )?;
 
         if have_block && all_done {
@@ -1169,7 +1217,6 @@ mod test {
     use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
-    use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
@@ -1178,6 +1225,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_network::routing::EdgeInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1454,7 +1502,7 @@ mod test {
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..21 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1496,7 +1544,7 @@ mod test {
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..31 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

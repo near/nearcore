@@ -2,14 +2,9 @@
 
 Use this tool to measure the running time of elementary runtime operations that have associated fees.
 
-1. Initialize home folder for the estimator
+1. Run the estimator
     ```bash
-    cargo run --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-    ```
-
-2. Run the estimator
-    ```bash
-    cargo run --release --package runtime-params-estimator --features required --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
+    cargo run --release --package runtime-params-estimator --features required --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
     ```
 
     With the given parameters above estimator will run relatively fast.
@@ -17,7 +12,8 @@ Use this tool to measure the running time of elementary runtime operations that 
     To get more robust estimates, use these arguments:
 
     ```bash
-    --docker --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric icount
+    --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 \
+      --docker --metric icount
     ```
 
     This will run and build the estimator inside a docker container, using QEMU to precisely count the number of executed instructions.
@@ -25,7 +21,7 @@ Use this tool to measure the running time of elementary runtime operations that 
     We will be using different parameters to do the actual parameter estimation.
     The instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the real data.
 
-3. The result of the estimator run is the `costs-$timestamp$.txt` file, which contains human-readable representation of the costs.
+2. The result of the estimator run is the `costs-$timestamp$.txt` file, which contains human-readable representation of the costs.
    It can be compared with `costs.txt` file in the repository, which contains the current costs we are using.
    Note that, at the moment, `costs.txt` is *not* the source of truth.
    Rather, the costs are hard-codded in the `Default` impl for `RuntimeConfig`.

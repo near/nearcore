@@ -35,12 +35,6 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
 protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers"]
-wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
-wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
-wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
-wasmer1_default = ["wasmer1_vm", "near-vm-runner/wasmer1_default"]
-wasmer0_default = ["wasmer0_vm", "near-vm-runner/wasmer0_default"]
-wasmtime_default = ["wasmtime_vm", "near-vm-runner/wasmtime_default"]
 
 no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
 

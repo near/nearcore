@@ -20,6 +20,7 @@ strum = { version = "0.20", features = ["derive"] }
 near-rust-allocator-proxy = "0.2.9"
 bytesize = "1.0.1"
 conqueue = "0.4.0"
+serde = { version = "1", features = ["derive"], optional=true }
 
 borsh = "0.9"
 cached = "0.23"
@@ -32,6 +33,7 @@ near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
+near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 
@@ -43,11 +45,16 @@ tempfile = "3"
 bencher = "0.1.5"
 
 [features]
-adversarial = ["near-network-primitives/adversarial"]
+adversarial = ["near-network-primitives/adversarial", "serde", "protocol_feature_routing_exchange_algorithm"]
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
 sandbox = ["near-network-primitives/sandbox"]
+protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm"]
 
 [[bench]]
 name = "graph"
+harness = false
+
+[[bench]]
+name = "ibf"
 harness = false

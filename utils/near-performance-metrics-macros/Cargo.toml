@@ -1,7 +1,7 @@
 [package]
 name = "near-performance-metrics-macros"
 version = "0.1.0"
-authors = ["Piotr Mikulski <piotr@near.org>"]
+authors = ["Near Inc <hello@nearprotocol.com>", "Piotr Mikulski <piotr@near.org"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

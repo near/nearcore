@@ -3,7 +3,7 @@ use clap::Clap;
 use genesis_populate::GenesisBuilder;
 use near_store::create_store;
 use near_vm_runner::VMKind;
-use nearcore::{get_default_home, get_store_path, load_config};
+use nearcore::{get_store_path, load_config};
 use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
@@ -20,7 +20,8 @@ use std::time;
 
 #[derive(Clap)]
 struct CliArgs {
-    /// Directory for config and data (default "~/.near\").
+    /// Directory for config and data. If not set, a temporary directory is used
+    /// to generate appropriate data.
     #[clap(long)]
     home: Option<PathBuf>,
     /// How many warm up iterations per block should we run.
@@ -34,7 +35,7 @@ struct CliArgs {
     accounts_num: usize,
     /// Number of additional accounts to add to the state, among which active accounts are selected.
     #[clap(long, default_value = "200000")]
-    additional_accounts_num: usize,
+    additional_accounts_num: u64,
     /// Skip building test contract which is used in metrics computation.
     #[clap(long)]
     skip_build_test_contract: bool,
@@ -42,7 +43,7 @@ struct CliArgs {
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer1", "wasmtime"])]
+    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: String,
     /// Only test contract compilation costs.
     #[clap(long)]
@@ -68,25 +69,47 @@ fn main() -> anyhow::Result<()> {
 
     let cli_args = CliArgs::parse();
 
-    let state_dump_path = cli_args.home.unwrap_or_else(|| get_default_home().into());
+    let temp_dir;
+    let state_dump_path = match cli_args.home {
+        Some(it) => it,
+        None => {
+            temp_dir = tempfile::tempdir()?;
 
-    let additional_accounts_num = cli_args.additional_accounts_num as u64;
-    if additional_accounts_num > 0 {
-        let near_config = load_config(&state_dump_path);
-        let store = create_store(&get_store_path(&state_dump_path));
-        GenesisBuilder::from_config_and_store(
-            &state_dump_path,
-            Arc::new(near_config.genesis),
-            store,
-        )
-        .add_additional_accounts(additional_accounts_num)
-        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
-        .print_progress()
-        .build()
-        .unwrap()
-        .dump_state()
-        .unwrap();
-    }
+            let state_dump_path = temp_dir.path().to_path_buf();
+            nearcore::init_configs(
+                &state_dump_path,
+                None,
+                Some("test.near".parse().unwrap()),
+                Some("alice.near"),
+                1,
+                true,
+                None,
+                false,
+                None,
+                false,
+                None,
+                None,
+                None,
+            );
+
+            let near_config = load_config(&state_dump_path);
+            let store = create_store(&get_store_path(&state_dump_path));
+            GenesisBuilder::from_config_and_store(
+                &state_dump_path,
+                Arc::new(near_config.genesis),
+                store,
+            )
+            .add_additional_accounts(cli_args.additional_accounts_num)
+            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+            .print_progress()
+            .build()
+            .unwrap()
+            .dump_state()
+            .unwrap();
+
+            state_dump_path
+        }
+    };
 
     // TODO: consider implementing the same in Rust to reduce complexity.
     // Good example: runtime/near-test-contracts/build.rs
@@ -136,7 +159,7 @@ fn main() -> anyhow::Result<()> {
     };
     let vm_kind = match cli_args.vm_kind.as_str() {
         "wasmer" => VMKind::Wasmer0,
-        "wasmer1" => VMKind::Wasmer1,
+        "wasmer2" => VMKind::Wasmer2,
         "wasmtime" => VMKind::Wasmtime,
         other => unreachable!("Unknown vm_kind {}", other),
     };
@@ -244,7 +267,8 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         .args(&["--mount", &nearhome])
         .args(&["--mount", "source=rust-emu-target-dir,target=/host/nearcore/target"])
         .args(&["--mount", "source=rust-emu-cargo-dir,target=/usr/local/cargo"])
-        .args(&["--interactive", "--tty"]);
+        .args(&["--interactive", "--tty"])
+        .args(&["--env", "RUST_BACKTRACE=full"]);
     if full {
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);

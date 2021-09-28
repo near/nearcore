@@ -8,7 +8,6 @@ use near_chain::types::BlockEconomicsConfig;
 use near_chain::validate::validate_challenge;
 use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
-    RuntimeAdapter,
 };
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
@@ -24,6 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
@@ -37,7 +37,7 @@ use nearcore::NightshadeRuntime;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -132,7 +132,7 @@ fn create_invalid_proofs_chunk(
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
@@ -144,7 +144,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     let (encoded_chunk, _merkle_paths, _receipts, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -159,7 +159,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     // Valid chunk
     let (chunk, _merkle_paths, _receipts, block) = create_chunk(&mut env.clients[0], None, None);
@@ -172,7 +172,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -208,7 +208,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
 #[test]
 fn test_verify_chunk_proofs_challenge_transaction_order() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -271,16 +271,18 @@ fn test_verify_chunk_invalid_state_challenge() {
     let store1 = create_test_store();
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let transaction_validity_period = genesis.config.transaction_validity_period;
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![Arc::new(nearcore::NightshadeRuntime::new(
-        Path::new("."),
-        store1,
-        &genesis,
-        vec![],
-        vec![],
-        None,
-        None,
-    ))];
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::new(
+            Path::new("."),
+            store1,
+            &genesis,
+            vec![],
+            vec![],
+            None,
+            None,
+            RuntimeConfigStore::test(),
+        ))])
+        .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -458,7 +460,7 @@ fn test_verify_chunk_invalid_state_challenge() {
 #[ignore]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(2).build();
     env.produce_block(0, 1);
     let block1 = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
     env.process_block(1, block1, Provenance::NONE);
@@ -540,7 +542,7 @@ fn test_receive_two_blocks_from_one_producer() {}
 #[ignore]
 fn test_block_challenge() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
@@ -581,13 +583,16 @@ fn test_fishermen_challenge() {
             vec![],
             None,
             None,
+            RuntimeConfigStore::test(),
         ))
     };
     let runtime1 = create_runtime();
     let runtime2 = create_runtime();
     let runtime3 = create_runtime();
-    let mut env =
-        TestEnv::new_with_runtime(ChainGenesis::test(), 3, 1, vec![runtime1, runtime2, runtime3]);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .clients_count(3)
+        .runtime_adapters(vec![runtime1, runtime2, runtime3])
+        .build();
     let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let stake_transaction = SignedTransaction::stake(
@@ -644,6 +649,7 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
     let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
         Path::new("."),
@@ -653,13 +659,18 @@ fn test_challenge_in_different_epoch() {
         vec![],
         None,
         None,
+        RuntimeConfigStore::test(),
     ));
-    let runtimes: Vec<Arc<dyn RuntimeAdapter>> = vec![runtime1, runtime2];
-    let networks = vec![network_adapter.clone(), network_adapter.clone()];
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;
-    let mut env =
-        TestEnv::new_with_runtime_and_network_adapter(chain_genesis, 2, 2, runtimes, networks);
+
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(2)
+        .validator_seats(2)
+        .runtime_adapters(vec![runtime1, runtime2])
+        .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
+        .build();
+
     let mut fork_blocks = vec![];
     for h in 1..13 {
         if let Some(block) = env.clients[0].produce_block(h).unwrap() {
@@ -678,7 +689,8 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
-        match env.clients[0].run_catchup(&vec![]) {
+        let f = |_| {};
+        match env.clients[0].run_catchup(&vec![], &f) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
                     env.clients[0].on_block_accepted(
