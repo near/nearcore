@@ -749,20 +749,27 @@ impl PeerManagerActor {
             line!(),
             WAIT_FOR_SYNC_DELAY,
             move |act, ctx2| {
-                if peer_type == PeerType::Inbound {
-                    act.ibf_routing_pool
-                        .send(IbfRoutingTableExchangeMessages::RequestRoutingTable)
-                        .into_actor(act)
-                        .map(move |response, act2, ctx3| match response {
-                            Ok(IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
+                act.ibf_routing_pool
+                    .send(IbfRoutingTableExchangeMessages::RequestRoutingTable)
+                    .into_actor(act)
+                    .map(move |response, act2, ctx3| match response {
+                        Ok(
+                            IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
                                 routing_table,
-                            }) => {
-                                act2.send_sync(peer_type, addr, ctx3, target_peer_id.clone(), new_edge, routing_table);
                             },
-                            _ => error!(target: "network", "expected AddIbfSetResponse"),
-                        })
-                        .spawn(ctx2);
-                }
+                        ) => {
+                            act2.send_sync(
+                                peer_type,
+                                addr,
+                                ctx3,
+                                target_peer_id.clone(),
+                                new_edge,
+                                routing_table,
+                            );
+                        }
+                        _ => error!(target: "network", "expected AddIbfSetResponse"),
+                    })
+                    .spawn(ctx2);
             },
         );
     }
