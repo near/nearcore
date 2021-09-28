@@ -2220,7 +2220,12 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
         }
         if let Some(true) = msg.prune_edges {
             debug!(target: "network", "adversarial prune_edges");
-            self.routing_table.update(true, true, 2);
+            let edges_to_remove = self.routing_table.update(true, true, 2);
+            self.ibf_routing_pool
+                .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges_to_remove))
+                .into_actor(self)
+                .map(|_, _, _| ())
+                .spawn(ctx);
         }
     }
 }
