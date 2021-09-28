@@ -102,7 +102,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
     let vm_config = VMConfig::default();
     let cache: Option<Arc<dyn CompiledContractCache>> =
         Some(Arc::new(MockCompiledContractCache::new(0)));
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     let mut oks = 0;
     let mut errs = 0;

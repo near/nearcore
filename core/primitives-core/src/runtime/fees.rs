@@ -38,7 +38,7 @@ impl Fee {
     }
 
     /// The minimum fee to send and execute.
-    fn min_send_and_exec_fee(&self) -> Gas {
+    pub fn min_send_and_exec_fee(&self) -> Gas {
         std::cmp::min(self.send_sir, self.send_not_sir) + self.execution
     }
 }
@@ -136,8 +136,8 @@ pub struct StorageUsageConfig {
     pub num_extra_bytes_record: u64,
 }
 
-impl Default for RuntimeFeesConfig {
-    fn default() -> Self {
+impl RuntimeFeesConfig {
+    pub fn test() -> Self {
         #[allow(clippy::unreadable_literal)]
         Self {
             action_receipt_creation_config: Fee {
@@ -231,9 +231,7 @@ impl Default for RuntimeFeesConfig {
             pessimistic_gas_price_inflation_ratio: Rational::new(103, 100),
         }
     }
-}
 
-impl RuntimeFeesConfig {
     pub fn free() -> Self {
         let free = Fee { send_sir: 0, send_not_sir: 0, execution: 0 };
         RuntimeFeesConfig {
@@ -326,27 +324,5 @@ pub mod u128_dec_format {
     {
         let s = String::deserialize(deserializer)?;
         u128::from_str_radix(&s, 10).map_err(de::Error::custom)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_data_roundtrip_is_more_expensive() {
-        // We have an assumption that the deepest receipts we can create is by creating recursive
-        // function call promises (calling function call from a function call).
-        // If the cost of a data receipt is cheaper than the cost of a function call, then it's
-        // possible to create a promise with a dependency which will be executed in two blocks that
-        // is cheaper than just two recursive function calls.
-        // That's why we need to enforce that the cost of the data receipt is not less than a
-        // function call. Otherwise we'd have to modify the way we compute the maximum depth.
-        let transaction_costs = RuntimeFeesConfig::default();
-        assert!(
-            transaction_costs.data_receipt_creation_config.base_cost.min_send_and_exec_fee()
-                >= transaction_costs.min_receipt_with_function_call_gas(),
-            "The data receipt cost can't be larger than the cost of a receipt with a function call"
-        );
     }
 }

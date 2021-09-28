@@ -249,7 +249,7 @@ mod tests {
         let root = MerkleHash::default();
         let initial_state = tries.new_trie_update(ShardUId::default(), root);
         let final_state = tries.new_trie_update(ShardUId::default(), root);
-        let transaction_costs = RuntimeFeesConfig::default();
+        let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
             &initial_state,
@@ -270,7 +270,7 @@ mod tests {
         let root = MerkleHash::default();
         let initial_state = tries.new_trie_update(ShardUId::default(), root);
         let final_state = tries.new_trie_update(ShardUId::default(), root);
-        let transaction_costs = RuntimeFeesConfig::default();
+        let transaction_costs = RuntimeFeesConfig::test();
         let err = check_balance(
             &transaction_costs,
             &initial_state,
@@ -305,7 +305,7 @@ mod tests {
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let transaction_costs = RuntimeFeesConfig::default();
+        let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
             &initial_state,
@@ -329,7 +329,7 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE / 2;
         let deposit = 500_000_000;
         let gas_price = 100;
-        let cfg = RuntimeFeesConfig::default();
+        let cfg = RuntimeFeesConfig::test();
         let exec_gas = cfg.action_receipt_creation_config.exec_fee()
             + cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = cfg.action_receipt_creation_config.send_fee(false)
@@ -431,7 +431,7 @@ mod tests {
             }),
         };
 
-        let transaction_costs = RuntimeFeesConfig::default();
+        let transaction_costs = RuntimeFeesConfig::test();
         assert_eq!(
             check_balance(
                 &transaction_costs,

@@ -1,6 +1,8 @@
+use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
 use log::debug;
 use near_crypto::{KeyType, PublicKey};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::BorshDeserialize,
@@ -191,7 +193,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = Arc::new(RuntimeConfig::test());
+        let config = RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
