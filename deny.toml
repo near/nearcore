@@ -39,7 +39,7 @@ skip = [
     { name = "cfg-if", version = "=1.0.0" },
 
     # Wasmer 2.0 uses newer object
-    { name = "object", version = "=0.25.3" },
+    { name = "object", version = "=0.26.2" },
     # Wasmer 2.0 uses both reion 2.2.0 and 3.0.0 via dependencies
     { name = "region", version = "=2.2.0" },
     # Wasmtime 0.17 use rely older wasmparser.
