@@ -154,7 +154,7 @@ impl Actor for IbfRoutingTableExchangeActor {
 
 #[derive(Debug)]
 pub enum IbfRoutingTableExchangeMessages {
-    AddEdges(Arc<Vec<Edge>>),
+    AddEdges(Vec<Edge>),
     RemoveEdges(Vec<Edge>),
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerIfMissing(PeerId, Option<u64>),
@@ -1086,13 +1086,12 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         edges: Vec<Edge>,
     ) -> bool {
-        let edges = Arc::new(edges);
+        let ProcessEdgeResult { new_edge, edges } = self.routing_table.process_edges(edges);
         self.ibf_routing_pool
-            .send(IbfRoutingTableExchangeMessages::AddEdges(edges.clone()))
+            .send(IbfRoutingTableExchangeMessages::AddEdges(edges))
             .into_actor(self)
             .map(|_, _, _| ())
             .spawn(ctx);
-        let ProcessEdgeResult { new_edge } = self.routing_table.process_edges(edges);
 
         if !self.scheduled_routing_table_update {
             self.scheduled_routing_table_update = true;

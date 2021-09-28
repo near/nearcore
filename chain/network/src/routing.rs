@@ -636,11 +636,12 @@ impl RoutingTable {
     /// Add several edges to the current view of the network.
     /// These edges are assumed to be valid at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Arc<Vec<Edge>>) -> ProcessEdgeResult {
+    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
+        let mut result = Vec::new();
 
-        for edge in edges.iter() {
+        for edge in edges {
             let key = edge.get_pair();
 
             self.touch(&key.0);
@@ -648,6 +649,7 @@ impl RoutingTable {
 
             if self.add_edge(edge.clone()) {
                 new_edge = true;
+                result.push(edge);
             }
         }
 
@@ -655,7 +657,7 @@ impl RoutingTable {
         near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
         near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
 
-        ProcessEdgeResult { new_edge }
+        ProcessEdgeResult { new_edge, edges: result }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -870,6 +872,7 @@ impl RoutingTable {
 
 pub struct ProcessEdgeResult {
     pub new_edge: bool,
+    pub edges: Vec<Edge>,
 }
 
 #[derive(Debug)]
