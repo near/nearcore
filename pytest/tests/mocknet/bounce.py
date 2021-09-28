@@ -17,8 +17,6 @@ time.sleep(10)
 
 mocknet.create_and_upload_genesis(nodes, '../nearcore/res/genesis_config.json')
 
-mocknet.create_and_upload_genesis(nodes, '../nearcore/res/genesis_config.json')
-
 # start nodes
 mocknet.start_nodes(nodes)
 
