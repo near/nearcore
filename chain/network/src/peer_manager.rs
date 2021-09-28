@@ -184,7 +184,7 @@ pub enum IbfRoutingTableExchangeMessagesResponse {
         ibf_msg: Option<RoutingVersion2>,
     },
     RequestRoutingTableResponse {
-        routing_table: Vec<Edge>,
+        edges_info: Vec<Edge>,
     },
 }
 
@@ -255,7 +255,7 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
             }
             IbfRoutingTableExchangeMessages::RequestRoutingTable => {
                 IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
-                    routing_table: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
+                    edges_info: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
                 }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -770,7 +770,7 @@ impl PeerManagerActor {
                     .map(move |response, act2, ctx3| match response {
                         Ok(
                             IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
-                                routing_table,
+                                edges_info: routing_table,
                             },
                         ) => {
                             act2.send_sync(

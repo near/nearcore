@@ -327,7 +327,7 @@ impl JsonRpcHandler {
 
                     match result {
                         IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
-                            routing_table,
+                            edges_info: routing_table,
                         } => {
                             let response = {
                                 GetRoutingTableResult {
