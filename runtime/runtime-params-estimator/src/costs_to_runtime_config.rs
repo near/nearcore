@@ -31,7 +31,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             limit_config: VMLimitConfig::default(),
         },
         transaction_costs: runtime_fees_config(cost_table)?,
-        ..RuntimeConfig::default()
+        ..RuntimeConfig::test()
     };
     Ok(res)
 }

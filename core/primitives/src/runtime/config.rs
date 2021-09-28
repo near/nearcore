@@ -26,8 +26,8 @@ pub struct RuntimeConfig {
     pub account_creation_config: AccountCreationConfig,
 }
 
-impl Default for RuntimeConfig {
-    fn default() -> Self {
+impl RuntimeConfig {
+    pub fn test() -> Self {
         RuntimeConfig {
             // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
@@ -36,9 +36,7 @@ impl Default for RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
         }
     }
-}
 
-impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
             storage_amount_per_byte: 0,
@@ -122,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_max_prepaid_gas() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         assert!(
             config.wasm_config.limit_config.max_total_prepaid_gas
                 / config.transaction_costs.min_receipt_with_function_call_gas()
@@ -133,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_lower_cost() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let default_amount = config.storage_amount_per_byte;
         #[allow(deprecated)]
         let config = ActualRuntimeConfig::new(config);

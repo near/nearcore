@@ -19,7 +19,7 @@ fn main() -> Result<(), Error> {
     debug!("Genesis read");
 
     let storage_usage =
-        Runtime::new().compute_storage_usage(&genesis.records.0[..], &RuntimeConfig::default());
+        Runtime::new().compute_storage_usage(&genesis.records.0[..], &RuntimeConfig::test());
     debug!("Storage usage calculated");
 
     let mut result = Vec::new();

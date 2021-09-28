@@ -38,7 +38,7 @@ impl RuntimeTestbed {
         assert!(!roots.is_empty(), "No state roots found.");
         let root = roots[0];
 
-        let mut runtime_config = RuntimeConfig::default();
+        let mut runtime_config = RuntimeConfig::test();
 
         runtime_config.wasm_config.limit_config = VMLimitConfig {
             max_total_log_length: u64::max_value(),

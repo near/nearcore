@@ -191,7 +191,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = Arc::new(RuntimeConfig::default());
+        let config = Arc::new(RuntimeConfig::test());
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
