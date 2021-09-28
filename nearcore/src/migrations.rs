@@ -68,6 +68,7 @@ fn apply_block_at_height(
         .apply_transactions(
             shard_id,
             &chunk_header.prev_state_root(),
+            None,
             block_height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
@@ -251,6 +252,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                         .apply_transactions(
                             shard_id,
                             new_extra.state_root(),
+                            None,
                             block.header().height(),
                             block.header().raw_timestamp(),
                             block.header().prev_hash(),
@@ -328,6 +330,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                     .apply_transactions(
                         shard_id,
                         &chunk_header.prev_state_root(),
+                        None,
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),

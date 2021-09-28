@@ -1217,7 +1217,6 @@ mod test {
     use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
-    use near_network::routing::EdgeInfo;
     use near_network::test_utils::MockNetworkAdapter;
     use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
@@ -1226,6 +1225,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_network::routing::EdgeInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1502,7 +1502,7 @@ mod test {
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..21 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1544,7 +1544,7 @@ mod test {
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..31 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

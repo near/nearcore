@@ -20,11 +20,8 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::new_with_runtime(
-        ChainGenesis::test(),
-        1,
-        1,
-        vec![Arc::new(nearcore::NightshadeRuntime::new(
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::new(
             Path::new("."),
             create_test_store(),
             &genesis,
@@ -33,8 +30,8 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
             None,
             None,
             RuntimeConfigStore::test(),
-        )) as Arc<dyn RuntimeAdapter>],
-    );
+        )) as Arc<dyn RuntimeAdapter>])
+        .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     send_tx(
         &mut env,

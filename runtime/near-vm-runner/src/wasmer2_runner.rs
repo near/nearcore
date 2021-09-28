@@ -14,8 +14,8 @@ use near_vm_logic::{
 use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 
-use crate::cache::StableHasher;
 use crate::wasmer_runner::GasMode;
+use near_stable_hasher::StableHasher;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_types::Value;
 use wasmer_vm::TrapCode;

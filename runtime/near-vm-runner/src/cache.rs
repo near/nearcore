@@ -13,11 +13,9 @@ use near_primitives::types::CompiledContractCache;
 use near_vm_errors::CacheError::{DeserializationError, ReadError, SerializationError, WriteError};
 use near_vm_errors::{CacheError, VMError};
 use near_vm_logic::GasCounterMode;
-use near_vm_logic::VMConfig;
+use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
-#[allow(deprecated)]
-use std::hash::{Hasher, SipHasher};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshSerialize)]
@@ -441,27 +439,9 @@ pub fn precompile_contract(
     wasm_code: &ContractCode,
     config: &VMConfig,
     gas_counter_mode: GasCounterMode,
+    current_protocol_version: ProtocolVersion,
     cache: Option<&dyn CompiledContractCache>,
 ) -> Result<ContractPrecompilatonResult, ContractPrecompilatonError> {
-    precompile_contract_vm(VMKind::default(), wasm_code, config, gas_counter_mode, cache)
-}
-
-/// We not use stable hasher as it could change with Rust releases, so rely on stable SIP hash.
-#[allow(deprecated)]
-pub(crate) struct StableHasher(SipHasher);
-
-impl StableHasher {
-    #[allow(deprecated)]
-    pub fn new() -> StableHasher {
-        StableHasher(SipHasher::new())
-    }
-}
-
-impl Hasher for StableHasher {
-    fn finish(&self) -> u64 {
-        self.0.finish()
-    }
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.write(bytes)
-    }
+    let vm_kind = VMKind::for_protocol_version(current_protocol_version);
+    precompile_contract_vm(vm_kind, wasm_code, config, gas_counter_mode, cache)
 }

@@ -56,6 +56,10 @@ class SyncData:
     pass
 
 
+class RoutingTableSyncV2:
+    pass
+
+
 class AnnounceAccount:
     pass
 
@@ -112,6 +116,26 @@ class ShardStateSyncResponseHeaderV2:
     pass
 
 
+class RoutingTableSyncV2:
+    pass
+
+
+class IbfElem:
+    pass
+
+
+class RoutingVersion2:
+    pass
+
+
+class RoutingState:
+    pass
+
+
+class PartialSync:
+    pass
+
+
 network_schema = [
     [
         SocketAddr, {
@@ -145,6 +169,11 @@ network_schema = [
                 ['Disconnect', ()],
                 ['Challenge', None],  # TODO
                 ['HandshakeV2', HandshakeV2],
+                ['EpochSyncRequest', None], # TODO
+                ['EpochSyncResponse', None], # TODO
+                ['EpochSyncFinalizationRequest', None], # TODO
+                ['EpochSyncFinalizationResponse', None], # TODO
+                ['RoutingTableSyncV2', RoutingTableSyncV2],
             ]
         }
     ],
@@ -472,4 +501,60 @@ network_schema = [
                        ['state_root_node', StateRootNode]]
         }
     ],
+    [
+        RoutingTableSyncV2,
+        {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                [
+                    'Version2',
+                    RoutingVersion2
+                ]
+            ]
+        }
+    ],
+    [
+        IbfElem, {
+            'kind': 'struct',
+            'fields': [
+                ['xor_elem', 'u64'],
+                ['xor_hash', 'u64'],
+            ]
+        }
+    ],
+    [
+        RoutingVersion2, {
+            'kind': 'struct',
+            'fields': [
+                ['known_edges', 'u64'],
+                ['seed', 'u64'],
+                ['edges', [Edge]],
+                ['routing_state', RoutingState],
+            ]
+        }
+    ],
+    [
+        RoutingState, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['PartialSync', PartialSync],
+                ['RequestAllEdges', ()],
+                ['Done', ()],
+                ['RequestMissingEdges', ['u64']],
+                ['InitializeIbf', ()],
+            ]
+        }
+    ],
+    [
+        PartialSync, {
+            'kind': 'struct',
+            'fields': [
+                ['ibf_level', 'u64'],
+                ['ibf', [IbfElem]],
+            ]
+        }
+    ]
 ]
+

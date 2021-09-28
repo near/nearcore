@@ -429,6 +429,7 @@ pub(crate) fn action_deploy_contract(
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
     apply_state: &ApplyState,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
@@ -451,6 +452,7 @@ pub(crate) fn action_deploy_contract(
         &code,
         &apply_state.config.wasm_config,
         GasCounterMode::HostFunction,
+        current_protocol_version,
         apply_state.cache.as_deref(),
     )
     .ok();

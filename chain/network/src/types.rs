@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::convert::{Into, TryInto};
 use std::fmt;
+use std::fmt::{Debug, Formatter};
+use std::io;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
@@ -8,8 +10,11 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future::BoxFuture, FutureExt};
+#[cfg(feature = "adversarial")]
+use serde::Serialize;
 use strum::AsStaticStr;
 
+use conqueue::QueueSender;
 pub use near_network_primitives::types::*;
 
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
@@ -26,12 +31,14 @@ use near_primitives::version::{
 };
 use near_primitives::views::QueryRequest;
 
+use crate::ibf::IbfBox;
 use crate::peer::Peer;
-use crate::routing::{Edge, EdgeInfo, RoutingTableInfo};
-use std::fmt::{Debug, Formatter};
-use std::io;
-
-use conqueue::QueueSender;
+#[cfg(feature = "adversarial")]
+use crate::routing::SetAdvOptionsResult;
+use crate::routing::{
+    Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
+    ValidIBFLevel,
+};
 
 const ERROR_UNEXPECTED_LENGTH_OF_INPUT: &str = "Unexpected length of input";
 
@@ -325,6 +332,36 @@ pub enum PeerMessage {
     EpochSyncResponse(EpochSyncResponse),
     EpochSyncFinalizationRequest(EpochId),
     EpochSyncFinalizationResponse(EpochSyncFinalizationResponse),
+
+    RoutingTableSyncV2(RoutingSyncV2),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum RoutingSyncV2 {
+    Version2(RoutingVersion2),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct PartialSync {
+    pub ibf_level: ValidIBFLevel,
+    pub ibf: Vec<IbfBox>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum RoutingState {
+    PartialSync(PartialSync),
+    RequestAllEdges,
+    Done,
+    RequestMissingEdges(Vec<u64>),
+    InitializeIbf,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutingVersion2 {
+    pub known_edges: u64,
+    pub seed: u64,
+    pub edges: Vec<Edge>,
+    pub routing_state: RoutingState,
 }
 
 impl fmt::Display for PeerMessage {
@@ -407,10 +444,52 @@ pub struct Consolidate {
     pub this_edge_info: Option<EdgeInfo>,
     // Edge information from other node.
     pub other_edge_info: EdgeInfo,
+    // Protocol version of new peer. May be higher than ours.
+    pub peer_protocol_version: ProtocolVersion,
 }
 
 impl Message for Consolidate {
     type Result = ConsolidateResponse;
+}
+
+pub struct GetPeerId {}
+
+impl Message for GetPeerId {
+    type Result = GetPeerIdResult;
+}
+
+#[derive(MessageResponse, Debug)]
+#[cfg_attr(feature = "adversarial", derive(Serialize))]
+pub struct GetPeerIdResult {
+    pub peer_id: PeerId,
+}
+
+pub struct GetRoutingTable {}
+
+impl Message for GetRoutingTable {
+    type Result = GetRoutingTableResult;
+}
+
+#[cfg(feature = "adversarial")]
+pub struct StartRoutingTableSync {
+    pub peer_id: PeerId,
+}
+
+#[cfg(feature = "adversarial")]
+pub struct SetAdvOptions {
+    pub disable_edge_signature_verification: Option<bool>,
+    pub disable_edge_propagation: Option<bool>,
+    pub disable_edge_pruning: Option<bool>,
+}
+
+#[cfg(feature = "adversarial")]
+impl Message for SetAdvOptions {
+    type Result = SetAdvOptionsResult;
+}
+
+#[cfg(feature = "adversarial")]
+impl Message for StartRoutingTableSync {
+    type Result = ();
 }
 
 #[derive(MessageResponse, Debug)]
@@ -418,6 +497,15 @@ pub enum ConsolidateResponse {
     Accept(Option<EdgeInfo>),
     InvalidNonce(Box<Edge>),
     Reject,
+}
+
+/// Unregister message from Peer to PeerManager.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct Unregister {
+    pub peer_id: PeerId,
+    pub peer_type: PeerType,
+    pub remove_from_peer_store: bool,
 }
 
 /// Message from peer to peer manager
@@ -439,8 +527,23 @@ pub enum PeerResponse {
     UpdatedEdge(EdgeInfo),
 }
 
+/// Requesting peers from peer manager to communicate to a peer.
+#[derive(Clone)]
+pub struct PeersRequest {}
+
+impl Message for PeersRequest {
+    type Result = PeerRequestResult;
+}
+
+/// Received new peers from another peer.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct PeersResponse {
+    pub peers: Vec<PeerInfo>,
+}
+
 // TODO(#1313): Use Box
-#[derive(Debug, Clone, PartialEq, strum::AsRefStr)]
+#[derive(Clone, strum::AsRefStr, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
@@ -549,12 +652,21 @@ pub enum NetworkRequests {
 
     /// A challenge to invalidate a block.
     Challenge(Challenge),
+
+    // IbfMessage
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    IbfMessage {
+        peer_id: PeerId,
+        ibf_msg: RoutingSyncV2,
+    },
 }
 
 pub struct EdgeList {
     pub edges: Vec<Edge>,
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     pub sender: QueueSender<Edge>,
+    #[cfg(feature = "adversarial")]
+    pub adv_disable_edge_signature_verification: bool,
 }
 
 impl Message for EdgeList {
@@ -765,6 +877,14 @@ impl NetworkAdapter for NetworkRecipient {
             .expect("Recipient must be set")
             .do_send(msg);
     }
+}
+
+#[derive(Message, Clone)]
+#[rtype(result = "()")]
+pub struct SetRoutingTable {
+    pub add_edges: Option<Vec<Edge>>,
+    pub remove_edges: Option<Vec<SimpleEdge>>,
+    pub prune_edges: Option<bool>,
 }
 
 #[cfg(test)]

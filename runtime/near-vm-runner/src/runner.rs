@@ -32,6 +32,7 @@ pub fn run<'a>(
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
+    let vm_kind = VMKind::for_protocol_version(current_protocol_version);
     run_vm(
         code,
         method_name,
@@ -40,7 +41,7 @@ pub fn run<'a>(
         wasm_config,
         fees_config,
         promise_results,
-        VMKind::default(),
+        vm_kind,
         current_protocol_version,
         cache,
         GasCounterMode::HostFunction,
@@ -60,7 +61,7 @@ pub fn run_vm(
     cache: Option<&dyn CompiledContractCache>,
     gas_counter_mode: GasCounterMode,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    let _span = tracing::debug_span!(target: "vm", "run_vm").entered();
+    let _span = tracing::debug_span!(target: "vm", "run_vm", ?vm_kind).entered();
 
     #[cfg(feature = "wasmer0_vm")]
     use crate::wasmer_runner::run_wasmer;
