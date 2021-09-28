@@ -529,6 +529,21 @@ impl PeerManagerActor {
         })
     }
 
+    fn update_and_remove_edges(
+        &mut self,
+        ctx: &mut Context<PeerManagerActor>,
+        can_save_edges: bool,
+        force_pruning: bool,
+        timeout: u64,
+    ) {
+        let edges_to_remove = self.routing_table.update(can_save_edges, force_pruning, timeout);
+        self.ibf_routing_pool
+            .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges_to_remove))
+            .into_actor(self)
+            .map(|_, _, _| ())
+            .spawn(ctx);
+    }
+
     fn broadcast_accounts(
         &mut self,
         ctx: &mut Context<PeerManagerActor>,
@@ -1107,7 +1122,7 @@ impl PeerManagerActor {
                 file!(),
                 line!(),
                 Duration::from_millis(1000),
-                |act, _ctx| {
+                |act, ctx2| {
                     act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
 
@@ -1117,13 +1132,7 @@ impl PeerManagerActor {
                     #[cfg(not(feature = "adversarial"))]
                     let cond = act.edge_verifier_requests_in_progress == 0;
 
-                    let edges_to_remove =
-                        act.routing_table.update(cond, false, SAVE_PEERS_AFTER_TIME);
-                    act.ibf_routing_pool
-                        .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges_to_remove))
-                        .into_actor(act)
-                        .map(|_, _, _| ())
-                        .spawn(_ctx);
+                    act.update_and_remove_edges(ctx2, cond, false, SAVE_PEERS_AFTER_TIME);
                 },
             );
         }
@@ -2226,12 +2235,7 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
         }
         if let Some(true) = msg.prune_edges {
             debug!(target: "network", "adversarial prune_edges");
-            let edges_to_remove = self.routing_table.update(true, true, 2);
-            self.ibf_routing_pool
-                .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges_to_remove))
-                .into_actor(self)
-                .map(|_, _, _| ())
-                .spawn(ctx);
+            self.update_and_remove_edges(ctx, true, true, 2);
         }
     }
 }
