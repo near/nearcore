@@ -129,6 +129,9 @@ def setup_python_environment(node, wasm_contract):
     m.upload('tests/mocknet/load_testing_helper.py',
              PYTHON_DIR,
              switch_user='ubuntu')
+    m.upload('tests/mocknet/load_testing_add_and_delete_helper.py',
+             PYTHON_DIR,
+             switch_user='ubuntu')
     m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
     logger.info(f'{m.name} python setup complete')
 
@@ -539,7 +542,7 @@ def create_genesis_file(nodes, genesis_template_filename,
                     }
                 }
             })
-    genesis_config["epoch_length"] = 2000
+    genesis_config["epoch_length"] = 500
     genesis_config["num_block_producer_seats"] = len(nodes)
     genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)
                                                            ] * NUM_SHARDS
