@@ -1125,8 +1125,7 @@ impl PeerManagerActor {
         new_edge
     }
 
-    #[cfg(feature = "adversarial")]
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    #[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
     fn adv_remove_edges_from_routing_table(
         &mut self,
         ctx: &mut Context<Self>,
