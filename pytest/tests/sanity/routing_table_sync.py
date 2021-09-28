@@ -145,17 +145,17 @@ for (left, right, common, TIMEOUT) in tests:
         var_b = {(x['key'][0], x['key'][1], x['nonce']) for x in var_b}
         return var_a, var_b
 
-
-
     # compute set difference of routing tables
     a, b = adv_get_routing_table(nodes)
-    a2, b2 = adv_get_routing_table_new(nodes)
     logger.info("case 1 nodes %s vs %s diff %s " % (len(a), len(b), len(a.symmetric_difference(b))))
     assert(len(a) == 1 + left + common)
     assert(len(b) == 1 + right + common)
+    assert(len(a.symmetric_difference(b)) == left + right)
+    a2, b2 = adv_get_routing_table_new(nodes)
+    logger.info("case 1 nodes %s vs %s diff %s " % (len(a2), len(b2), len(a2.symmetric_difference(b2))))
     assert(len(a2) == 1 + left + common)
     assert(len(b2) == 1 + right + common)
-    assert(len(a.symmetric_difference(b)) == left + right)
+    assert(len(a2.symmetric_difference(b2)) == left + right)
 
     time.sleep(1)
 
@@ -183,6 +183,7 @@ for (left, right, common, TIMEOUT) in tests:
     logger.info("case 2 nodes %s vs %s diff %s " % (len(a), len(b), len(a.symmetric_difference(b))))
     assert(len(a.symmetric_difference(b)) == 0)
     a2, b2 = adv_get_routing_table_new(nodes)
+    logger.info("case 2 nodes %s vs %s diff %s " % (len(a2), len(b2), len(a2.symmetric_difference(b2))))
     assert(len(a2.symmetric_difference(b2)) == 0)
 
     # remove edges
