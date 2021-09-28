@@ -122,9 +122,9 @@ for (left, right, common, TIMEOUT) in tests:
     logger.info("sending new edges")
 
     for chunk in chunks(to_node0, 10000):
-        nodes[0].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30)
+        logger.info(nodes[0].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30))
     for chunk in chunks(to_node1, 10000):
-        nodes[1].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30)
+        logger.info(nodes[1].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30))
 
     time.sleep(1)
 
