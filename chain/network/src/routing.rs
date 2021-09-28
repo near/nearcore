@@ -639,7 +639,7 @@ impl RoutingTable {
     pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(edges.len() as usize);
 
         for edge in edges {
             let key = edge.get_pair();
