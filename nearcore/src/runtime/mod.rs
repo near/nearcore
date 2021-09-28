@@ -530,17 +530,6 @@ impl NightshadeRuntime {
                 ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
             })?;
 
-        // Sort the receipts into appropriate outgoing shards.
-        let mut receipt_result = HashMap::default();
-        // Outgoing receipts should be sorted by shards of the epoch of the next block
-        let next_shard_layout = {
-            let next_block_epoch_id = if self.is_next_block_epoch_start(prev_block_hash)? {
-                self.get_next_epoch_id_from_prev_block(prev_block_hash)?
-            } else {
-                self.get_epoch_id_from_prev_block(prev_block_hash)?
-            };
-            self.get_shard_layout(&next_block_epoch_id)?
-        };
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
         let apply_split_state_result_or_state_changes =
             if self.will_shard_layout_change(prev_block_hash)? {
@@ -548,12 +537,16 @@ impl NightshadeRuntime {
                     &apply_result.state_changes,
                     apply_result.processed_delayed_receipts,
                 );
+                let next_epoch_shard_layout = {
+                    let next_epoch_id = self.get_next_epoch_id_from_prev_block(prev_block_hash)?;
+                    self.get_shard_layout(&next_epoch_id)?
+                };
                 // split states are ready, apply update to them now
                 if let Some(state_roots) = split_state_roots {
                     let split_state_results = self.apply_update_to_split_states(
                         block_hash,
                         state_roots,
-                        &next_shard_layout,
+                        &next_epoch_shard_layout,
                         consolidated_state_changes,
                     )?;
                     Some(ApplySplitStateResultOrStateChanges::ApplySplitStateResults(
@@ -569,13 +562,6 @@ impl NightshadeRuntime {
                 None
             };
 
-        for receipt in apply_result.outgoing_receipts {
-            receipt_result
-                .entry(account_id_to_shard_id(&receipt.receiver_id, &next_shard_layout))
-                .or_insert_with(|| vec![])
-                .push(receipt);
-        }
-
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -586,7 +572,7 @@ impl NightshadeRuntime {
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
-            receipt_result,
+            outgoing_receipts: apply_result.outgoing_receipts,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
             total_balance_burnt,
@@ -1064,6 +1050,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        self.get_shard_layout(&epoch_id)
     }
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
@@ -1598,13 +1592,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         block_hash: &CryptoHash,
         state_roots: HashMap<ShardUId, StateRoot>,
-        next_shard_layout: &ShardLayout,
+        next_epoch_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         let trie_changes = self.tries.apply_state_changes_to_split_states(
             &state_roots,
             state_changes,
-            &|account_id| account_id_to_shard_uid(account_id, next_shard_layout),
+            &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
 
         Ok(trie_changes
@@ -1899,7 +1893,6 @@ mod test {
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::receipt::ReceiptResult;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -1947,7 +1940,7 @@ mod test {
             gas_price: Balance,
             gas_limit: Gas,
             challenges: &ChallengesResult,
-        ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
+        ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
             let mut result = self
                 .apply_transactions(
                     shard_id,
@@ -1973,7 +1966,7 @@ mod test {
             result.trie_changes.insertions_into(&mut store_update).unwrap();
             result.trie_changes.state_changes_into(&mut store_update);
             store_update.commit().unwrap();
-            (result.new_root, result.validator_proposals, result.receipt_result)
+            (result.new_root, result.validator_proposals, result.outgoing_receipts)
         }
     }
 
@@ -2074,7 +2067,7 @@ mod test {
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];
-            let mut new_receipts = HashMap::new();
+            let mut all_receipts = vec![];
             for i in 0..num_shards {
                 let (state_root, proposals, receipts) = self.runtime.update(
                     &self.state_roots[i as usize],
@@ -2091,12 +2084,7 @@ mod test {
                     &challenges_result,
                 );
                 self.state_roots[i as usize] = state_root;
-                for (shard_id, mut shard_receipts) in receipts {
-                    new_receipts
-                        .entry(shard_id)
-                        .or_insert_with(|| vec![])
-                        .append(&mut shard_receipts);
-                }
+                all_receipts.extend(receipts);
                 all_proposals.append(&mut proposals.clone());
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
@@ -2118,6 +2106,12 @@ mod test {
                 .unwrap()
                 .commit()
                 .unwrap();
+            let shard_layout = self.runtime.get_shard_layout_from_prev_block(&new_hash).unwrap();
+            let mut new_receipts = HashMap::new();
+            for receipt in all_receipts {
+                let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+                new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
+            }
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
             self.time += 10u64.pow(9);
