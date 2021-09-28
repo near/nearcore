@@ -107,7 +107,6 @@ impl GasCounter {
     }
 
     pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
-        println!("pay wasm gas {}", value);
         self.deduct_gas(value, value)
     }
 
