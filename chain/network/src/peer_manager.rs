@@ -163,6 +163,7 @@ pub enum IbfRoutingTableExchangeMessages {
     AddPeerIfMissing(PeerId, Option<u64>),
     RemovePeer(PeerId),
     ProcessIbfMessage { peer_id: PeerId, ibf_msg: RoutingVersion2 },
+    RequestRoutingTable,
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -176,6 +177,7 @@ pub enum IbfRoutingTableExchangeMessagesResponse {
     AddPeerResponse { seed: u64 },
     Empty,
     ProcessIbfMessageResponse { ibf_msg: Option<RoutingVersion2> },
+    RequestRoutingTableResponse { routing_table: Vec<Edge> },
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -235,6 +237,11 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
             IbfRoutingTableExchangeMessages::RemovePeer(peer_id) => {
                 self.peer_ibf_set.remove_peer(&peer_id);
                 IbfRoutingTableExchangeMessagesResponse::Empty
+            }
+            IbfRoutingTableExchangeMessages::RequestRoutingTable => {
+                IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
+                    routing_table: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
+                }
             }
             IbfRoutingTableExchangeMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
                 match ibf_msg.routing_state {
@@ -724,10 +731,37 @@ impl PeerManagerActor {
                 return;
             }
         );
-
-        // TODO #4859: This operation is expensive. Move creating `known_edges` to another thread.
-        let known_edges = self.routing_table.get_edges();
-        self.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
+        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+        {
+            near_performance_metrics::actix::run_later(
+                ctx,
+                file!(),
+                line!(),
+                WAIT_FOR_SYNC_DELAY,
+                move |act, ctx2| {
+                    if peer_type == PeerType::Inbound {
+                        act.ibf_routing_pool
+                            .send(IbfRoutingTableExchangeMessages::RequestRoutingTable)
+                            .into_actor(act)
+                            .map(move |response, act2, ctx3| match response {
+                                Ok(IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
+                                    routing_table,
+                                }) => {
+                                    act2.send_sync(peer_type, addr, ctx3, target_peer_id.clone(), new_edge, routing_table);
+                                },
+                                _ => error!(target: "network", "expected AddIbfSetResponse"),
+                            })
+                            .spawn(ctx2);
+                    }
+                },
+            );
+        }
+        #[cfg(not(feature = "protocol_feature_routing_exchange_algorithm"))]
+        {
+            // TODO #4859: This operation is expensive. Move creating `known_edges` to another thread.
+            let known_edges = self.routing_table.get_edges();
+            self.send_sync(peer_type, addr, ctx, target_peer_id.clone(), new_edge, known_edges);
+        }
     }
 
     fn send_sync(
