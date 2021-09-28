@@ -28,9 +28,8 @@ use near_primitives::sharding::{
     ShardProof, StateSyncInfo,
 };
 use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, RootProof,
-    ShardStateSyncResponseHeader, ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2,
-    StateHeaderKey, StatePartKey,
+    get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
+    ShardStateSyncResponseHeaderV1, ShardStateSyncResponseHeaderV2, StateHeaderKey, StatePartKey,
 };
 use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -1352,8 +1351,13 @@ impl Chain {
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_height_included: BlockHeight,
-    ) -> Result<ReceiptResponse, Error> {
-        self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
+    ) -> Result<Vec<Receipt>, Error> {
+        self.store.get_outgoing_receipts_for_shard(
+            &*self.runtime_adapter,
+            prev_block_hash,
+            shard_id,
+            last_height_included,
+        )
     }
 
     pub fn get_state_response_header(
@@ -1611,7 +1615,7 @@ impl Chain {
         let prev_chunk_header = shard_state_header.cloned_prev_chunk_header();
 
         // 1-2. Checking chunk validity
-        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter) {
+        if !validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
                 "set_shard_state failed: chunk header proofs are invalid".into(),
@@ -3108,6 +3112,14 @@ impl<'a> ChainUpdate<'a> {
                 self.runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id())?;
             if should_apply_transactions {
                 if chunk_header.height_included() == block.header().height() {
+                    if cares_about_shard_this_epoch {
+                        self.chain_store_update.save_receipt_id_to_shard_id(
+                            &*self.runtime_adapter,
+                            prev_hash,
+                            shard_id,
+                            prev_chunk_header.height_included(),
+                        )?;
+                    }
                     // Validate state root.
                     let prev_chunk_extra =
                         self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?.clone();
@@ -3120,7 +3132,7 @@ impl<'a> ChainUpdate<'a> {
                         &*self.runtime_adapter,
                         &block.header().prev_hash(),
                         &prev_chunk_extra,
-                        prev_chunk_header,
+                        prev_chunk_header.height_included(),
                         chunk_header,
                     )
                     .map_err(|e| {
@@ -3288,7 +3300,7 @@ impl<'a> ChainUpdate<'a> {
                 assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
                 // Split state are ready. Read the state changes from the database and apply them
                 // to the split states.
-                let next_shard_layout =
+                let next_epoch_shard_layout =
                     self.runtime_adapter.get_shard_layout(block.header().next_epoch_id())?;
                 let state_changes = self
                     .chain_store_update
@@ -3303,7 +3315,7 @@ impl<'a> ChainUpdate<'a> {
                         results: runtime_adapter.apply_update_to_split_states(
                             &block_hash,
                             split_state_roots,
-                            &next_shard_layout,
+                            &next_epoch_shard_layout,
                             state_changes,
                         )?,
                     }))
@@ -3378,7 +3390,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.save_outgoing_receipt(
                     &block_hash,
                     shard_id,
-                    apply_result.receipt_result,
+                    apply_result.outgoing_receipts,
                 );
                 // Save receipt and transaction results.
                 self.chain_store_update.save_outcomes_with_proofs(
@@ -4144,7 +4156,7 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_outgoing_receipt(
             &block_header.hash(),
             shard_id,
-            apply_result.receipt_result,
+            apply_result.outgoing_receipts,
         );
         // Saving transaction results.
         self.chain_store_update.save_outcomes_with_proofs(
