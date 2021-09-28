@@ -2414,7 +2414,6 @@ mod tests {
         let key = get_contract_cache_key(
             &contract_code,
             vm_kind,
-            VMKind::default(),
             &apply_state.config.wasm_config,
             GasCounterMode::HostFunction,
         );
