@@ -32,6 +32,8 @@ use near_jsonrpc_primitives::types::adversarial::StartRoutingTableSyncRequest;
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
+use near_network::routing::GetRoutingTableResult;
+#[cfg(feature = "adversarial")]
 use near_network::types::{
     GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
 };
@@ -41,7 +43,10 @@ use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use near_network::types::{SetRoutingTable, StartRoutingTableSync};
 #[cfg(feature = "adversarial")]
-use near_network::PeerManagerActor;
+use near_network::{
+    IbfRoutingTableExchangeActor, IbfRoutingTableExchangeMessages,
+    IbfRoutingTableExchangeMessagesResponse, PeerManagerActor,
+};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
@@ -218,6 +223,8 @@ struct JsonRpcHandler {
     genesis_config: GenesisConfig,
     #[cfg(feature = "adversarial")]
     peer_manager_addr: Addr<PeerManagerActor>,
+    #[cfg(feature = "adversarial")]
+    ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
 }
 
 impl JsonRpcHandler {
@@ -311,6 +318,32 @@ impl JsonRpcHandler {
                         serde_json::to_value(result)
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
+                }
+                "adv_get_routing_table_new" => {
+                    let result = self
+                        .ibf_routing_pool
+                        .send(IbfRoutingTableExchangeMessages::RequestRoutingTable)
+                        .await?;
+
+                    match result {
+                        IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
+                            routing_table,
+                        } => {
+                            let response = {
+                                GetRoutingTableResult {
+                                    edges_info: routing_table
+                                        .iter()
+                                        .map(|x| x.to_simple_edge())
+                                        .collect(),
+                                }
+                            };
+                            Some(
+                                serde_json::to_value(response)
+                                    .map_err(|err| RpcError::serialization_error(err.to_string())),
+                            )
+                        }
+                        _ => None,
+                    }
                 }
                 _ => None,
             };
@@ -1295,6 +1328,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "adversarial")] peer_manager_addr: Addr<PeerManagerActor>,
+    #[cfg(feature = "adversarial")] ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
@@ -1312,6 +1346,8 @@ pub fn start_http(
                 genesis_config: genesis_config.clone(),
                 #[cfg(feature = "adversarial")]
                 peer_manager_addr: peer_manager_addr.clone(),
+                #[cfg(feature = "adversarial")]
+                ibf_routing_pool: ibf_routing_pool.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

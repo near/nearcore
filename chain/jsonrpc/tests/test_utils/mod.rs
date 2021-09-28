@@ -9,9 +9,9 @@ use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
-#[cfg(feature = "adversarial")]
-use near_network::test_utils::make_peer_manager;
 use near_network::test_utils::open_port;
+#[cfg(feature = "adversarial")]
+use near_network::test_utils::{make_ibf_routing_pool, make_peer_manager};
 use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
@@ -48,8 +48,17 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     let addr = format!("127.0.0.1:{}", open_port());
 
     #[cfg(feature = "adversarial")]
-    let peer_manager_addr =
-        make_peer_manager("test2", open_port(), vec![("test1", open_port())], 10).0.start();
+    let ibf_routing_pool = make_ibf_routing_pool();
+    #[cfg(feature = "adversarial")]
+    let peer_manager_addr = make_peer_manager(
+        "test2",
+        open_port(),
+        vec![("test1", open_port())],
+        10,
+        ibf_routing_pool.clone(),
+    )
+    .0
+    .start();
 
     start_http(
         RpcConfig::new(&addr),
@@ -58,6 +67,8 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         view_client_addr.clone(),
         #[cfg(feature = "adversarial")]
         peer_manager_addr,
+        #[cfg(feature = "adversarial")]
+        ibf_routing_pool,
     );
     (view_client_addr, addr)
 }

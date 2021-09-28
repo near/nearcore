@@ -130,7 +130,7 @@ struct ActivePeer {
 }
 
 #[derive(Default)]
-struct IbfRoutingTableExchangeActor {
+pub struct IbfRoutingTableExchangeActor {
     edges: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -481,6 +481,7 @@ impl PeerManagerActor {
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if config.max_num_peers as usize > MAX_NUM_PEERS {
             panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
@@ -490,8 +491,6 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         debug!(target: "network", "Blacklist: {:?}", config.blacklist);
 
-        let ibf_constructor_pool =
-            SyncArbiter::start(1, move || IbfRoutingTableExchangeActor::default());
         let edge_verifier_pool = SyncArbiter::start(4, || EdgeVerifier {});
 
         let me: PeerId = config.public_key.clone().into();
@@ -514,7 +513,7 @@ impl PeerManagerActor {
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
-            ibf_routing_pool: ibf_constructor_pool,
+            ibf_routing_pool,
             txns_since_last_block,
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
