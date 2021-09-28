@@ -919,7 +919,7 @@ impl EncodedShardChunkBody {
 }
 
 #[derive(BorshSerialize, Debug, Clone)]
-pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
+pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);

@@ -33,7 +33,6 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
     ShardChunkHeader, ShardInfo,
 };
-use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -559,7 +558,7 @@ impl Client {
         let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header)?;
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
-        let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
+        let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
             last_header.height_included(),
