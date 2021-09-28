@@ -19,7 +19,7 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -99,7 +99,7 @@ pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub receipt_result: ReceiptResult,
+    pub outgoing_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
@@ -447,6 +447,12 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
+    /// Get shard layout given hash of previous block.
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error>;
+
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
@@ -750,7 +756,7 @@ pub trait RuntimeAdapter: Send + Sync {
     // here.
     fn build_receipts_hashes(
         &self,
-        receipts: &Vec<Receipt>,
+        receipts: &[Receipt],
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         if shard_layout.num_shards() == 1 {

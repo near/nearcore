@@ -1,13 +1,10 @@
 //! Settings of the parameters of the runtime.
 use serde::{Deserialize, Serialize};
 
-use crate::checked_feature;
 use crate::config::VMConfig;
 use crate::runtime::fees::RuntimeFeesConfig;
 use crate::serialize::u128_dec_format;
 use crate::types::{AccountId, Balance};
-use crate::version::ProtocolVersion;
-use std::sync::Arc;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -49,54 +46,6 @@ impl RuntimeConfig {
     }
 }
 
-/// An actual runtime configuration the node will use.
-///
-/// This is constructed from the runtime configuration given in the genesis file
-/// but i) may have it’s `max_gas_burnt_view` limit adjusted and ii) provides
-/// a method which returns configuration with adjustments done through protocol
-/// version upgrades.
-/// TODO #4649: deprecated after RuntimeConfigStore creation, remove it
-#[deprecated(since = "#4779", note = "All usages should be replaced with RuntimeConfigStore")]
-pub struct ActualRuntimeConfig {
-    /// The runtime configuration taken from the genesis file but with possibly
-    /// modified `max_gas_burnt_view` limit.
-    runtime_config: Arc<RuntimeConfig>,
-
-    /// The runtime configuration with lower storage cost adjustment applied.
-    with_lower_storage_cost: Arc<RuntimeConfig>,
-}
-
-#[allow(deprecated)]
-impl ActualRuntimeConfig {
-    /// Constructs a new object from specified genesis runtime config.
-    ///
-    /// If `max_gas_burnt_view` is provided, the property in wasm limit
-    /// configuration will be adjusted to given value.
-    pub fn new(genesis_runtime_config: RuntimeConfig) -> Self {
-        let mut config = genesis_runtime_config;
-        let runtime_config = Arc::new(config.clone());
-
-        // Adjust as per LowerStorageCost protocol feature.
-        config.storage_amount_per_byte = 10u128.pow(19);
-        let with_lower_storage_cost = Arc::new(config);
-
-        Self { runtime_config, with_lower_storage_cost }
-    }
-
-    /// Returns a `RuntimeConfig` for the corresponding protocol version.
-    ///
-    /// Note that even if some old version is given as the argument, this may
-    /// still return configuration which differs from configuration found in
-    /// genesis file by the `max_gas_burnt_view` limit.
-    pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
-        if checked_feature!("stable", LowerStorageCost, protocol_version) {
-            &self.with_lower_storage_cost
-        } else {
-            &self.runtime_config
-        }
-    }
-}
-
 /// The structure describes configuration for creation of new accounts.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AccountCreationConfig {
@@ -113,33 +62,5 @@ impl Default for AccountCreationConfig {
             min_allowed_top_level_account_length: 0,
             registrar_account_id: "registrar".parse().unwrap(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_max_prepaid_gas() {
-        let config = RuntimeConfig::default();
-        assert!(
-            config.wasm_config.limit_config.max_total_prepaid_gas
-                / config.transaction_costs.min_receipt_with_function_call_gas()
-                <= 63,
-            "The maximum desired depth of receipts should be at most 63"
-        );
-    }
-
-    #[test]
-    fn test_lower_cost() {
-        let config = RuntimeConfig::default();
-        let default_amount = config.storage_amount_per_byte;
-        #[allow(deprecated)]
-        let config = ActualRuntimeConfig::new(config);
-        let base_cfg = config.for_protocol_version(0);
-        let new_cfg = config.for_protocol_version(ProtocolVersion::MAX);
-        assert_eq!(default_amount, base_cfg.storage_amount_per_byte);
-        assert!(default_amount > new_cfg.storage_amount_per_byte);
     }
 }
