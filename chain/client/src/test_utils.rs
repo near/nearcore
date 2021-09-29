@@ -51,7 +51,7 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 
@@ -1486,14 +1486,20 @@ pub fn run_catchup(
 ) -> Result<Vec<AcceptedBlock>, Error> {
     let mut result = vec![];
     let f = |_| {};
-    let messages = Arc::new(RwLock::new(vec![]));
-    let inside_messages = messages.clone();
+    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_inside_messages = block_messages.clone();
     let block_catch_up = move |msg: BlockCatchUpRequest| {
-        inside_messages.write().unwrap().push(msg);
+        block_inside_messages.write().unwrap().push(msg);
     };
+    let state_split_messages = Arc::new(RwLock::new(vec![]));
+    let state_split_inside_messages = state_split_messages.clone();
+    let state_split = move |msg: StateSplitRequest| {
+        state_split_inside_messages.write().unwrap().push(msg);
+    };
+    let rt = client.runtime_adapter.clone();
     while !client.chain.store().iterate_state_sync_infos().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up)?;
-        for msg in messages.write().unwrap().drain(..) {
+        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+        for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
@@ -1505,6 +1511,19 @@ pub fn run_catchup(
                     .insert(msg.block_hash, (saved_store_update, results));
             } else {
                 panic!("block catch up processing result from unknown sync hash");
+            }
+        }
+        for msg in state_split_messages.write().unwrap().drain(..) {
+            let results = rt.build_state_for_split_shards(
+                msg.shard_uid,
+                &msg.state_root,
+                &msg.next_epoch_shard_layout,
+            );
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+                // We are doing catchup
+                sync.set_split_result(msg.shard_id, results);
+            } else {
+                client.state_sync.set_split_result(msg.shard_id, results);
             }
         }
         result.extend(call);
