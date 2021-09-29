@@ -3014,14 +3014,14 @@ impl<'a> ChainUpdate<'a> {
             };
             let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
             // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
-            // if should_apply_transactions == true && split_state_roots.is_some(),
+            // 1) if should_apply_transactions == true && split_state_roots.is_some(),
             //     that means split states are ready.
-            //    `apply_transactions` will apply updates to split_states
-            // if should_apply_transactions == true && split_state_roots.is_none(),
+            //    `apply_split_state_changes` will apply updates to split_states
+            // 2) if should_apply_transactions == true && split_state_roots.is_none(),
             //     that means split states are not ready yet.
-            //    `apply_transactions` will return `state_changes_for_split_states`,
+            //    `apply_split_state_changes` will return `state_changes_for_split_states`,
             //     which will be stored to the database in `process_apply_chunks`
-            // if should_apply_transactions == false && split_state_roots.is_some()
+            // 3) if should_apply_transactions == false && split_state_roots.is_some()
             //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
             //    otherwise should_apply_transactions will be true
             //    That means transactions have already been applied last time when apply_chunks are
@@ -3253,6 +3253,7 @@ impl<'a> ChainUpdate<'a> {
                     }));
                 }
             } else if let Some(split_state_roots) = split_state_roots {
+                // case 3)
                 assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
                 // Split state are ready. Read the state changes from the database and apply them
                 // to the split states.
@@ -3283,6 +3284,12 @@ impl<'a> ChainUpdate<'a> {
         Ok(result)
     }
 
+    /// Postprocess ApplyTransactionResult to apply changes to split states
+    /// When shards will change next epoch,
+    ///    if `split_state_roots` is not None, that means states for the split shards are ready
+    ///    this function updates these states and return apply results for these states
+    ///    otherwise, this function returns state changes needed to be applied to split
+    ///    states. These state changes will be stored in the database by `process_split_state`
     fn apply_split_state_changes(
         runtime_adapter: &dyn RuntimeAdapter,
         block_hash: &CryptoHash,
@@ -3314,6 +3321,9 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    /// process split state results or state changes, do the necessary update on chain
+    /// for split state results: store the chunk extras and trie changes for the split states
+    /// for state changes, store the state changes for splitting states
     fn process_split_state(
         &mut self,
         block_hash: &CryptoHash,
@@ -3325,6 +3335,13 @@ impl<'a> ChainUpdate<'a> {
         match apply_results_or_state_changes {
             ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
                 if is_new_chunk {
+                    // Split validator_proposals, gas_burnt, balance_burnt to each split shard
+                    // and store the chunk extra for split shards
+                    // Note that here we do not split outcomes by the new shard layout, we simply store
+                    // the outcome_root from the parent shard. This is because outcome proofs are
+                    // generated per shard using the old shard layout and stored in the database.
+                    // For these proofs to work, we must store the outcome root using per shard
+                    // using the old shard layout instead of the new shard layout
                     let chunk_extra =
                         self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
                     let next_epoch_shard_layout = {

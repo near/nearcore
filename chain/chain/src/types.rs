@@ -565,17 +565,6 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
-    /// `split_state_roots` is only used when shards will change next epoch and we are building
-    /// states for the next epoch.
-    /// When shards will change next epoch,
-    ///    if `split_state_roots` is not None, that means states for the split shards are ready
-    ///    `apply_transations` will update these states and return apply results for these states
-    ///     through `ApplyTransactionResult.apply_split_state_result_or_state_changes`
-    ///    otherwise, `apply_transactions` will generate state changes needed to be applied to split
-    ///    states and return them through
-    ///    `ApplyTransactionResult.apply_split_state_result_or_state_changes`.
-    ///     The caller(chain) can store it in the database, waiting to be processed after state
-    ///     catchup is finished
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
