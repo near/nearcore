@@ -361,7 +361,6 @@ fn apply_chain_range(
                 .apply_transactions(
                     shard_id,
                     chunk_inner.prev_state_root(),
-                    None,
                     height,
                     block.header().raw_timestamp(),
                     block.header().prev_hash(),
