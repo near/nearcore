@@ -37,7 +37,7 @@ obtaining this whole history is the following:
 
 * Patch https://github.com/near/near-ops/pull/591 to define your own GCP instance in project `rpc-prod`.
 * Make sure to change `machine-name` and `role` to something unique.
-* Make a Pull Request and ask Mario or Sandi for review.
+* Make a Pull Request and ask Mario (@mhalambek) or Sandi (@chefsale) for review.
 * Ask Mario or Sandi to grant you permissions to the GCP project `rpc-prod`.
 * Run `terraform init` and `terraform apply` to start an instance. This instance will have a running `neard` systemd 
   service, with `/home/ubuntu/.near` as the home directory. Follow the `terraform` CLI
