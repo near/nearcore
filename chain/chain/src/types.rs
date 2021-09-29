@@ -83,10 +83,6 @@ pub struct ApplySplitStateResult {
     pub shard_uid: ShardUId,
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
-    pub outgoing_receipts: Vec<Receipt>,
-    pub validator_proposals: Vec<ValidatorStake>,
-    pub total_gas_burnt: Gas,
-    pub total_balance_burnt: Balance,
 }
 
 // This struct captures two cases
@@ -707,10 +703,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
-        outgoing_receipts: Vec<Receipt>,
-        validator_proposals: Vec<ValidatorStake>,
-        total_gas_burnt: Gas,
-        total_balance_burnt: Balance,
     ) -> Result<Vec<ApplySplitStateResult>, Error>;
 
     fn build_state_for_split_shards(

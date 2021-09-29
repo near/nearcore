@@ -1182,10 +1182,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
         _state_changes: StateChangesForSplitStates,
-        _outgoing_receipts: Vec<Receipt>,
-        _validator_proposals: Vec<ValidatorStake>,
-        _total_gas_burnt: Gas,
-        _total_balance_burnt: Balance,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         Ok(vec![])
     }

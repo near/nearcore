@@ -1559,35 +1559,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_roots: HashMap<ShardUId, StateRoot>,
         next_epoch_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
-        outgoing_receipts: Vec<Receipt>,
-        validator_proposals: Vec<ValidatorStake>,
-        total_gas_burnt: Gas,
-        total_balance_burnt: Balance,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         let trie_changes = self.tries.apply_state_changes_to_split_states(
             &state_roots,
             state_changes,
             &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
-
-        let mut outgoing_receipts_by_shard: HashMap<_, Vec<_>> = HashMap::new();
-        for receipt in outgoing_receipts {
-            let shard_id = account_id_to_shard_uid(&receipt.receiver_id, next_epoch_shard_layout);
-            outgoing_receipts_by_shard.entry(shard_id).or_default().push(receipt);
-        }
-
-        let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
-        for validator_proposal in validator_proposals {
-            let shard_id =
-                account_id_to_shard_uid(&validator_proposal.account_id(), next_epoch_shard_layout);
-            validator_proposals_by_shard.entry(shard_id).or_default().push(validator_proposal);
-        }
-
-        let num_shards = state_roots.len() as NumShards;
-        let gas_res = total_gas_burnt % num_shards;
-        let balance_res = (total_balance_burnt % num_shards as u128) as NumShards;
-        let gas_split = total_gas_burnt / num_shards;
-        let balance_split = total_balance_burnt / (num_shards as u128);
 
         Ok(trie_changes
             .into_iter()
@@ -1601,13 +1578,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                     vec![],
                     block_hash.clone(),
                 ),
-                outgoing_receipts: outgoing_receipts_by_shard.remove(&shard_uid).unwrap_or(vec![]),
-                validator_proposals: validator_proposals_by_shard
-                    .remove(&shard_uid)
-                    .unwrap_or(vec![]),
-                total_gas_burnt: gas_split + if shard_uid.shard_id() < gas_res { 1 } else { 0 },
-                total_balance_burnt: balance_split
-                    + if shard_uid.shard_id() < balance_res { 1 } else { 0 },
             })
             .collect())
     }
