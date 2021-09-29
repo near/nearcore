@@ -634,7 +634,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        _state_roots: Option<HashMap<ShardUId, StateRoot>>,
         _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
@@ -819,7 +818,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_gas_burnt: 0,
             total_balance_burnt: 0,
             proof: None,
-            apply_split_state_result_or_state_changes: None,
+            processed_delayed_receipts: vec![],
         })
     }
 
@@ -1170,7 +1169,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
+    fn will_shard_layout_change_next_epoch(
+        &self,
+        _parent_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
         Ok(false)
     }
 
@@ -1180,6 +1182,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
         _state_changes: StateChangesForSplitStates,
+        _outgoing_receipts: Vec<Receipt>,
+        _validator_proposals: Vec<ValidatorStake>,
+        _total_gas_burnt: Gas,
+        _total_balance_burnt: Balance,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         Ok(vec![])
     }

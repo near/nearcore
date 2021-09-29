@@ -1364,7 +1364,7 @@ pub fn create_chunk_on_height(
     client
         .produce_chunk(
             last_block_hash,
-            last_block.header().epoch_id(),
+            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             last_block.chunks()[0].clone(),
             next_height,
             0,
