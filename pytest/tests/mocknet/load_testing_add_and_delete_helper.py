@@ -19,10 +19,10 @@ from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
-MAX_TPS = 500  # maximum transactions per second sent (across the whole network)
+MAX_TPS = 1000  # FIXME # maximum transactions per second sent (across the whole network)
 # TODO: Get the number of nodes from the genesis config.
 # For now this number needs to be in-sync with the actual number of nodes.
-NUM_NODES = 4
+NUM_NODES = 100 # FIXME
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 3 * 60
@@ -92,14 +92,17 @@ def function_call(account, i):
 def random_transaction(account, i, node_account_id):
     choice = random.randint(0, 3)
     if choice == 0:
+        logger.info(f'Account {i} transfers')
         send_transfer(account, i, node_account_id)
     elif choice == 1:
         function_call(account, i)
     elif choice == 2:
         new_account_id = ''.join(
             random.choice(string.ascii_lowercase) for _ in range(0, 10))
+        logger.info(f'Account {i} creates an account {new_account_id}')
         account.send_create_account_tx(new_account_id)
     elif choice == 3:
+        logger.info(f'Account {i} stakes')
         account.send_stake_tx(1)
 
 

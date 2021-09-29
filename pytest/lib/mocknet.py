@@ -1,4 +1,3 @@
-import base58
 import json
 import os
 import os.path
@@ -28,6 +27,7 @@ PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
 TX_OUT_FILE = '/home/ubuntu/tx_events'
 WASM_FILENAME = 'simple_contract.wasm'
+CHAIN_ID = 'mocknet'
 
 TMUX_STOP_SCRIPT = '''
 while tmux has-session -t near; do
