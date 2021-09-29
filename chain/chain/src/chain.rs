@@ -3295,7 +3295,7 @@ impl<'a> ChainUpdate<'a> {
         Ok(result)
     }
 
-    /// Postprocess ApplyTransactionResult to apply changes to split states
+    /// Process ApplyTransactionResult to apply changes to split states
     /// When shards will change next epoch,
     ///    if `split_state_roots` is not None, that means states for the split shards are ready
     ///    this function updates these states and return apply results for these states
@@ -3332,7 +3332,7 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
-    /// process split state results or state changes, do the necessary update on chain
+    /// Postprocess split state results or state changes, do the necessary update on chain
     /// for split state results: store the chunk extras and trie changes for the split states
     /// for state changes, store the state changes for splitting states
     fn process_split_state(
