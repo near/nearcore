@@ -21,7 +21,7 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::test_utils::create_test_store;
 
-use crate::peer_manager::IbfRoutingTableExchangeActor;
+use crate::peer_manager::RoutingTableActor;
 use crate::types::{
     NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo, ReasonForBan,
 };
@@ -282,8 +282,8 @@ impl MockNetworkAdapter {
     }
 }
 
-pub fn make_ibf_routing_pool() -> Addr<IbfRoutingTableExchangeActor> {
-    SyncArbiter::start(1, move || IbfRoutingTableExchangeActor::default())
+pub fn make_ibf_routing_pool() -> Addr<RoutingTableActor> {
+    SyncArbiter::start(1, move || RoutingTableActor::default())
 }
 
 #[allow(dead_code)]
@@ -292,7 +292,7 @@ pub fn make_peer_manager(
     port: u16,
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
-    ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
+    ibf_routing_pool: Addr<RoutingTableActor>,
 ) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);

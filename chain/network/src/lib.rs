@@ -1,7 +1,6 @@
 pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
 pub use peer_manager::{
-    IbfRoutingTableExchangeActor, IbfRoutingTableExchangeMessages,
-    IbfRoutingTableExchangeMessagesResponse, PeerManagerActor,
+    PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
 pub use types::{
     FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,

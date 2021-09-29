@@ -42,12 +42,11 @@ use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 #[cfg(feature = "adversarial")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use near_network::types::{SetRoutingTable, StartRoutingTableSync};
+use near_network::{NetworkClientMessages, NetworkClientResponses};
 #[cfg(feature = "adversarial")]
 use near_network::{
-    IbfRoutingTableExchangeActor, IbfRoutingTableExchangeMessages,
-    IbfRoutingTableExchangeMessagesResponse, PeerManagerActor,
+    PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
-use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -224,7 +223,7 @@ struct JsonRpcHandler {
     #[cfg(feature = "adversarial")]
     peer_manager_addr: Addr<PeerManagerActor>,
     #[cfg(feature = "adversarial")]
-    ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
+    ibf_routing_pool: Addr<RoutingTableActor>,
 }
 
 impl JsonRpcHandler {
@@ -322,11 +321,11 @@ impl JsonRpcHandler {
                 "adv_get_routing_table_new" => {
                     let result = self
                         .ibf_routing_pool
-                        .send(IbfRoutingTableExchangeMessages::RequestRoutingTable)
+                        .send(RoutingTableMessages::RequestRoutingTable)
                         .await?;
 
                     match result {
-                        IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
+                        RoutingTableMessagesResponse::RequestRoutingTableResponse {
                             edges_info: routing_table,
                         } => {
                             let response = {
@@ -1328,7 +1327,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "adversarial")] peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "adversarial")] ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
+    #[cfg(feature = "adversarial")] ibf_routing_pool: Addr<RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;

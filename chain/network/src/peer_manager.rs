@@ -130,7 +130,7 @@ struct ActivePeer {
 }
 
 #[derive(Default)]
-pub struct IbfRoutingTableExchangeActor {
+pub struct RoutingTableActor {
     edges: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -138,7 +138,7 @@ pub struct IbfRoutingTableExchangeActor {
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl IbfRoutingTableExchangeActor {
+impl RoutingTableActor {
     pub fn split_edges_for_peer(
         &self,
         peer_id: &PeerId,
@@ -148,12 +148,12 @@ impl IbfRoutingTableExchangeActor {
     }
 }
 
-impl Actor for IbfRoutingTableExchangeActor {
+impl Actor for RoutingTableActor {
     type Context = SyncContext<Self>;
 }
 
 #[derive(Debug)]
-pub enum IbfRoutingTableExchangeMessages {
+pub enum RoutingTableMessages {
     AddEdges(Vec<Edge>),
     RemoveEdges(Vec<Edge>),
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -168,12 +168,12 @@ pub enum IbfRoutingTableExchangeMessages {
     RequestRoutingTable,
 }
 
-impl Message for IbfRoutingTableExchangeMessages {
-    type Result = IbfRoutingTableExchangeMessagesResponse;
+impl Message for RoutingTableMessages {
+    type Result = RoutingTableMessagesResponse;
 }
 
 #[derive(MessageResponse, Debug)]
-pub enum IbfRoutingTableExchangeMessagesResponse {
+pub enum RoutingTableMessagesResponse {
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerResponse {
         seed: u64,
@@ -189,7 +189,7 @@ pub enum IbfRoutingTableExchangeMessagesResponse {
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl IbfRoutingTableExchangeActor {
+impl RoutingTableActor {
     pub fn exchange_routing_tables_using_ibf(
         &self,
         peer_id: &PeerId,
@@ -213,17 +213,13 @@ impl IbfRoutingTableExchangeActor {
         (known, unknown_edges, unknown_edges_count)
     }
 }
-impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
-    type Result = IbfRoutingTableExchangeMessagesResponse;
+impl Handler<RoutingTableMessages> for RoutingTableActor {
+    type Result = RoutingTableMessagesResponse;
 
     #[perf]
-    fn handle(
-        &mut self,
-        msg: IbfRoutingTableExchangeMessages,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: RoutingTableMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
-            IbfRoutingTableExchangeMessages::AddEdges(edges) => {
+            RoutingTableMessages::AddEdges(edges) => {
                 for edge in edges.iter() {
                     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                     {
@@ -232,34 +228,34 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                     }
                     self.edges.insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
                 }
-                IbfRoutingTableExchangeMessagesResponse::Empty
+                RoutingTableMessagesResponse::Empty
             }
-            IbfRoutingTableExchangeMessages::RemoveEdges(edges) => {
+            RoutingTableMessages::RemoveEdges(edges) => {
                 for edge in edges.iter() {
                     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                     self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
                     self.edges.remove(&(edge.peer0.clone(), edge.peer1.clone()));
                 }
-                IbfRoutingTableExchangeMessagesResponse::Empty
+                RoutingTableMessagesResponse::Empty
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            IbfRoutingTableExchangeMessages::AddPeerIfMissing(peer_id, ibf_set) => {
+            RoutingTableMessages::AddPeerIfMissing(peer_id, ibf_set) => {
                 let seed = self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges);
-                IbfRoutingTableExchangeMessagesResponse::AddPeerResponse { seed }
+                RoutingTableMessagesResponse::AddPeerResponse { seed }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            IbfRoutingTableExchangeMessages::RemovePeer(peer_id) => {
+            RoutingTableMessages::RemovePeer(peer_id) => {
                 self.peer_ibf_set.remove_peer(&peer_id);
-                IbfRoutingTableExchangeMessagesResponse::Empty
+                RoutingTableMessagesResponse::Empty
             }
-            IbfRoutingTableExchangeMessages::RequestRoutingTable => {
-                IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
+            RoutingTableMessages::RequestRoutingTable => {
+                RoutingTableMessagesResponse::RequestRoutingTableResponse {
                     edges_info: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
                 }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            IbfRoutingTableExchangeMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
+            RoutingTableMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
                 match ibf_msg.routing_state {
                     RoutingState::PartialSync(partial_sync) => {
                         if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
@@ -317,12 +313,12 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                                     }
                                 }
                             };
-                            IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                            RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                                 ibf_msg: Some(ibf_msg),
                             }
                         } else {
                             error!(target: "network", "Peer not found {}", peer_id);
-                            IbfRoutingTableExchangeMessagesResponse::Empty
+                            RoutingTableMessagesResponse::Empty
                         }
                     }
                     RoutingState::InitializeIbf => {
@@ -334,7 +330,7 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                         if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
                             let seed = ibf_set.get_seed();
                             let ibf_vec = ibf_set.get_ibf_vec(MIN_IBF_LEVEL);
-                            IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                            RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                                 ibf_msg: Some(RoutingVersion2 {
                                     known_edges: self.edges.len() as u64,
                                     seed,
@@ -347,7 +343,7 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                             }
                         } else {
                             error!(target: "network", "Peer not found {}", peer_id);
-                            IbfRoutingTableExchangeMessagesResponse::Empty
+                            RoutingTableMessagesResponse::Empty
                         }
                     }
                     RoutingState::RequestMissingEdges(requested_edges) => {
@@ -366,12 +362,12 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                             edges: edges_for_peer,
                             routing_state: RoutingState::Done,
                         };
-                        IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                        RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                             ibf_msg: Some(ibf_msg),
                         }
                     }
                     RoutingState::RequestAllEdges => {
-                        IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                        RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                             ibf_msg: Some(RoutingVersion2 {
                                 known_edges: self.edges.len() as u64,
                                 seed: ibf_msg.seed,
@@ -381,9 +377,7 @@ impl Handler<IbfRoutingTableExchangeMessages> for IbfRoutingTableExchangeActor {
                         }
                     }
                     RoutingState::Done => {
-                        IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
-                            ibf_msg: None,
-                        }
+                        RoutingTableMessagesResponse::ProcessIbfMessageResponse { ibf_msg: None }
                     }
                 }
             }
@@ -461,7 +455,7 @@ pub struct PeerManagerActor {
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     edge_verifier_pool: Addr<EdgeVerifier>,
-    ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
+    ibf_routing_pool: Addr<RoutingTableActor>,
     txns_since_last_block: Arc<AtomicUsize>,
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     peer_counter: Arc<AtomicUsize>,
@@ -482,7 +476,7 @@ impl PeerManagerActor {
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
-        ibf_routing_pool: Addr<IbfRoutingTableExchangeActor>,
+        ibf_routing_pool: Addr<RoutingTableActor>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if config.max_num_peers as usize > MAX_NUM_PEERS {
             panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
@@ -538,7 +532,7 @@ impl PeerManagerActor {
     ) {
         let edges_to_remove = self.routing_table.update(can_save_edges, force_pruning, timeout);
         self.ibf_routing_pool
-            .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges_to_remove))
+            .send(RoutingTableMessages::RemoveEdges(edges_to_remove))
             .into_actor(self)
             .map(|_, _, _| ())
             .spawn(ctx);
@@ -670,12 +664,12 @@ impl PeerManagerActor {
             move |act, ctx2| {
                 if peer_type == PeerType::Inbound {
                     act.ibf_routing_pool
-                        .send(IbfRoutingTableExchangeMessages::AddPeerIfMissing(peer_id, None))
+                        .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
                         .into_actor(act)
                         .map(move |response, act2, _ctx| match response {
-                            Ok(IbfRoutingTableExchangeMessagesResponse::AddPeerResponse {
-                                seed,
-                            }) => act2.start_routing_table_syncv2(addr, seed),
+                            Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
+                                act2.start_routing_table_syncv2(addr, seed)
+                            }
                             _ => error!(target: "network", "expected AddIbfSetResponse"),
                         })
                         .spawn(ctx2);
@@ -765,14 +759,12 @@ impl PeerManagerActor {
             WAIT_FOR_SYNC_DELAY,
             move |act, ctx2| {
                 act.ibf_routing_pool
-                    .send(IbfRoutingTableExchangeMessages::RequestRoutingTable)
+                    .send(RoutingTableMessages::RequestRoutingTable)
                     .into_actor(act)
                     .map(move |response, act2, ctx3| match response {
-                        Ok(
-                            IbfRoutingTableExchangeMessagesResponse::RequestRoutingTableResponse {
-                                edges_info: routing_table,
-                            },
-                        ) => {
+                        Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                            edges_info: routing_table,
+                        }) => {
                             act2.send_sync(
                                 peer_type,
                                 addr,
@@ -860,7 +852,7 @@ impl PeerManagerActor {
 
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.ibf_routing_pool
-            .send(IbfRoutingTableExchangeMessages::RemovePeer(peer_id.clone()))
+            .send(RoutingTableMessages::RemovePeer(peer_id.clone()))
             .into_actor(self)
             .map(|_, _, _| ())
             .spawn(ctx);
@@ -1110,7 +1102,7 @@ impl PeerManagerActor {
     ) -> bool {
         let ProcessEdgeResult { new_edge, edges } = self.routing_table.process_edges(edges);
         self.ibf_routing_pool
-            .send(IbfRoutingTableExchangeMessages::AddEdges(edges))
+            .send(RoutingTableMessages::AddEdges(edges))
             .into_actor(self)
             .map(|_, _, _| ())
             .spawn(ctx);
@@ -1161,7 +1153,7 @@ impl PeerManagerActor {
             .collect();
         self.routing_table.remove_edges(&edges);
         self.ibf_routing_pool
-            .send(IbfRoutingTableExchangeMessages::RemoveEdges(edges))
+            .send(RoutingTableMessages::RemoveEdges(edges))
             .into_actor(self)
             .map(|_, _, _| ())
             .spawn(ctx);
@@ -2543,13 +2535,10 @@ impl PeerManagerActor {
         swap(&mut edges, &mut ibf_msg.edges);
         self.verify_edges(ctx, peer_id.clone(), edges);
         self.ibf_routing_pool
-            .send(IbfRoutingTableExchangeMessages::ProcessIbfMessage {
-                peer_id: peer_id.clone(),
-                ibf_msg,
-            })
+            .send(RoutingTableMessages::ProcessIbfMessage { peer_id: peer_id.clone(), ibf_msg })
             .into_actor(self)
             .map(move |response, _act2: &mut PeerManagerActor, _ctx2| match response {
-                Ok(IbfRoutingTableExchangeMessagesResponse::ProcessIbfMessageResponse {
+                Ok(RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                     ibf_msg: response_ibf_msg,
                 }) => {
                     if let Some(response_ibf_msg) = response_ibf_msg {
