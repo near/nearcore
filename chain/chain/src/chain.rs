@@ -2571,6 +2571,17 @@ impl Chain {
             .ok_or_else(|| ErrorKind::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)).into())
     }
 
+    /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
+    /// a chunk in the block after `prev_block`
+    /// This function is important when the block after `prev_block` has different number of chunks
+    /// from `prev_block`.
+    /// In block production and processing, often we need to get the previous chunks of chunks
+    /// in the current block, this function provides a way to do so while handling sharding changes
+    /// correctly.
+    /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
+    /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
+    /// `get_prev_chunks(runtime_adapter, prev_block)` will return
+    /// [prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]
     pub fn get_prev_chunks(
         runtime_adapter: &dyn RuntimeAdapter,
         prev_block: &Block,
