@@ -958,9 +958,6 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::ForwardTx(_, _)
                         | NetworkRequests::Sync { .. }
-                        | NetworkRequests::FetchRoutingTable
-                        | NetworkRequests::PingTo(_, _)
-                        | NetworkRequests::FetchPingPongInfo
                         | NetworkRequests::BanPeer { .. }
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::Query { .. }
@@ -968,6 +965,10 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        #[cfg(feature = "adversarial")]
+                        | NetworkRequests::PingTo(_, _)
+                        | NetworkRequests::FetchPingPongInfo
+                        | NetworkRequests::FetchRoutingTable  => {}
                         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                         | NetworkRequests::IbfMessage { .. } => {}
                     };

@@ -26,6 +26,7 @@ use metrics::NetworkMetrics;
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
+#[cfg(feature = "adversarial")]
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, ProtocolVersion};
@@ -52,12 +53,12 @@ use crate::types::{
     KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests,
     NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg,
-    SyncData, Unregister,
+    PeersRequest, PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData,
+    Unregister,
 };
 #[cfg(feature = "test_features")]
-use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
+use crate::types::{GetPeerId, GetPeerIdResult, Ping, Pong, SetAdvOptions};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingState, RoutingSyncV2, RoutingVersion2};
 
@@ -1337,6 +1338,7 @@ impl PeerManagerActor {
 
     // Ping pong useful functions.
 
+    #[cfg(feature = "adversarial")]
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
@@ -1345,6 +1347,7 @@ impl PeerManagerActor {
         self.send_message_to_peer(ctx, msg);
     }
 
+    #[cfg(feature = "adversarial")]
     fn send_pong(&mut self, ctx: &mut Context<Self>, nonce: usize, target: CryptoHash) {
         let body =
             RoutedMessageBody::Pong(Pong { nonce: nonce as u64, source: self.peer_id.clone() });
@@ -1352,12 +1355,14 @@ impl PeerManagerActor {
         self.send_message_to_peer(ctx, msg);
     }
 
+    #[cfg(feature = "adversarial")]
     fn handle_ping(&mut self, ctx: &mut Context<Self>, ping: Ping, hash: CryptoHash) {
         self.send_pong(ctx, ping.nonce as usize, hash);
         self.routing_table.add_ping(ping);
     }
 
     /// Handle pong messages. Add pong temporary to the routing table, mostly used for testing.
+    #[cfg(feature = "adversarial")]
     fn handle_pong(&mut self, _ctx: &mut Context<Self>, pong: Pong) {
         #[allow(unused_variables)]
         let latency = self.routing_table.add_pong(pong);
@@ -1724,6 +1729,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            #[cfg(feature = "adversarial")]
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -1831,10 +1837,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
-            NetworkRequests::PingTo(nonce, target) => {
-                self.send_ping(ctx, nonce, target);
-                NetworkResponses::NoResponse
-            }
+            #[cfg(feature = "adversarial")]
+            NetworkRequests::PingTo(nonce, target) => self.send_ping(ctx, nonce, target),
+            #[cfg(feature = "adversarial")]
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table.fetch_ping_pong();
                 NetworkResponses::PingPongInfo { pings, pongs }
@@ -2156,12 +2161,18 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
             // Handle Ping and Pong message if they are for us without sending to client.
             // i.e. Return false in case of Ping and Pong
             match &msg.body {
-                RoutedMessageBody::Ping(ping) => self.handle_ping(ctx, ping.clone(), msg.hash()),
-                RoutedMessageBody::Pong(pong) => self.handle_pong(ctx, pong.clone()),
+                #[cfg(feature = "adversarial")]
+                RoutedMessageBody::Ping(ping) => {
+                    self.handle_ping(ctx, ping.clone(), msg.hash());
+                    false
+                }
+                #[cfg(feature = "adversarial")]
+                RoutedMessageBody::Pong(pong) => {
+                    self.handle_pong(ctx, pong.clone());
+                    false
+                }
                 _ => return true,
             }
-
-            false
         } else {
             if msg.decrease_ttl() {
                 self.send_signed_message_to_peer(ctx, msg);

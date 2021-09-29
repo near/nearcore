@@ -1,6 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::ops::Sub;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "adversarial")]
 use std::time::Instant;
 
 use cached::{Cached, SizedCache};
@@ -10,8 +11,20 @@ use conqueue::{QueueReceiver, QueueSender};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
+use crate::{cache::RouteBackCache, types::PeerIdOrHash};
+use crate::{metrics, PeerInfo};
+#[cfg(feature = "adversarial")]
+use crate::{
+    types::{Ping, Pong},
+    utils::cache_to_hashmap,
+};
+use actix::dev::{MessageResponse, ResponseChannel};
+use actix::{Actor, Message};
+use borsh::{BorshDeserialize, BorshSerialize};
+use byteorder::{LittleEndian, WriteBytesExt};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_crypto::{KeyType, SecretKey, Signature};
 use near_metrics;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -21,25 +34,14 @@ use near_store::{
     ColAccountAnnouncements, ColComponentEdges, ColLastComponentNonce, ColPeerComponent, Store,
     StoreUpdate,
 };
-
-use crate::{
-    cache::RouteBackCache,
-    types::{PeerIdOrHash, Ping, Pong},
-    utils::cache_to_hashmap,
-};
-use crate::{metrics, PeerInfo};
-use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message};
-use borsh::{BorshDeserialize, BorshSerialize};
-use byteorder::{LittleEndian, WriteBytesExt};
-use near_crypto::{KeyType, SecretKey, Signature};
 use std::hash::{Hash, Hasher};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
 const ROUTE_BACK_CACHE_EVICT_TIMEOUT: u64 = 120_000; // 120 seconds
 const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
-const PING_PONG_CACHE_SIZE: usize = 1_000;
+#[cfg(feature = "adversarial")]
+const PING_PONG_CACHE_SIZE: usize = 1_0000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
 const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
@@ -402,12 +404,16 @@ pub struct RoutingTable {
     /// New routes are added with minimum nonce.
     route_nonce: SizedCache<PeerId, usize>,
     /// Ping received by nonce.
+    #[cfg(feature = "adversarial")]
     ping_info: SizedCache<usize, Ping>,
     /// Ping received by nonce.
+    #[cfg(feature = "adversarial")]
     pong_info: SizedCache<usize, Pong>,
     /// List of pings sent for which we haven't received any pong yet.
+    #[cfg(feature = "adversarial")]
     waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
+    #[cfg(feature = "adversarial")]
     last_ping_nonce: SizedCache<PeerId, usize>,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
@@ -442,9 +448,13 @@ impl RoutingTable {
             store,
             raw_graph: Graph::new(peer_id),
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
+            #[cfg(feature = "adversarial")]
             ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            #[cfg(feature = "adversarial")]
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            #[cfg(feature = "adversarial")]
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            #[cfg(feature = "adversarial")]
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             component_nonce,
         }
@@ -690,11 +700,13 @@ impl RoutingTable {
         self.route_back.get(&hash).map_or(false, |value| value == peer_id)
     }
 
+    #[cfg(feature = "adversarial")]
     pub fn add_ping(&mut self, ping: Ping) {
         self.ping_info.cache_set(ping.nonce as usize, ping);
     }
 
     /// Return time of the round trip of ping + pong
+    #[cfg(feature = "adversarial")]
     pub fn add_pong(&mut self, pong: Pong) -> Option<f64> {
         let mut res = None;
 
@@ -709,6 +721,7 @@ impl RoutingTable {
         res
     }
 
+    #[cfg(feature = "adversarial")]
     pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
         let entry = if let Some(entry) = self.waiting_pong.cache_get_mut(&target) {
             entry
@@ -720,6 +733,7 @@ impl RoutingTable {
         entry.cache_set(nonce, Instant::now());
     }
 
+    #[cfg(feature = "adversarial")]
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
         if let Some(entry) = self.last_ping_nonce.cache_get_mut(&peer_id) {
             *entry += 1;
@@ -730,10 +744,12 @@ impl RoutingTable {
         }
     }
 
+    #[cfg(feature = "adversarial")]
     pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {
         (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
     }
 
+    #[cfg(feature = "adversarial")]
     pub fn info(&mut self) -> RoutingTableInfo {
         let account_peers = self
             .get_announce_accounts()
