@@ -10,7 +10,9 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::{ApplyStatePartsRequest, TX_ROUTING_HEIGHT_HORIZON};
+use near_chain::chain::{
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, TX_ROUTING_HEIGHT_HORIZON,
+};
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
@@ -73,8 +75,9 @@ pub struct Client {
     /// Approvals for which we do not have the block yet
     pub pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
-    /// storing the current status of the state sync
-    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
+    /// storing the current status of the state sync and blocks catch up
+    pub catchup_state_syncs:
+        HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>, BlocksCatchUpState)>,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
@@ -1574,6 +1577,7 @@ impl Client {
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
@@ -1617,9 +1621,14 @@ impl Client {
                 }
             };
             let state_sync_timeout = self.config.state_sync_timeout;
-            let (state_sync, new_shard_sync) =
+            let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
+            let (state_sync, new_shard_sync, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
-                    (StateSync::new(network_adapter1, state_sync_timeout), new_shard_sync)
+                    (
+                        StateSync::new(network_adapter1, state_sync_timeout),
+                        new_shard_sync,
+                        BlocksCatchUpState::new(sync_hash.clone(), epoch_id),
+                    )
                 });
 
             debug!(
@@ -1642,41 +1651,49 @@ impl Client {
                     assert!(!fetch_block);
                 }
                 StateSyncResult::Completed => {
-                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                    let challenges = Arc::new(RwLock::new(vec![]));
-
-                    self.chain.catchup_blocks(
+                    self.chain.catchup_blocks_step(
                         me,
                         &sync_hash,
-                        |accepted_block| {
-                            accepted_blocks.write().unwrap().push(accepted_block);
-                        },
-                        |missing_chunks| {
-                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
-                        },
-                        |challenge| challenges.write().unwrap().push(challenge),
+                        blocks_catch_up_state,
+                        block_catch_up_task_scheduler,
                     )?;
 
-                    self.send_challenges(challenges);
+                    if blocks_catch_up_state.is_finished() {
+                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                        let challenges = Arc::new(RwLock::new(vec![]));
 
-                    self.shards_mgr.request_chunks(
-                        blocks_missing_chunks
-                            .write()
-                            .unwrap()
-                            .drain(..)
-                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                        &self.chain.header_head()?,
-                        // It is ok to pass the latest protocol version here since we are likely
-                        // syncing old blocks, which means the protocol version will not change
-                        // the logic. Even in the worst case where we are syncing a recent block,
-                        // the only impact is the request will be sent after some delay.
-                        PROTOCOL_VERSION,
-                    );
+                        self.chain.finish_catchup_blocks(
+                            me,
+                            &sync_hash,
+                            |accepted_block| {
+                                accepted_blocks.write().unwrap().push(accepted_block);
+                            },
+                            |missing_chunks| {
+                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            },
+                            |challenge| challenges.write().unwrap().push(challenge),
+                            &blocks_catch_up_state.done_blocks,
+                        )?;
 
-                    let unwrapped_accepted_blocks =
-                        accepted_blocks.write().unwrap().drain(..).collect();
-                    return Ok(unwrapped_accepted_blocks);
+                        self.send_challenges(challenges);
+
+                        self.shards_mgr.request_chunks(
+                            blocks_missing_chunks
+                                .write()
+                                .unwrap()
+                                .drain(..)
+                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            &self.chain.header_head()?,
+                            // It is ok to pass the latest protocol version here since we are likely
+                            // syncing old blocks, which means the protocol version will not change
+                            // the logic. Even in the worst case where we are syncing a recent block,
+                            // the only impact is the request will be sent after some delay.
+                            PROTOCOL_VERSION,
+                        );
+
+                        return Ok(accepted_blocks.write().unwrap().drain(..).collect());
+                    }
                 }
             }
         }
