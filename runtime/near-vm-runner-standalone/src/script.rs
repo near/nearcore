@@ -113,8 +113,8 @@ impl Script {
             external.fake_trie = trie;
         }
 
-        let runtime_fees_config =
-            &RuntimeConfigStore::new(None).get_config(self.protocol_version).transaction_costs;
+        let config_store = RuntimeConfigStore::new(None);
+        let runtime_fees_config = &config_store.get_config(self.protocol_version).transaction_costs;
         let mut outcomes = Vec::new();
         for step in &self.steps {
             for _ in 0..step.repeat {

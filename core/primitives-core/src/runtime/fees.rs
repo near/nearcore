@@ -38,7 +38,7 @@ impl Fee {
     }
 
     /// The minimum fee to send and execute.
-    pub fn min_send_and_exec_fee(&self) -> Gas {
+    fn min_send_and_exec_fee(&self) -> Gas {
         std::cmp::min(self.send_sir, self.send_not_sir) + self.execution
     }
 }

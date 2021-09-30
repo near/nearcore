@@ -49,8 +49,8 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         Ok(Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 })
     };
 
-    let actual_fees_config =
-        &RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).transaction_costs;
+    let config_store = RuntimeConfigStore::new(None);
+    let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).transaction_costs;
     let res = RuntimeFeesConfig {
         action_receipt_creation_config: fee(Cost::ActionReceiptCreation)?,
         data_receipt_creation_config: DataReceiptCreationConfig {

@@ -1,6 +1,5 @@
 use genesis_populate::state_dump::StateDump;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;

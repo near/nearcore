@@ -133,26 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn test_data_roundtrip_is_more_expensive() {
-        // We have an assumption that the deepest receipts we can create is by creating recursive
-        // function call promises (calling function call from a function call).
-        // If the cost of a data receipt is cheaper than the cost of a function call, then it's
-        // possible to create a promise with a dependency which will be executed in two blocks that
-        // is cheaper than just two recursive function calls.
-        // That's why we need to enforce that the cost of the data receipt is not less than a
-        // function call. Otherwise we'd have to modify the way we compute the maximum depth.
-        let store = RuntimeConfigStore::new(None);
-        for config in store.store.values() {
-            let transaction_costs = &config.transaction_costs;
-            assert!(
-                transaction_costs.data_receipt_creation_config.base_cost.min_send_and_exec_fee()
-                    >= transaction_costs.min_receipt_with_function_call_gas(),
-                "The data receipt cost can't be larger than the cost of a receipt with a function call"
-            );
-        }
-    }
-
-    #[test]
     fn test_lower_storage_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(GENESIS_PROTOCOL_VERSION);
