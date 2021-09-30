@@ -19,13 +19,13 @@ from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
-MAX_TPS = 1000  # FIXME # maximum transactions per second sent (across the whole network)
+MAX_TPS = 400  # FIXME # maximum transactions per second sent (across the whole network)
 # TODO: Get the number of nodes from the genesis config.
 # For now this number needs to be in-sync with the actual number of nodes.
 NUM_NODES = 100 # FIXME
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 3 * 60
+CONTRACT_DEPLOY_TIME = 10 * 60
 TEST_TIMEOUT = 90 * 60
 
 
@@ -183,7 +183,8 @@ if __name__ == '__main__':
     # call the contract before it is deployed).
     delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
     logger.info(f'Start deploying, delay between deployments: {delay}')
-    for (account, _) in test_accounts:
+    for (account, i) in test_accounts:
+        logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         time.sleep(delay)
     logger.info('Done deploying')
