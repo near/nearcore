@@ -67,7 +67,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayoutError, ShardUId};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -1894,6 +1894,7 @@ impl Chain {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
+            debug!(target:"chain", "finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
         chain_update.commit()
     }
@@ -2632,33 +2633,61 @@ impl Chain {
     /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
     /// `get_prev_chunks(runtime_adapter, prev_block)` will return
     /// [prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]
-    pub fn get_prev_chunks(
+    pub fn get_prev_chunk_headers(
         runtime_adapter: &dyn RuntimeAdapter,
         prev_block: &Block,
     ) -> Result<Vec<ShardChunkHeader>, Error> {
+        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&prev_block.hash())?;
+        let num_shards = runtime_adapter.num_shards(&epoch_id)?;
+        let prev_shard_ids = Self::get_prev_chunk_headers_impl(
+            runtime_adapter,
+            prev_block,
+            (0..num_shards).collect(),
+        )?;
+        let chunks = prev_block.chunks();
+        Ok(prev_shard_ids
+            .into_iter()
+            .map(|shard_id| chunks.get(shard_id as usize).unwrap().clone())
+            .collect())
+    }
+
+    pub fn get_prev_chunk_header(
+        runtime_adapter: &dyn RuntimeAdapter,
+        prev_block: &Block,
+        shard_id: ShardId,
+    ) -> Result<ShardChunkHeader, Error> {
+        let prev_shard_id =
+            Self::get_prev_chunk_headers_impl(runtime_adapter, prev_block, vec![shard_id])?[0];
+        Ok(prev_block.chunks().get(prev_shard_id as usize).unwrap().clone())
+    }
+
+    fn get_prev_chunk_headers_impl(
+        runtime_adapter: &dyn RuntimeAdapter,
+        prev_block: &Block,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
         if runtime_adapter.is_next_block_epoch_start(prev_block.hash())? {
             let shard_layout =
                 runtime_adapter.get_shard_layout_from_prev_block(prev_block.hash())?;
             let prev_shard_layout =
                 runtime_adapter.get_shard_layout(prev_block.header().epoch_id())?;
             if prev_shard_layout != shard_layout {
-                let chunks = prev_block.chunks();
-                return Ok((0..shard_layout.num_shards()).map(|shard_id| {
-                    let parent_shard_id = shard_layout.get_parent_shard_id(shard_id);
-                    assert!(parent_shard_id.is_some(),
-                        "invalid shard layout {:?}: no parent shard for shard {}",
-                        shard_layout, shard_id
-                    );
-                    let parent_shard_id = parent_shard_id.unwrap();
-                    let chunk = chunks.get(parent_shard_id as usize);
-                    assert!(chunk.is_some(),
-                            "invalid shard layout {:?}: parent shard {} for shard {} does not exist in the last shard layout",
-                            shard_layout, shard_id, parent_shard_id);
-                    chunk.unwrap().clone()
-                }).collect());
+                return Ok(shard_ids
+                    .into_iter()
+                    .map(|shard_id| {
+                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
+                            assert!(parent_shard_id < prev_shard_layout.num_shards(),
+                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
+                                    shard_layout,
+                                    parent_shard_id
+                            );
+                            parent_shard_id
+                        })
+                    })
+                    .collect::<Result<_, ShardLayoutError>>()?);
             }
         }
-        Ok(prev_block.chunks().iter().cloned().collect())
+        Ok(shard_ids)
     }
 }
 
@@ -3101,7 +3130,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let will_shard_layout_change =
             self.runtime_adapter.will_shard_layout_change_next_epoch(prev_hash)?;
-        let prev_chunk_headers = Chain::get_prev_chunks(&*self.runtime_adapter, prev_block)?;
+        let prev_chunk_headers = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
         for (shard_id, (chunk_header, prev_chunk_header)) in
             (block.chunks().iter().zip(prev_chunk_headers.iter())).enumerate()
         {
@@ -3768,7 +3797,8 @@ impl<'a> ChainUpdate<'a> {
         self.save_incoming_receipts_from_block(me, &block)?;
 
         // Do basic validation of chunks before applying the transactions
-        let prev_chunk_headers = Chain::get_prev_chunks(&*self.runtime_adapter, &prev_block)?;
+        let prev_chunk_headers =
+            Chain::get_prev_chunk_headers(&*self.runtime_adapter, &prev_block)?;
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter().zip(prev_chunk_headers.iter())
         {

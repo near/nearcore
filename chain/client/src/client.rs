@@ -438,7 +438,7 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = Chain::get_prev_chunks(&*self.runtime_adapter, prev_block)?;
+        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -1105,7 +1105,8 @@ impl Client {
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
-                            block.chunks()[shard_id as usize].clone(),
+                            Chain::get_prev_chunk_header(&*self.runtime_adapter, &block, shard_id)
+                                .unwrap(),
                             block.header().height() + 1,
                             shard_id,
                         ) {
