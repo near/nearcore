@@ -145,47 +145,78 @@ impl<'c> TestBed<'c> {
         &'a mut self,
         make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
     ) -> (GasCost, HashMap<ExtCosts, u64>) {
-        let allow_failures = false;
-
+        let block_size = self.block_size;
         let total_iters = self.config.warmup_iters_per_block + self.config.iter_per_block;
+        let blocks = self.make_blocks(block_size, total_iters, make_transaction);
 
-        let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-        let mut total = Ratio::from_integer(0);
+        let measurements = self.measure_blocks(blocks);
+
+        let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
+        let mut total = GasCost { value: 0.into(), metric: self.config.metric };
         let mut n = 0;
-        for iter in 0..total_iters {
-            let block_size = self.block_size;
-            let block: Vec<_> = iter::repeat_with(|| {
+        for (gas_cost, ext_cost) in
+            measurements.into_iter().skip(self.config.warmup_iters_per_block)
+        {
+            total += gas_cost;
+            n += self.block_size as u64;
+            for (c, v) in ext_cost {
+                *total_ext_costs.entry(c).or_default() += v;
+            }
+        }
+
+        for v in total_ext_costs.values_mut() {
+            *v /= n;
+        }
+
+        let gas_cost = total / n;
+        (gas_cost, total_ext_costs)
+    }
+
+    fn make_blocks<'a>(
+        &'a mut self,
+        block_size: usize,
+        n_blocks: usize,
+        make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
+    ) -> Vec<Vec<SignedTransaction>> {
+        iter::repeat_with(|| {
+            iter::repeat_with(|| {
                 let tb = TransactionBuilder { testbed: self };
                 make_transaction(tb)
             })
             .take(block_size)
-            .collect();
+            .collect::<Vec<_>>()
+        })
+        .take(n_blocks)
+        .collect::<Vec<_>>()
+    }
 
+    fn measure_blocks<'a>(
+        &'a mut self,
+        blocks: Vec<Vec<SignedTransaction>>,
+    ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
+        let allow_failures = false;
+
+        let mut res = Vec::with_capacity(blocks.len());
+
+        for block in blocks {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
             let start = start_count(self.config.metric);
             self.inner.process_block(&block, allow_failures);
             self.inner.process_blocks_until_no_receipts(allow_failures);
             let measured = end_count(self.config.metric, &start);
 
-            let is_warmup = iter < self.config.warmup_iters_per_block;
+            let gas_cost = GasCost { value: measured.into(), metric: self.config.metric };
 
-            if !is_warmup {
-                total += measured;
-                n += block_size as u64;
-                node_runtime::with_ext_cost_counter(|cc| {
-                    for (c, v) in cc.drain() {
-                        *ext_costs.entry(c).or_default() += v;
-                    }
-                });
-            }
+            let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
+            node_runtime::with_ext_cost_counter(|cc| {
+                for (c, v) in cc.drain() {
+                    ext_costs.insert(c, v);
+                }
+            });
+            res.push((gas_cost, ext_costs));
         }
 
-        for v in ext_costs.values_mut() {
-            *v /= n;
-        }
-
-        let gas_cost = GasCost { value: total / n, metric: self.config.metric };
-        (gas_cost, ext_costs)
+        res
     }
 
     fn nonce(&mut self, account_id: &AccountId) -> u64 {
@@ -284,6 +315,21 @@ impl fmt::Debug for GasCost {
             GasMetric::ICount => write!(f, "{}i", self.value),
             GasMetric::Time => fmt::Debug::fmt(&Duration::from_nanos(self.value.to_integer()), f),
         }
+    }
+}
+
+impl ops::Add for GasCost {
+    type Output = GasCost;
+
+    fn add(self, rhs: GasCost) -> Self::Output {
+        assert_eq!(self.metric, rhs.metric);
+        GasCost { value: self.value + rhs.value, metric: self.metric }
+    }
+}
+
+impl ops::AddAssign for GasCost {
+    fn add_assign(&mut self, rhs: GasCost) {
+        *self = self.clone() + rhs;
     }
 }
 
