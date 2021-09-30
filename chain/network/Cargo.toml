@@ -45,7 +45,7 @@ tempfile = "3"
 bencher = "0.1.5"
 
 [features]
-adversarial = ["near-network-primitives/adversarial", "serde", "protocol_feature_routing_exchange_algorithm"]
+adversarial = ["near-network-primitives/adversarial", "serde"]
 delay_detector = ["delay-detector"]
 performance_stats = ["near-performance-metrics/performance_stats"]
 sandbox = ["near-network-primitives/sandbox"]
