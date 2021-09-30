@@ -2,7 +2,6 @@
 name = "near-vm-errors"
 version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-publish = false
 edition = "2018"
 license = "MIT OR Apache-2.0"
 readme = "README.md"

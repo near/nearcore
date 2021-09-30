@@ -2,7 +2,6 @@
 name = "near-account-id"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-publish = false
 edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/near/nearcore"
