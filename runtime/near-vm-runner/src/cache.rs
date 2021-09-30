@@ -261,7 +261,6 @@ pub mod wasmer2_cache {
         gas_counter_mode: GasCounterMode,
         store: &wasmer::Store,
     ) -> Result<wasmer::Module, VMError> {
-        println!("{:?}", gas_counter_mode);
         let prepared_code = prepare::prepare_contract(code, config, gas_counter_mode)?;
         wasmer::Module::new(&store, prepared_code).map_err(|err| err.into_vm_error())
     }
