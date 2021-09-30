@@ -39,7 +39,7 @@ pub struct TrieIterator<'a> {
     root: CryptoHash,
 }
 
-pub type TrieItem = Result<(Vec<u8>, Vec<u8>), StorageError>;
+pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
 pub struct TrieTraversalItem {
@@ -217,6 +217,27 @@ impl<'a> TrieIterator<'a> {
     }
 
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
+    /// order and return key-value pairs for each visited node with value stored
+    /// Used to generate split states for re-sharding
+    pub(crate) fn get_trie_items(
+        &mut self,
+        path_begin: &[u8],
+        path_end: &[u8],
+    ) -> Result<Vec<TrieItem>, StorageError> {
+        self.seek(path_begin)?;
+
+        let mut trie_items = vec![];
+        while let Some(item) = self.next() {
+            let trie_item = item?;
+            if &trie_item.0[..] >= path_end {
+                return Ok(trie_items);
+            }
+            trie_items.push(trie_item);
+        }
+        Ok(trie_items)
+    }
+
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return TrieTraversalItem for each visited node.
     /// Used to generate and apply state parts for state sync.
     pub(crate) fn visit_nodes_interval(
@@ -281,7 +302,7 @@ enum IterStep {
 }
 
 impl<'a> Iterator for TrieIterator<'a> {
-    type Item = TrieItem;
+    type Item = Result<TrieItem, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -314,16 +335,20 @@ mod tests {
 
     use near_primitives::hash::CryptoHash;
 
-    use crate::test_utils::{create_tries, gen_changes, simplify_changes, test_populate_trie};
+    use crate::test_utils::{
+        create_tries, create_tries_complex, gen_changes, simplify_changes, test_populate_trie,
+    };
     use crate::trie::iterator::IterStep;
     use crate::Trie;
+    use near_primitives::shard_layout::ShardUId;
 
     #[test]
     fn test_iterator() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let tries = create_tries_complex(1, 2);
+            let shard_uid = ShardUId { version: 1, shard_id: 0 };
+            let trie = tries.get_trie_for_shard(shard_uid);
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
 
@@ -334,7 +359,7 @@ mod tests {
                 }
             }
             let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+                test_populate_trie(&tries, &Trie::empty_root(), shard_uid, trie_changes.clone());
 
             {
                 let result1: Vec<_> = trie.iter(&state_root).unwrap().map(Result::unwrap).collect();
@@ -343,8 +368,15 @@ mod tests {
             }
             test_seek(&trie, &map, &state_root, &[]);
 
+            let empty_vec = vec![];
+            let max_key = map.keys().max().unwrap_or(&empty_vec);
+            let min_key = map.keys().min().unwrap_or(&empty_vec);
+            test_get_trie_items(&trie, &map, &state_root, &[], &[]);
+            test_get_trie_items(&trie, &map, &state_root, min_key, max_key);
             for (seek_key, _) in trie_changes.iter() {
                 test_seek(&trie, &map, &state_root, &seek_key);
+                test_get_trie_items(&trie, &map, &state_root, min_key, seek_key);
+                test_get_trie_items(&trie, &map, &state_root, seek_key, max_key);
             }
             for _ in 0..20 {
                 let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
@@ -352,8 +384,29 @@ mod tests {
                 let seek_key: Vec<u8> =
                     (0..key_length).map(|_| alphabet.choose(&mut rng).unwrap().clone()).collect();
                 test_seek(&trie, &map, &state_root, &seek_key);
+
+                let seek_key2: Vec<u8> =
+                    (0..key_length).map(|_| alphabet.choose(&mut rng).unwrap().clone()).collect();
+                let path_begin = seek_key.clone().min(seek_key2.clone());
+                let path_end = seek_key.clone().max(seek_key2.clone());
+                test_get_trie_items(&trie, &map, &state_root, &path_begin, &path_end);
             }
         }
+    }
+
+    fn test_get_trie_items(
+        trie: &Trie,
+        map: &BTreeMap<Vec<u8>, Vec<u8>>,
+        state_root: &CryptoHash,
+        path_begin: &[u8],
+        path_end: &[u8],
+    ) {
+        let result1 = trie.iter(&state_root).unwrap().get_trie_items(path_begin, path_end).unwrap();
+        let result2: Vec<_> = map
+            .range(path_begin.to_vec()..path_end.to_vec())
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        assert_eq!(result1, result2);
     }
 
     fn test_seek(
@@ -375,11 +428,15 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let trie = tries.get_trie_for_shard(ShardUId::default());
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
-            let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::empty_root(),
+                ShardUId::default(),
+                trie_changes.clone(),
+            );
             let mut iterator = trie.iter(&state_root).unwrap();
             loop {
                 let iter_step = match iterator.iter_step() {

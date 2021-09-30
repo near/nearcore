@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +12,9 @@ use num_rational::Rational;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, LogSummaryStyle};
+use near_chain_configs::{
+    get_initial_supply, ClientConfig, Genesis, GenesisConfig, LogSummaryStyle,
+};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -23,6 +25,7 @@ use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -127,9 +130,6 @@ pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
 /// Number of epochs before protocol upgrade.
 pub const PROTOCOL_UPGRADE_NUM_EPOCHS: EpochHeight = 2;
-
-#[cfg(feature = "protocol_feature_evm")]
-pub const TESTNET_EVM_CHAIN_ID: u64 = 0x99;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -465,14 +465,15 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &PathBuf) -> Self {
-        let mut file = File::open(path).expect("Could not open config file.");
+    pub fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path)
+            .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
         Config::from(content.as_str())
     }
 
-    pub fn write_to_file(&self, path: &PathBuf) {
+    pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a config file.");
         let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
         if let Err(err) = file.write_all(str.as_bytes()) {
@@ -506,18 +507,20 @@ impl From<&str> for Config {
 #[easy_ext::ext(GenesisExt)]
 impl Genesis {
     pub fn test_with_seeds(
-        seeds: Vec<&str>,
+        accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
+        shard_layout: ShardLayout,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
-        for (i, &account) in seeds.iter().enumerate() {
-            let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
+        for (i, account) in accounts.into_iter().enumerate() {
+            let signer =
+                InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_ref());
             let i = i as u64;
             if i < num_validator_seats {
                 validators.push(AccountInfo {
-                    account_id: account.to_string(),
+                    account_id: account.clone(),
                     public_key: signer.public_key.clone(),
                     amount: TESTING_INIT_STAKE,
                 });
@@ -548,35 +551,66 @@ impl Genesis {
             block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
             validators,
             protocol_reward_rate: PROTOCOL_REWARD_RATE,
+            total_supply: get_initial_supply(&records),
             max_inflation_rate: MAX_INFLATION_RATE,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-            protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
+            protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
             transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
             min_gas_price: MIN_GAS_PRICE,
+            shard_layout,
             ..Default::default()
         };
         Genesis::new(config, records.into())
     }
 
-    pub fn test(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
-        Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats])
+    pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            vec![num_validator_seats],
+            ShardLayout::default(),
+        )
     }
 
-    pub fn test_free(seeds: Vec<&str>, num_validator_seats: NumSeats) -> Self {
-        let mut genesis =
-            Self::test_with_seeds(seeds, num_validator_seats, vec![num_validator_seats]);
+    pub fn test_free(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
+        let mut genesis = Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            vec![num_validator_seats],
+            ShardLayout::default(),
+        );
         genesis.config.runtime_config = RuntimeConfig::free();
         genesis
     }
 
     pub fn test_sharded(
-        seeds: Vec<&str>,
+        accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
     ) -> Self {
-        Self::test_with_seeds(seeds, num_validator_seats, num_validator_seats_per_shard)
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 0),
+        )
+    }
+
+    pub fn test_sharded_new_version(
+        accounts: Vec<AccountId>,
+        num_validator_seats: NumSeats,
+        num_validator_seats_per_shard: Vec<NumSeats>,
+    ) -> Self {
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 1),
+        )
     }
 }
 
@@ -723,8 +757,10 @@ impl NearConfig {
             validator_signer.write_to_file(&dir.join(&self.config.validator_key_file));
         }
 
-        let network_signer =
-            InMemorySigner::from_secret_key("".to_string(), self.network_config.secret_key.clone());
+        let network_signer = InMemorySigner::from_secret_key(
+            "node".parse().unwrap(),
+            self.network_config.secret_key.clone(),
+        );
         network_signer.write_to_file(&dir.join(&self.config.node_key_file));
 
         self.genesis.to_file(&dir.join(&self.config.genesis_file));
@@ -733,13 +769,13 @@ impl NearConfig {
 
 fn add_protocol_account(records: &mut Vec<StateRecord>) {
     let signer = InMemorySigner::from_seed(
-        PROTOCOL_TREASURY_ACCOUNT,
+        PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
         KeyType::ED25519,
         PROTOCOL_TREASURY_ACCOUNT,
     );
     add_account_with_key(
         records,
-        PROTOCOL_TREASURY_ACCOUNT,
+        PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
         &signer.public_key,
         TESTING_INIT_BALANCE,
         0,
@@ -753,39 +789,42 @@ fn random_chain_id() -> String {
 
 fn add_account_with_key(
     records: &mut Vec<StateRecord>,
-    account_id: &str,
+    account_id: AccountId,
     public_key: &PublicKey,
     amount: u128,
     staked: u128,
     code_hash: CryptoHash,
 ) {
     records.push(StateRecord::Account {
-        account_id: account_id.to_string(),
+        account_id: account_id.clone(),
         account: Account::new(amount, staked, code_hash, 0),
     });
     records.push(StateRecord::AccessKey {
-        account_id: account_id.to_string(),
+        account_id,
         public_key: public_key.clone(),
         access_key: AccessKey::full_access(),
     });
 }
 
 /// Generate a validator key and save it to the file path.
-fn generate_validator_key(account_id: &str, path: &Path) {
-    let signer = InMemoryValidatorSigner::from_random(account_id.to_string(), KeyType::ED25519);
+fn generate_validator_key(account_id: AccountId, path: &Path) {
+    let signer = InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519);
     info!(target: "near", "Use key {} for {} to stake.", signer.public_key(), account_id);
     signer.write_to_file(path);
 }
 
-lazy_static_include::lazy_static_include_bytes! {
-    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+pub fn mainnet_genesis() -> Genesis {
+    lazy_static_include::lazy_static_include_bytes! {
+        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
+    };
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
     chain_id: Option<&str>,
-    account_id: Option<&str>,
+    account_id: Option<AccountId>,
     test_seed: Option<&str>,
     num_shards: NumShards,
     fast: bool,
@@ -802,7 +841,7 @@ pub fn init_configs(
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
+        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.display(), genesis_config.chain_id);
     }
 
     let mut config = Config::default();
@@ -835,17 +874,17 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
-                .expect("Failed to deserialize MainNet genesis");
+            let genesis = mainnet_genesis();
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
 
-            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
+            let network_signer =
+                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated MainNet genesis file in {}", dir.display());
         }
         "testnet" | "betanet" => {
             if test_seed.is_some() {
@@ -858,7 +897,8 @@ pub fn init_configs(
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
 
-            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
+            let network_signer =
+                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             // download genesis from s3
@@ -880,7 +920,7 @@ pub fn init_configs(
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.to_str().unwrap());
+            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -893,38 +933,25 @@ pub fn init_configs(
             }
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let account_id = account_id
-                .and_then(|x| if x.is_empty() { None } else { Some(x) })
-                .unwrap_or("test.near")
-                .to_string();
+            let account_id = account_id.unwrap_or_else(|| "test.near".parse().unwrap());
 
             let signer = if let Some(test_seed) = test_seed {
-                InMemoryValidatorSigner::from_seed(&account_id, KeyType::ED25519, test_seed)
+                InMemoryValidatorSigner::from_seed(account_id.clone(), KeyType::ED25519, test_seed)
             } else {
                 InMemoryValidatorSigner::from_random(account_id.clone(), KeyType::ED25519)
             };
             signer.write_to_file(&dir.join(config.validator_key_file));
 
-            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
+            let network_signer =
+                InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
             let mut records = vec![];
             add_account_with_key(
                 &mut records,
-                &account_id,
+                account_id.clone(),
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
-                CryptoHash::default(),
-            );
-            #[cfg(feature = "protocol_feature_evm")]
-            // EVM account is created here only for new generated genesis
-            // For existing network, evm account has to be created with linkdrop
-            add_account_with_key(
-                &mut records,
-                "evm",
-                &signer.public_key(),
-                TESTING_INIT_BALANCE,
-                0,
                 CryptoHash::default(),
             );
             add_protocol_account(&mut records);
@@ -959,7 +986,7 @@ pub fn init_configs(
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
                 protocol_reward_rate: PROTOCOL_REWARD_RATE,
                 max_inflation_rate: MAX_INFLATION_RATE,
-                total_supply: 0,
+                total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
@@ -968,7 +995,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
 }
@@ -983,14 +1010,16 @@ pub fn create_testnet_configs_from_seeds(
     let num_validator_seats = (seeds.len() - num_non_validator_seats as usize) as NumSeats;
     let validator_signers = seeds
         .iter()
-        .map(|seed| InMemoryValidatorSigner::from_seed(seed, KeyType::ED25519, seed))
+        .map(|seed| {
+            InMemoryValidatorSigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed)
+        })
         .collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
-        .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
+        .map(|seed| InMemorySigner::from_seed("node".parse().unwrap(), KeyType::ED25519, seed))
         .collect::<Vec<_>>();
     let genesis = Genesis::test_sharded(
-        seeds.iter().map(|s| s.as_str()).collect(),
+        seeds.iter().map(|s| s.parse().unwrap()).collect(),
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),
     );
@@ -1083,7 +1112,7 @@ pub fn get_config_url(chain_id: &String) -> String {
     )
 }
 
-pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
+pub fn download_file(url: &String, path: &Path, limit: usize) {
     actix::System::new().block_on(async move {
         let client = awc::Client::new();
         let mut response = client.get(url).send().await.expect("Unable to download the file");
@@ -1100,16 +1129,48 @@ pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
     });
 }
 
-pub fn download_genesis(url: &String, path: &PathBuf) {
+pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
     download_file(&url, &path, 10_000_000_000);
-    info!(target: "near", "Saved the genesis file to: {} ...", path.as_path().display());
+    info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
-pub fn download_config(url: &String, path: &PathBuf) {
+pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
     download_file(&url, &path, 10_000);
-    info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
+    info!(target: "near", "Saved the config file to: {} ...", path.display());
+}
+
+#[derive(Deserialize)]
+struct NodeKeyFile {
+    account_id: String,
+    public_key: PublicKey,
+    secret_key: near_crypto::SecretKey,
+}
+
+impl NodeKeyFile {
+    fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    }
+}
+
+impl From<NodeKeyFile> for KeyFile {
+    fn from(this: NodeKeyFile) -> Self {
+        Self {
+            account_id: if this.account_id.is_empty() {
+                "node".to_string()
+            } else {
+                this.account_id
+            }
+            .try_into()
+            .unwrap(),
+            public_key: this.public_key,
+            secret_key: this.secret_key,
+        }
+    }
 }
 
 pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
@@ -1128,11 +1189,11 @@ pub fn load_config_without_genesis_records(dir: &Path) -> NearConfig {
     } else {
         None
     };
-    let network_signer = InMemorySigner::from_file(&dir.join(&config.node_key_file));
+    let network_signer = NodeKeyFile::from_file(&dir.join(&config.node_key_file));
     NearConfig::new(
         config,
         Genesis::new_with_path(genesis_config, genesis_records_file),
-        (&network_signer).into(),
+        network_signer.into(),
         validator_signer,
     )
 }
@@ -1160,13 +1221,17 @@ pub fn load_test_config(seed: &str, port: u16, genesis: Genesis) -> NearConfig {
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let (signer, validator_signer) = if seed.is_empty() {
-        let signer = Arc::new(InMemorySigner::from_random("".to_string(), KeyType::ED25519));
+        let signer =
+            Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));
         (signer, None)
     } else {
-        let signer = Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed));
-        let validator_signer =
-            Arc::new(InMemoryValidatorSigner::from_seed(seed, KeyType::ED25519, seed))
-                as Arc<dyn ValidatorSigner>;
+        let signer =
+            Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
+        let validator_signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            seed.parse().unwrap(),
+            KeyType::ED25519,
+            seed,
+        )) as Arc<dyn ValidatorSigner>;
         (signer, Some(validator_signer))
     };
     NearConfig::new(config, genesis, signer.into(), validator_signer)

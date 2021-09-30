@@ -11,19 +11,25 @@ use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
 use nearcore::get_default_home;
+use std::path::PathBuf;
+
+pub fn get_version() -> String {
+    match crate_version!() {
+        "0.0.0" => "trunk".to_string(),
+        _ => crate_version!().to_string(),
+    }
+}
 
 lazy_static! {
-    static ref NEARD_VERSION: Version = Version {
-        version: crate_version!().to_string(),
-        build: git_version!(fallback = "unknown").to_string(),
-    };
+    static ref NEARD_VERSION: Version =
+        Version { version: get_version(), build: git_version!(fallback = "unknown").to_string() };
     static ref NEARD_VERSION_STRING: String = {
         format!(
-            "{} (build {}) (protocol {}) (db {})",
+            "(release {}) (build {}) (protocol {}) (db {})",
             NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION, DB_VERSION
         )
     };
-    static ref DEFAULT_HOME: String = get_default_home();
+    static ref DEFAULT_HOME: PathBuf = get_default_home();
 }
 
 #[cfg(feature = "memory_stats")]

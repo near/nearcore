@@ -6,12 +6,13 @@ use bytesize::{GIB, MIB};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
 
-use crate::metrics;
-use crate::types::{PeerMessage, ReasonForBan};
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
+
+use crate::metrics;
+use crate::types::{PeerMessage, ReasonForBan};
 
 const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
 const MAX_CAPACITY: u64 = GIB;
@@ -172,13 +173,13 @@ mod test {
         version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
     };
 
-    use crate::routing::EdgeInfo;
     use crate::types::{
         Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
         PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
     };
 
     use super::*;
+    use crate::routing::EdgeInfo;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -228,7 +229,13 @@ mod test {
 
             SignedTransaction::new(
                 signature,
-                Transaction::new("x".to_string(), public_key, "y".to_string(), 7, tx_hash),
+                Transaction::new(
+                    "test_x".parse().unwrap(),
+                    public_key,
+                    "test_y".parse().unwrap(),
+                    7,
+                    tx_hash,
+                ),
             )
         };
 
@@ -358,7 +365,7 @@ mod test {
         let msg = PeerMessage::RoutingTableSync(SyncData {
             edges: Vec::new(),
             accounts: vec![AnnounceAccount {
-                account_id: "test1".to_string(),
+                account_id: "test1".parse().unwrap(),
                 peer_id: network_sk.public_key().into(),
                 epoch_id: EpochId::default(),
                 signature,
@@ -379,7 +386,7 @@ mod test {
             signature: signature.clone(),
             ttl: 100,
             body: RoutedMessageBody::BlockApproval(Approval {
-                account_id: "test2".to_string(),
+                account_id: "test2".parse().unwrap(),
                 inner: ApprovalInner::Endorsement(CryptoHash::default()),
                 target_height: 1,
                 signature,
@@ -390,9 +397,10 @@ mod test {
 
     #[test]
     fn test_account_id_bytes() {
-        let account_id = "near0".to_string();
-        let enc = account_id.as_bytes();
-        let dec_account_id = String::from_utf8_lossy(enc).to_string();
+        use near_primitives::types::AccountId;
+        let account_id = "near0".parse::<AccountId>().unwrap();
+        let enc = account_id.as_ref().as_bytes();
+        let dec_account_id = String::from_utf8_lossy(enc).parse().unwrap();
         assert_eq!(account_id, dec_account_id);
     }
 

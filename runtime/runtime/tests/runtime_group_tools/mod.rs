@@ -1,19 +1,21 @@
-use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
+use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_tries;
 use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -39,11 +41,16 @@ pub struct StandaloneRuntime {
 }
 
 impl StandaloneRuntime {
-    pub fn account_id(&self) -> String {
+    pub fn account_id(&self) -> AccountId {
         self.signer.account_id.clone()
     }
 
-    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], tries: ShardTries) -> Self {
+    pub fn new(
+        signer: InMemorySigner,
+        state_records: &[StateRecord],
+        tries: ShardTries,
+        validators: Vec<AccountInfo>,
+    ) -> Self {
         let mut runtime_config = random_config();
         // Bumping costs to avoid inflation overflows.
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
@@ -53,8 +60,14 @@ impl StandaloneRuntime {
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
         let runtime = Runtime::new();
-        let genesis =
-            Genesis::new(GenesisConfig::default(), GenesisRecords(state_records.to_vec()));
+        let genesis = Genesis::new(
+            GenesisConfig {
+                validators,
+                total_supply: get_initial_supply(state_records),
+                ..Default::default()
+            },
+            GenesisRecords(state_records.to_vec()),
+        );
 
         let mut account_ids: HashSet<AccountId> = HashSet::new();
         genesis.for_each_record(|record: &StateRecord| {
@@ -83,9 +96,6 @@ impl StandaloneRuntime {
             config: Arc::new(runtime_config),
             cache: None,
             is_new_chunk: true,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: near_chain_configs::TESTNET_EVM_CHAIN_ID,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
@@ -108,7 +118,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(0),
+                self.tries.get_trie_for_shard(ShardUId::default()),
                 self.root,
                 &None,
                 &self.apply_state,
@@ -119,7 +129,8 @@ impl StandaloneRuntime {
             )
             .unwrap();
 
-        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root) =
+            self.tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;
@@ -142,14 +153,15 @@ impl RuntimeMailbox {
 
 #[derive(Default)]
 pub struct RuntimeGroup {
-    pub mailboxes: (Mutex<HashMap<String, RuntimeMailbox>>, Condvar),
+    pub mailboxes: (Mutex<HashMap<AccountId, RuntimeMailbox>>, Condvar),
     pub state_records: Arc<Vec<StateRecord>>,
     pub signers: Vec<InMemorySigner>,
+    pub validators: Vec<AccountInfo>,
 
     /// Account id of the runtime on which the transaction was executed mapped to the transactions.
-    pub executed_transactions: Mutex<HashMap<String, Vec<SignedTransaction>>>,
+    pub executed_transactions: Mutex<HashMap<AccountId, Vec<SignedTransaction>>>,
     /// Account id of the runtime on which the receipt was executed mapped to the list of the receipts.
-    pub executed_receipts: Mutex<HashMap<String, Vec<Receipt>>>,
+    pub executed_receipts: Mutex<HashMap<AccountId, Vec<Receipt>>>,
     /// List of the transaction logs.
     pub transaction_logs: Mutex<Vec<ExecutionOutcomeWithId>>,
 }
@@ -162,19 +174,22 @@ impl RuntimeGroup {
     ) -> Arc<Self> {
         let mut res = Self::default();
         assert!(num_existing_accounts <= account_ids.len() as u64);
-        let (state_records, signers) =
+        let (state_records, signers, validators) =
             Self::state_records_signers(account_ids, num_existing_accounts, contract_code);
         Arc::make_mut(&mut res.state_records).extend(state_records);
 
         for signer in signers {
             res.signers.push(signer.clone());
-            res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
+            res.mailboxes.0.lock().unwrap().insert(signer.account_id, Default::default());
         }
+        res.validators = validators;
         Arc::new(res)
     }
 
     pub fn new(num_runtimes: u64, num_existing_accounts: u64, contract_code: &[u8]) -> Arc<Self> {
-        let account_ids = (0..num_runtimes).map(|i| format!("near_{}", i)).collect();
+        let account_ids = (0..num_runtimes)
+            .map(|i| AccountId::try_from(format!("near_{}", i)).unwrap())
+            .collect();
         Self::new_with_account_ids(account_ids, num_existing_accounts, contract_code)
     }
 
@@ -183,28 +198,38 @@ impl RuntimeGroup {
         account_ids: Vec<AccountId>,
         num_existing_accounts: u64,
         contract_code: &[u8],
-    ) -> (Vec<StateRecord>, Vec<InMemorySigner>) {
+    ) -> (Vec<StateRecord>, Vec<InMemorySigner>, Vec<AccountInfo>) {
         let code_hash = hash(contract_code);
         let mut state_records = vec![];
         let mut signers = vec![];
+        let mut validators = vec![];
         for (i, account_id) in account_ids.into_iter().enumerate() {
-            let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+            let signer = InMemorySigner::from_seed(
+                account_id.clone(),
+                KeyType::ED25519,
+                account_id.as_ref(),
+            );
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
-                    account_id: account_id.to_string(),
+                    account_id: account_id.clone(),
                     account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
                 });
                 state_records.push(StateRecord::AccessKey {
-                    account_id: account_id.to_string(),
+                    account_id: account_id.clone(),
                     public_key: signer.public_key.clone(),
                     access_key: AccessKey::full_access().into(),
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
+                validators.push(AccountInfo {
+                    account_id: signer.account_id.clone(),
+                    public_key: signer.public_key.clone(),
+                    amount: TESTING_INIT_STAKE,
+                });
             }
             signers.push(signer);
         }
-        (state_records, signers)
+        (state_records, signers, validators)
     }
 
     pub fn start_runtimes(
@@ -227,8 +252,9 @@ impl RuntimeGroup {
         for signer in &group.signers {
             let signer = signer.clone();
             let state_records = Arc::clone(&group.state_records);
+            let validators = group.validators.clone();
             let runtime_factory =
-                move || StandaloneRuntime::new(signer, &state_records, create_tries());
+                move || StandaloneRuntime::new(signer, &state_records, create_tries(), validators);
             handles.push(Self::start_runtime_in_thread(group.clone(), runtime_factory));
         }
         handles
@@ -307,7 +333,7 @@ impl RuntimeGroup {
             .expect("The execution log of the given receipt is missing")
     }
 
-    pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (String, Receipt) {
+    pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (AccountId, Receipt) {
         for (executed_runtime, tls) in self.executed_receipts.lock().unwrap().iter() {
             if let Some(res) =
                 tls.iter().find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
@@ -363,8 +389,8 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id, $from.to_string());
-        assert_eq!(r.receiver_id, $to.to_string());
+        assert_eq!(r.predecessor_id.as_ref(), $from);
+        assert_eq!(r.receiver_id.as_ref(), $to);
         match &r.receipt {
             $receipt_pat => {
                 $receipt_assert

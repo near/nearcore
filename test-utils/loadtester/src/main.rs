@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate clap;
 
+use std::convert::TryFrom;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use log::info;
 
 use git_version::git_version;
 use near_crypto::Signer;
-use near_primitives::types::{NumSeats, NumShards};
+use near_primitives::types::{AccountId, NumSeats, NumShards};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::Version;
 use near_store::{create_store, ColState};
@@ -109,7 +110,7 @@ fn main() {
             Arg::with_name("home")
             .long("home")
             .takes_value(true)
-            .default_value(&default_home)
+            .default_value_os(default_home.as_os_str())
         )
         .arg(
             Arg::with_name("state_dump")
@@ -140,7 +141,7 @@ fn main() {
                 Arg::with_name("home")
                     .long("home")
                     .takes_value(true)
-                    .default_value(&default_home))
+                    .default_value_os(default_home.as_os_str()))
             .arg(
                 Arg::with_name("shards")
                     .long("shards")
@@ -188,7 +189,7 @@ fn create_genesis(matches: &clap::ArgMatches<'_>) {
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].consensus.min_num_peers = if v == 1 { 0 } else { 1 };
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
-        info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
+        info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 
@@ -227,9 +228,9 @@ fn run(matches: &clap::ArgMatches<'_>) {
     }
 
     let accounts: Vec<_> = if massive_accounts {
-        (0..n).map(|i| format!("near_{}_{}", i, i)).collect()
+        (0..n).map(|i| AccountId::try_from(format!("near_{}_{}", i, i)).unwrap()).collect()
     } else {
-        (0..n).map(|i| format!("{}.{}", &prefix, i)).collect()
+        (0..n).map(|i| AccountId::try_from(format!("{}.{}", &prefix, i)).unwrap()).collect()
     };
 
     let num_nodes = peer_addrs.len() + 1;

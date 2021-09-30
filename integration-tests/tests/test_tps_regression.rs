@@ -10,10 +10,10 @@ mod test {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
+    use integration_tests::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
+    use integration_tests::test_helpers::heavy_test;
     use near_primitives::transaction::SignedTransaction;
     use std::time::{Duration, Instant};
-    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
-    use testlib::test_helpers::heavy_test;
 
     /// Creates and sends a random transaction.
     /// Args:
@@ -64,7 +64,7 @@ mod test {
         let nodes = create_nodes(num_nodes, test_prefix);
 
         let nodes: Vec<Arc<RwLock<dyn Node>>> =
-            nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+            nodes.into_iter().map(|cfg| <dyn Node>::new_sharable(cfg)).collect();
         for i in 0..num_nodes {
             nodes[i].write().unwrap().start();
         }

@@ -1,10 +1,12 @@
 use super::{DEFAULT_HOME, NEARD_VERSION, NEARD_VERSION_STRING, PROTOCOL_VERSION};
 use clap::{AppSettings, Clap};
+use futures::future::FutureExt;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tracing::debug;
 #[cfg(feature = "adversarial")]
 use tracing::error;
 use tracing::info;
@@ -48,7 +50,7 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path);
+                info!(target: "neard", "Removing all data from {}", store_path.display());
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
@@ -65,7 +67,7 @@ struct NeardOpts {
     #[clap(long)]
     verbose: Option<String>,
     /// Directory for config and data (default "~/.near").
-    #[clap(long, parse(from_os_str), default_value = &DEFAULT_HOME)]
+    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 }
 
@@ -152,7 +154,7 @@ impl InitCmd {
         nearcore::init_configs(
             home_dir,
             self.chain_id.as_deref(),
-            self.account_id.as_deref(),
+            self.account_id.and_then(|account_id| account_id.parse().ok()),
             self.test_seed.as_deref(),
             self.num_shards,
             self.fast,
@@ -189,6 +191,12 @@ pub(super) struct RunCmd {
     #[cfg(feature = "json_rpc")]
     #[clap(long)]
     rpc_addr: Option<String>,
+    /// Export prometheus metrics on an additional listening address, which is useful
+    /// for having separate access restrictions for the RPC and prometheus endpoints.
+    /// Ignored if RPC http server is disabled, see 'rpc_addr'.
+    #[cfg(feature = "json_rpc")]
+    #[clap(long)]
+    rpc_prometheus_addr: Option<String>,
     /// Disable the RPC endpoint.  This is a no-op on builds which don’t support
     /// RPC endpoint.
     #[clap(long)]
@@ -208,7 +216,6 @@ impl RunCmd {
     pub(super) fn run(self, home_dir: &Path) {
         // Load configs from home.
         let mut near_config = nearcore::config::load_config_without_genesis_records(home_dir);
-        nearcore::genesis_validate::validate_genesis(&near_config.genesis);
         // Set current version in client config.
         near_config.client_config.version = super::NEARD_VERSION.clone();
         // Override some parameters from command line.
@@ -232,8 +239,14 @@ impl RunCmd {
         #[cfg(feature = "json_rpc")]
         if self.disable_rpc {
             near_config.rpc_config = None;
-        } else if let Some(rpc_addr) = self.rpc_addr {
-            near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+        } else {
+            if let Some(rpc_addr) = self.rpc_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).addr = rpc_addr;
+            }
+            if let Some(rpc_prometheus_addr) = self.rpc_prometheus_addr {
+                near_config.rpc_config.get_or_insert(Default::default()).prometheus_addr =
+                    Some(rpc_prometheus_addr);
+            }
         }
         if let Some(telemetry_url) = self.telemetry_url {
             if !telemetry_url.is_empty() {
@@ -262,9 +275,27 @@ impl RunCmd {
 
         let sys = actix::System::new();
         sys.block_on(async move {
-            nearcore::start_with_config(home_dir, near_config);
-            tokio::signal::ctrl_c().await.unwrap();
-            info!("Got Ctrl+C, stopping");
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config(home_dir, near_config);
+
+            let sig = if cfg!(unix) {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigint = signal(SignalKind::interrupt()).unwrap();
+                let mut sigterm = signal(SignalKind::terminate()).unwrap();
+                futures::select! {
+                    _ = sigint .recv().fuse() => "SIGINT",
+                    _ = sigterm.recv().fuse() => "SIGTERM"
+                }
+            } else {
+                tokio::signal::ctrl_c().await.unwrap();
+                "Ctrl+C"
+            };
+            info!(target: "neard", "Got {}, stopping...", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
             actix::System::current().stop();
         });
         sys.run().unwrap();
@@ -280,7 +311,7 @@ pub(super) struct TestnetCmd {
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the testnet with.
-    #[clap(long, default_value = "4")]
+    #[clap(long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the testnet with.
     #[clap(long = "v", default_value = "4")]

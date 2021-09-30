@@ -40,12 +40,12 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
 
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
-pub use crate::types::Error;
+pub use near_chunks_primitives::Error;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use rand::Rng;
 
 mod chunk_cache;
 pub mod test_utils;
-mod types;
 
 const CHUNK_PRODUCER_BLACKLIST_SIZE: usize = 100;
 pub const CHUNK_REQUEST_RETRY_MS: u64 = 100;
@@ -584,7 +584,8 @@ impl ShardsManager {
     }
 
     fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
-        (0..self.runtime_adapter.num_shards())
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        (0..self.runtime_adapter.num_shards(&epoch_id).unwrap())
             .filter(|chunk_shard_id| {
                 self.cares_about_shard_this_or_next_epoch(
                     self.me.as_ref(),
@@ -796,10 +797,11 @@ impl ShardsManager {
     pub fn group_receipts_by_shard(
         &self,
         receipts: Vec<Receipt>,
+        shard_layout: &ShardLayout,
     ) -> HashMap<ShardId, Vec<Receipt>> {
-        let mut result = HashMap::with_capacity(self.runtime_adapter.num_shards() as usize);
+        let mut result = HashMap::with_capacity(shard_layout.num_shards() as usize);
         for receipt in receipts {
-            let shard_id = self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id);
+            let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
             entry.push(receipt)
         }
@@ -1398,7 +1400,8 @@ impl ShardsManager {
         prev_block_hash: &CryptoHash,
         chunk_entry: &EncodedChunksCacheEntry,
     ) -> Result<bool, Error> {
-        for shard_id in 0..self.runtime_adapter.num_shards() {
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
+        for shard_id in 0..self.runtime_adapter.num_shards(&epoch_id)? {
             let shard_id = shard_id as ShardId;
             if !chunk_entry.receipts.contains_key(&shard_id) {
                 if self.need_receipt(&prev_block_hash, shard_id) {
@@ -1531,7 +1534,7 @@ impl ShardsManager {
             .decode_chunk(self.runtime_adapter.num_data_parts())
             .map_err(|err| Error::from(err))
             .and_then(|shard_chunk| {
-                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter) {
+                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter)? {
                     return Err(Error::InvalidChunk);
                 }
                 Ok(shard_chunk)
@@ -1544,7 +1547,7 @@ impl ShardsManager {
                 merkle_paths,
                 shard_chunk.receipts().clone(),
                 &mut store_update,
-            );
+            )?;
 
             // Decoded a valid chunk, store it in the permanent store
             store_update.save_chunk(shard_chunk);
@@ -1570,17 +1573,19 @@ impl ShardsManager {
         merkle_paths: Vec<MerklePath>,
         outgoing_receipts: Vec<Receipt>,
         store_update: &mut ChainStoreUpdate<'_>,
-    ) {
+    ) -> Result<(), Error> {
         let header = encoded_chunk.cloned_header();
         let shard_id = header.shard_id();
+        let shard_layout =
+            self.runtime_adapter.get_shard_layout_from_prev_block(&header.prev_block_hash())?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
 
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
-        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
+        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipts = outgoing_receipts_proofs
             .into_iter()
             .enumerate()
@@ -1614,6 +1619,8 @@ impl ShardsManager {
 
         // Save this chunk into encoded_chunks.
         self.encoded_chunks.insert(cache_entry.header.chunk_hash(), cache_entry);
+
+        Ok(())
     }
 
     pub fn distribute_encoded_chunk(
@@ -1627,8 +1634,10 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
+        let shard_layout =
+            self.runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &shard_layout);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(chunk_header.outgoing_receipts_root(), outgoing_receipts_root);
@@ -1643,7 +1652,7 @@ impl ShardsManager {
             entry.push(part_ord);
         }
 
-        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts);
+        let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipt_proofs: Vec<_> = outgoing_receipts_proofs
             .into_iter()
             .enumerate()
@@ -1725,8 +1734,11 @@ mod test {
     fn test_request_partial_encoded_chunk_from_self() {
         let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
         let network_adapter = Arc::new(MockNetworkAdapter::default());
-        let mut shards_manager =
-            ShardsManager::new(Some("test".to_string()), runtime_adapter, network_adapter.clone());
+        let mut shards_manager = ShardsManager::new(
+            Some("test".parse().unwrap()),
+            runtime_adapter,
+            network_adapter.clone(),
+        );
         shards_manager.requested_partial_encoded_chunks.insert(
             ChunkHash(hash(&[1])),
             ChunkRequestInfo {
@@ -1765,10 +1777,10 @@ mod test {
         let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
             create_test_store(),
             vec![vec![
-                "test".to_string(),
-                "test1".to_string(),
-                "test2".to_string(),
-                "test3".to_string(),
+                "test".parse().unwrap(),
+                "test1".parse().unwrap(),
+                "test2".parse().unwrap(),
+                "test3".parse().unwrap(),
             ]],
             1,
             1,
@@ -1777,12 +1789,14 @@ mod test {
         let network_adapter = Arc::new(MockNetworkAdapter::default());
         let mut chain_store = ChainStore::new(create_test_store(), 0);
         let mut shards_manager = ShardsManager::new(
-            Some("test".to_string()),
+            Some("test".parse().unwrap()),
             runtime_adapter.clone(),
             network_adapter.clone(),
         );
-        let signer = InMemoryValidatorSigner::from_seed("test", KeyType::ED25519, "test");
+        let signer =
+            InMemoryValidatorSigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
         let mut rs = ReedSolomonWrapper::new(4, 10);
+        let shard_layout = runtime_adapter.get_shard_layout(&EpochId::default()).unwrap();
         let (encoded_chunk, proof) = shards_manager
             .create_encoded_shard_chunk(
                 CryptoHash::default(),
@@ -1796,7 +1810,7 @@ mod test {
                 vec![],
                 vec![],
                 &vec![],
-                merklize(&runtime_adapter.build_receipts_hashes(&vec![])).0,
+                merklize(&runtime_adapter.build_receipts_hashes(&vec![], &shard_layout)).0,
                 CryptoHash::default(),
                 &signer,
                 &mut rs,

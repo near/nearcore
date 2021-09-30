@@ -3,9 +3,7 @@ use crate::memory::WasmerMemory;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_primitives::{
-    config::VMConfig, profile::ProfileData, types::CompiledContractCache, version::ProtocolVersion,
-};
+use near_primitives::{config::VMConfig, types::CompiledContractCache, version::ProtocolVersion};
 use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError, WasmTrap};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
@@ -14,7 +12,7 @@ use wasmer_runtime::{ImportObject, Module};
 fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     let info = module.info();
     use wasmer_runtime_core::module::ExportIndex::Func;
-    if let Some(Func(index)) = info.exports.get(method_name) {
+    if let Some(Func(index)) = info.exports.map.get(method_name) {
         let func = info.func_assoc.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
         if sig.params().is_empty() && sig.returns().is_empty() {
@@ -105,27 +103,30 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // Also can be thrown on unreachable instruction, which is quite unfortunate.
                 //
                 // See https://github.com/near/wasmer/blob/0.17.2/lib/runtime-core/src/fault.rs#L285
-                InvokeError::FailedWithNoError => VMError::FunctionCallError(
-                    // XXX: Initially, we treated this error case as
-                    // deterministic (so, we stored this error in our state,
-                    // etc.)
-                    //
-                    // Then, in
-                    // https://github.com/near/nearcore/pull/4181#discussion_r606267838
-                    // we reasoned that this error actually happens
-                    // non-deterministically, so it's better to panic in this
-                    // case.
-                    //
-                    // However, when rolling this out, we noticed that this
-                    // error happens deterministically for at least one
-                    // contract. So here we roll this back to a previous
-                    // behavior and emit some deterministic error, which won't
-                    // cause the node to panic.
-                    //
-                    // So far, we are unable to reproduce this deterministic
-                    // failure though.
-                    FunctionCallError::WasmTrap(WasmTrap::Unreachable),
-                ),
+                InvokeError::FailedWithNoError => {
+                    tracing::error!(target: "vm", "Got FailedWithNoError from wasmer0");
+                    VMError::FunctionCallError(
+                        // XXX: Initially, we treated this error case as
+                        // deterministic (so, we stored this error in our state,
+                        // etc.)
+                        //
+                        // Then, in
+                        // https://github.com/near/nearcore/pull/4181#discussion_r606267838
+                        // we reasoned that this error actually happens
+                        // non-deterministically, so it's better to panic in this
+                        // case.
+                        //
+                        // However, when rolling this out, we noticed that this
+                        // error happens deterministically for at least one
+                        // contract. So here we roll this back to a previous
+                        // behavior and emit some deterministic error, which won't
+                        // cause the node to panic.
+                        //
+                        // So far, we are unable to reproduce this deterministic
+                        // failure though.
+                        FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+                    )
+                }
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
                 InvokeError::UnknownTrap { address, signal } => {
@@ -218,7 +219,6 @@ pub fn run_wasmer<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
     cache: Option<&'a dyn CompiledContractCache>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
@@ -264,12 +264,11 @@ pub fn run_wasmer<'a>(
         fees_config,
         promise_results,
         &mut memory,
-        profile,
         current_protocol_version,
     );
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
-    if logic.add_contract_compile_fee(code.code.len() as u64).is_err() {
+    if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
         return (
             Some(logic.outcome()),
             Some(VMError::FunctionCallError(FunctionCallError::HostError(
@@ -318,7 +317,6 @@ pub(crate) fn run_wasmer0_module<'a>(
     wasm_config: &'a VMConfig,
     fees_config: &'a RuntimeFeesConfig,
     promise_results: &'a [PromiseResult],
-    profile: ProfileData,
     current_protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     if method_name.is_empty() {
@@ -339,7 +337,6 @@ pub(crate) fn run_wasmer0_module<'a>(
         fees_config,
         promise_results,
         memory,
-        profile,
         current_protocol_version,
     );
 

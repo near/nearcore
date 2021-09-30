@@ -1,3 +1,5 @@
+#[cfg(feature = "adversarial")]
+use actix::Actor;
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde_json::json;
@@ -6,10 +8,11 @@ use near_chain_configs::GenesisConfig;
 use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
+use near_jsonrpc_primitives::message::{from_slice, Message};
+#[cfg(feature = "adversarial")]
+use near_network::test_utils::make_peer_manager;
 use near_network::test_utils::open_port;
 use near_primitives::types::NumBlocks;
-
-use near_jsonrpc_primitives::message::{from_slice, Message};
 
 lazy_static::lazy_static! {
     pub static ref TEST_GENESIS_CONFIG: GenesisConfig =
@@ -31,8 +34,12 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, String) {
     let (client_addr, view_client_addr) = setup_no_network_with_validity_period_and_no_epoch_sync(
-        vec!["test1", "test2"],
-        if let NodeType::Validator = node_type { "test1" } else { "other" },
+        vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+        if let NodeType::Validator = node_type {
+            "test1".parse().unwrap()
+        } else {
+            "other".parse().unwrap()
+        },
         true,
         transaction_validity_period,
         enable_doomslug,
@@ -40,11 +47,17 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
 
     let addr = format!("127.0.0.1:{}", open_port());
 
+    #[cfg(feature = "adversarial")]
+    let peer_manager_addr =
+        make_peer_manager("test2", open_port(), vec![("test1", open_port())], 10).0.start();
+
     start_http(
         RpcConfig::new(&addr),
         TEST_GENESIS_CONFIG.clone(),
         client_addr.clone(),
         view_client_addr.clone(),
+        #[cfg(feature = "adversarial")]
+        peer_manager_addr,
     );
     (view_client_addr, addr)
 }
@@ -54,7 +67,7 @@ macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();
 
-        near_actix_test_utils::run_actix_until_stop(async {
+        near_actix_test_utils::run_actix(async {
             let (_view_client_addr, addr) = test_utils::start_all($node_type);
 
             let $client = new_client(&format!("http://{}", addr));

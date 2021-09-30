@@ -157,6 +157,8 @@ impl InfoHelper {
         set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
         set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
         set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
+        let teragas = 1_000_000_000_000u64;
+        set_gauge(&metrics::AVG_TGAS_USAGE, (avg_gas_used as f64 / teragas as f64).round() as i64);
 
         self.started = Instant::now();
         self.num_blocks_processed = 0;
@@ -176,11 +178,7 @@ impl InfoHelper {
             },
             chain: TelemetryChainInfo {
                 node_id: node_id.to_string(),
-                account_id: self
-                    .validator_signer
-                    .clone()
-                    .map(|bp| bp.validator_id().clone())
-                    .unwrap_or_else(String::new),
+                account_id: self.validator_signer.as_ref().map(|bp| bp.validator_id().clone()),
                 is_validator,
                 status: sync_status.as_variant_name().to_string(),
                 latest_block_hash: to_base(&head.last_block_hash),
@@ -249,8 +247,11 @@ fn display_sync_status(
                         match shard_status.status {
                             ShardSyncStatus::StateDownloadHeader => format!("header"),
                             ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadFinalize => format!("finalization"),
-                            ShardSyncStatus::StateDownloadComplete => format!("done"),
+                            ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
+                            ShardSyncStatus::StateDownloadApplying => format!("applying"),
+                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
+                            ShardSyncStatus::StateSplit => format!("split"),
+                            ShardSyncStatus::StateSyncDone => format!("done"),
                         }
                     )
                     .as_str();

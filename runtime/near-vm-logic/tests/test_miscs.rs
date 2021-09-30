@@ -1,7 +1,11 @@
 use fixtures::get_context;
 use helpers::*;
+use hex::FromHex;
 use near_vm_errors::HostError;
 use near_vm_logic::ExtCosts;
+use serde::{de::Error, Deserialize, Deserializer};
+use serde_json::from_slice;
+use std::{fmt::Display, fs};
 use vm_logic_builder::VMLogicBuilder;
 
 mod fixtures;
@@ -559,51 +563,64 @@ fn test_ripemd160() {
     });
 }
 
+#[derive(Deserialize)]
+struct EcrecoverTest {
+    #[serde(with = "hex::serde")]
+    m: [u8; 32],
+    v: u8,
+    #[serde(with = "hex::serde")]
+    sig: [u8; 64],
+    mc: bool,
+    #[serde(deserialize_with = "deserialize_option_hex")]
+    res: Option<[u8; 64]>,
+}
+
+fn deserialize_option_hex<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromHex,
+    <T as FromHex>::Error: Display,
+{
+    Deserialize::deserialize(deserializer)
+        .map(|v: Option<&str>| v.map(FromHex::from_hex).transpose().map_err(Error::custom))
+        .and_then(|v| v)
+}
+
 #[test]
 fn test_ecrecover() {
-    let mut logic_builder = VMLogicBuilder::default();
-    let mut logic = logic_builder.build(get_context(vec![], false));
+    for EcrecoverTest { m, v, sig, mc, res } in
+        from_slice::<'_, Vec<_>>(fs::read("tests/ecrecover-tests.json").unwrap().as_slice())
+            .unwrap()
+    {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build(get_context(vec![], false));
 
-    // See: https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/test/cryptography/ECDSA.test.js
-    let hash: [u8; 32] = [
-        0x7d, 0xba, 0xf5, 0x58, 0xb0, 0xa1, 0xa5, 0xdc, 0x7a, 0x67, 0x20, 0x21, 0x17, 0xab, 0x14,
-        0x3c, 0x1d, 0x86, 0x05, 0xa9, 0x83, 0xe4, 0xa7, 0x43, 0xbc, 0x06, 0xfc, 0xc0, 0x31, 0x62,
-        0xdc, 0x0d,
-    ];
-    let signature: [u8; 64] = [
-        0x5d, 0x99, 0xb6, 0xf7, 0xf6, 0xd1, 0xf7, 0x3d, 0x1a, 0x26, 0x49, 0x7f, 0x2b, 0x1c, 0x89,
-        0xb2, 0x4c, 0x09, 0x93, 0x91, 0x3f, 0x86, 0xe9, 0xa2, 0xd0, 0x2c, 0xd6, 0x98, 0x87, 0xd9,
-        0xc9, 0x4f, 0x3c, 0x88, 0x03, 0x58, 0x57, 0x9d, 0x81, 0x1b, 0x21, 0xdd, 0x1b, 0x7f, 0xd9,
-        0xbb, 0x01, 0xc1, 0xd8, 0x1d, 0x10, 0xe6, 0x9f, 0x03, 0x84, 0xe6, 0x75, 0xc3, 0x2b, 0x39,
-        0x64, 0x3b, 0xe8, 0x92,
-    ];
-    let signer: [u8; 64] = [
-        0xb3, 0x68, 0x70, 0xea, 0xab, 0x31, 0xcb, 0xeb, 0x1a, 0x5c, 0x07, 0x46, 0x7b, 0x42, 0x97,
-        0x40, 0x7c, 0x62, 0x11, 0x7a, 0x31, 0x15, 0x47, 0xc4, 0x30, 0x5e, 0x14, 0x71, 0x52, 0x1b,
-        0x53, 0x01, 0xc2, 0x59, 0x9d, 0x4e, 0xad, 0xdf, 0xd3, 0x84, 0x9d, 0xf9, 0xd5, 0x99, 0x38,
-        0xfd, 0x8f, 0x16, 0x56, 0x47, 0x77, 0x32, 0x66, 0x80, 0x66, 0xff, 0xa1, 0x2e, 0xb3, 0x47,
-        0xea, 0xb4, 0x7b, 0x9c,
-    ];
+        let b = logic
+            .ecrecover(32, m.as_ptr() as _, 64, sig.as_ptr() as _, v as _, mc as _, 1)
+            .unwrap();
+        assert_eq!(b, res.is_some() as u64);
 
-    let b = logic.ecrecover(32, hash.as_ptr() as _, 64, signature.as_ptr() as _, 0, 0, 1).unwrap();
-    assert_ne!(b, 0);
+        if let Some(res) = res {
+            assert_costs(map! {
+                ExtCosts::read_memory_base: 2,
+                ExtCosts::read_memory_byte: 96,
+                ExtCosts::write_register_base: 1,
+                ExtCosts::write_register_byte: 64,
+                ExtCosts::ecrecover_base: 1,
+            });
+            let result = [0u8; 64];
+            logic.read_register(1, result.as_ptr() as _).unwrap();
+            assert_eq!(res, result);
+        } else {
+            assert_costs(map! {
+                ExtCosts::read_memory_base: 2,
+                ExtCosts::read_memory_byte: 96,
+                ExtCosts::ecrecover_base: 1,
+            });
+        }
 
-    let result = &vec![0u8; 64];
-    logic.read_register(1, result.as_ptr() as _).expect("OK");
-
-    assert_eq!(result.to_vec(), signer);
-    assert_costs(map! {
-        ExtCosts::base: 1,
-        ExtCosts::read_memory_base: 2,
-        ExtCosts::read_memory_byte: 96,
-        ExtCosts::write_memory_base: 1,
-        ExtCosts::write_memory_byte: 64,
-        ExtCosts::read_register_base: 1,
-        ExtCosts::read_register_byte: 64,
-        ExtCosts::write_register_base: 1,
-        ExtCosts::write_register_byte: 64,
-        ExtCosts::ecrecover_base: 1,
-    });
+        reset_costs_counter();
+    }
 }
 
 #[test]

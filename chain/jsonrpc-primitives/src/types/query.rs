@@ -12,7 +12,7 @@ pub struct RpcQueryRequest {
     pub request: near_primitives::views::QueryRequest,
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
@@ -105,8 +105,11 @@ impl RpcQueryRequest {
             let make_err =
                 || crate::errors::RpcParseError("Not enough query parameters provided".to_string());
             let query_command = path_parts.next().ok_or_else(make_err)?;
-            let account_id =
-                near_primitives::types::AccountId::from(path_parts.next().ok_or_else(make_err)?);
+            let account_id = path_parts
+                .next()
+                .ok_or_else(make_err)?
+                .parse()
+                .map_err(|err| crate::errors::RpcParseError(format!("{}", err)))?;
             let maybe_extra_arg = path_parts.next();
 
             let request = match query_command {

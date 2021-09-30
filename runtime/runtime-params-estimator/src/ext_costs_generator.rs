@@ -11,27 +11,35 @@ pub struct ExtCostsGenerator {
 
 impl ExtCostsGenerator {
     pub fn new(measurement: &Measurements) -> Self {
-        let aggregated = measurement.aggregate();
-        Self { agg: aggregated, result: Default::default() }
+        let agg = measurement.aggregate();
+        Self { agg, result: Default::default() }
     }
 
-    fn extract_value(&mut self, metric: Metric, ext_cost: ExtCosts) -> Ratio<u64> {
-        let Self { agg, result: _ } = self;
-        let base = &agg[&Metric::noop];
-        let agg = &agg[&metric];
+    fn extract_value(&mut self, metric: Metric, ext_cost: ExtCosts) -> Option<Ratio<u64>> {
+        let base = self.agg.get(&Metric::noop)?;
+        let agg = self.agg.get(&metric)?;
         let multiplier = agg.ext_costs[&ext_cost];
-        Ratio::new(agg.upper_with_base(base), multiplier)
+        Some(Ratio::new(agg.upper_with_base(base), multiplier))
     }
 
     fn extract(&mut self, metric: Metric, ext_cost: ExtCosts) {
-        let value = self.extract_value(metric, ext_cost);
-        self.result.insert(ext_cost, value);
+        if let Some(value) = self.extract_value(metric, ext_cost) {
+            self.result.insert(ext_cost, value);
+        }
     }
 
-    pub fn compute(&mut self) -> BTreeMap<ExtCosts, Ratio<u64>> {
-        self.result.clear();
+    fn extract_max(&mut self, metric1: Metric, metric2: Metric, ext_cost: ExtCosts) {
+        if let Some(value1) = self.extract_value(metric1, ext_cost) {
+            if let Some(value2) = self.extract_value(metric2, ext_cost) {
+                self.result.insert(ext_cost, value1.max(value2));
+            }
+        }
+    }
+
+    pub fn compute(mut self) -> BTreeMap<ExtCosts, Ratio<u64>> {
         use ExtCosts::*;
         use Metric::*;
+
         self.extract(base_1M, base);
         self.extract(read_memory_10b_10k, read_memory_base);
         self.extract(read_memory_1Mib_10k, read_memory_byte);
@@ -46,15 +54,14 @@ impl ExtCostsGenerator {
         self.extract(utf16_log_10kib_10k, log_byte);
 
         self.extract(utf8_log_10b_10k, utf8_decoding_base);
+
         // Charge the maximum between non-nul-terminated and nul-terminated costs.
-        let utf8_byte = self.extract_value(utf8_log_10kib_10k, utf8_decoding_byte);
-        let nul_utf8_byte = self.extract_value(nul_utf8_log_10kib_10k, utf8_decoding_byte);
-        self.result.insert(utf8_decoding_byte, utf8_byte.max(nul_utf8_byte));
+        self.extract_max(utf8_log_10kib_10k, nul_utf8_log_10kib_10k, utf8_decoding_byte);
+
         self.extract(utf16_log_10b_10k, utf16_decoding_base);
+
         // Charge the maximum between non-nul-terminated and nul-terminated costs.
-        let utf16_byte = self.extract_value(utf16_log_10kib_10k, utf16_decoding_byte);
-        let nul_utf16_byte = self.extract_value(nul_utf16_log_10kib_10k, utf16_decoding_byte);
-        self.result.insert(utf16_decoding_byte, utf16_byte.max(nul_utf16_byte));
+        self.extract_max(utf16_log_10kib_10k, nul_utf16_log_10kib_10k, utf16_decoding_byte);
 
         self.extract(sha256_10b_10k, sha256_base);
         self.extract(sha256_10kib_10k, sha256_byte);
@@ -100,7 +107,8 @@ impl ExtCostsGenerator {
         self.extract(promise_and_100k, promise_and_base);
         self.extract(promise_and_100k_on_1k_and, promise_and_per_promise);
         self.extract(promise_return_100k, promise_return);
-        self.result.clone()
+
+        self.result
     }
 }
 impl std::fmt::Display for ExtCostsGenerator {

@@ -3,7 +3,7 @@ name = "near-vm-errors"
 version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
@@ -16,8 +16,9 @@ Error that can occur inside Near Runtime encapsulated in a separate crate. Might
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 
-borsh = "0.8.1"
+borsh = "0.9"
 
+near-account-id = { path = "../../core/account-id" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0" }
 
 [features]

@@ -20,7 +20,9 @@ from multiprocessing import Value
 TIMEOUT = 30
 success = Value('i', 0)
 
+
 class Handler(ProxyHandler):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.peers_response = 0

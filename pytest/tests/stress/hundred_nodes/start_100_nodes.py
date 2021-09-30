@@ -3,8 +3,11 @@ import json
 import datetime
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import pathlib
 import time
+import tempfile
 from tqdm import tqdm
+import shutil
 import sys
 
 sys.path.append('lib')
@@ -52,17 +55,8 @@ client_config_changes = {
 
 # default is 50; 7,7,6,6,6,6,6,6
 genesis_config_changes = [
-  ["num_block_producer_seats", 100],
-  ["num_block_producer_seats_per_shard", [
-    13,
-    13,
-    13,
-    13,
-    12,
-    12,
-    12,
-    12
-  ]],
+    ["num_block_producer_seats", 100],
+    ["num_block_producer_seats_per_shard", [13, 13, 13, 13, 12, 12, 12, 12]],
 ]
 
 num_machines = 100
@@ -138,11 +132,13 @@ zones = [
     'us-west2-c',
 ]
 # Unless you want to shutdown gcloud instance and restart, keep this `False'
-reserve_ip=False
+reserve_ip = False
 
 pbar = tqdm(total=num_machines, desc=' create machines')
+
+
 def create_machine(i):
-    m = gcloud.create(name=machine_name_prefix+str(i),
+    m = gcloud.create(name=machine_name_prefix + str(i),
                       machine_type='n1-standard-2',
                       disk_size='200G',
                       image_project='near-core',
@@ -153,17 +149,28 @@ def create_machine(i):
     pbar.update(1)
     return m
 
+
 machines = pmap(create_machine, range(num_machines))
 pbar.close()
 # machines = pmap(lambda name: gcloud.get(name), [
 #                 f'{machine_name_prefix}{i}' for i in range(num_machines)])
 
+tempdir = pathlib.Path(tempfile.gettempdir()) / 'near'
+
+
+def get_node_dir(i):
+    node_dir = tempdir / f'node{i}'
+    node_dir.mkdir(parents=True, exist_ok=True)
+    return node_dir
+
+
 for i in range(num_machines):
-    p = run('bash', input=f'''
-mkdir -p /tmp/near/node{i}
+    node_dir = get_node_dir(i)
+    p = run('bash',
+            input=f'''
 # deactivate virtualenv doesn't work in non interactive shell, explicitly run with python2
 cd ..
-python2 scripts/start_stakewars.py --local --home /tmp/near/node{i} --init --signer-keys --account-id=node{i}
+python2 scripts/start_stakewars.py --local --home {node_dir} --init --signer-keys --account-id=node{i}
 ''')
     assert p.returncode == 0
 
@@ -175,28 +182,28 @@ def pk_from_file(path):
 
 
 def get_validator_key(i):
-    return pk_from_file(f'/tmp/near/node{i}/validator_key.json')
+    return pk_from_file(get_node_dir(i) / 'validator_key.json')
 
 
 def get_full_pks(i):
     pks = []
     for j in range(3):
-        pks.append(pk_from_file(f'/tmp/near/node{i}/signer{j}_key.json'))
+        pks.append(pk_from_file(get_node_dir(i) / f'signer{j}_key.json'))
     return ','.join(pks)
 
 
 def get_pubkey(i):
-    return pk_from_file(f'/tmp/near/node{i}/node_key.json')
+    return pk_from_file(get_node_dir(i) / 'node_key.json')
 
 
-with open('/tmp/near/accounts.csv', 'w', newline='') as f:
+with open(tempdir / 'accounts.csv', 'w', newline='') as f:
     fieldnames = 'genesis_time,account_id,regular_pks,privileged_pks,foundation_pks,full_pks,amount,is_treasury,validator_stake,validator_key,peer_info,smart_contract,lockup,vesting_start,vesting_end,vesting_cliff'.split(
         ',')
 
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
-    amount = 1000 * 10 ** 24
-    staked_amount = 10 * 10 ** 24
+    amount = 1000 * 10**24
+    staked_amount = 10 * 10**24
 
     for i in range(num_machines):
         writer.writerow({
@@ -212,15 +219,19 @@ with open('/tmp/near/accounts.csv', 'w', newline='') as f:
 
 # Generate config and genesis locally, apply changes to config/genesis locally
 for i in range(num_machines):
-    p=run('bash', input=f'''
-cp /tmp/near/accounts.csv /tmp/near/node{i}
+    node_dir = get_node_dir(i)
+    shutil.copy(tempdir / 'accounts.csv', node_dir / 'accounts.csv')
+    p = run('bash',
+            input=f'''
 cd ..
-target/release/genesis-csv-to-json --home /tmp/near/node{i} --chain-id pytest
+target/release/genesis-csv-to-json --home {node_dir} --chain-id pytest
 ''')
-    apply_config_changes(f'/tmp/near/node{i}', client_config_changes)
-    apply_genesis_changes(f'/tmp/near/node{i}', genesis_config_changes)
+    apply_config_changes(node_dir, client_config_changes)
+    apply_genesis_changes(node_dir, genesis_config_changes)
 
 pbar = tqdm(total=num_machines, desc=' upload nodedir')
+
+
 # Upload json and accounts.csv
 def upload_genesis_files(i):
     # stop if already start
@@ -229,24 +240,31 @@ def upload_genesis_files(i):
     machines[i].kill_detach_tmux()
     machines[i].run('rm -rf ~/.near')
     # upload keys, config, genesis
-    machines[i].upload(f'/tmp/near/node{i}', f'/home/{machines[i].username}/.near')
+    machines[i].upload(str(get_node_dir(i)),
+                       f'/home/{machines[i].username}/.near')
     pbar.update(1)
+
 
 pmap(upload_genesis_files, range(num_machines))
 pbar.close()
 
 pbar = tqdm(total=num_machines, desc=' start near')
+
+
 def start_nearcore(i):
     m = machines[i]
     if i < num_docker_machines:
-        m.run('bash', input=f'''
+        m.run('bash',
+              input=f'''
 docker run -d -u $UID:$UID -v /home/{m.username}/.near:/srv/near \
     -p 3030:3030 -p 24567:24567 --name nearcore {docker_image} near --home=/srv/near run
 ''')
     else:
         m.run_detach_tmux(
-            'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive')
+            'cd nearcore && export RUST_LOG=diagnostic=trace && target/release/near run --archive'
+        )
     pbar.update(1)
+
 
 pmap(start_nearcore, range(len(machines)))
 pbar.close()

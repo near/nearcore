@@ -6,8 +6,12 @@ use rand::Rng;
 
 use crate::db::TestDB;
 use crate::{ShardTries, Store};
+use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::ShardId;
+use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::shard_layout::{ShardUId, ShardVersion};
+use near_primitives::types::NumShards;
+use std::str::from_utf8;
 
 /// Creates an in-memory database.
 pub fn create_test_store() -> Arc<Store> {
@@ -18,25 +22,57 @@ pub fn create_test_store() -> Arc<Store> {
 /// Creates a Trie using an in-memory database.
 pub fn create_tries() -> ShardTries {
     let store = create_test_store();
-    ShardTries::new(store, 1)
+    ShardTries::new(store, 0, 1)
+}
+
+pub fn create_tries_complex(shard_version: ShardVersion, num_shards: NumShards) -> ShardTries {
+    let store = create_test_store();
+    ShardTries::new(store, shard_version, num_shards)
 }
 
 pub fn test_populate_trie(
     tries: &ShardTries,
     root: &CryptoHash,
-    shard_id: ShardId,
+    shard_uid: ShardUId,
     changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 ) -> CryptoHash {
-    let trie = tries.get_trie_for_shard(shard_id);
-    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_id, 0);
+    let trie = tries.get_trie_for_shard(shard_uid);
+    assert_eq!(trie.storage.as_caching_storage().unwrap().shard_uid.shard_id, 0);
     let trie_changes = trie.update(root, changes.iter().cloned()).unwrap();
-    let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+    let (store_update, root) = tries.apply_all(&trie_changes, shard_uid).unwrap();
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
     for (key, value) in deduped {
         assert_eq!(trie.get(&root, &key), Ok(value));
     }
     root
+}
+
+pub fn gen_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
+    let size = rng.gen_range(0, max_size) + 1;
+
+    let mut accounts = vec![];
+    for _ in 0..size {
+        let str_length = rng.gen_range(4, 8);
+        let s: Vec<u8> = (0..str_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+        let account_id: AccountId = from_utf8(&s).unwrap().parse().unwrap();
+        accounts.push(account_id);
+    }
+    accounts
+}
+
+pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
+    let accounts = gen_accounts(rng, max_size);
+    accounts
+        .iter()
+        .map(|account_id| Receipt {
+            predecessor_id: account_id.clone(),
+            receiver_id: account_id.clone(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Data(DataReceipt { data_id: CryptoHash::default(), data: None }),
+        })
+        .collect()
 }
 
 pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {

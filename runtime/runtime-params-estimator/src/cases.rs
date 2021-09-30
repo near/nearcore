@@ -1,7 +1,8 @@
+use near_primitives::types::Gas;
 use num_rational::Ratio;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -13,22 +14,17 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
+use near_primitives::types::AccountId;
 
-use crate::ext_costs_generator::ExtCostsGenerator;
-use crate::runtime_fees_generator::RuntimeFeesGenerator;
+use crate::cost::Cost;
+use crate::cost_table::CostTable;
+use crate::measures_to_costs::measurements_to_costs;
 use crate::stats::Measurements;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::GasMetric;
 use crate::testbed_runners::{get_account_id, measure_actions, measure_transactions, Config};
-use crate::vm_estimator::{compute_compile_cost_vm, cost_per_op, load_and_compile};
+use crate::vm_estimator::{compute_compile_cost_vm, cost_per_op};
 use crate::TestContract;
-
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::{
-    AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
-    RuntimeFeesConfig,
-};
-use near_vm_logic::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 
 static SMALLEST_CODE: TestContract = TestContract::new("test-contract/res/smallest_contract.wasm");
 
@@ -67,7 +63,8 @@ fn measure_function(
         let account_idx = accounts_deployed[i];
         accounts_deployed.remove(i);
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let mut f_write = |account_idx, method_name: &str| {
             let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
             let function_call = Action::FunctionCall(FunctionCallAction {
@@ -138,7 +135,7 @@ fn measure_function(
 }
 
 macro_rules! calls_helper(
-    { $($(#[$feature_name:tt])* $el:ident => $method_name:ident),* } => {
+    { $($(#[$feature_name:tt])* $el:ident => $method_name:ident),* $(,)?} => {
     {
         let mut v: Vec<(Metric, &str)> = vec![];
         $(
@@ -235,7 +232,7 @@ pub enum Metric {
 }
 
 #[allow(unused_variables)]
-pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
+pub fn run(mut config: Config, only_compile: bool) -> CostTable {
     let mut m = Measurements::new(config.metric);
     if only_compile {
         let (contract_compile_base_cost, contract_per_byte_cost) =
@@ -268,9 +265,14 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     let mut f = || {
         let account_idx = rand::thread_rng().gen::<usize>() % config.active_accounts;
         let account_id = get_account_id(account_idx);
-        let other_account_id =
-            format!("near_{}_{}", account_idx, rand::thread_rng().gen::<usize>());
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let other_account_id = AccountId::try_from(format!(
+            "near_{}_{}",
+            account_idx,
+            rand::thread_rng().gen::<usize>()
+        ))
+        .unwrap();
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -292,7 +294,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
     let mut f = || {
         let account_idx = loop {
             let x = rand::thread_rng().gen::<usize>() % config.active_accounts;
-            if !deleted_accounts.contains(&x) & &!beneficiaries.contains(&x) {
+            if !deleted_accounts.contains(&x) && !beneficiaries.contains(&x) {
                 break x;
             }
         };
@@ -306,7 +308,8 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         beneficiaries.insert(beneficiary_idx);
         let account_id = get_account_id(account_idx);
         let beneficiary_id = get_account_id(beneficiary_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -352,7 +355,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: get_account_id(0),
+                    receiver_id: get_account_id(0).into(),
                     method_names: vec!["method1".to_string()],
                 }),
             },
@@ -378,7 +381,7 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
                 nonce: 0,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                     allowance: Some(100),
-                    receiver_id: get_account_id(0),
+                    receiver_id: get_account_id(0).into(),
                     method_names: many_methods,
                 }),
             },
@@ -400,7 +403,8 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         };
         deleted_accounts.insert(account_idx);
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -445,7 +449,8 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
             good_code_accounts.insert(account_idx);
         }
         let account_id = get_account_id(account_idx);
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let nonce = *nonces.entry(account_idx).and_modify(|x| *x += 1).or_insert(1);
         SignedTransaction::from_actions(
             nonce as u64,
@@ -587,34 +592,45 @@ pub fn run(mut config: Config, only_compile: bool) -> RuntimeConfig {
         data_producer_100kib => data_producer_100kib,
         data_receipt_base_10b_1000 => data_receipt_base_10b_1000,
         data_receipt_10b_1000 => data_receipt_10b_1000,
-        data_receipt_100kib_1000 => data_receipt_100kib_1000
+        data_receipt_100kib_1000 => data_receipt_100kib_1000,
     };
+
+    let dump_path_buf = testbed.lock().unwrap().dump_state().unwrap();
+    let dump_path = dump_path_buf.as_path();
 
     // Measure the speed of all extern function calls.
     for (metric, method_name) in v {
-        testbed = measure_function(
-            metric,
-            method_name,
-            &mut m,
-            testbed,
-            &ad,
-            &mut nonces,
-            &config,
-            false,
-            vec![],
-        );
+        if !config.should_skip(metric) {
+            let local_testbed = Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(dump_path)));
+            measure_function(
+                metric,
+                method_name,
+                &mut m,
+                local_testbed,
+                &ad,
+                &mut nonces,
+                &config,
+                false,
+                vec![],
+            );
+        }
     }
 
-    get_runtime_config(&m, &config)
+    let contract_compile_costs = compute_compile_cost_vm(config.metric, config.vm_kind, false);
+    let wasm_instr_cost = ratio_to_gas(config.metric, cost_per_op(config.metric, &CODE_1M));
 
-    //    let mut csv_path = PathBuf::from(&config.state_dump_path);
-    //    csv_path.push("./metrics.csv");
-    //    m.save_to_csv(csv_path.as_path());
-    //
-    //    m.plot(PathBuf::from(&config.state_dump_path).as_path());
+    let mut cost_table = measurements_to_costs(m, contract_compile_costs, wasm_instr_cost);
+
+    if let Some(gas) = cost_table.get(Cost::StorageReadBase) {
+        // TODO: Actually compute it once our storage is complete.
+        // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
+        cost_table.add(Cost::TouchingTrieNode, gas * 2 / 7);
+    }
+
+    cost_table
 }
 
-fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> u64 {
+pub(crate) fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> Gas {
     let divisor = match gas_metric {
         // We use factor of 8 to approximately match the price of SHA256 operation between
         // time-based and icount-based metric as measured on 3.2Ghz Core i5.
@@ -646,212 +662,4 @@ pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> 
         .to_integer(),
     )
     .unwrap()
-}
-
-/// Converts cost of a certain action to a fee, spliting it evenly between send and execution fee.
-fn measured_to_fee(gas_metric: GasMetric, value: Ratio<u64>) -> Fee {
-    let value = ratio_to_gas(gas_metric, value);
-    Fee { send_sir: value / 2, send_not_sir: value / 2, execution: value / 2 }
-}
-
-fn measured_to_gas(
-    gas_metric: GasMetric,
-    measured: &BTreeMap<ExtCosts, Ratio<u64>>,
-    cost: ExtCosts,
-) -> u64 {
-    match measured.get(&cost) {
-        Some(value) => ratio_to_gas(gas_metric, *value),
-        None => panic!("cost {} not found", cost as u32),
-    }
-}
-
-fn get_runtime_fees_config(measurement: &Measurements) -> RuntimeFeesConfig {
-    use crate::runtime_fees_generator::ReceiptFees::*;
-    let generator = RuntimeFeesGenerator::new(measurement);
-    let measured = generator.compute();
-    let metric = measurement.gas_metric;
-    let function_call_total_cost = ratio_to_gas(metric, measured[&ActionFunctionCallBase]);
-    let function_call_cost = Fee {
-        send_sir: function_call_total_cost / 2,
-        send_not_sir: function_call_total_cost / 2,
-        execution: function_call_total_cost / 2,
-    };
-    RuntimeFeesConfig {
-        action_receipt_creation_config: measured_to_fee(metric, measured[&ActionReceiptCreation]),
-        data_receipt_creation_config: DataReceiptCreationConfig {
-            base_cost: measured_to_fee(metric, measured[&DataReceiptCreationBase]),
-            cost_per_byte: measured_to_fee(metric, measured[&DataReceiptCreationPerByte]),
-        },
-        action_creation_config: ActionCreationConfig {
-            create_account_cost: measured_to_fee(metric, measured[&ActionCreateAccount]),
-            deploy_contract_cost: measured_to_fee(metric, measured[&ActionDeployContractBase]),
-            deploy_contract_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionDeployContractPerByte],
-            ),
-            function_call_cost,
-            function_call_cost_per_byte: measured_to_fee(
-                metric,
-                measured[&ActionFunctionCallPerByte],
-            ),
-            transfer_cost: measured_to_fee(metric, measured[&ActionTransfer]),
-            stake_cost: measured_to_fee(metric, measured[&ActionStake]),
-            add_key_cost: AccessKeyCreationConfig {
-                full_access_cost: measured_to_fee(metric, measured[&ActionAddFullAccessKey]),
-                function_call_cost: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyBase],
-                ),
-                function_call_cost_per_byte: measured_to_fee(
-                    metric,
-                    measured[&ActionAddFunctionAccessKeyPerByte],
-                ),
-            },
-            delete_key_cost: measured_to_fee(metric, measured[&ActionDeleteKey]),
-            delete_account_cost: measured_to_fee(metric, measured[&ActionDeleteAccount]),
-        },
-        ..Default::default()
-    }
-}
-
-fn get_ext_costs_config(measurement: &Measurements, config: &Config) -> ExtCostsConfig {
-    let mut generator = ExtCostsGenerator::new(measurement);
-    let measured = generator.compute();
-    let metric = measurement.gas_metric;
-    use ExtCosts::*;
-    let (contract_compile_bytes_, contract_compile_base_) =
-        compute_compile_cost_vm(config.metric, config.vm_kind, false);
-    ExtCostsConfig {
-        base: measured_to_gas(metric, &measured, base),
-        contract_compile_base: contract_compile_base_,
-        contract_compile_bytes: contract_compile_bytes_,
-        read_memory_base: measured_to_gas(metric, &measured, read_memory_base),
-        read_memory_byte: measured_to_gas(metric, &measured, read_memory_byte),
-        write_memory_base: measured_to_gas(metric, &measured, write_memory_base),
-        write_memory_byte: measured_to_gas(metric, &measured, write_memory_byte),
-        read_register_base: measured_to_gas(metric, &measured, read_register_base),
-        read_register_byte: measured_to_gas(metric, &measured, read_register_byte),
-        write_register_base: measured_to_gas(metric, &measured, write_register_base),
-        write_register_byte: measured_to_gas(metric, &measured, write_register_byte),
-        utf8_decoding_base: measured_to_gas(metric, &measured, utf8_decoding_base),
-        utf8_decoding_byte: measured_to_gas(metric, &measured, utf8_decoding_byte),
-        utf16_decoding_base: measured_to_gas(metric, &measured, utf16_decoding_base),
-        utf16_decoding_byte: measured_to_gas(metric, &measured, utf16_decoding_byte),
-        sha256_base: measured_to_gas(metric, &measured, sha256_base),
-        sha256_byte: measured_to_gas(metric, &measured, sha256_byte),
-        keccak256_base: measured_to_gas(metric, &measured, keccak256_base),
-        keccak256_byte: measured_to_gas(metric, &measured, keccak256_byte),
-        keccak512_base: measured_to_gas(metric, &measured, keccak512_base),
-        keccak512_byte: measured_to_gas(metric, &measured, keccak512_byte),
-        ripemd160_base: measured_to_gas(metric, &measured, ripemd160_base),
-        ripemd160_block: measured_to_gas(metric, &measured, ripemd160_block),
-        ecrecover_base: measured_to_gas(metric, &measured, ecrecover_base),
-        log_base: measured_to_gas(metric, &measured, log_base),
-        log_byte: measured_to_gas(metric, &measured, log_byte),
-        storage_write_base: measured_to_gas(metric, &measured, storage_write_base),
-        storage_write_key_byte: measured_to_gas(metric, &measured, storage_write_key_byte),
-        storage_write_value_byte: measured_to_gas(metric, &measured, storage_write_value_byte),
-        storage_write_evicted_byte: measured_to_gas(metric, &measured, storage_write_evicted_byte),
-        storage_read_base: measured_to_gas(metric, &measured, storage_read_base),
-        storage_read_key_byte: measured_to_gas(metric, &measured, storage_read_key_byte),
-        storage_read_value_byte: measured_to_gas(metric, &measured, storage_read_value_byte),
-        storage_remove_base: measured_to_gas(metric, &measured, storage_remove_base),
-        storage_remove_key_byte: measured_to_gas(metric, &measured, storage_remove_key_byte),
-        storage_remove_ret_value_byte: measured_to_gas(
-            metric,
-            &measured,
-            storage_remove_ret_value_byte,
-        ),
-        storage_has_key_base: measured_to_gas(metric, &measured, storage_has_key_base),
-        storage_has_key_byte: measured_to_gas(metric, &measured, storage_has_key_byte),
-        // TODO: storage_iter_* operations below are deprecated, so just hardcode zero price,
-        // and remove those operations ASAP.
-        storage_iter_create_prefix_base: 0,
-        storage_iter_create_prefix_byte: 0,
-        storage_iter_create_range_base: 0,
-        storage_iter_create_from_byte: 0,
-        storage_iter_create_to_byte: 0,
-        storage_iter_next_base: 0,
-        storage_iter_next_key_byte: 0,
-        storage_iter_next_value_byte: 0,
-        // TODO: Actually compute it once our storage is complete.
-        // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
-        touching_trie_node: measured_to_gas(metric, &measured, storage_read_base) * 2 / 7,
-        promise_and_base: measured_to_gas(metric, &measured, promise_and_base),
-        promise_and_per_promise: measured_to_gas(metric, &measured, promise_and_per_promise),
-        promise_return: measured_to_gas(metric, &measured, promise_return),
-        // TODO: accurately price host functions that expose validator information.
-        validator_stake_base: 303944908800,
-        validator_total_stake_base: 303944908800,
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_sum_base: measured_to_gas(metric, &measured, alt_bn128_g1_sum_base),
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_sum_byte: measured_to_gas(metric, &measured, alt_bn128_g1_sum_byte),
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_base: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_base),
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_byte: measured_to_gas(metric, &measured, alt_bn128_g1_multiexp_byte),
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_g1_multiexp_sublinear: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_g1_multiexp_sublinear,
-        ),
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_pairing_check_base: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_pairing_check_base,
-        ),
-        #[cfg(feature = "protocol_feature_alt_bn128")]
-        alt_bn128_pairing_check_byte: measured_to_gas(
-            metric,
-            &measured,
-            alt_bn128_pairing_check_byte,
-        ),
-    }
-}
-
-fn get_vm_config(measurement: &Measurements, config: &Config) -> VMConfig {
-    VMConfig {
-        ext_costs: get_ext_costs_config(measurement, config),
-        // TODO: Figure out whether we need this fee at all. If we do what should be the memory
-        // growth cost.
-        grow_mem_cost: 1,
-        regular_op_cost: ratio_to_gas(
-            measurement.gas_metric,
-            cost_per_op(measurement.gas_metric, &CODE_1M),
-        ) as u32,
-        limit_config: VMLimitConfig::default(),
-    }
-}
-
-fn get_runtime_config(measurement: &Measurements, config: &Config) -> RuntimeConfig {
-    let mut runtime_config = RuntimeConfig::default();
-    runtime_config.wasm_config = get_vm_config(measurement, config);
-
-    // Compiling small test contract that was used for `noop` function call estimation.
-    load_and_compile(
-        &"./test-contract/res/stable_small_contract.wasm".into(),
-        config.metric,
-        config.vm_kind,
-    )
-    .unwrap();
-
-    runtime_config.transaction_costs = get_runtime_fees_config(measurement);
-
-    // Shifting compilation costs from function call runtime to the deploy action cost at execution
-    // time. Contract used in deploy action testing is very small, so we have to use more complex
-    // technique to compute the actual coefficients.
-    runtime_config.transaction_costs.action_creation_config.deploy_contract_cost.execution +=
-        runtime_config.wasm_config.ext_costs.contract_compile_base;
-    runtime_config
-        .transaction_costs
-        .action_creation_config
-        .deploy_contract_cost_per_byte
-        .execution += runtime_config.wasm_config.ext_costs.contract_compile_bytes;
-    runtime_config.wasm_config.ext_costs.contract_compile_base = 0;
-    runtime_config.wasm_config.ext_costs.contract_compile_bytes = 0;
-
-    runtime_config
 }

@@ -13,14 +13,15 @@ use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
 use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
-    StateHeaderKey, StatePartKey,
+    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
+    StatePartKey,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -29,7 +30,8 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     AccountId, BlockExtra, BlockHeight, EpochId, GCCount, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
+    StateChangesRequest,
 };
 use near_primitives::utils::{get_block_shard_id, index_to_bytes, to_timestamp};
 use near_primitives::views::LightClientBlockView;
@@ -48,8 +50,9 @@ use near_store::{
     TAIL_KEY,
 };
 
-use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::{byzantine_assert, RuntimeAdapter};
+use near_store::db::DBCol::ColStateChangesForSplitStates;
 
 /// lru cache size
 #[cfg(not(feature = "no_cache"))]
@@ -137,7 +140,7 @@ pub trait ChainStoreAccess {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error>;
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
@@ -152,6 +155,7 @@ pub trait ChainStoreAccess {
         // the tail. Thus, the strategy is to find the first block AFTER the tail
         // height, and use the `prev_hash` to get the reference to the earliest
         // block.
+        // The earliest block can be the genesis block.
         let head_header_height = self.head_header()?.height();
         let tail = self.tail()?;
 
@@ -424,25 +428,73 @@ impl ChainStore {
             .collect()
     }
 
+    pub fn get_state_changes_for_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<StateChangesForSplitStates, Error> {
+        let key = &get_block_shard_id(block_hash, shard_id);
+        option_to_not_found(
+            self.store.get_ser::<StateChangesForSplitStates>(ColStateChangesForSplitStates, key),
+            &format!("CONSOLIDATED STATE CHANGES: {}:{}", block_hash, shard_id),
+        )
+    }
+
+    /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
+    /// is `prev_block_hash`
+    /// Note that the meaning of outgoing receipts here are slightly different from
+    /// `save_outgoing_receipts` or `get_outgoing_receipts`.
+    /// There, outgoing receipts for a shard refers to receipts that are generated
+    /// from the shard from block `prev_block_hash`.
+    /// Here, outgoing receipts for a shard refers to receipts that will be sent from this shard
+    /// to other shards in the block after `prev_block_hash`
+    /// The difference of one block is important because shard layout may change between the previous
+    /// block and the current block and the meaning of `shard_id` will change.
+    ///
+    /// Note, the current way of implementation assumes that at least one chunk is generated before
+    /// shard layout are changed twice. This is not a problem right now because we are changing shard
+    /// layout for the first time for simple nightshade and generally not a problem if shard layout
+    /// changes very rarely.
+    /// But we need to implement a more theoretically correct algorithm if shard layouts will change
+    /// more often in the future
+    /// https://github.com/near/nearcore/issues/4877
     pub fn get_outgoing_receipts_for_shard(
         &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_included_height: BlockHeight,
-    ) -> Result<ReceiptResponse, Error> {
+    ) -> Result<Vec<Receipt>, Error> {
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() == last_included_height {
-                let receipts = if let Ok(cur_receipts) =
-                    self.get_outgoing_receipts(&receipts_block_hash, shard_id)
-                {
-                    cur_receipts.clone()
+                let receipts_shard_layout =
+                    runtime_adapter.get_shard_layout(block_header.epoch_id())?;
+
+                // get the shard from which the outgoing receipt were generated
+                let receipts_shard_id = if shard_layout != receipts_shard_layout {
+                    shard_layout
+                        .get_parent_shard_id(shard_id)
+                        .ok_or(ErrorKind::InvalidShardId(shard_id))?
                 } else {
-                    vec![]
+                    shard_id
                 };
-                return Ok(ReceiptResponse(receipts_block_hash, receipts));
+                let mut receipts = self
+                    .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
+                    .map(|v| v.clone())
+                    .unwrap_or_default();
+
+                // filter to receipts that belong to `shard_id` in the current shard layout
+                if shard_layout != receipts_shard_layout {
+                    receipts.retain(|receipt| {
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout) == shard_id
+                    });
+                }
+
+                return Ok(receipts);
             } else {
                 receipts_block_hash = *block_header.prev_hash();
             }
@@ -852,16 +904,16 @@ impl ChainStoreAccess for ChainStore {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
                 ColChunkExtra,
                 &mut self.chunk_extras,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_uid(block_hash, shard_uid),
             ),
-            &format!("CHUNK EXTRA: {}:{}", block_hash, shard_id),
+            &format!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
     }
 
@@ -946,9 +998,11 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
+    /// Note that this function is different from get_outgoing_receipts_for_shard, see comments there
     fn get_outgoing_receipts(
         &mut self,
-        block_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<Receipt>, Error> {
         option_to_not_found(
@@ -956,9 +1010,9 @@ impl ChainStoreAccess for ChainStore {
                 &*self.store,
                 ColOutgoingReceipts,
                 &mut self.outgoing_receipts,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", block_hash),
+            &format!("OUTGOING RECEIPT: {}", prev_block_hash),
         )
     }
 
@@ -1106,7 +1160,7 @@ struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, BlockExtra>,
-    chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
+    chunk_extras: HashMap<(CryptoHash, ShardUId), ChunkExtra>,
     chunks: HashMap<ChunkHash, ShardChunk>,
     partial_chunks: HashMap<ChunkHash, PartialEncodedChunk>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
@@ -1133,10 +1187,8 @@ struct ChainStoreCacheUpdate {
     processed_block_heights: HashSet<BlockHeight>,
 }
 
-/// Provides layer to update chain without touching the underlying database.
-/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub struct ChainStoreUpdate<'a> {
-    chain_store: &'a mut ChainStore,
+pub struct ChainStoreUpdateImpl<T> {
+    chain_store: T,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
@@ -1148,6 +1200,9 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
+    // All state changes made by a chunk, this is only used for splitting states
+    add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
+    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1157,6 +1212,10 @@ pub struct ChainStoreUpdate<'a> {
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
+
+/// Provides layer to update chain without touching the underlying database.
+/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
+pub type ChainStoreUpdate<'a> = ChainStoreUpdateImpl<&'a mut ChainStore>;
 
 impl<'a> ChainStoreUpdate<'a> {
     pub fn new(chain_store: &'a mut ChainStore) -> Self {
@@ -1172,6 +1231,8 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
+            add_state_changes_for_split_states: HashMap::new(),
+            remove_state_changes_for_split_states: HashSet::new(),
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1327,14 +1388,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
     ) -> Result<&ChunkExtra, Error> {
         if let Some(chunk_extra) =
-            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, shard_id))
+            self.chain_store_cache_update.chunk_extras.get(&(*block_hash, *shard_uid))
         {
             Ok(chunk_extra)
         } else {
-            self.chain_store.get_chunk_extra(block_hash, shard_id)
+            self.chain_store.get_chunk_extra(block_hash, shard_uid)
         }
     }
 
@@ -1581,6 +1642,14 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
+    pub fn get_state_changes_for_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<StateChangesForSplitStates, Error> {
+        self.chain_store.get_state_changes_for_split_states(block_hash, shard_id)
+    }
+
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
@@ -1614,6 +1683,10 @@ impl<'a> ChainStoreUpdate<'a> {
             for height in (header_height + 1)..prev_height {
                 self.chain_store_cache_update.height_to_hashes.insert(height, None);
             }
+            // Override block ordinal to hash mapping for blocks in between.
+            // At this point block_merkle_tree for header is already saved.
+            let block_ordinal = self.get_block_merkle_tree(&header_hash)?.size();
+            self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
@@ -1719,10 +1792,10 @@ impl<'a> ChainStoreUpdate<'a> {
     pub fn save_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         chunk_extra: ChunkExtra,
     ) {
-        self.chain_store_cache_update.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
+        self.chain_store_cache_update.chunk_extras.insert((*block_hash, *shard_uid), chunk_extra);
     }
 
     pub fn save_chunk(&mut self, chunk: ShardChunk) {
@@ -1791,24 +1864,39 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(epoch_hash.clone(), light_client_block);
     }
 
+    // save the outgoing receipts generated by chunk from block `hash` for shard `shard_id`
     pub fn save_outgoing_receipt(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipt_result: ReceiptResult,
+        outgoing_receipts: Vec<Receipt>,
     ) {
-        let mut outgoing_receipts = Vec::new();
-        for (receipt_shard_id, receipts) in receipt_result {
-            for receipt in receipts {
-                self.chain_store_cache_update
-                    .receipt_id_to_shard_id
-                    .insert(receipt.receipt_id, receipt_shard_id);
-                outgoing_receipts.push(receipt);
-            }
-        }
         self.chain_store_cache_update
             .outgoing_receipts
             .insert((*hash, shard_id), outgoing_receipts);
+    }
+
+    pub fn save_receipt_id_to_shard_id(
+        &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+        last_height_included: BlockHeight,
+    ) -> Result<(), Error> {
+        let outgoing_receipts = self.chain_store.get_outgoing_receipts_for_shard(
+            runtime_adapter,
+            *prev_hash,
+            shard_id,
+            last_height_included,
+        )?;
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_hash)?;
+        for receipt in outgoing_receipts {
+            let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+            self.chain_store_cache_update
+                .receipt_id_to_shard_id
+                .insert(receipt.receipt_id, to_shard_id);
+        }
+        Ok(())
     }
 
     pub fn save_incoming_receipt(
@@ -1845,6 +1933,29 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
         self.trie_changes.push(trie_changes);
+    }
+
+    pub fn add_state_changes_for_split_states(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        state_changes: StateChangesForSplitStates,
+    ) {
+        let prev =
+            self.add_state_changes_for_split_states.insert((block_hash, shard_id), state_changes);
+        // We should not save state changes for the same chunk twice
+        assert!(prev.is_none());
+    }
+
+    pub fn remove_state_changes_for_split_states(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+    ) {
+        // We should not remove state changes for the same chunk twice
+        let value_not_present =
+            self.remove_state_changes_for_split_states.insert((block_hash, shard_id));
+        assert!(value_not_present);
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2006,15 +2117,18 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Fork(tries) => {
                 // If the block is on a fork, we delete the state that's the result of applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
                         .map(|trie_changes: TrieChanges| {
                             tries
-                                .revert_insertions(&trie_changes, shard_id, &mut store_update)
+                                .revert_insertions(&trie_changes, shard_uid, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, &shard_uid),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2026,15 +2140,18 @@ impl<'a> ChainStoreUpdate<'a> {
             GCMode::Canonical(tries) => {
                 // If the block is on canonical chain, we delete the state that's before applying this block
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
+                    // TODO: pass in the actual shard version that this block uses
+                    // https://github.com/near/nearcore/issues/4710
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
                     self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id))?
+                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
                         .map(|trie_changes: TrieChanges| {
                             tries
-                                .apply_deletions(&trie_changes, shard_id, &mut store_update)
+                                .apply_deletions(&trie_changes, shard_uid, &mut store_update)
                                 .map(|_| {
                                     self.gc_col(
                                         ColTrieChanges,
-                                        &get_block_shard_id(&block_hash, shard_id),
+                                        &get_block_shard_uid(&block_hash, &shard_uid),
                                     );
                                     self.inc_gc_col_state();
                                 })
@@ -2047,8 +2164,11 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             GCMode::StateSync { .. } => {
                 // Not apply the data from ColTrieChanges
+                // TODO: pass in the actual shard version that this block uses
+                // https://github.com/near/nearcore/issues/4710
                 for shard_id in 0..header.chunk_mask().len() as ShardId {
-                    self.gc_col(ColTrieChanges, &get_block_shard_id(&block_hash, shard_id));
+                    let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+                    self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
                 }
             }
         }
@@ -2066,7 +2186,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_col(ColIncomingReceipts, &block_shard_id);
             self.gc_col(ColChunkPerHeightShard, &block_shard_id);
             self.gc_col(ColNextBlockWithNewChunk, &block_shard_id);
-            self.gc_col(ColChunkExtra, &block_shard_id);
+
+            // TODO: use the real shard version https://github.com/near/nearcore/issues/4710
+            let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
+            let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
+            self.gc_col(ColChunkExtra, &block_shard_uid);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
@@ -2389,6 +2513,7 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::ColEpochValidatorInfo
             | DBCol::ColBlockOrdinal
             | DBCol::_ColTransactionRefCount
+            | DBCol::ColStateChangesForSplitStates
             | DBCol::ColCachedContractCode => {
                 unreachable!();
             }
@@ -2473,12 +2598,12 @@ impl<'a> ChainStoreUpdate<'a> {
         for (height, hash_set) in header_hashes_by_height {
             store_update.set_ser(ColHeaderHashesByHeight, &index_to_bytes(height), &hash_set)?;
         }
-        for ((block_hash, shard_id), chunk_extra) in
+        for ((block_hash, shard_uid), chunk_extra) in
             self.chain_store_cache_update.chunk_extras.iter()
         {
             store_update.set_ser(
                 ColChunkExtra,
-                &get_block_shard_id(block_hash, *shard_id),
+                &get_block_shard_uid(block_hash, shard_uid),
                 chunk_extra,
             )?;
         }
@@ -2622,6 +2747,19 @@ impl<'a> ChainStoreUpdate<'a> {
                 .wrapped_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
         }
+        for ((block_hash, shard_id), state_changes) in
+            self.add_state_changes_for_split_states.drain()
+        {
+            store_update.set_ser(
+                ColStateChangesForSplitStates,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_changes,
+            )?;
+        }
+        for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain() {
+            store_update
+                .delete(ColStateChangesForSplitStates, &get_block_shard_id(&block_hash, shard_id));
+        }
 
         let mut affected_catchup_blocks = HashSet::new();
         for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
@@ -2758,8 +2896,8 @@ impl<'a> ChainStoreUpdate<'a> {
         for (hash, block_extra) in block_extras {
             self.chain_store.block_extras.cache_set(hash.into(), block_extra);
         }
-        for ((block_hash, shard_id), chunk_extra) in chunk_extras {
-            let key = get_block_shard_id(&block_hash, shard_id);
+        for ((block_hash, shard_uid), chunk_extra) in chunk_extras {
+            let key = get_block_shard_uid(&block_hash, &shard_uid);
             self.chain_store.chunk_extras.cache_set(key, chunk_extra);
         }
         for (hash, chunk) in chunks {
@@ -2786,7 +2924,9 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         for (account_id, approval) in last_approvals_per_account {
-            self.chain_store.last_approvals_per_account.cache_set(account_id.into(), approval);
+            self.chain_store
+                .last_approvals_per_account
+                .cache_set(account_id.as_ref().into(), approval);
         }
         for (block_hash, next_hash) in next_block_hashes {
             self.chain_store.next_block_hashes.cache_set(block_hash.into(), next_hash);
@@ -2850,6 +2990,62 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 }
 
+impl Into<SavedStoreUpdate> for ChainStoreUpdate<'_> {
+    fn into(self) -> SavedStoreUpdate {
+        SavedStoreUpdate {
+            chain_store: (),
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
+    }
+}
+
+/// Saves changes from ChainStoreUpdate without link to ChainStore. Needed to preserve changes while
+/// applying block in other thread
+pub type SavedStoreUpdate = ChainStoreUpdateImpl<()>;
+
+impl SavedStoreUpdate {
+    pub fn restore<'a>(self, chain_store: &'a mut ChainStore) -> ChainStoreUpdate<'a> {
+        ChainStoreUpdate {
+            chain_store,
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -2888,7 +3084,9 @@ mod tests {
             store.clone(),
             validators
                 .into_iter()
-                .map(|inner| inner.into_iter().map(Into::into).collect())
+                .map(|inner| {
+                    inner.into_iter().map(|account_id| account_id.parse().unwrap()).collect()
+                })
                 .collect(),
             1,
             1,
@@ -2902,8 +3100,11 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let short_fork = vec![Block::empty_with_height(&genesis, 1, &*signer.clone())];
         let mut store_update = chain.mut_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
@@ -2957,8 +3158,11 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let mut blocks = vec![];
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
@@ -3008,8 +3212,11 @@ mod tests {
         let transaction_validity_period = 5;
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
@@ -3055,8 +3262,11 @@ mod tests {
     fn test_cache_invalidation() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let block1 = Block::empty_with_height(&genesis, 1, &*signer.clone());
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
@@ -3096,8 +3306,11 @@ mod tests {
     fn test_clear_old_data() {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         for i in 1..15 {
@@ -3190,8 +3403,11 @@ mod tests {
     fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
@@ -3266,8 +3482,11 @@ mod tests {
     fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let mut chain = get_chain_with_epoch_length(1);
         let genesis = chain.get_block_by_height(0).unwrap().clone();
-        let signer =
-            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+            "test1".parse().unwrap(),
+            KeyType::ED25519,
+            "test1",
+        ));
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         {

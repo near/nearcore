@@ -27,6 +27,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::merkle::MerklePath;
+use crate::profile::Cost;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
     base64_format, from_base64, option_base64_format, option_u128_dec_format, to_base64,
@@ -39,8 +40,8 @@ use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderI
 use crate::sharding::{ShardChunkHeaderInnerV2, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithIdAndProof, ExecutionStatus,
-    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
+    DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, CompiledContractCache, EpochHeight,
@@ -92,9 +93,6 @@ pub struct ViewApplyState {
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
     pub cache: Option<Arc<dyn CompiledContractCache>>,
-    /// EVM chain ID
-    #[cfg(feature = "protocol_feature_evm")]
-    pub evm_chain_id: u64,
 }
 
 impl From<&Account> for AccountView {
@@ -129,13 +127,15 @@ impl From<AccountView> for Account {
 
 impl From<ContractCode> for ContractCodeView {
     fn from(contract_code: ContractCode) -> Self {
-        ContractCodeView { code: contract_code.code, hash: contract_code.hash }
+        let hash = *contract_code.hash();
+        let code = contract_code.into_code();
+        ContractCodeView { code, hash }
     }
 }
 
 impl From<ContractCodeView> for ContractCode {
     fn from(contract_code: ContractCodeView) -> Self {
-        ContractCode { code: contract_code.code, hash: contract_code.hash }
+        ContractCode::new(contract_code.code, Some(contract_code.hash))
     }
 }
 
@@ -144,7 +144,7 @@ pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "option_u128_dec_format")]
         allowance: Option<Balance>,
-        receiver_id: AccountId,
+        receiver_id: String,
         method_names: Vec<String>,
     },
     FullAccess,
@@ -297,6 +297,9 @@ pub struct StatusSyncInfo {
     pub latest_state_root: CryptoHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
+    pub earliest_block_hash: Option<CryptoHash>,
+    pub earliest_block_height: Option<BlockHeight>,
+    pub earliest_block_time: Option<DateTime<Utc>>,
 }
 
 // TODO: add more information to ValidatorInfo
@@ -445,7 +448,7 @@ impl From<BlockHeaderView> for BlockHeader {
             block_merkle_root: view.block_merkle_root,
         };
         #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        let last_header_v2_version = None;
+        let last_header_v2_version: Option<u32> = None;
         #[cfg(feature = "protocol_feature_block_header_v3")]
         let last_header_v2_version =
             Some(crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1);
@@ -823,6 +826,12 @@ pub enum ActionView {
     DeleteAccount {
         beneficiary_id: AccountId,
     },
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    StakeChunkOnly {
+        #[serde(with = "u128_dec_format")]
+        stake: Balance,
+        public_key: PublicKey,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -849,6 +858,10 @@ impl From<Action> for ActionView {
             Action::DeleteKey(action) => ActionView::DeleteKey { public_key: action.public_key },
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
+            }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            Action::StakeChunkOnly(action) => {
+                ActionView::StakeChunkOnly { stake: action.stake, public_key: action.public_key }
             }
         }
     }
@@ -883,6 +896,10 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+            }
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            ActionView::StakeChunkOnly { stake, public_key } => {
+                Action::StakeChunkOnly(StakeAction { stake, public_key })
             }
         })
     }
@@ -1000,6 +1017,56 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub struct CostGasUsed {
+    pub cost_category: String,
+    pub cost: String,
+    #[serde(with = "u64_dec_format")]
+    pub gas_used: Gas,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+pub struct ExecutionMetadataView {
+    version: u32,
+    gas_profile: Option<Vec<CostGasUsed>>,
+}
+
+impl Default for ExecutionMetadataView {
+    fn default() -> Self {
+        ExecutionMetadata::V1.into()
+    }
+}
+
+impl From<ExecutionMetadata> for ExecutionMetadataView {
+    fn from(metadata: ExecutionMetadata) -> Self {
+        let gas_profile = match metadata {
+            ExecutionMetadata::V1 => None,
+            ExecutionMetadata::V2(profile_data) => Some(
+                Cost::ALL
+                    .iter()
+                    .filter(|&cost| profile_data[*cost] > 0)
+                    .map(|&cost| CostGasUsed {
+                        cost_category: match cost {
+                            Cost::ActionCost { .. } => "ACTION_COST",
+                            Cost::ExtCost { .. } => "WASM_HOST_COST",
+                        }
+                        .to_string(),
+                        cost: match cost {
+                            Cost::ActionCost { action_cost_kind: action_cost } => {
+                                format!("{:?}", action_cost)
+                            }
+                            Cost::ExtCost { ext_cost_kind: ext_cost } => format!("{:?}", ext_cost),
+                        }
+                        .to_ascii_uppercase(),
+                        gas_used: profile_data[cost],
+                    })
+                    .collect(),
+            ),
+        };
+        ExecutionMetadataView { version: 1, gas_profile }
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
@@ -1018,6 +1085,9 @@ pub struct ExecutionOutcomeView {
     pub executor_id: AccountId,
     /// Execution status. Contains the result in case of successful execution.
     pub status: ExecutionStatusView,
+    /// Execution metadata, versioned
+    #[serde(default)]
+    pub metadata: ExecutionMetadataView,
 }
 
 impl From<ExecutionOutcome> for ExecutionOutcomeView {
@@ -1029,6 +1099,7 @@ impl From<ExecutionOutcome> for ExecutionOutcomeView {
             tokens_burnt: outcome.tokens_burnt,
             executor_id: outcome.executor_id,
             status: outcome.status.into(),
+            metadata: outcome.metadata.into(),
         }
     }
 }
@@ -1110,6 +1181,13 @@ pub mod validator_stake_view {
     use near_primitives_core::types::AccountId;
     use serde::{Deserialize, Serialize};
 
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use crate::serialize::u128_dec_format;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_crypto::PublicKey;
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    use near_primitives_core::types::Balance;
+
     pub use super::ValidatorStakeViewV1;
 
     #[derive(
@@ -1118,6 +1196,8 @@ pub mod validator_stake_view {
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
         V1(ValidatorStakeViewV1),
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        V2(ValidatorStakeViewV2),
     }
 
     impl ValidatorStakeView {
@@ -1129,6 +1209,8 @@ pub mod validator_stake_view {
         pub fn take_account_id(self) -> AccountId {
             match self {
                 Self::V1(v1) => v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => v2.account_id,
             }
         }
 
@@ -1136,8 +1218,22 @@ pub mod validator_stake_view {
         pub fn account_id(&self) -> &AccountId {
             match self {
                 Self::V1(v1) => &v1.account_id,
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                Self::V2(v2) => &v2.account_id,
             }
         }
+    }
+
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[derive(
+        BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+    )]
+    pub struct ValidatorStakeViewV2 {
+        pub account_id: AccountId,
+        pub public_key: PublicKey,
+        #[serde(with = "u128_dec_format")]
+        pub stake: Balance,
+        pub is_chunk_only: bool,
     }
 
     impl From<ValidatorStake> for ValidatorStakeView {
@@ -1148,6 +1244,13 @@ pub mod validator_stake_view {
                     public_key: v1.public_key,
                     stake: v1.stake,
                 }),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                ValidatorStake::V2(v2) => Self::V2(ValidatorStakeViewV2 {
+                    account_id: v2.account_id,
+                    public_key: v2.public_key,
+                    stake: v2.stake,
+                    is_chunk_only: v2.is_chunk_only,
+                }),
             }
         }
     }
@@ -1155,7 +1258,11 @@ pub mod validator_stake_view {
     impl From<ValidatorStakeView> for ValidatorStake {
         fn from(view: ValidatorStakeView) -> Self {
             match view {
-                ValidatorStakeView::V1(v1) => Self::new(v1.account_id, v1.public_key, v1.stake),
+                ValidatorStakeView::V1(v1) => Self::new_v1(v1.account_id, v1.public_key, v1.stake),
+                #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                ValidatorStakeView::V2(v2) => {
+                    Self::new(v2.account_id, v2.public_key, v2.stake, v2.is_chunk_only)
+                }
             }
         }
     }
@@ -1358,7 +1465,7 @@ pub struct NextEpochValidatorInfo {
     pub shards: Vec<ShardId>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct LightClientBlockView {
     pub prev_block_hash: CryptoHash,
     pub next_block_inner_hash: CryptoHash,
@@ -1483,6 +1590,7 @@ pub enum StateChangeCauseView {
     UpdatedDelayedReceipts,
     ValidatorAccountsUpdate,
     Migration,
+    Resharding,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -1508,6 +1616,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::UpdatedDelayedReceipts => Self::UpdatedDelayedReceipts,
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
+            StateChangeCause::Resharding => Self::Resharding,
         }
     }
 }

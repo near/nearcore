@@ -27,7 +27,9 @@ BAN_STRING = 'ban a fraudulent peer'
 
 should_sync = Value('i', False)
 
+
 class Handler(ProxyHandler):
+
     async def handle(self, msg, fr, to):
         if msg is not None:
             if msg.enum == 'Block':
@@ -52,6 +54,7 @@ class Handler(ProxyHandler):
                 return False
         return True
 
+
 node0_config = {
     "consensus": {
         "min_block_production_delay": {
@@ -73,7 +76,10 @@ node1_config = {
     },
     "tracked_shards": [0]
 }
-nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {0: node0_config, 1: node1_config}, Handler)
+nodes = start_cluster(1, 1, 1, None, [["epoch_length", EPOCH_LENGTH]], {
+    0: node0_config,
+    1: node1_config
+}, Handler)
 
 status = nodes[0].get_status()
 cur_height = status['sync_info']['latest_block_height']
@@ -104,11 +110,13 @@ while True:
 
         status1 = nodes[1].get_status()
         node1_height = status1['sync_info']['latest_block_height']
-        if abs(node1_height - cur_height) < 5 and status1['sync_info']['syncing'] is False:
+        if abs(node1_height -
+               cur_height) < 5 and status1['sync_info']['syncing'] is False:
             break
     time.sleep(2)
 
-if not should_ban and (tracker0.check(BAN_STRING) or tracker1.check(BAN_STRING)):
+if not should_ban and (tracker0.check(BAN_STRING) or
+                       tracker1.check(BAN_STRING)):
     assert False, "unexpected ban of peers"
 
 logger.info('shutting down')

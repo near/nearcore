@@ -1,34 +1,29 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::Serialize;
 
 use crate::block_header::BlockHeader;
 use crate::epoch_manager::block_info::BlockInfo;
 use crate::epoch_manager::epoch_info::EpochInfo;
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, PartialMerkleTree};
-use crate::receipt::Receipt;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeaderV1 {
     pub chunk: ShardChunkV1,
     pub chunk_proof: MerklePath,
@@ -39,7 +34,7 @@ pub struct ShardStateSyncResponseHeaderV1 {
     pub state_root_node: StateRootNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeaderV2 {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
@@ -50,7 +45,7 @@ pub struct ShardStateSyncResponseHeaderV2 {
     pub state_root_node: StateRootNode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponseHeader {
     V1(ShardStateSyncResponseHeaderV1),
     V2(ShardStateSyncResponseHeaderV2),
@@ -138,19 +133,19 @@ impl ShardStateSyncResponseHeader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseV1 {
     pub header: Option<ShardStateSyncResponseHeaderV1>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseV2 {
     pub header: Option<ShardStateSyncResponseHeaderV2>,
     pub part: Option<(u64, Vec<u8>)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum ShardStateSyncResponse {
     V1(ShardStateSyncResponseV1),
     V2(ShardStateSyncResponseV2),
@@ -220,10 +215,12 @@ pub enum EpochSyncResponse {
     Advance { light_client_block_view: LightClientBlockView },
 }
 
+pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(bytesize::MIB);
+
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
     // We assume that 1 Mb is a good limit for state part size.
     // On the other side, it's important to divide any state into
     // several parts to make sure that partitioning always works.
     // TODO #1708
-    memory_usage / (1024 * 1024) + 3
+    memory_usage / STATE_PART_MEMORY_LIMIT.as_u64() + 3
 }

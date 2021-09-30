@@ -3,7 +3,7 @@ name = "near-vm-logic"
 version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
@@ -14,7 +14,7 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 base64 = "0.13"
-borsh = "0.8.1"
+borsh = "0.9"
 bs58 = "0.4"
 byteorder = "1.2"
 ripemd160 = "0.9.0"
@@ -23,19 +23,19 @@ sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
 
 near-crypto = { path = "../../core/crypto" }
+near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
-near-runtime-utils = { path = "../near-runtime-utils", version = "3.0.0" }
 
 bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = true }
 
 [dev-dependencies]
-serde_json = {version= "1", features= ["preserve_order"]}
+hex = { version = "0.4", features = ["serde"] }
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [features]
 default = []
-protocol_feature_evm = ["near-primitives-core/protocol_feature_evm"]
 protocol_feature_alt_bn128 = ["bn", "near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
 
 # Use this feature to enable counting of fees and costs applied.

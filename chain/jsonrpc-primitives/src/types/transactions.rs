@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use near_primitives::types::AccountId;
+
 #[derive(Debug, Clone)]
 pub struct RpcBroadcastTransactionRequest {
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
@@ -20,12 +22,12 @@ pub enum TransactionInfo {
     },
 }
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
     InvalidTransaction {
-        #[serde(skip)]
+        #[serde(skip_serializing)]
         context: near_primitives::errors::InvalidTxError,
     },
     #[error("Node doesn't track this shard. Cannot determine whether the transaction is valid")]
@@ -60,15 +62,11 @@ impl RpcBroadcastTransactionRequest {
 
 impl RpcTransactionStatusCommonRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
-        if let Ok((hash, account_id)) =
-            crate::utils::parse_params::<(near_primitives::hash::CryptoHash, String)>(value.clone())
+        if let Ok((hash, account_id)) = crate::utils::parse_params::<(
+            near_primitives::hash::CryptoHash,
+            AccountId,
+        )>(value.clone())
         {
-            if !near_runtime_utils::is_valid_account_id(&account_id) {
-                return Err(crate::errors::RpcParseError(format!(
-                    "Invalid account id: {}",
-                    account_id
-                )));
-            }
             let transaction_info = TransactionInfo::TransactionId { hash, account_id };
             Ok(Self { transaction_info })
         } else {

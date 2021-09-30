@@ -19,9 +19,8 @@ use near_primitives::{
     types::{AccountId, EpochInfoProvider, Gas},
     views::{StateItem, ViewApplyState, ViewStateResult},
 };
-use near_runtime_utils::is_valid_account_id;
 use near_store::{get_access_key, get_account, get_code, TrieUpdate};
-use near_vm_logic::ReturnData;
+use near_vm_logic::{ReturnData, ViewConfig};
 use std::{str, sync::Arc, time::Instant};
 
 pub mod errors;
@@ -35,10 +34,7 @@ pub struct TrieViewer {
 
 impl Default for TrieViewer {
     fn default() -> Self {
-        Self {
-            state_size_limit: None,
-            max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt_view,
-        }
+        Self { state_size_limit: None, max_gas_burnt_view: VMLimitConfig::default().max_gas_burnt }
     }
 }
 
@@ -54,12 +50,6 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Account, errors::ViewAccountError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccountError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
-
         get_account(state_update, &account_id)?.ok_or_else(|| {
             errors::ViewAccountError::AccountDoesNotExist {
                 requested_account_id: account_id.clone(),
@@ -86,12 +76,6 @@ impl TrieViewer {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, errors::ViewAccessKeyError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccessKeyError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
-
         get_access_key(state_update, account_id, public_key)?.ok_or_else(|| {
             errors::ViewAccessKeyError::AccessKeyDoesNotExist { public_key: public_key.clone() }
         })
@@ -102,12 +86,6 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, errors::ViewAccessKeyError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewAccessKeyError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
-
         let prefix = trie_key_parsers::get_raw_prefix_for_access_keys(account_id);
         let raw_prefix: &[u8] = prefix.as_ref();
         let access_keys =
@@ -139,15 +117,10 @@ impl TrieViewer {
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, errors::ViewStateError> {
-        if !is_valid_account_id(account_id) {
-            return Err(errors::ViewStateError::InvalidAccountId {
-                requested_account_id: account_id.clone(),
-            });
-        }
         match get_account(state_update, account_id)? {
             Some(account) => {
                 let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
-                    .map(|c| c.code.len() as u64)
+                    .map(|c| c.code().len() as u64)
                     .unwrap_or_default();
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {
@@ -195,11 +168,6 @@ impl TrieViewer {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
-        if !is_valid_account_id(contract_id) {
-            return Err(errors::CallFunctionError::InvalidAccountId {
-                requested_account_id: contract_id.clone(),
-            });
-        }
         let root = state_update.get_root();
         let mut account = get_account(&state_update, contract_id)?.ok_or_else(|| {
             errors::CallFunctionError::AccountDoesNotExist {
@@ -223,11 +191,7 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = Arc::new({
-            let mut cfg = RuntimeConfig::default();
-            cfg.wasm_config.limit_config.max_gas_burnt_view = self.max_gas_burnt_view;
-            cfg
-        });
+        let config = Arc::new(RuntimeConfig::default());
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons
@@ -243,9 +207,6 @@ impl TrieViewer {
             config: config.clone(),
             cache: view_state.cache,
             is_new_chunk: false,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: view_state.evm_chain_id,
-            profile: Default::default(),
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
@@ -260,7 +221,7 @@ impl TrieViewer {
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
             args: args.to_vec(),
-            gas: config.wasm_config.limit_config.max_gas_burnt_view,
+            gas: self.max_gas_burnt_view,
             deposit: 0,
         };
         let (outcome, err) = execute_function_call(
@@ -274,7 +235,7 @@ impl TrieViewer {
             &empty_hash,
             &config,
             true,
-            true,
+            Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view }),
         );
         let elapsed = now.elapsed();
         let time_ms =
@@ -298,271 +259,5 @@ impl TrieViewer {
             };
             Ok(result)
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(feature = "protocol_feature_evm")]
-    use near_chain_configs::TESTNET_EVM_CHAIN_ID;
-    use near_primitives::{
-        test_utils::MockEpochInfoProvider,
-        trie_key::TrieKey,
-        types::{EpochId, StateChangeCause},
-        version::PROTOCOL_VERSION,
-    };
-    use testlib::runtime_utils::{
-        alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
-    };
-
-    use super::*;
-    use near_store::set_account;
-
-    #[test]
-    fn test_view_call() {
-        let (viewer, root) = get_test_trie_viewer();
-
-        let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            prev_block_hash: CryptoHash::default(),
-            block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
-        };
-        let result = viewer.call_function(
-            root,
-            view_state,
-            &AccountId::from("test.contract"),
-            "run_test",
-            &[],
-            &mut logs,
-            &MockEpochInfoProvider::default(),
-        );
-
-        assert_eq!(result.unwrap(), encode_int(10));
-    }
-
-    #[test]
-    fn test_view_call_bad_contract_id() {
-        let (viewer, root) = get_test_trie_viewer();
-
-        let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            prev_block_hash: CryptoHash::default(),
-            block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: TESTNET_EVM_CHAIN_ID,
-        };
-        let result = viewer.call_function(
-            root,
-            view_state,
-            &"bad!contract".to_string(),
-            "run_test",
-            &[],
-            &mut logs,
-            &MockEpochInfoProvider::default(),
-        );
-
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains(r#"Account ID "bad!contract" is invalid"#),
-            "Got different error that doesn't match: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_view_call_try_changing_storage() {
-        let (viewer, root) = get_test_trie_viewer();
-
-        let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            prev_block_hash: CryptoHash::default(),
-            block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: 0x99,
-        };
-        let result = viewer.call_function(
-            root,
-            view_state,
-            &AccountId::from("test.contract"),
-            "run_test_with_storage_change",
-            &[],
-            &mut logs,
-            &MockEpochInfoProvider::default(),
-        );
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains(r#"ProhibitedInView { method_name: "storage_write" }"#),
-            "Got different error that doesn't match: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_view_call_with_args() {
-        let (viewer, root) = get_test_trie_viewer();
-        let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
-        let mut logs = vec![];
-        let view_state = ViewApplyState {
-            block_height: 1,
-            prev_block_hash: CryptoHash::default(),
-            block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: 0x99,
-        };
-        let view_call_result = viewer.call_function(
-            root,
-            view_state,
-            &AccountId::from("test.contract"),
-            "sum_with_input",
-            &args,
-            &mut logs,
-            &MockEpochInfoProvider::default(),
-        );
-        assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
-    }
-
-    #[test]
-    fn test_view_state() {
-        let (_, tries, root) = get_runtime_and_trie();
-        let mut state_update = tries.new_trie_update(0, root);
-        state_update.set(
-            TrieKey::ContractData { account_id: alice_account(), key: b"test123".to_vec() },
-            b"123".to_vec(),
-        );
-        state_update.set(
-            TrieKey::ContractData { account_id: alice_account(), key: b"test321".to_vec() },
-            b"321".to_vec(),
-        );
-        state_update.set(
-            TrieKey::ContractData { account_id: "alina".to_string(), key: b"qqq".to_vec() },
-            b"321".to_vec(),
-        );
-        state_update.set(
-            TrieKey::ContractData { account_id: "alex".to_string(), key: b"qqq".to_vec() },
-            b"321".to_vec(),
-        );
-        state_update.commit(StateChangeCause::InitialState);
-        let trie_changes = state_update.finalize().unwrap().0;
-        let (db_changes, new_root) = tries.apply_all(&trie_changes, 0).unwrap();
-        db_changes.commit().unwrap();
-
-        let state_update = tries.new_trie_update(0, new_root);
-        let trie_viewer = TrieViewer::default();
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
-        assert_eq!(result.proof, Vec::<String>::new());
-        assert_eq!(
-            result.values,
-            [
-                StateItem {
-                    key: "dGVzdDEyMw==".to_string(),
-                    value: "MTIz".to_string(),
-                    proof: vec![]
-                },
-                StateItem {
-                    key: "dGVzdDMyMQ==".to_string(),
-                    value: "MzIx".to_string(),
-                    proof: vec![]
-                }
-            ]
-        );
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"xyz").unwrap();
-        assert_eq!(result.values, []);
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
-        assert_eq!(
-            result.values,
-            [StateItem {
-                key: "dGVzdDEyMw==".to_string(),
-                value: "MTIz".to_string(),
-                proof: vec![]
-            }]
-        );
-    }
-
-    #[test]
-    fn test_view_state_too_large() {
-        let (_, tries, root) = get_runtime_and_trie();
-        let mut state_update = tries.new_trie_update(0, root);
-        set_account(
-            &mut state_update,
-            alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), 50_001),
-        );
-        let trie_viewer = TrieViewer::new(Some(50_000), None);
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
-        assert!(matches!(result, Err(errors::ViewStateError::AccountStateTooLarge { .. })));
-    }
-
-    #[test]
-    fn test_view_state_with_large_contract() {
-        let (_, tries, root) = get_runtime_and_trie();
-        let mut state_update = tries.new_trie_update(0, root);
-        set_account(
-            &mut state_update,
-            alice_account(),
-            &Account::new(0, 0, CryptoHash::default(), 50_001),
-        );
-        state_update.set(
-            TrieKey::ContractCode { account_id: alice_account() },
-            [0; Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE as usize].to_vec(),
-        );
-        let trie_viewer = TrieViewer::new(Some(50_000), None);
-        let result = trie_viewer.view_state(&state_update, &alice_account(), b"");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_log_when_panic() {
-        let (viewer, root) = get_test_trie_viewer();
-        let view_state = ViewApplyState {
-            block_height: 1,
-            prev_block_hash: CryptoHash::default(),
-            block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            epoch_height: 0,
-            block_timestamp: 1,
-            current_protocol_version: PROTOCOL_VERSION,
-            cache: None,
-            #[cfg(feature = "protocol_feature_evm")]
-            evm_chain_id: 0x99,
-        };
-        let mut logs = vec![];
-        viewer
-            .call_function(
-                root,
-                view_state,
-                &AccountId::from("test.contract"),
-                "panic_after_logging",
-                &[],
-                &mut logs,
-                &MockEpochInfoProvider::default(),
-            )
-            .unwrap_err();
-
-        assert_eq!(logs, vec!["hello".to_string()]);
     }
 }

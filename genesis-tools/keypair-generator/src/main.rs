@@ -7,7 +7,7 @@ use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use nearcore::get_default_home;
 
 fn generate_key_to_file(account_id: &str, key: SecretKey, path: PathBuf) {
-    let signer = InMemorySigner::from_secret_key(account_id.to_string(), key);
+    let signer = InMemorySigner::from_secret_key(account_id.parse().unwrap(), key);
     signer.write_to_file(path.as_path());
 }
 
@@ -19,7 +19,7 @@ fn main() {
         .arg(
             Arg::with_name("home")
                 .long("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -98,7 +98,7 @@ fn main() {
             if generate_config {
                 let mut path = home_dir.to_path_buf();
                 path.push(nearcore::config::NODE_KEY_FILE);
-                generate_key_to_file("", key, path);
+                generate_key_to_file("node", key, path);
             }
         }
         (_, _) => unreachable!(),

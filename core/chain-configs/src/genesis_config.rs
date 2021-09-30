@@ -3,9 +3,9 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
+use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::{fmt, io};
 
@@ -14,11 +14,13 @@ use num_rational::Rational;
 use serde::de::{self, DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
+use sha2::digest::Digest;
 use smart_default::SmartDefault;
 
-use near_primitives::epoch_manager::EpochConfig;
+use crate::genesis_validate::validate_genesis;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::NumShards;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -30,22 +32,8 @@ use near_primitives::{
     },
     version::ProtocolVersion,
 };
-use sha2::digest::Digest;
-use std::convert::TryInto;
 
 const MAX_GAS_PRICE: Balance = 10_000_000_000_000_000_000_000;
-
-#[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161556.json
-pub const BETANET_EVM_CHAIN_ID: u64 = 1313161556;
-
-#[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161555.json
-pub const TESTNET_EVM_CHAIN_ID: u64 = 1313161555;
-
-#[cfg(feature = "protocol_feature_evm")]
-/// See https://github.com/ethereum-lists/chains/blob/master/_data/chains/eip155-1313161554.json
-pub const MAINNET_EVM_CHAIN_ID: u64 = 1313161554;
 
 fn default_online_min_threshold() -> Rational {
     Rational::new(90, 100)
@@ -63,6 +51,25 @@ fn default_protocol_upgrade_stake_threshold() -> Rational {
     Rational::new(8, 10)
 }
 
+fn default_shard_layout() -> ShardLayout {
+    ShardLayout::default()
+}
+
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn default_minimum_stake_ratio() -> Rational {
+    Rational::new(160, 1_000_000)
+}
+
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn default_minimum_validators_per_shard() -> u64 {
+    1
+}
+
+#[cfg(feature = "protocol_feature_chunk_only_producers")]
+fn default_num_chunk_only_producer_seats() -> u64 {
+    300
+}
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
@@ -78,6 +85,7 @@ pub struct GenesisConfig {
     /// Number of block producer seats at genesis.
     pub num_block_producer_seats: NumSeats,
     /// Defines number of shards and number of block producer seats per each shard at genesis.
+    /// Note: not used with protocol_feature_chunk_only_producers -- replaced by minimum_validators_per_shard
     pub num_block_producer_seats_per_shard: Vec<NumSeats>,
     /// Expected number of hidden validators per shard.
     pub avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
@@ -132,6 +140,7 @@ pub struct GenesisConfig {
     /// Expected number of blocks per year
     pub num_blocks_per_year: NumBlocks,
     /// Protocol treasury account
+    #[default("near".parse().unwrap())]
     pub protocol_treasury_account: AccountId,
     /// Fishermen stake threshold.
     #[serde(with = "u128_dec_format")]
@@ -140,13 +149,40 @@ pub struct GenesisConfig {
     #[serde(default = "default_minimum_stake_divisor")]
     #[default(10)]
     pub minimum_stake_divisor: u64,
+    /// Layout information regarding how to split accounts to shards
+    #[serde(default = "default_shard_layout")]
+    #[default(ShardLayout::default())]
+    pub shard_layout: ShardLayout,
+    #[default(None)]
+    // TODO: add config for simple nightshade shards
+    pub simple_nightshade_shard_config: Option<ShardConfig>,
+    // For now we are skipping serialization/deserialization of the following
+    // fields. They are only needed with protocol_feature_chunk_only_producers,
+    // however the #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    // attribute seems to not work with the serde default attribute, so I cannot
+    // ignore them in that way. When the feature is stabilized then the serde skip
+    // should be removed.
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_num_chunk_only_producer_seats")]
+    #[default(300)]
+    pub num_chunk_only_producer_seats: NumSeats,
+    /// The minimum number of validators each shard must have
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_minimum_validators_per_shard")]
+    #[default(1)]
+    pub minimum_validators_per_shard: NumSeats,
+    /// The lowest ratio s/s_total any block producer can have.
+    /// See https://github.com/near/NEPs/pull/167 for details
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    #[serde(default = "default_minimum_stake_ratio")]
+    #[default(Rational::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational,
 }
 
 impl From<&GenesisConfig> for EpochConfig {
     fn from(config: &GenesisConfig) -> Self {
         EpochConfig {
             epoch_length: config.epoch_length,
-            num_shards: config.num_block_producer_seats_per_shard.len() as NumShards,
             num_block_producer_seats: config.num_block_producer_seats,
             num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard.clone(),
             avg_hidden_validator_seats_per_shard: config
@@ -160,7 +196,29 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_num_epochs: config.protocol_upgrade_num_epochs,
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
+            shard_layout: config.shard_layout.clone(),
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
+                num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+                minimum_validators_per_shard: config.minimum_validators_per_shard,
+                minimum_stake_ratio: config.minimum_stake_ratio,
+            },
         }
+    }
+}
+
+impl From<&GenesisConfig> for AllEpochConfig {
+    fn from(genesis_config: &GenesisConfig) -> Self {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = Self::new(
+            initial_epoch_config.clone(),
+            genesis_config.simple_nightshade_shard_config.clone(),
+        );
+        debug_assert_eq!(
+            initial_epoch_config,
+            epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
+        );
+        epoch_config
     }
 }
 
@@ -177,6 +235,9 @@ impl From<&GenesisConfig> for EpochConfig {
 )]
 pub struct GenesisRecords(pub Vec<StateRecord>);
 
+/// `Genesis` has an invariant that `total_supply` is equal to the supply seen in the records.
+/// However, we can't enfore that invariant. All fields are public, but the clients are expected to
+/// use the provided methods for instantiation, serialization and deserialization.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Genesis {
     #[serde(flatten)]
@@ -188,10 +249,6 @@ pub struct Genesis {
     /// so they should be processed in streaming fashion with for_each_record.
     #[serde(skip)]
     pub records_file: PathBuf,
-    /// Using zero-size PhantomData is a Rust pattern preventing a structure being constructed
-    /// without calling `new` method, which has some initialization routine.
-    #[serde(skip)]
-    phantom: PhantomData<()>,
 }
 
 impl AsRef<GenesisConfig> for &Genesis {
@@ -241,6 +298,8 @@ impl GenesisConfig {
                         .try_into()
                         .expect("Failed to deserialize validator public key"),
                     account_info.amount,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
             })
             .collect()
@@ -307,18 +366,26 @@ impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
     where
         A: MapAccess<'de>,
     {
+        let mut me = Some(self);
+        let mut has_records_field = false;
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
                 "records" => {
-                    map.next_value_seed(self)?;
-                    return Ok(());
+                    let me =
+                        me.take().ok_or_else(|| de::Error::custom("duplicate field: records"))?;
+                    map.next_value_seed(me)?;
+                    has_records_field = true;
                 }
                 _ => {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
         }
-        Err(de::Error::custom("missing field: records"))
+        if has_records_field {
+            Ok(())
+        } else {
+            Err(de::Error::custom("missing field: records"))
+        }
     }
 }
 
@@ -375,20 +442,24 @@ impl GenesisJsonHasher {
 
 impl Genesis {
     pub fn new(config: GenesisConfig, records: GenesisRecords) -> Self {
-        let mut genesis =
-            Self { config, records, records_file: PathBuf::new(), phantom: PhantomData };
-        genesis.config.total_supply = get_initial_supply(&genesis.records.as_ref());
+        let genesis = Self { config, records, records_file: PathBuf::new() };
+        validate_genesis(&genesis);
         genesis
     }
 
     pub fn new_with_path(config: GenesisConfig, records_file: PathBuf) -> Self {
-        Self { config, records: GenesisRecords(vec![]), records_file, phantom: PhantomData }
+        let genesis = Self { config, records: GenesisRecords(vec![]), records_file };
+        validate_genesis(&genesis);
+        genesis
     }
 
     /// Reads Genesis from a single file.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
         let reader = BufReader::new(File::open(path).expect("Could not open genesis config file."));
-        serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.")
+        let genesis: Genesis =
+            serde_json::from_reader(reader).expect("Failed to deserialize the genesis records.");
+        validate_genesis(&genesis);
+        genesis
     }
 
     /// Reads Genesis from config and records files.
@@ -439,16 +510,6 @@ impl Genesis {
             }
         }
     }
-}
-
-pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
-    let mut total_supply = 0;
-    for record in records {
-        if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount() + account.locked();
-        }
-    }
-    total_supply
 }
 
 // Note: this type cannot be placed in primitives/src/view.rs because of `RuntimeConfig` dependency issues.
@@ -547,5 +608,169 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             fishermen_threshold: config.fishermen_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
         }
+    }
+}
+
+pub fn get_initial_supply(records: &[StateRecord]) -> Balance {
+    let mut total_supply = 0;
+    for record in records {
+        if let StateRecord::Account { account, .. } = record {
+            total_supply += account.amount() + account.locked();
+        }
+    }
+    total_supply
+}
+
+#[cfg(test)]
+mod test {
+    use crate::genesis_config::RecordsProcessor;
+    use near_primitives::state_record::StateRecord;
+    use serde::Deserializer;
+
+    fn stream_records_from_json_str(genesis: &str) -> serde_json::Result<()> {
+        let mut deserializer = serde_json::Deserializer::from_reader(genesis.as_bytes());
+        let records_processor = RecordsProcessor { sink: &mut |_record: StateRecord| {} };
+        deserializer.deserialize_any(records_processor)
+    }
+
+    #[test]
+    fn test_genesis_with_empty_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "records": []
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading empty records");
+    }
+
+    #[test]
+    #[should_panic(expected = "missing field: records")]
+    fn test_genesis_with_no_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random"
+        }"#;
+        stream_records_from_json_str(&genesis).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate field: records")]
+    fn test_genesis_with_several_records_fields() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "records": [{
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }],
+            "b": "random",
+            "records": [{
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }]
+        }"#;
+        stream_records_from_json_str(&genesis).unwrap();
+    }
+
+    #[test]
+    fn test_genesis_with_fields_after_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "records": [
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }
+            ],
+            "c": {
+                "d": 1,
+                "e": []
+            }
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading records with a field after");
+    }
+
+    #[test]
+    fn test_genesis_with_fields_before_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "c": {
+                "d": 1,
+                "e": []
+            },
+            "records": [
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }
+            ]
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
+    }
+
+    #[test]
+    fn test_genesis_with_several_records() {
+        let genesis = r#"{
+            "a": [1, 2],
+            "b": "random",
+            "c": {
+                "d": 1,
+                "e": []
+            },
+            "records": [
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                },
+                {
+                    "Account": {
+                        "account_id": "01.near",
+                        "account": {
+                              "amount": "49999999958035075000000000",
+                              "locked": "0",
+                              "code_hash": "11111111111111111111111111111111",
+                              "storage_usage": 264
+                        }
+                    }
+                }
+            ]
+        }"#;
+        stream_records_from_json_str(&genesis).expect("error reading records from genesis");
     }
 }

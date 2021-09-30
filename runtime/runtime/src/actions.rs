@@ -8,10 +8,9 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, ContractCallError, ExternalError, RuntimeError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum;
 use near_primitives::receipt::{ActionReceipt, Receipt};
 use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee, RuntimeFeesConfig};
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -22,10 +21,6 @@ use near_primitives::utils::create_random_seed;
 use near_primitives::version::{
     is_implicit_account_creation_enabled, ProtocolFeature, ProtocolVersion,
     DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
-};
-use near_runtime_utils::{
-    is_account_evm, is_account_id_64_len_hex, is_valid_account_id, is_valid_sub_account_id,
-    is_valid_top_level_account_id,
 };
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -40,11 +35,10 @@ use near_vm_logic::{VMContext, VMOutcome};
 use crate::config::{safe_add_gas, RuntimeConfig};
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_primitives::config::ViewConfig;
 use near_vm_runner::precompile_contract;
 
 /// Runs given function call with given context / apply state.
-/// Precompiles:
-///  - 0x1: EVM interpreter;
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
     runtime_ext: &mut RuntimeExt,
@@ -56,96 +50,70 @@ pub(crate) fn execute_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    is_view: bool,
+    view_config: Option<ViewConfig>,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let account_id = runtime_ext.account_id();
-    if checked_feature!("protocol_feature_evm", EVM, runtime_ext.protocol_version())
-        && is_account_evm(&account_id)
-    {
-        #[cfg(not(feature = "protocol_feature_evm"))]
-        unreachable!();
-        #[cfg(feature = "protocol_feature_evm")]
-        near_evm_runner::run_evm(
-            runtime_ext,
-            apply_state.evm_chain_id,
-            &config.wasm_config,
-            &config.transaction_costs,
-            &account_id,
-            &action_receipt.signer_id,
-            predecessor_id,
-            account.amount(),
-            function_call.deposit,
-            account.storage_usage(),
-            function_call.method_name.clone(),
-            function_call.args.clone(),
-            function_call.gas,
-            is_view,
-        )
+    let code = match runtime_ext.get_code(account.code_hash()) {
+        Ok(Some(code)) => code,
+        Ok(None) => {
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                account_id: account_id.clone(),
+            });
+            return (None, Some(VMError::FunctionCallError(error)));
+        }
+        Err(e) => {
+            return (
+                None,
+                Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
+                    e.to_string(),
+                ))),
+            );
+        }
+    };
+    // Output data receipts are ignored if the function call is not the last action in the batch.
+    let output_data_receivers: Vec<_> = if is_last_action {
+        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
     } else {
-        let code = match runtime_ext.get_code(account.code_hash()) {
-            Ok(Some(code)) => code,
-            Ok(None) => {
-                let error =
-                    FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                        account_id: account_id.clone(),
-                    });
-                return (None, Some(VMError::FunctionCallError(error)));
-            }
-            Err(e) => {
-                return (
-                    None,
-                    Some(VMError::InconsistentStateError(InconsistentStateError::StorageError(
-                        e.to_string(),
-                    ))),
-                );
-            }
-        };
-        // Output data receipts are ignored if the function call is not the last action in the batch.
-        let output_data_receivers: Vec<_> = if is_last_action {
-            action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
-        } else {
-            vec![]
-        };
-        let random_seed = create_random_seed(
-            apply_state.current_protocol_version,
-            *action_hash,
-            apply_state.random_seed,
-        );
-        let context = VMContext {
-            current_account_id: runtime_ext.account_id().clone(),
-            signer_account_id: action_receipt.signer_id.clone(),
-            signer_account_pk: action_receipt
-                .signer_public_key
-                .try_to_vec()
-                .expect("Failed to serialize"),
-            predecessor_account_id: predecessor_id.clone(),
-            input: function_call.args.clone(),
-            block_index: apply_state.block_index,
-            block_timestamp: apply_state.block_timestamp,
-            epoch_height: apply_state.epoch_height,
-            account_balance: account.amount(),
-            account_locked_balance: account.locked(),
-            storage_usage: account.storage_usage(),
-            attached_deposit: function_call.deposit,
-            prepaid_gas: function_call.gas,
-            random_seed,
-            is_view,
-            output_data_receivers,
-        };
+        vec![]
+    };
+    let random_seed = create_random_seed(
+        apply_state.current_protocol_version,
+        *action_hash,
+        apply_state.random_seed,
+    );
+    let context = VMContext {
+        current_account_id: runtime_ext.account_id().clone(),
+        signer_account_id: action_receipt.signer_id.clone(),
+        signer_account_pk: action_receipt
+            .signer_public_key
+            .try_to_vec()
+            .expect("Failed to serialize"),
+        predecessor_account_id: predecessor_id.clone(),
+        input: function_call.args.clone(),
+        block_index: apply_state.block_index,
+        block_timestamp: apply_state.block_timestamp,
+        epoch_height: apply_state.epoch_height,
+        account_balance: account.amount(),
+        account_locked_balance: account.locked(),
+        storage_usage: account.storage_usage(),
+        attached_deposit: function_call.deposit,
+        prepaid_gas: function_call.gas,
+        random_seed,
+        view_config,
+        output_data_receivers,
+    };
 
-        near_vm_runner::run(
-            &code,
-            &function_call.method_name,
-            runtime_ext,
-            context,
-            &config.wasm_config,
-            &config.transaction_costs,
-            promise_results,
-            apply_state.current_protocol_version,
-            apply_state.cache.as_deref(),
-            &apply_state.profile,
-        )
-    }
+    near_vm_runner::run(
+        &code,
+        &function_call.method_name,
+        runtime_ext,
+        context,
+        &config.wasm_config,
+        &config.transaction_costs,
+        promise_results,
+        apply_state.current_protocol_version,
+        apply_state.cache.as_deref(),
+    )
 }
 
 pub(crate) fn action_function_call(
@@ -193,7 +161,7 @@ pub(crate) fn action_function_call(
         action_hash,
         config,
         is_last_action,
-        false,
+        None,
     );
     let execution_succeeded = match err {
         Some(VMError::FunctionCallError(err)) => match err {
@@ -225,15 +193,14 @@ pub(crate) fn action_function_call(
                 .into());
                 false
             }
-            FunctionCallError::WasmTrap(_)
-            | FunctionCallError::HostError(_)
-            | FunctionCallError::EvmError(_) => {
+            FunctionCallError::WasmTrap(_) | FunctionCallError::HostError(_) => {
                 result.result = Err(ActionErrorKind::FunctionCallError(
                     ContractCallError::ExecutionError { msg: err.to_string() }.into(),
                 )
                 .into());
                 false
             }
+            FunctionCallError::_EVMError => unreachable!(),
         },
         Some(VMError::ExternalError(serialized_error)) => {
             let err: ExternalError = borsh::BorshDeserialize::try_from_slice(&serialized_error)
@@ -267,6 +234,7 @@ pub(crate) fn action_function_call(
         // `FunctionCall`s error.
         result.gas_used = safe_add_gas(result.gas_used, outcome.used_gas)?;
         result.logs.extend(outcome.logs.into_iter());
+        result.profile.merge(&outcome.profile);
         if execution_succeeded {
             account.set_amount(outcome.balance);
             account.set_storage_usage(outcome.storage_usage);
@@ -286,6 +254,7 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
     last_block_hash: &CryptoHash,
     epoch_info_provider: &dyn EpochInfoProvider,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")] is_chunk_only: bool,
 ) -> Result<(), RuntimeError> {
     let increment = stake.stake.saturating_sub(account.locked());
 
@@ -314,6 +283,8 @@ pub(crate) fn action_stake(
             account_id.clone(),
             stake.public_key.clone(),
             stake.stake,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            is_chunk_only,
         ));
         if stake.stake > account.locked() {
             // We've checked above `account.amount >= increment`
@@ -378,10 +349,7 @@ pub(crate) fn action_create_account(
     predecessor_id: &AccountId,
     result: &mut ActionResult,
 ) {
-    // NOTE: The account_id is valid, because the Receipt is validated before.
-    debug_assert!(is_valid_account_id(account_id));
-
-    if is_valid_top_level_account_id(account_id) {
+    if AccountId::is_top_level_account_id(account_id) {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
             && predecessor_id != &account_creation_config.registrar_account_id
         {
@@ -396,7 +364,7 @@ pub(crate) fn action_create_account(
         } else {
             // OK: Valid top-level Account ID
         }
-    } else if !is_valid_sub_account_id(&predecessor_id, account_id) {
+    } else if !account_id.is_sub_account_of(&predecessor_id) {
         // The sub-account can only be created by its root account. E.g. `alice.near` only by `near`
         result.result = Err(ActionErrorKind::CreateAccountNotAllowed {
             account_id: account_id.clone(),
@@ -426,7 +394,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     transfer: &TransferAction,
 ) {
     // NOTE: The account_id is hex like, because we've checked the permissions before.
-    debug_assert!(is_account_id_64_len_hex(account_id));
+    debug_assert!(AccountId::is_implicit(account_id.as_ref()));
 
     *actor_id = account_id.clone();
 
@@ -435,7 +403,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
     let mut public_key_data = Vec::with_capacity(33);
     public_key_data.push(0u8);
     public_key_data.extend(
-        hex::decode(account_id.as_bytes())
+        hex::decode(account_id.as_ref().as_bytes())
             .expect("account id was a valid hex of length 64 resulting in 32 bytes"),
     );
     debug_assert_eq!(public_key_data.len(), 33);
@@ -461,25 +429,32 @@ pub(crate) fn action_deploy_contract(
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
     apply_state: &ApplyState,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-    let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
     account.set_storage_usage(account.storage_usage().checked_sub(prev_code_length).unwrap_or(0));
     account.set_storage_usage(
-        account.storage_usage().checked_add(code.code.len() as u64).ok_or_else(|| {
+        account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
                 "Storage usage integer overflow for account {}",
                 account_id
             ))
         })?,
     );
-    account.set_code_hash(code.get_hash());
+    account.set_code_hash(*code.hash());
     set_code(state_update, account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the database.
     // Note, that contract compilation costs are already accounted in deploy cost using
     // special logic in estimator (see get_runtime_config() function).
-    precompile_contract(&code, &apply_state.config.wasm_config, apply_state.cache.as_deref()).ok();
+    precompile_contract(
+        &code,
+        &apply_state.config.wasm_config,
+        current_protocol_version,
+        apply_state.cache.as_deref(),
+    )
+    .ok();
     Ok(())
 }
 
@@ -488,12 +463,10 @@ pub(crate) fn action_delete_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
-    action_receipt: &ActionReceipt,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
     current_protocol_version: ProtocolVersion,
-    config: &RuntimeFeesConfig,
 ) -> Result<(), StorageError> {
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
@@ -501,7 +474,7 @@ pub(crate) fn action_delete_account(
         let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
         if let Some(code) = contract_code {
             // account storage usage should be larger than code size
-            let code_len = code.code.len() as u64;
+            let code_len = code.code().len() as u64;
             debug_assert!(account_storage_usage > code_len);
             account_storage_usage = account_storage_usage.saturating_sub(code_len);
         }
@@ -516,43 +489,9 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        if checked_feature!("stable", AllowCreateAccountOnDelete, current_protocol_version) {
-            let sender_is_receiver = account_id == &delete_account.beneficiary_id;
-            let is_receiver_implicit =
-                is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_account_id_64_len_hex(&delete_account.beneficiary_id);
-            let exec_gas = config.action_receipt_creation_config.send_fee(sender_is_receiver)
-                + transfer_send_fee(
-                    &config.action_creation_config,
-                    sender_is_receiver,
-                    is_receiver_implicit,
-                );
-            result.gas_burnt += exec_gas;
-            result.gas_used += exec_gas
-                + config.action_receipt_creation_config.exec_fee()
-                + transfer_exec_fee(&config.action_creation_config, is_receiver_implicit);
-
-            result.new_receipts.push(Receipt {
-                predecessor_id: account_id.clone(),
-                receiver_id: delete_account.beneficiary_id.clone(),
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-
-                receipt: ReceiptEnum::Action(ActionReceipt {
-                    signer_id: action_receipt.signer_id.clone(),
-                    signer_public_key: action_receipt.signer_public_key.clone(),
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: vec![],
-                    input_data_ids: vec![],
-                    actions: vec![Action::Transfer(TransferAction { deposit: account_balance })],
-                }),
-            });
-        } else {
-            result
-                .new_receipts
-                .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
-        }
+        result
+            .new_receipts
+            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
     }
     remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id.clone();
@@ -659,6 +598,16 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
         }
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        Action::StakeChunkOnly(_) => {
+            if actor_id != account_id {
+                return Err(ActionErrorKind::ActorNoPermission {
+                    account_id: account_id.clone(),
+                    actor_id: actor_id.clone(),
+                }
+                .into());
+            }
+        }
         Action::DeleteAccount(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
@@ -697,7 +646,7 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 if is_implicit_account_creation_enabled(current_protocol_version)
-                    && is_account_id_64_len_hex(&account_id)
+                    && AccountId::is_implicit(account_id.as_ref())
                 {
                     // If the account doesn't exist and it's 64-length hex account ID, then you
                     // should only be able to create it using single transfer action.
@@ -719,7 +668,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if is_implicit_account_creation_enabled(current_protocol_version)
                     && is_the_only_action
-                    && is_account_id_64_len_hex(&account_id)
+                    && AccountId::is_implicit(account_id.as_ref())
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
@@ -750,6 +699,15 @@ pub(crate) fn check_account_existence(
                 .into());
             }
         }
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        Action::StakeChunkOnly(_) => {
+            if account.is_none() {
+                return Err(ActionErrorKind::AccountDoesNotExist {
+                    account_id: account_id.clone(),
+                }
+                .into());
+            }
+        }
     };
     Ok(())
 }
@@ -761,6 +719,7 @@ mod tests {
     use near_store::test_utils::create_tries;
 
     use super::*;
+    use crate::near_primitives::shard_layout::ShardUId;
 
     fn test_action_create_account(
         account_id: AccountId,
@@ -774,7 +733,7 @@ mod tests {
             &RuntimeFeesConfig::default(),
             &AccountCreationConfig {
                 min_allowed_top_level_account_length: length,
-                registrar_account_id: AccountId::from("registrar"),
+                registrar_account_id: "registrar".parse().unwrap(),
             },
             &mut account,
             &mut actor_id,
@@ -793,32 +752,32 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_top_level_long() {
-        let account_id = AccountId::from("bob_near_long_name");
-        let predecessor_id = AccountId::from("alice.near");
+        let account_id = "bob_near_long_name".parse().unwrap();
+        let predecessor_id = "alice.near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_top_level_by_registrar() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("registrar");
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "registrar".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_valid_sub_account() {
-        let account_id = AccountId::from("alice.near");
-        let predecessor_id = AccountId::from("near");
+        let account_id = "alice.near".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
         let action_result = test_action_create_account(account_id, predecessor_id, 11);
         assert!(action_result.result.is_ok());
     }
 
     #[test]
     fn test_create_account_invalid_sub_account() {
-        let account_id = AccountId::from("alice.near");
-        let predecessor_id = AccountId::from("bob");
+        let account_id = "alice.near".parse::<AccountId>().unwrap();
+        let predecessor_id = "bob".parse::<AccountId>().unwrap();
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
@@ -826,8 +785,8 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountNotAllowed {
-                    account_id: account_id.clone(),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    predecessor_id: predecessor_id,
                 },
             })
         );
@@ -835,8 +794,8 @@ mod tests {
 
     #[test]
     fn test_create_account_invalid_short_top_level() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("near");
+        let account_id = "bob".parse::<AccountId>().unwrap();
+        let predecessor_id = "near".parse::<AccountId>().unwrap();
         let action_result =
             test_action_create_account(account_id.clone(), predecessor_id.clone(), 11);
         assert_eq!(
@@ -844,9 +803,9 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::CreateAccountOnlyByRegistrar {
-                    account_id: account_id.clone(),
-                    registrar_account_id: AccountId::from("registrar"),
-                    predecessor_id: predecessor_id.clone(),
+                    account_id: account_id,
+                    registrar_account_id: "registrar".parse().unwrap(),
+                    predecessor_id: predecessor_id,
                 },
             })
         );
@@ -854,10 +813,9 @@ mod tests {
 
     #[test]
     fn test_create_account_valid_short_top_level_len_allowed() {
-        let account_id = AccountId::from("bob");
-        let predecessor_id = AccountId::from("near");
-        let action_result =
-            test_action_create_account(account_id.clone(), predecessor_id.clone(), 0);
+        let account_id = "bob".parse().unwrap();
+        let predecessor_id = "near".parse().unwrap();
+        let action_result = test_action_create_account(account_id, predecessor_id, 0);
         assert!(action_result.result.is_ok());
     }
 
@@ -870,22 +828,16 @@ mod tests {
         let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".to_string(), 0);
-        let action_receipt = match &receipt.receipt {
-            ReceiptEnum::Action(action_receipt) => action_receipt,
-            _ => unreachable!("Balance refund should be an action receipt"),
-        };
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
         let res = action_delete_account(
             state_update,
             &mut account,
             &mut actor_id,
             &receipt,
-            &action_receipt,
             &mut action_result,
             account_id,
-            &DeleteAccountAction { beneficiary_id: "bob".to_string() },
+            &DeleteAccountAction { beneficiary_id: "bob".parse().unwrap() },
             ProtocolFeature::DeleteActionRestriction.protocol_version(),
-            &RuntimeFeesConfig::default(),
         );
         assert!(res.is_ok());
         action_result
@@ -894,9 +846,9 @@ mod tests {
     #[test]
     fn test_delete_account_too_large() {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
+        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
         let action_result = test_delete_large_account(
-            &"alice".to_string(),
+            &"alice".parse().unwrap(),
             &CryptoHash::default(),
             Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE + 1,
             &mut state_update,
@@ -906,7 +858,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".to_string()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         )
@@ -914,8 +866,8 @@ mod tests {
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
         let tries = create_tries();
-        let mut state_update = tries.new_trie_update(0, CryptoHash::default());
-        let account_id = "alice".to_string();
+        let mut state_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
+        let account_id = "alice".parse::<AccountId>().unwrap();
         let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
         let empty_contract = [0; 10_000].to_vec();
         let contract_hash = hash(&empty_contract);
@@ -939,7 +891,7 @@ mod tests {
             Err(ActionError {
                 index: None,
                 kind: ActionErrorKind::DeleteAccountWithLargeState {
-                    account_id: "alice".to_string()
+                    account_id: "alice".parse().unwrap()
                 }
             })
         );

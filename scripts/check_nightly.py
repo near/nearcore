@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 
 import glob
+import pathlib
 import re
 import sys
-import os
+
+import nayduck
+
 
 expensive_pattern = '#[cfg(feature = "expensive_tests")]'
 test_pattern = '#[test]'
 
 
-def find_first(str1, candidates, start):
-    found = list(filter(lambda x: x[0]>=0, 
-                          map(lambda str2: (str1.find(str2, start), str2),
-                          candidates)))
-    if found:
-        return min(found)
-    else:
+def find_first(data, tokens, start):
+    found = [(data.find(token, start), token) for token in tokens]
+    try:
+        return min((pos, token) for pos, token in found if pos >= 0)
+    except ValueError:
         return -1, None
-    
+
 
 def find_fn(str1, start):
     fn_start = str1.find('fn ', start)
@@ -31,11 +32,10 @@ def expensive_tests_in_file(file):
     with(open(file)) as f:
         content = f.read()
     start = 0
-    ret = []
     while True:
         start = content.find(expensive_pattern, start)
         if start == -1:
-            return ret
+            return
         start += len(expensive_pattern)
         level = 0
         while True:
@@ -52,32 +52,34 @@ def expensive_tests_in_file(file):
             elif tok == test_pattern:
                 fn = find_fn(content, start)
                 if fn:
-                    ret.append(fn)
-    return ret
+                    yield fn
 
 
-def nightly_tests():
-    with open(os.path.join(os.path.dirname(__file__), '../nightly/nightly.txt')) as f:
-        tests = f.readlines()
-    ret = set()
-    for test in tests:
-        t = test.strip().split(' ')
-        if t[0] == 'expensive' or (t[0] == '#' and t[1] == 'expensive') or t[0] == 'lib' or (t[0] == '#' and t[1] == 'lib'):
-            # It's okay to comment out a test intentionally
-            ret.add(t[-1].split('::')[-1])
-    return ret
+def nightly_tests(repo_dir):
+    for test in nayduck.read_tests_from_file(
+            repo_dir / nayduck.DEFAULT_TEST_FILE, include_comments=True):
+        t = test.split()
+        try:
+            # It's okay to comment out a test intentionally.
+            if t[t[0] == '#'] in ('expensive', '#expensive'):
+                yield t[-1].split('::')[-1]
+        except IndexError:
+            pass
 
-if __name__ == '__main__':
-    nightly_txt_tests = nightly_tests()
-    rust_src = glob.glob(os.path.join(os.path.dirname(__file__), '../') + '**/*.rs', recursive=True)
-    rust_src = list(filter(lambda f: f.find('/target/') == -1, rust_src))
-    for rs in rust_src:
-        rs = os.path.abspath(rs)
+def main():
+    repo_dir = pathlib.Path(__file__).parent.parent
+    nightly_txt_tests = set(nightly_tests(repo_dir))
+    for rs in glob.glob(str(repo_dir / '**/*.rs'), recursive=True):
+        if '/target/' in rs:
+            continue
         print(f'checking file {rs}')
-        expensive_tests = expensive_tests_in_file(rs)
-        for t in expensive_tests:
+        for t in expensive_tests_in_file(rs):
             print(f'  expensive test {t}')
             if t not in nightly_txt_tests:
-                print(f'error: file {rs} test {t} not in nightly.txt')
-                exit(1)
+                return f'error: file {rs} test {t} not in nightly.txt'
     print('all tests in nightly')
+    return None
+
+
+if __name__ == '__main__':
+    sys.exit(main())

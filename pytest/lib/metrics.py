@@ -67,7 +67,8 @@ class Metrics:
         memory_usage = final_metrics.memory_usage - initial_metrics.memory_usage
         total_transactions = final_metrics.total_transactions - initial_metrics.total_transactions
         timestamp = final_metrics.timestamp - initial_metrics.timestamp
-        blocks_per_second = (final_metrics.blocks_per_second + initial_metrics.blocks_per_second) / 2.0
+        blocks_per_second = (final_metrics.blocks_per_second +
+                             initial_metrics.blocks_per_second) / 2.0
         block_processing_time = {}
         for sample in final_metrics.block_processing_time.keys():
             block_processing_time[sample] = final_metrics.block_processing_time[

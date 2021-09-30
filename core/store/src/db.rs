@@ -6,10 +6,8 @@ use std::marker::PhantomPinned;
 use std::sync::RwLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "single_thread_rocksdb")]
-use rocksdb::Env;
 use rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, IteratorMode,
+    BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, Direction, Env, IteratorMode,
     Options, ReadOptions, WriteBatch, DB,
 };
 use strum::EnumIter;
@@ -121,10 +119,12 @@ pub enum DBCol {
     ColEpochValidatorInfo = 47,
     /// Header Hashes indexed by Height
     ColHeaderHashesByHeight = 48,
+    /// State changes made by a chunk, used for splitting states
+    ColStateChangesForSplitStates = 49,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 49;
+pub const NUM_COLS: usize = 50;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -178,6 +178,9 @@ impl std::fmt::Display for DBCol {
             Self::ColCachedContractCode => "cached code",
             Self::ColEpochValidatorInfo => "epoch validator info",
             Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
+            Self::ColStateChangesForSplitStates => {
+                "state changes indexed by block hash and shard id"
+            }
         };
         write!(formatter, "{}", desc)
     }
@@ -675,7 +678,7 @@ fn rocksdb_column_options(col: DBCol) -> Options {
     opts.set_target_file_size_base(1024 * 1024 * 64);
     opts.set_compression_per_level(&[]);
     if col.is_rc() {
-        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, None);
+        opts.set_merge_operator("refcount merge", RocksDB::refcount_merge, RocksDB::refcount_merge);
         opts.set_compaction_filter("empty value filter", RocksDB::empty_value_compaction_filter);
     }
     opts
@@ -751,13 +754,15 @@ impl PreWriteCheckErr {
     }
 }
 
-#[cfg(feature = "single_thread_rocksdb")]
 impl Drop for RocksDB {
     fn drop(&mut self) {
-        // RocksDB with only one thread stuck on wait some condition var
-        // Turn on additional threads to proceed
-        let mut env = Env::default().unwrap();
-        env.set_background_threads(4);
+        if cfg!(feature = "single_thread_rocksdb") {
+            // RocksDB with only one thread stuck on wait some condition var
+            // Turn on additional threads to proceed
+            let mut env = Env::default().unwrap();
+            env.set_background_threads(4);
+        }
+        self.db.cancel_all_background_work(true);
     }
 }
 
@@ -777,10 +782,10 @@ mod tests {
     impl RocksDB {
         #[cfg(not(feature = "single_thread_rocksdb"))]
         fn compact(&self, col: DBCol) {
-            self.db.compact_range_cf::<&[u8], &[u8]>(
+            self.db.compact_range_cf(
                 unsafe { &*self.cfs[col as usize] },
-                None,
-                None,
+                Option::<&[u8]>::None,
+                Option::<&[u8]>::None,
             );
         }
 
@@ -799,14 +804,14 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::new(tmp_dir.path().to_str().unwrap()).unwrap();
+        let store = RocksDB::new(tmp_dir).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let store = create_store(tmp_dir.path());
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -827,7 +832,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let store = create_store(tmp_dir.path());
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);

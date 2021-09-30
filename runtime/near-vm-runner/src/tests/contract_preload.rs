@@ -8,7 +8,6 @@ use crate::errors::ContractPrecompilatonResult;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use near_vm_logic::profile::ProfileData;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
@@ -16,10 +15,10 @@ use std::time::Duration;
 
 fn default_vm_context() -> VMContext {
     return VMContext {
-        current_account_id: "alice".to_string(),
-        signer_account_id: "bob".to_string(),
+        current_account_id: "alice".parse().unwrap(),
+        signer_account_id: "bob".parse().unwrap(),
         signer_account_pk: vec![0, 1, 2],
-        predecessor_account_id: "carol".to_string(),
+        predecessor_account_id: "carol".parse().unwrap(),
         input: vec![],
         block_index: 1,
         block_timestamp: 1586796191203000000,
@@ -29,7 +28,7 @@ fn default_vm_context() -> VMContext {
         attached_deposit: 0,
         prepaid_gas: 10u64.pow(18),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: None,
         output_data_receivers: vec![],
         epoch_height: 1,
     };
@@ -105,7 +104,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
         Some(Arc::new(MockCompiledContractCache::new(0)));
     let fees = RuntimeFeesConfig::default();
     let promise_results = vec![];
-    let profile_data = ProfileData::new();
     let mut oks = 0;
     let mut errs = 0;
 
@@ -132,7 +130,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &fees,
                 &promise_results,
                 ProtocolVersion::MAX,
-                profile_data.clone(),
             );
             let (ok, err) = test_result(result, true);
             oks += ok;
@@ -151,7 +148,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 vm_kind,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
-                profile_data.clone(),
             );
             let (ok, err) = test_result(result1, false);
             oks += ok;
@@ -167,7 +163,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 vm_kind,
                 ProtocolVersion::MAX,
                 cache.as_deref(),
-                profile_data.clone(),
             );
             let (ok, err) = test_result(result2, false);
             oks += ok;
@@ -183,16 +178,16 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
 pub fn test_run_sequential() {
     #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(false, VMKind::Wasmer0, 100);
-    #[cfg(feature = "wasmer1_vm")]
-    test_vm_runner(false, VMKind::Wasmer1, 100);
+    #[cfg(feature = "wasmer2_vm")]
+    test_vm_runner(false, VMKind::Wasmer2, 100);
 }
 
 #[test]
 pub fn test_run_preloaded() {
     #[cfg(feature = "wasmer0_vm")]
     test_vm_runner(true, VMKind::Wasmer0, 100);
-    #[cfg(feature = "wasmer1_vm")]
-    test_vm_runner(true, VMKind::Wasmer1, 100);
+    #[cfg(feature = "wasmer2_vm")]
+    test_vm_runner(true, VMKind::Wasmer2, 100);
 }
 
 fn test_precompile_vm(vm_kind: VMKind) {
@@ -223,6 +218,6 @@ fn test_precompile_vm(vm_kind: VMKind) {
 pub fn test_precompile() {
     #[cfg(feature = "wasmer0_vm")]
     test_precompile_vm(VMKind::Wasmer0);
-    #[cfg(feature = "wasmer1_vm")]
-    test_precompile_vm(VMKind::Wasmer1);
+    #[cfg(feature = "wasmer2_vm")]
+    test_precompile_vm(VMKind::Wasmer2);
 }

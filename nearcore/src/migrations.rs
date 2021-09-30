@@ -1,19 +1,26 @@
 use crate::{NearConfig, NightshadeRuntime};
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
-use near_primitives::epoch_manager::EpochConfig;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
-use near_primitives::types::Gas;
+use near_primitives::transaction::{
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
+    ExecutionStatus, LogEntry,
+};
+use near_primitives::types::{AccountId, Balance, Gas};
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::migrations::set_store_version;
+use near_store::db::DBCol::ColReceipts;
+use near_store::migrations::{set_store_version, BatchedStoreUpdate};
 use near_store::{create_store, DBCol, StoreUpdate};
 use std::path::Path;
 
@@ -61,6 +68,7 @@ fn apply_block_at_height(
         .apply_transactions(
             shard_id,
             &chunk_header.prev_state_root(),
+            None,
             block_height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
@@ -88,7 +96,7 @@ fn apply_block_at_height(
     Ok(())
 }
 
-pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
+pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if !near_config.client_config.archive {
         // Non archival node. Perform a simply migration without necessarily fixing the inconsistencies
@@ -105,13 +113,14 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
         let runtime = NightshadeRuntime::new(
-            &Path::new(path),
+            path,
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
@@ -137,15 +146,16 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 13);
 }
 
-pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
+pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
     use near_primitives::types::EpochId;
     let store = create_store(path);
     if near_config.client_config.archive {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let epoch_config = EpochConfig::from(&near_config.genesis.config);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
-            EpochConfig::from(&near_config.genesis.config),
+            AllEpochConfig::new(epoch_config, None),
             near_config.genesis.config.protocol_version,
             RewardCalculator::new(&near_config.genesis.config),
             near_config.genesis.config.validators(),
@@ -208,22 +218,24 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 19);
 }
 
-pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
+pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
         let runtime = NightshadeRuntime::new(
-            &Path::new(path),
+            path,
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let shard_id = 0;
+        let shard_uid = ShardUId::default();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let start_height = 34691244;
         for block_height in start_height..=head.height {
@@ -232,7 +244,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                 if block.chunks()[shard_id as usize].height_included() != block.header().height() {
                     let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
                     let new_extra = chain_store_update
-                        .get_chunk_extra(block.header().prev_hash(), shard_id)
+                        .get_chunk_extra(block.header().prev_hash(), &shard_uid)
                         .unwrap()
                         .clone();
 
@@ -240,6 +252,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                         .apply_transactions(
                             shard_id,
                             new_extra.state_root(),
+                            None,
                             block.header().height(),
                             block.header().raw_timestamp(),
                             block.header().prev_hash(),
@@ -276,19 +289,20 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
 }
 
 /// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
-pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
+pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let runtime = NightshadeRuntime::new(
-            &Path::new(path),
+            path,
             store.clone(),
             &near_config.genesis,
             near_config.client_config.tracked_accounts.clone(),
             near_config.client_config.tracked_shards.clone(),
             None,
             None,
+            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
         );
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -316,6 +330,7 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
                     .apply_transactions(
                         shard_id,
                         &chunk_header.prev_state_root(),
+                        None,
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),
@@ -350,6 +365,150 @@ pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
 }
 
 lazy_static_include::lazy_static_include_bytes! {
+    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
+    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
+    /// See https://github.com/near/nearcore/pull/4248/ for more details.
+    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
+}
+
+/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
+pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
+    let store = create_store(path);
+    if &near_config.genesis.config.chain_id == "mainnet" {
+        let mut store_update = store.store_update();
+        let restored_receipts: ReceiptResult = serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
+            .expect("File with receipts restored after apply_chunks fix have to be correct");
+        for receipt in restored_receipts.get(&0u64).unwrap().iter() {
+            let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+            store_update.update_refcount(ColReceipts, receipt.get_hash().as_ref(), &bytes, 1);
+        }
+        store_update.commit().unwrap();
+    }
+    set_store_version(&store, 24);
+}
+
+pub fn migrate_24_to_25(path: &Path) {
+    use smart_default::SmartDefault;
+
+    let store = create_store(path);
+
+    #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, SmartDefault, Eq, Debug)]
+    pub struct OldExecutionOutcome {
+        pub logs: Vec<LogEntry>,
+        pub receipt_ids: Vec<CryptoHash>,
+        pub gas_burnt: Gas,
+        pub tokens_burnt: Balance,
+        #[default(AccountId::test_account())]
+        pub executor_id: AccountId,
+        pub status: ExecutionStatus,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithId {
+        pub id: CryptoHash,
+        pub outcome: OldExecutionOutcome,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    pub struct OldExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+        pub outcome_with_id: OldExecutionOutcomeWithId,
+    }
+
+    #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize, Eq)]
+    // In the case of old execution outcome hadn't migrated and failed to deserialize (inside
+    // error enums in ExecutionOutcome, so we can still get the first block_hash)
+    pub struct PartialExecutionOutcomeWithIdAndProof {
+        pub proof: MerklePath,
+        pub block_hash: CryptoHash,
+    }
+
+    impl Into<ExecutionOutcomeWithIdAndProof> for OldExecutionOutcomeWithIdAndProof {
+        fn into(self) -> ExecutionOutcomeWithIdAndProof {
+            ExecutionOutcomeWithIdAndProof {
+                proof: self.proof,
+                block_hash: self.block_hash,
+                outcome_with_id: ExecutionOutcomeWithId {
+                    id: self.outcome_with_id.id,
+                    outcome: ExecutionOutcome {
+                        logs: self.outcome_with_id.outcome.logs,
+                        receipt_ids: self.outcome_with_id.outcome.receipt_ids,
+                        gas_burnt: self.outcome_with_id.outcome.gas_burnt,
+                        tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
+                        executor_id: self.outcome_with_id.outcome.executor_id,
+                        status: self.outcome_with_id.outcome.status,
+                        metadata: ExecutionMetadata::V1,
+                    },
+                },
+            }
+        }
+    }
+
+    let mut store_update = BatchedStoreUpdate::new(&store, 10_000_000);
+    for (key, value) in store.iter(DBCol::ColTransactionResult) {
+        if Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&value).is_ok() {
+            // has success in previous attempt of this migration
+            continue;
+        }
+
+        let old_outcomes = Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&value);
+        let old_outcomes = match old_outcomes {
+            Ok(old_outcomes) => old_outcomes,
+            _ => {
+                // try_from_slice will not success if there's remaining bytes, so it must be exactly one OldExecutionOutcomeWithIdAndProof
+                if let Ok(old_outcome) = OldExecutionOutcomeWithIdAndProof::try_from_slice(&value) {
+                    println!(
+                        "! Format Changed. Check outcome id, block hash for indexer: {},{}",
+                        old_outcome.outcome_with_id.id, old_outcome.block_hash
+                    );
+                    vec![old_outcome]
+                } else {
+                    let mut v2: Vec<u8> = value.clone().into();
+                    use std::convert::TryFrom;
+                    // We investigate how deserialization went wrong, by manually borsh deserialize struct field-by-field and found
+                    // the problem comes from https://github.com/near/nearcore/commit/6c3c2f7475a5e8c258a39ed94f11f6a8a7b2108e, where
+                    // where MethodUTF8Error was dropped without a migration, which lead to deser index 3 of MethodResolveError
+                    // error. We compare bytes here to try recovery this case and still panic in case we hit other cases. This only
+                    // happened at testnet archival node.
+                    if &v2[0..4] == [1, 0, 0, 0] {
+                        // ensure there's one execution outcome
+                        if &v2[v2.len() - 3..] == [12, 2, 3] {
+                            // FunctionCallError (12), MethodResolveError (2), MethodInvalidSignature (used to be 3)
+                            let last = v2.len() - 1;
+                            v2[last] = 2; // MethodInvalidSignature error is now at index 2.
+                            let old_outcomes =
+                                Vec::<OldExecutionOutcomeWithIdAndProof>::try_from_slice(&v2)
+                                    .unwrap();
+                            println!(
+                                "! Byte Changed. Check outcome id, block hash for indexer: {},{}",
+                                old_outcomes[0].outcome_with_id.id, old_outcomes[0].block_hash
+                            );
+                            old_outcomes
+                        } else {
+                            unimplemented!(
+                                "Unknown corruption for outcome: {}",
+                                CryptoHash::try_from(key.as_ref()).unwrap()
+                            );
+                        }
+                    } else {
+                        unimplemented!("More than one execution outcome not supported",);
+                    }
+                }
+            }
+        };
+        let outcomes: Vec<ExecutionOutcomeWithIdAndProof> =
+            old_outcomes.into_iter().map(|outcome| outcome.into()).collect();
+        store_update
+            .set_ser(DBCol::ColTransactionResult, key.as_ref(), &outcomes)
+            .expect("BorshSerialize should not fail");
+    }
+    store_update.finish().expect("Failed to migrate");
+
+    set_store_version(&store, 25);
+}
+
+lazy_static_include::lazy_static_include_bytes! {
     /// File with account ids and deltas that need to be applied in order to fix storage usage
     /// difference between actual and stored usage, introduced due to bug in access key deletion,
     /// see https://github.com/near/nearcore/issues/3824
@@ -360,14 +519,6 @@ lazy_static_include::lazy_static_include_bytes! {
 /// In test runs reads and writes here used 442 TGas, but in test on live net migration take
 /// between 4 and 4.5s. We do not want to process any receipts in this block
 const GAS_USED_FOR_STORAGE_USAGE_DELTA_MIGRATION: Gas = 1_000_000_000_000_000;
-
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-lazy_static_include::lazy_static_include_bytes! {
-    /// File with receipts which were lost because of a bug in apply_chunks to the runtime config.
-    /// Follows the ReceiptResult format which is HashMap<ShardId, Vec<Receipt>>.
-    /// See https://github.com/near/nearcore/pull/4248/ for more details.
-    MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
-}
 
 pub fn load_migration_data(chain_id: &String) -> MigrationData {
     let is_mainnet = chain_id == "mainnet";
@@ -382,7 +533,6 @@ pub fn load_migration_data(chain_id: &String) -> MigrationData {
         } else {
             0
         },
-        #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
         restored_receipts: if is_mainnet {
             serde_json::from_slice(&MAINNET_RESTORED_RECEIPTS)
                 .expect("File with receipts restored after apply_chunks fix have to be correct")
@@ -411,7 +561,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn test_restored_receipts_data() {
         assert_eq!(
             to_base(&hash(&MAINNET_RESTORED_RECEIPTS)),

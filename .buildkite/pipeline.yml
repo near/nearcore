@@ -1,7 +1,7 @@
 steps:
   - label: "cargo test"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       RUSTFLAGS='-D warnings' cargo test --locked --workspace
 
     timeout: 60
@@ -11,8 +11,8 @@ steps:
 
   - label: "cargo test nightly"
     command: |
-      source ~/.cargo/env
-      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features,protocol_feature_evm
+      source ~/.cargo/env && set -eux
+      RUSTFLAGS='-D warnings' cargo test --workspace --features nightly_protocol,nightly_protocol_features
 
     timeout: 60
     agents:
@@ -21,8 +21,7 @@ steps:
 
   - label: "sanity checks"
     command: |
-      source ~/.cargo/env
-      set -ex
+      source ~/.cargo/env && set -eux
       rustc --version && cargo --version
       if [ -e deny.toml ]; then
         cargo-deny --all-features check bans
@@ -34,6 +33,7 @@ steps:
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
       python3 scripts/state/update_res.py check
       python3 scripts/check_nightly.py
+      python3 scripts/check_pytests.py
     timeout: 30
     agents:
     - "distro=amazonlinux"
@@ -41,7 +41,7 @@ steps:
 
   - label: "nearlib test"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       source ~/.nvm/nvm.sh
       source ~/.yarn/yarn.sh
       rustup default nightly-2020-05-15
@@ -54,7 +54,7 @@ steps:
 
   - label: "backward compatible"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       pwd
@@ -68,7 +68,7 @@ steps:
 
   - label: "upgradable"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
@@ -79,7 +79,7 @@ steps:
 
   - label: "db migration"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/db_migration.py
@@ -90,14 +90,12 @@ steps:
 
   - label: "runtime params estimate"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       cd runtime/runtime-params-estimator/test-contract
       rustup target add wasm32-unknown-unknown
       ./build.sh
       cd ..
-      RUSTFLAGS='-D warnings' cargo run --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-      RUSTFLAGS='-D warnings' cargo run --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
-      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1 --metric time
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
 
     branches: "!master !beta !stable"
     timeout: 60
@@ -111,7 +109,7 @@ steps:
   # Disable rainbow bridge tests as they are temporary broken
   # - label: "rainbow-bridge test"
   #   command: |
-  #    source ~/.cargo/env
+  #    source ~/.cargo/env && set -eux
   #    source ~/.nvm/nvm.sh
 
   #    git clone https://github.com/near/rainbow-bridge
@@ -130,7 +128,7 @@ steps:
 
   - label: "cargo check nearcore library (without Cargo.lock)"
     command: |
-      source ~/.cargo/env
+      source ~/.cargo/env && set -eux
       rm Cargo.lock
       cd nearcore
       RUSTFLAGS='-D warnings' cargo check

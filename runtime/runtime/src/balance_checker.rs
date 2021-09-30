@@ -13,7 +13,6 @@ use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::utils::system_account;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
@@ -102,7 +101,7 @@ pub(crate) fn check_balance(
         Ok(match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) => {
                 let mut total_cost = total_deposit(&action_receipt.actions)?;
-                if receipt.predecessor_id != system_account() {
+                if !AccountId::is_system(&receipt.predecessor_id) {
                     let mut total_gas = safe_add_gas(
                         transaction_costs.action_receipt_creation_config.exec_fee(),
                         total_prepaid_exec_fees(
@@ -234,6 +233,7 @@ mod tests {
     use near_store::test_utils::create_tries;
     use testlib::runtime_utils::{alice_account, bob_account};
 
+    use crate::near_primitives::shard_layout::ShardUId;
     use assert_matches::assert_matches;
     use near_primitives::version::PROTOCOL_VERSION;
 
@@ -247,8 +247,8 @@ mod tests {
     fn test_check_balance_no_op() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(0, root);
-        let final_state = tries.new_trie_update(0, root);
+        let initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let final_state = tries.new_trie_update(ShardUId::default(), root);
         let transaction_costs = RuntimeFeesConfig::default();
         check_balance(
             &transaction_costs,
@@ -268,8 +268,8 @@ mod tests {
     fn test_check_balance_unaccounted_refund() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(0, root);
-        let final_state = tries.new_trie_update(0, root);
+        let initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let final_state = tries.new_trie_update(ShardUId::default(), root);
         let transaction_costs = RuntimeFeesConfig::default();
         let err = check_balance(
             &transaction_costs,
@@ -295,12 +295,12 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = tries.new_trie_update(0, root);
+        let mut final_state = tries.new_trie_update(ShardUId::default(), root);
         let final_account = account_new(initial_balance + refund_balance, hash(&[]));
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
@@ -337,12 +337,12 @@ mod tests {
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = tries.new_trie_update(0, root);
+        let mut final_state = tries.new_trie_update(ShardUId::default(), root);
         let final_account = account_new(
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
@@ -351,10 +351,11 @@ mod tests {
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let tx = SignedTransaction::send_money(
             1,
-            account_id.clone(),
+            account_id,
             bob_account(),
             &signer,
             deposit,
@@ -402,7 +403,7 @@ mod tests {
         let gas_price = 100;
         let deposit = 1000;
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         let alice = account_new(std::u128::MAX, hash(&[]));
         let bob = account_new(1u128, hash(&[]));
 
@@ -410,16 +411,11 @@ mod tests {
         set_account(&mut initial_state, bob_id.clone(), &bob);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let signer = InMemorySigner::from_seed(&alice_id, KeyType::ED25519, &alice_id);
+        let signer =
+            InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
 
-        let tx = SignedTransaction::send_money(
-            0,
-            alice_id.clone(),
-            bob_id.clone(),
-            &signer,
-            1,
-            CryptoHash::default(),
-        );
+        let tx =
+            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
 
         let receipt = Receipt {
             predecessor_id: tx.transaction.signer_id.clone(),

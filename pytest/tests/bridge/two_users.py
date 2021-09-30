@@ -5,9 +5,9 @@
 # If `no_txs_in_parallel`, no txs will be executed in parallel.
 
 import sys, time
+
 sys.path.append('lib')
 from configured_logger import logger
-
 
 same_amount = False
 if 'same_amount' in sys.argv:
@@ -21,7 +21,7 @@ no_txs_in_parallel = False
 if 'no_txs_in_parallel' in sys.argv:
     no_txs_in_parallel = True
 
-assert not (no_txs_in_same_block and no_txs_in_parallel) # to avoid errors
+assert not (no_txs_in_same_block and no_txs_in_parallel)  # to avoid errors
 
 alice_amount = 123
 bob_amount = 15
@@ -56,7 +56,8 @@ bob_amount = bob_amount // 2
 txs = []
 txs.append(bridge.transfer_near2eth(alice, alice_amount))
 if no_txs_in_same_block:
-    time.sleep(bridge_cluster_config_changes['consensus']['min_block_production_delay']['secs'] + 2)
+    time.sleep(bridge_cluster_config_changes['consensus']
+               ['min_block_production_delay']['secs'] + 2)
 if no_txs_in_parallel:
     [p.join() for p in txs]
 txs.append(bridge.transfer_near2eth(bob, bob_amount))
@@ -65,6 +66,5 @@ txs.append(bridge.transfer_near2eth(bob, bob_amount))
 assert exit_codes == [0 for _ in txs]
 bridge.check_balances(alice)
 bridge.check_balances(bob)
-
 
 logger.info('EPIC')

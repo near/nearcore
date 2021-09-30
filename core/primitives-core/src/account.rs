@@ -2,9 +2,11 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use std::io;
 
+pub use near_account_id as id;
+
 use crate::hash::CryptoHash;
 use crate::serialize::{option_u128_dec_format, u128_dec_format_compatible};
-use crate::types::{AccountId, Balance, Nonce, StorageUsage};
+use crate::types::{Balance, Nonce, StorageUsage};
 #[derive(
     BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy,
 )]
@@ -197,8 +199,11 @@ pub struct FunctionCallPermission {
     #[serde(with = "option_u128_dec_format")]
     pub allowance: Option<Balance>,
 
+    // This isn't an AccountId because already existing records in testnet genesis have invalid
+    // values for this field (see: https://github.com/near/nearcore/pull/4621#issuecomment-892099860)
+    // we accomodate those by using a string, allowing us to read and parse genesis.
     /// The access key only allows transactions with the given receiver's account id.
-    pub receiver_id: AccountId,
+    pub receiver_id: String,
 
     /// A list of method names that can be used. The access key only allows transactions with the
     /// function call of one of the given method names.

@@ -482,7 +482,10 @@ async fn construction_derive(
     }
 
     Ok(Json(models::ConstructionDeriveResponse {
-        account_identifier: models::AccountIdentifier { address, sub_account: None },
+        account_identifier: models::AccountIdentifier {
+            address: address.parse().unwrap(),
+            sub_account: None,
+        },
     }))
 }
 
@@ -883,7 +886,7 @@ pub fn start_rosetta_rpc(
     genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-) {
+) -> actix_web::dev::Server {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
     HttpServer::new(move || {
         let json_config = web::JsonConfig::default()
@@ -947,5 +950,7 @@ pub fn start_rosetta_rpc(
     })
     .bind(addr)
     .unwrap()
-    .run();
+    .shutdown_timeout(5)
+    .disable_signals()
+    .run()
 }

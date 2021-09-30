@@ -1,14 +1,15 @@
 //! Tools for creating a genesis block.
 
+pub mod state_dump;
+
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Write;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use borsh::BorshSerialize;
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::state_dump::StateDump;
 use near_chain::types::BlockHeaderInfo;
 use near_chain::{Block, Chain, ChainStore, RuntimeAdapter};
 use near_chain_configs::Genesis;
@@ -17,16 +18,18 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, ColState, Store, TrieUpdate,
+    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
 use nearcore::{get_store_path, NightshadeRuntime};
 
-fn get_account_id(account_index: u64) -> String {
-    format!("near_{}_{}", account_index, account_index)
+fn get_account_id(account_index: u64) -> AccountId {
+    AccountId::try_from(format!("near_{}_{}", account_index, account_index)).unwrap()
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -68,6 +71,7 @@ impl GenesisBuilder {
             vec![],
             None,
             None,
+            RuntimeConfigStore::new(Some(&genesis.config.runtime_config)),
         );
         Self {
             home_dir: home_dir.to_path_buf(),
@@ -109,18 +113,26 @@ impl GenesisBuilder {
     pub fn build(mut self) -> Result<Self> {
         // First, apply whatever is defined by the genesis config.
         let (_store, roots) = self.runtime.genesis_state();
+        let genesis_shard_version = self.genesis.config.shard_layout.version();
         self.roots = roots.into_iter().enumerate().map(|(k, v)| (k as u64, v)).collect();
         self.state_updates = self
             .roots
             .iter()
             .map(|(shard_idx, root)| {
-                (*shard_idx, self.runtime.get_tries().new_trie_update(*shard_idx, *root))
+                (
+                    *shard_idx,
+                    self.runtime.get_tries().new_trie_update(
+                        ShardUId { version: genesis_shard_version, shard_id: *shard_idx as u32 },
+                        *root,
+                    ),
+                )
             })
             .collect();
         self.unflushed_records =
             self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
 
-        let total_accounts_num = self.additional_accounts_num * self.runtime.num_shards();
+        let num_shards = self.genesis.config.shard_layout.num_shards();
+        let total_accounts_num = self.additional_accounts_num * num_shards;
         let bar = ProgressBar::new(total_accounts_num as _);
         bar.set_style(ProgressStyle::default_bar().template(
             "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
@@ -132,7 +144,7 @@ impl GenesisBuilder {
             bar.inc(1);
         }
 
-        for shard_id in 0..self.runtime.num_shards() {
+        for shard_id in 0..num_shards {
             self.flush_shard_records(shard_id)?;
         }
         bar.finish();
@@ -141,17 +153,9 @@ impl GenesisBuilder {
     }
 
     pub fn dump_state(self) -> Result<Self> {
-        let mut dump_path = self.home_dir.clone();
-        dump_path.push("state_dump");
-        self.store.save_to_file(ColState, dump_path.as_path())?;
-        {
-            let mut roots_files = self.home_dir.clone();
-            roots_files.push("genesis_roots");
-            let mut file = File::create(roots_files)?;
-            let roots: Vec<_> = self.roots.values().cloned().collect();
-            let data = roots.try_to_vec()?;
-            file.write_all(&data)?;
-        }
+        let state_dump =
+            StateDump { store: self.store.clone(), roots: self.roots.values().cloned().collect() };
+        state_dump.save_to_dir(self.home_dir.clone())?;
         Ok(self)
     }
 
@@ -177,18 +181,20 @@ impl GenesisBuilder {
         let tries = self.runtime.get_tries();
         state_update.commit(StateChangeCause::InitialState);
         let trie_changes = state_update.finalize()?.0;
-        let (store_update, root) = tries.apply_all(&trie_changes, shard_idx)?;
+        let genesis_shard_version = self.genesis.config.shard_layout.version();
+        let shard_uid = ShardUId { version: genesis_shard_version, shard_id: shard_idx as u32 };
+        let (store_update, root) = tries.apply_all(&trie_changes, shard_uid)?;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
-        self.state_updates.insert(shard_idx, tries.new_trie_update(shard_idx, root));
+        self.state_updates.insert(shard_idx, tries.new_trie_update(shard_uid, root));
         Ok(())
     }
 
     fn write_genesis_block(&mut self) -> Result<()> {
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
-            self.runtime.num_shards(),
+            self.genesis.config.shard_layout.num_shards(),
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
             self.genesis.config.protocol_version,
@@ -219,7 +225,10 @@ impl GenesisBuilder {
         for (chunk_header, state_root) in genesis.chunks().iter().zip(self.roots.values()) {
             store_update.save_chunk_extra(
                 &genesis.hash(),
-                chunk_header.shard_id(),
+                &ShardUId::from_shard_id_and_layout(
+                    chunk_header.shard_id(),
+                    &self.genesis.config.shard_layout,
+                ),
                 ChunkExtra::new(
                     state_root,
                     CryptoHash::default(),
@@ -242,12 +251,13 @@ impl GenesisBuilder {
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
         let testing_init_balance: Balance = 10u128.pow(30);
         let testing_init_stake: Balance = 0;
-        let shard_id = self.runtime.account_id_to_shard_id(&account_id);
+        let shard_id = account_id_to_shard_id(&account_id, &self.genesis.config.shard_layout);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =
             self.state_updates.remove(&shard_id).expect("State update should have been added");
 
-        let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,

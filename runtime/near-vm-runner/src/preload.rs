@@ -7,14 +7,13 @@ use threadpool::ThreadPool;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_vm_errors::VMError;
-use near_vm_logic::profile::ProfileData;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use crate::cache;
 use crate::memory::WasmerMemory;
-use crate::preload::VMModule::{Wasmer0, Wasmer1};
-use crate::wasmer1_runner::{default_wasmer1_store, run_wasmer1_module, Wasmer1Memory};
+use crate::preload::VMModule::{Wasmer0, Wasmer2};
+use crate::wasmer2_runner::{default_wasmer2_store, run_wasmer2_module, Wasmer2Memory};
 use crate::wasmer_runner::run_wasmer0_module;
 use crate::VMKind;
 
@@ -22,18 +21,18 @@ const SHARE_MEMORY_INSTANCE: bool = false;
 
 enum VMModule {
     Wasmer0(wasmer_runtime::Module),
-    Wasmer1(wasmer::Module),
+    Wasmer2(wasmer::Module),
 }
 
 enum VMDataPrivate {
     Wasmer0(Option<WasmerMemory>),
-    Wasmer1(Option<Wasmer1Memory>),
+    Wasmer2(Option<Wasmer2Memory>),
 }
 
 #[derive(Clone)]
 enum VMDataShared {
     Wasmer0,
-    Wasmer1(wasmer::Store),
+    Wasmer2(wasmer::Store),
 }
 
 struct VMCallData {
@@ -79,14 +78,14 @@ impl ContractCaller {
                     None
                 }),
             ),
-            VMKind::Wasmer1 => {
-                let store = default_wasmer1_store();
+            VMKind::Wasmer2 => {
+                let store = default_wasmer2_store();
                 let store_clone = store.clone();
                 (
-                    VMDataShared::Wasmer1(store),
-                    VMDataPrivate::Wasmer1(if SHARE_MEMORY_INSTANCE {
+                    VMDataShared::Wasmer2(store),
+                    VMDataPrivate::Wasmer2(if SHARE_MEMORY_INSTANCE {
                         Some(
-                            Wasmer1Memory::new(
+                            Wasmer2Memory::new(
                                 &store_clone,
                                 vm_config.limit_config.initial_memory_pages,
                                 vm_config.limit_config.max_memory_pages,
@@ -140,7 +139,6 @@ impl ContractCaller {
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         current_protocol_version: ProtocolVersion,
-        profile: ProfileData,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         match self.preloaded.get(preloaded.handle) {
             Some(call) => {
@@ -173,23 +171,22 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    profile,
                                     current_protocol_version,
                                 )
                             }
                             (
-                                Wasmer1(module),
-                                VMDataPrivate::Wasmer1(memory),
-                                VMDataShared::Wasmer1(store),
+                                Wasmer2(module),
+                                VMDataPrivate::Wasmer2(memory),
+                                VMDataShared::Wasmer2(store),
                             ) => {
                                 let mut new_memory;
-                                run_wasmer1_module(
+                                run_wasmer2_module(
                                     &module,
                                     store,
                                     if memory.is_some() {
                                         memory.as_mut().unwrap()
                                     } else {
-                                        new_memory = Wasmer1Memory::new(
+                                        new_memory = Wasmer2Memory::new(
                                             store,
                                             self.vm_config.limit_config.initial_memory_pages,
                                             self.vm_config.limit_config.max_memory_pages,
@@ -203,7 +200,6 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    profile,
                                     current_protocol_version,
                                 )
                             }
@@ -236,14 +232,14 @@ fn preload_in_thread(
             cache::wasmer0_cache::compile_module_cached_wasmer0(&request.code, &vm_config, cache)
                 .map(VMModule::Wasmer0)
         }
-        (VMKind::Wasmer1, VMDataShared::Wasmer1(store)) => {
-            cache::wasmer1_cache::compile_module_cached_wasmer1(
+        (VMKind::Wasmer2, VMDataShared::Wasmer2(store)) => {
+            cache::wasmer2_cache::compile_module_cached_wasmer2(
                 &request.code,
                 &vm_config,
                 cache,
                 &store,
             )
-            .map(|m| VMModule::Wasmer1(m))
+            .map(|m| VMModule::Wasmer2(m))
         }
         _ => panic!("Incorrect logic"),
     };

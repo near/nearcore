@@ -11,13 +11,15 @@ use serde;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, CompiledContractCache, NumSeats, NumShards, ShardId};
+use crate::types::{CompiledContractCache, NumSeats, NumShards, ShardId};
 use crate::version::{
     ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
     CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
 };
 use std::mem::size_of;
 use std::ops::Deref;
+
+pub mod min_heap;
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -233,12 +235,6 @@ pub fn index_to_bytes(index: u64) -> Vec<u8> {
     let mut bytes = vec![];
     bytes.write_u64::<LittleEndian>(index).expect("writing to bytes failed");
     bytes
-}
-
-/// This is duplicate of near_runtime_utils::system_account.
-/// TODO: code that uses this system_account should be moved into runtime and depend on it.
-pub fn system_account() -> AccountId {
-    "system".to_string()
 }
 
 /// A wrapper around Option<T> that provides native Display trait.

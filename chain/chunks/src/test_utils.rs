@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -13,7 +14,7 @@ use near_primitives::merkle;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -50,7 +51,7 @@ impl Default for SealsManagerTestFixture {
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
 
-        let mock_me: Option<AccountId> = Some("me".to_string());
+        let mock_me: Option<AccountId> = Some("me".parse().unwrap());
         let mock_chunk_hash = ChunkHash(CryptoHash::default());
         let mock_distant_chunk_hash = ChunkHash(hash::hash(b"some_chunk"));
 
@@ -167,9 +168,9 @@ impl Default for ChunkForwardingTestFixture {
         let mock_chunk_producer =
             mock_runtime.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
         let signer = InMemoryValidatorSigner::from_seed(
-            &mock_chunk_producer,
+            mock_chunk_producer.clone(),
             KeyType::ED25519,
-            &mock_chunk_producer,
+            mock_chunk_producer.as_ref(),
         );
         let mock_shard_tracker = validators
             .iter()
@@ -206,7 +207,8 @@ impl Default for ChunkForwardingTestFixture {
             mock_network.clone(),
         );
         let receipts = Vec::new();
-        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts);
+        let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
+        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkles) = producer_shard_manager
             .create_encoded_shard_chunk(
@@ -280,14 +282,8 @@ fn make_validators(n: usize) -> Vec<Vec<AccountId>> {
         panic!("I can't make that many validators!");
     }
 
-    let letters = (b'a'..=b'z')
-        .take(n)
-        .map(|c| {
-            let mut s = String::with_capacity(1);
-            s.push(c as char);
-            s
-        })
-        .collect();
+    let letters =
+        ('a'..='z').take(n).map(|c| AccountId::try_from(format!("test_{}", c)).unwrap()).collect();
 
     vec![letters]
 }
