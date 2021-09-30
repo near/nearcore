@@ -95,17 +95,6 @@ pub enum ApplySplitStateResultOrStateChanges {
     StateChangesForSplitStates(StateChangesForSplitStates),
 }
 
-impl ApplySplitStateResultOrStateChanges {
-    pub fn get_state_changes(&self) -> Option<&StateChangesForSplitStates> {
-        match self {
-            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(_) => None,
-            ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
-                Some(state_changes)
-            }
-        }
-    }
-}
-
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
