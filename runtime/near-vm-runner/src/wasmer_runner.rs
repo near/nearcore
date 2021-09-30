@@ -340,7 +340,6 @@ fn run_method(
     let instance = Wasmer0Instance(instance);
     if logic.gas_counter_mode() == GasCounterMode::Wasm {
         if let GasMode::Paid(available_ops) = gas_mode {
-            println!("remaining_ops {}", available_ops);
             instance.set_remaining_ops(available_ops);
         }
     }
