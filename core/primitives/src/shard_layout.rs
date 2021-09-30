@@ -52,6 +52,7 @@ pub struct ShardLayoutV1 {
     version: ShardVersion,
 }
 
+#[derive(Debug)]
 pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
 }
