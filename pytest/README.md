@@ -19,7 +19,9 @@ then execute the test file using python.  For example:
 
     cargo build
     cd pytest
+    python3 -m venv venv
     python3 -m pip install -U -r requirements.txt
+    source ./venv/bin/activate
     python3 tests/sanity/one_val.py
 
 After the test finishes, log files and other result data from running
