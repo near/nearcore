@@ -16,11 +16,10 @@ from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_ha
 
 DEFAULT_KEY_TARGET = '/tmp/mocknet'
 KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
-NODE_BASE_NAME = 'mocknet'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 4
+NUM_SHARDS = 1
 NUM_ACCOUNTS = int((100 * 100) // 100) # FIXME
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
