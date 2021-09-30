@@ -704,6 +704,7 @@ impl Chain {
                 // Special case: genesis chunks can be in non-genesis blocks and don't have a signature
                 // We must verify that content matches and signature is empty.
                 // TODO: this code will not work when genesis block has different number of chunks as the current block
+                // https://github.com/near/nearcore/issues/4908
                 let genesis_chunk = &genesis_block.chunks()[shard_id];
                 if genesis_chunk.chunk_hash() != chunk_header.chunk_hash()
                     || genesis_chunk.signature() != chunk_header.signature()
@@ -3351,7 +3352,7 @@ impl<'a> ChainUpdate<'a> {
                     // Note that here we do not split outcomes by the new shard layout, we simply store
                     // the outcome_root from the parent shard. This is because outcome proofs are
                     // generated per shard using the old shard layout and stored in the database.
-                    // For these proofs to work, we must store the outcome root using per shard
+                    // For these proofs to work, we must store the outcome root per shard
                     // using the old shard layout instead of the new shard layout
                     let chunk_extra =
                         self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
