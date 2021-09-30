@@ -1729,9 +1729,15 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            #[cfg(feature = "adversarial")]
             NetworkRequests::FetchRoutingTable => {
-                NetworkResponses::RoutingTableInfo(self.routing_table.info())
+                #[cfg(feature = "adversarial")]
+                {
+                    NetworkResponses::RoutingTableInfo(self.routing_table.info())
+                }
+                #[cfg(not(feature = "adversarial"))]
+                {
+                    NetworkResponses::NoResponse
+                }
             }
             NetworkRequests::Sync { peer_id, sync_data } => {
                 // Process edges and add new edges to the routing table. Also broadcast new edges.
@@ -1837,12 +1843,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
-            #[cfg(feature = "adversarial")]
-            NetworkRequests::PingTo(nonce, target) => self.send_ping(ctx, nonce, target),
-            #[cfg(feature = "adversarial")]
+            NetworkRequests::PingTo(_nonce, _target) => {
+                #[cfg(feature = "adversarial")]
+                self.send_ping(ctx, _nonce, _target);
+                #[cfg(not(feature = "adversarial"))]
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::FetchPingPongInfo => {
-                let (pings, pongs) = self.routing_table.fetch_ping_pong();
-                NetworkResponses::PingPongInfo { pings, pongs }
+                #[cfg(feature = "adversarial")]
+                {
+                    let (pings, pongs) = self.routing_table.fetch_ping_pong();
+                    NetworkResponses::PingPongInfo { pings, pongs }
+                }
+                #[cfg(not(feature = "adversarial"))]
+                NetworkResponses::NoResponse
             }
         }
     }
