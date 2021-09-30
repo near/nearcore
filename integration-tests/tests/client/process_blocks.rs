@@ -2775,12 +2775,9 @@ fn test_epoch_protocol_version_change() {
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
-            .chain
-            .get_block(&head.last_block_hash)
-            .unwrap()
-            .header()
-            .epoch_id()
-            .clone();
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
         let chunk_producer =
             env.clients[0].runtime_adapter.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
