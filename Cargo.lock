@@ -2865,6 +2865,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
  "near-logger-utils",
@@ -2879,6 +2880,17 @@ dependencies = [
  "tokio",
  "tracing",
  "validator",
+]
+
+[[package]]
+name = "near-jsonrpc-adversarial-primitives"
+version = "0.2.0"
+dependencies = [
+ "near-jsonrpc-primitives",
+ "near-network",
+ "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2906,7 +2918,6 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-metrics",
- "near-network",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",

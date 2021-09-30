@@ -18,17 +18,15 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
 };
+#[cfg(feature = "adversarial")]
+use near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest;
+#[cfg(all(feature = "protocol_feature_routing_exchange_algorithm"))]
+use near_jsonrpc_adversarial_primitives::SetRoutingTableRequest;
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+use near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
-#[cfg(feature = "adversarial")]
-use near_jsonrpc_primitives::types::adversarial::SetAdvOptionsRequest;
-#[cfg(feature = "adversarial")]
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use near_jsonrpc_primitives::types::adversarial::SetRoutingTableRequest;
-#[cfg(feature = "adversarial")]
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use near_jsonrpc_primitives::types::adversarial::StartRoutingTableSyncRequest;
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
@@ -37,7 +35,6 @@ use near_network::types::{
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
-#[cfg(feature = "adversarial")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use near_network::types::{SetRoutingTable, StartRoutingTableSync};
 #[cfg(feature = "adversarial")]

@@ -1,4 +1,4 @@
-use crate::errors::RpcError;
+use near_jsonrpc_primitives::errors::RpcError;
 use near_network::routing::{Edge, SimpleEdge};
 use near_primitives::network::PeerId;
 use serde::Deserialize;
