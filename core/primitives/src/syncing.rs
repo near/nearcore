@@ -5,15 +5,11 @@ use crate::epoch_manager::block_info::BlockInfo;
 use crate::epoch_manager::epoch_info::EpochInfo;
 use crate::hash::CryptoHash;
 use crate::merkle::{MerklePath, PartialMerkleTree};
-use crate::receipt::Receipt;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
 use crate::types::{BlockHeight, ShardId, StateRoot, StateRootNode};
 use crate::views::LightClientBlockView;
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
