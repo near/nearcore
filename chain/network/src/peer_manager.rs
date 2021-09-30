@@ -1845,7 +1845,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::PingTo(_nonce, _target) => {
                 #[cfg(feature = "adversarial")]
-                self.send_ping(ctx, _nonce, _target);
+                {
+                    self.send_ping(ctx, _nonce, _target)
+                }
                 #[cfg(not(feature = "adversarial"))]
                 NetworkResponses::NoResponse
             }
