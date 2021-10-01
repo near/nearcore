@@ -20,7 +20,7 @@ use near_client::{
 };
 #[cfg(feature = "adversarial")]
 use near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest;
-#[cfg(all(feature = "protocol_feature_routing_exchange_algorithm"))]
+#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use near_jsonrpc_adversarial_primitives::SetRoutingTableRequest;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest;
