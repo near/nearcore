@@ -343,6 +343,7 @@ pub struct ExtCostsConfig {
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
 
+/// TODO #4649: remove default implementation when LowerEcrecoverBaseCost will be released
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {
