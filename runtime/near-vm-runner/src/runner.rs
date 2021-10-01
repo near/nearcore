@@ -6,6 +6,7 @@ use near_vm_errors::{CompilationError, FunctionCallError, VMError};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, VMContext, VMOutcome};
 
+use crate::cache::into_vm_result;
 use crate::VMKind;
 
 /// `run` does the following:
@@ -141,7 +142,7 @@ pub fn precompile<'a>(
                 code_hash,
                 cache,
             );
-            result.err()
+            into_vm_result(result).err()
         }
         #[cfg(feature = "wasmer2_vm")]
         VMKind::Wasmer2 => {
@@ -155,7 +156,7 @@ pub fn precompile<'a>(
                 cache,
                 &store,
             );
-            result.err()
+            into_vm_result(result).err()
         }
         #[cfg(not(feature = "wasmer2_vm"))]
         VMKind::Wasmer2 => panic!("Wasmer2 is not supported, compile with '--features wasmer2_vm'"),
