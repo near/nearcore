@@ -13,10 +13,11 @@ near-primitives = { path = "../../core/primitives" }
 near-jsonrpc-primitives = { path = "../jsonrpc-primitives", optional = true }
 near-network = { path = "../network" }
 
+
 [features]
-adversarial = [
-  "serde",
+ser_de = [
   "serde_json",
+  "serde",
   "near-jsonrpc-primitives",
   "near-network/adversarial"
 ]
