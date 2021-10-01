@@ -640,6 +640,7 @@ pub enum NetworkRequests {
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
     /// Fetch current routing table.
     /// Used for testing purposes, unfortunately, this is now part of protocol.
+    #[cfg(feature = "adversarial")]
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
     Sync {
@@ -652,9 +653,11 @@ pub enum NetworkRequests {
 
     /// Start ping to `PeerId` with `nonce`.
     /// Used for testing purposes, unfortunately, this is now part of protocol.
+    #[cfg(feature = "adversarial")]
     PingTo(usize, PeerId),
     /// Fetch all received ping and pong so far.
     /// Used for testing purposes, unfortunately, this is now part of protocol.
+    #[cfg(feature = "adversarial")]
     FetchPingPongInfo,
 
     /// A challenge to invalidate a block.
