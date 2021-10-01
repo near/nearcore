@@ -24,8 +24,11 @@ use crate::routing::MIN_IBF_LEVEL;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, RoutingState, RoutingVersion2};
 
+/// Actor that maintains routing table information.
+/// TODO (PIOTR, #4859) Finish moving routing table computation to new thread.
 #[derive(Default)]
 pub struct RoutingTableActor {
+    /// Data structures with all edges.
     edges: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
