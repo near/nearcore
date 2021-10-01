@@ -39,7 +39,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -51,7 +51,7 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
 
@@ -1358,22 +1358,30 @@ impl TestEnv {
     }
 }
 
-pub fn create_chunk_on_height(
+pub fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
+    shard_id: ShardId,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
         .produce_chunk(
             last_block_hash,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
+            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
+            Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
             next_height,
-            0,
+            shard_id,
         )
         .unwrap()
         .unwrap()
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
 pub fn create_chunk_with_transactions(
@@ -1486,14 +1494,20 @@ pub fn run_catchup(
 ) -> Result<Vec<AcceptedBlock>, Error> {
     let mut result = vec![];
     let f = |_| {};
-    let messages = Arc::new(RwLock::new(vec![]));
-    let inside_messages = messages.clone();
+    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_inside_messages = block_messages.clone();
     let block_catch_up = move |msg: BlockCatchUpRequest| {
-        inside_messages.write().unwrap().push(msg);
+        block_inside_messages.write().unwrap().push(msg);
     };
+    let state_split_messages = Arc::new(RwLock::new(vec![]));
+    let state_split_inside_messages = state_split_messages.clone();
+    let state_split = move |msg: StateSplitRequest| {
+        state_split_inside_messages.write().unwrap().push(msg);
+    };
+    let rt = client.runtime_adapter.clone();
     while !client.chain.store().iterate_state_sync_infos().is_empty() {
-        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up)?;
-        for msg in messages.write().unwrap().drain(..) {
+        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+        for msg in block_messages.write().unwrap().drain(..) {
             let results = do_apply_chunks(msg.work);
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
@@ -1505,6 +1519,19 @@ pub fn run_catchup(
                     .insert(msg.block_hash, (saved_store_update, results));
             } else {
                 panic!("block catch up processing result from unknown sync hash");
+            }
+        }
+        for msg in state_split_messages.write().unwrap().drain(..) {
+            let results = rt.build_state_for_split_shards(
+                msg.shard_uid,
+                &msg.state_root,
+                &msg.next_epoch_shard_layout,
+            );
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+                // We are doing catchup
+                sync.set_split_result(msg.shard_id, results);
+            } else {
+                client.state_sync.set_split_result(msg.shard_id, results);
             }
         }
         result.extend(call);
