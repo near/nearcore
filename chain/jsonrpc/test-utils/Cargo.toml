@@ -15,4 +15,4 @@ near-network = { path = "../../network" }
 near-jsonrpc = { path = "../" }
 
 [features]
-test_features = []
+test_features = ["near-client/test_features"]

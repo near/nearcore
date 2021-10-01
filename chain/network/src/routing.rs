@@ -384,6 +384,29 @@ impl Default for EdgeVerifierHelper {
     }
 }
 
+#[cfg(feature = "adversarial")]
+pub struct TestHelper {
+    ping_info: SizedCache<usize, Ping>,
+    /// Ping received by nonce.
+    pong_info: SizedCache<usize, Pong>,
+    /// List of pings sent for which we haven't received any pong yet.
+    waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
+    /// Last nonce sent to each peer through pings.
+    last_ping_nonce: SizedCache<PeerId, usize>,
+}
+
+#[cfg(feature = "adversarial")]
+impl TestHelper {
+    fn default() -> TestHelper {
+        Self {
+            ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+        }
+    }
+}
+
 pub struct RoutingTable {
     /// PeerId associated for every known account id.
     account_peers: SizedCache<AccountId, AnnounceAccount>,
@@ -403,18 +426,9 @@ pub struct RoutingTable {
     /// If there are several options use route with minimum nonce.
     /// New routes are added with minimum nonce.
     route_nonce: SizedCache<PeerId, usize>,
-    /// Ping received by nonce.
+    /// Contains data structures used for tests
     #[cfg(feature = "adversarial")]
-    ping_info: SizedCache<usize, Ping>,
-    /// Ping received by nonce.
-    #[cfg(feature = "adversarial")]
-    pong_info: SizedCache<usize, Pong>,
-    /// List of pings sent for which we haven't received any pong yet.
-    #[cfg(feature = "adversarial")]
-    waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
-    /// Last nonce sent to each peer through pings.
-    #[cfg(feature = "adversarial")]
-    last_ping_nonce: SizedCache<PeerId, usize>,
+    test_helper: TestHelper,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
 }
@@ -449,13 +463,7 @@ impl RoutingTable {
             raw_graph: Graph::new(peer_id),
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
             #[cfg(feature = "adversarial")]
-            ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            #[cfg(feature = "adversarial")]
-            pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            #[cfg(feature = "adversarial")]
-            waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            #[cfg(feature = "adversarial")]
-            last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
+            test_helper: TestHelper::default(),
             component_nonce,
         }
     }
@@ -702,7 +710,7 @@ impl RoutingTable {
 
     #[cfg(feature = "adversarial")]
     pub fn add_ping(&mut self, ping: Ping) {
-        self.ping_info.cache_set(ping.nonce as usize, ping);
+        self.test_helper.ping_info.cache_set(ping.nonce as usize, ping);
     }
 
     /// Return time of the round trip of ping + pong
@@ -710,24 +718,24 @@ impl RoutingTable {
     pub fn add_pong(&mut self, pong: Pong) -> Option<f64> {
         let mut res = None;
 
-        if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
+        if let Some(nonces) = self.test_helper.waiting_pong.cache_get_mut(&pong.source) {
             res = nonces
                 .cache_remove(&(pong.nonce as usize))
                 .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
         }
 
-        self.pong_info.cache_set(pong.nonce as usize, pong);
+        self.test_helper.pong_info.cache_set(pong.nonce as usize, pong);
 
         res
     }
 
     #[cfg(feature = "adversarial")]
     pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
-        let entry = if let Some(entry) = self.waiting_pong.cache_get_mut(&target) {
+        let entry = if let Some(entry) = self.test_helper.waiting_pong.cache_get_mut(&target) {
             entry
         } else {
-            self.waiting_pong.cache_set(target.clone(), SizedCache::with_size(10));
-            self.waiting_pong.cache_get_mut(&target).unwrap()
+            self.test_helper.waiting_pong.cache_set(target.clone(), SizedCache::with_size(10));
+            self.test_helper.waiting_pong.cache_get_mut(&target).unwrap()
         };
 
         entry.cache_set(nonce, Instant::now());
@@ -735,18 +743,21 @@ impl RoutingTable {
 
     #[cfg(feature = "adversarial")]
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {
-        if let Some(entry) = self.last_ping_nonce.cache_get_mut(&peer_id) {
+        if let Some(entry) = self.test_helper.last_ping_nonce.cache_get_mut(&peer_id) {
             *entry += 1;
             *entry - 1
         } else {
-            self.last_ping_nonce.cache_set(peer_id, 1);
+            self.test_helper.last_ping_nonce.cache_set(peer_id, 1);
             0
         }
     }
 
     #[cfg(feature = "adversarial")]
     pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {
-        (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
+        (
+            cache_to_hashmap(&self.test_helper.ping_info),
+            cache_to_hashmap(&self.test_helper.pong_info),
+        )
     }
 
     #[cfg(feature = "adversarial")]

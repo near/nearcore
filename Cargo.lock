@@ -2918,6 +2918,7 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-metrics",
+ "near-network",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
