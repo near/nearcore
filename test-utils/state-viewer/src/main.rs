@@ -284,7 +284,7 @@ fn apply_chain_range(
         store,
         &near_config.genesis,
         near_config.client_config.tracked_accounts.clone(),
-        near_config.client_config.tracked_shards.clone(),
+        near_config.client_config.track_all_shards.clone(),
         None,
         near_config.client_config.max_gas_burnt_view,
         RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),

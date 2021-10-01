@@ -14,7 +14,6 @@ use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
 pub struct ScenarioResult<T, E> {

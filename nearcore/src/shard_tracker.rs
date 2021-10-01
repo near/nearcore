@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use byteorder::{LittleEndian, ReadBytesExt};
-use tracing::info;
-
 use near_epoch_manager::EpochManager;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};

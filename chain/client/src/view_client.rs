@@ -1096,19 +1096,24 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
                     let height = self.get_height(&head);
-
-                    NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId {
-                            chain_id: self.config.chain_id.clone(),
-                            hash: *self.chain.genesis().hash(),
+                    match self.runtime_adapter.num_shards(&head.epoch_id) {
+                        Ok(num_shards) => NetworkViewClientResponses::ChainInfo {
+                            genesis_id: GenesisId {
+                                chain_id: self.config.chain_id.clone(),
+                                hash: *self.chain.genesis().hash(),
+                            },
+                            height,
+                            tracked_shards: if self.config.track_all_shards {
+                                (0..num_shards).collect()
+                            } else {
+                                vec![]
+                            },
+                            archival: self.config.archive,
                         },
-                        height,
-                        tracked_shards: if self.config.track_all_shards {
-                            (0..self.runtime_adapter.num_shards() - 1).collect()
-                        } else {
-                            vec![]
-                        },
-                        archival: self.config.archive,
+                        Err(err) => {
+                            error!(target: "view_client", "Cannot retrieve num shards: {}", err);
+                            NetworkViewClientResponses::NoResponse
+                        }
                     }
                 }
                 Err(err) => {
