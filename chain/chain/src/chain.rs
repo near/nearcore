@@ -67,7 +67,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -1867,30 +1867,42 @@ impl Chain {
         Ok(())
     }
 
-    pub fn build_state_for_split_shards(
+    pub fn build_state_for_split_shards_preprocessing(
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(), Error> {
         let (epoch_id, next_epoch_id) = {
             let block_header = self.get_block_header(sync_hash)?;
             (block_header.epoch_id().clone(), block_header.next_epoch_id().clone())
         };
         let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
-        let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+        let next_epoch_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
+        assert_ne!(shard_layout, next_epoch_shard_layout);
 
-        assert_ne!(shard_layout, next_shard_layout);
-        let state_roots = self.runtime_adapter.build_state_for_split_shards(
+        state_split_scheduler(StateSplitRequest {
+            sync_hash: sync_hash.clone(),
+            shard_id,
             shard_uid,
-            &state_root,
-            &next_shard_layout,
-        )?;
+            state_root: state_root.clone(),
+            next_epoch_shard_layout,
+        });
 
+        Ok(())
+    }
+
+    pub fn build_state_for_split_shards_postprocessing(
+        &mut self,
+        sync_hash: &CryptoHash,
+        state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
+    ) -> Result<(), Error> {
+        let prev_hash = *self.get_block_header(sync_hash)?.prev_hash();
         let mut chain_update = self.chain_update();
-        for (shard_uid, state_root) in state_roots {
+        for (shard_uid, state_root) in state_roots? {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_update.chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
@@ -4532,6 +4544,24 @@ pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub results: Vec<Result<ApplyChunkResult, Error>>,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StateSplitRequest {
+    pub sync_hash: CryptoHash,
+    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
+    pub state_root: StateRoot,
+    pub next_epoch_shard_layout: ShardLayout,
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StateSplitResponse {
+    pub sync_hash: CryptoHash,
+    pub shard_id: ShardId,
+    pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
 }
 
 /// Helper to track blocks catch up
