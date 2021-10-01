@@ -39,7 +39,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -1358,22 +1358,30 @@ impl TestEnv {
     }
 }
 
-pub fn create_chunk_on_height(
+pub fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
+    shard_id: ShardId,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
         .produce_chunk(
             last_block_hash,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
+            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
+            Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
             next_height,
-            0,
+            shard_id,
         )
         .unwrap()
         .unwrap()
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
 pub fn create_chunk_with_transactions(

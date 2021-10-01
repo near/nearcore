@@ -681,7 +681,7 @@ impl StateSync {
         };
 
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let split_states = runtime_adapter.will_shard_layout_change(&prev_hash)?;
+        let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
 
         for shard_id in tracking_shards {
             let mut download_timeout = false;
