@@ -11,7 +11,8 @@ use chrono::Utc;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, TX_ROUTING_HEIGHT_HORIZON,
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
+    TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
@@ -1579,6 +1580,7 @@ impl Client {
         highest_height_peers: &Vec<FullPeerInfo>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
@@ -1606,7 +1608,7 @@ impl Client {
                                     shard_id,
                                     ShardSyncDownload {
                                         downloads: vec![],
-                                        status: ShardSyncStatus::StateSplit,
+                                        status: ShardSyncStatus::StateSplitScheduling,
                                     },
                                 ))
                             } else {
@@ -1646,6 +1648,7 @@ impl Client {
                 highest_height_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
+                state_split_scheduler,
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {
