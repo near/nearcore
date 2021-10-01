@@ -21,13 +21,12 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::test_utils::create_test_store;
 
-use crate::peer_manager::RoutingTableActor;
 use crate::types::{
     NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo, ReasonForBan,
 };
 use crate::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerManagerActor,
+    NetworkResponses, PeerManagerActor, RoutingTableActor,
 };
 
 type ClientMock = Mocker<NetworkClientMessages>;
