@@ -1,7 +1,10 @@
+#[cfg(feature = "adversarial")]
 use near_jsonrpc_primitives::errors::RpcError;
 use near_network::routing::{Edge, SimpleEdge};
 use near_primitives::network::PeerId;
+#[cfg(feature = "adversarial")]
 use serde::Deserialize;
+#[cfg(feature = "adversarial")]
 use serde_json::Value;
 
 #[cfg_attr(feature = "adversarial", derive(Deserialize))]
