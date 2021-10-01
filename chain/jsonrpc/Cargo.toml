@@ -39,7 +39,7 @@ near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-adversarial = ["near-client/adversarial", "near-jsonrpc-primitives/adversarial", "near-jsonrpc-adversarial-primitives/ser_de"]
+test_features = ["near-client/adversarial", "near-jsonrpc-primitives/adversarial", "near-jsonrpc-adversarial-primitives/ser_de"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = []
 protocol_feature_routing_exchange_algorithm = []

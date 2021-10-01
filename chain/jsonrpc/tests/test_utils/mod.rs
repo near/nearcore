@@ -1,4 +1,4 @@
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use actix::Actor;
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
@@ -47,9 +47,9 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
 
     let addr = format!("127.0.0.1:{}", open_port());
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let ibf_routing_pool = make_ibf_routing_pool();
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let peer_manager_addr = make_peer_manager(
         "test2",
         open_port(),
@@ -65,7 +65,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         TEST_GENESIS_CONFIG.clone(),
         client_addr.clone(),
         view_client_addr.clone(),
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         peer_manager_addr,
         #[cfg(feature = "adversarial")]
         ibf_routing_pool,
