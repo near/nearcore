@@ -93,7 +93,7 @@ pub fn validate_chunk_proofs(
 }
 
 /// Validates that the given transactions are in proper valid order.
-/// See https://nomicon.io/ChainSpec/Transactions.html#transaction-ordering
+/// See <https://nomicon.io/ChainSpec/Transactions.html#transaction-ordering>
 pub fn validate_transactions_order(transactions: &[SignedTransaction]) -> bool {
     let mut nonces: HashMap<(&AccountId, &PublicKey), Nonce> = HashMap::new();
     let mut batches: HashMap<(&AccountId, &PublicKey), usize> = HashMap::new();
@@ -380,7 +380,8 @@ fn validate_chunk_state_challenge(
     }
 }
 
-/// Returns Some(block hash, vec![account_id]) of invalid block and who to slash if challenge is correct and None if incorrect.
+/// Returns `Some(block_hash, vec![account_id])` of invalid block and who to
+/// slash if challenge is correct and None if incorrect.
 pub fn validate_challenge(
     runtime_adapter: &dyn RuntimeAdapter,
     epoch_id: &EpochId,

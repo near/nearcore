@@ -11,7 +11,8 @@ use chrono::Utc;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, TX_ROUTING_HEIGHT_HORIZON,
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
+    TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
@@ -438,7 +439,7 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
+        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -1105,7 +1106,8 @@ impl Client {
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
-                            block.chunks()[shard_id as usize].clone(),
+                            Chain::get_prev_chunk_header(&*self.runtime_adapter, &block, shard_id)
+                                .unwrap(),
                             block.header().height() + 1,
                             shard_id,
                         ) {
@@ -1578,6 +1580,7 @@ impl Client {
         highest_height_peers: &Vec<FullPeerInfo>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
@@ -1587,7 +1590,7 @@ impl Client {
             let new_shard_sync = {
                 let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
                 let need_to_split_states =
-                    self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
+                    self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
                 if need_to_split_states {
                     // If the client already has the state for this epoch, skip the downloading phase
                     let new_shard_sync = state_sync_info
@@ -1605,7 +1608,7 @@ impl Client {
                                     shard_id,
                                     ShardSyncDownload {
                                         downloads: vec![],
-                                        status: ShardSyncStatus::StateSplit,
+                                        status: ShardSyncStatus::StateSplitScheduling,
                                     },
                                 ))
                             } else {
@@ -1645,6 +1648,7 @@ impl Client {
                 highest_height_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
+                state_split_scheduler,
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {
