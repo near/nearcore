@@ -18,15 +18,15 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
 };
-pub use near_jsonrpc_client as client;
-use near_jsonrpc_primitives::errors::RpcError;
-use near_jsonrpc_primitives::message::{Message, Request};
 #[cfg(feature = "adversarial")]
 use near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest;
 #[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
 use near_jsonrpc_adversarial_primitives::SetRoutingTableRequest;
 #[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
 use near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest;
+pub use near_jsonrpc_client as client;
+use near_jsonrpc_primitives::errors::RpcError;
+use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "adversarial")]
