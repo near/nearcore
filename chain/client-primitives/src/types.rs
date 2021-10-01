@@ -108,7 +108,8 @@ pub enum ShardSyncStatus {
     StateDownloadScheduling,
     StateDownloadApplying,
     StateDownloadComplete,
-    StateSplit,
+    StateSplitScheduling,
+    StateSplitApplying,
     StateSyncDone,
 }
 
