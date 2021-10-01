@@ -10,8 +10,8 @@ use crate::types::{AccountId, Balance};
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(default)]
 pub struct RuntimeConfig {
-    /// Amount of yN per byte required to have on the account.
-    /// See https://nomicon.io/Economics/README.html#state-stake for details.
+    /// Amount of yN per byte required to have on the account.  See
+    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
     #[serde(with = "u128_dec_format")]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and processing transaction

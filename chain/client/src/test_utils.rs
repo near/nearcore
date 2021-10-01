@@ -1158,10 +1158,11 @@ impl TestEnvBuilder {
     }
 
     /// Specifies custom runtime adaptors for each client.  This allows us to
-    /// construct [`TestEnv`] with [`NightshadeRuntime`].
+    /// construct [`TestEnv`] with `NightshadeRuntime`.
     ///
     /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`build`] method will panic.
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
     pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
         self.runtime_adapters = Some(adapters);
         self
@@ -1170,7 +1171,8 @@ impl TestEnvBuilder {
     /// Specifies custom network adaptors for each client.
     ///
     /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`build`] method will panic.
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
