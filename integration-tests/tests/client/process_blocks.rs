@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use std::collections::HashMap;
+use std::collections::{HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::iter::FromIterator;
 use std::path::Path;
@@ -19,11 +21,12 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_client::test_utils::create_chunk_on_height_for_shard;
 use near_client::test_utils::{
-    create_chunk_on_height, create_chunk_on_height_for_shard, run_catchup,
-    setup_mock_all_validators,
+    create_chunk_on_height, run_catchup, setup_client, setup_mock, setup_mock_all_validators,
+    TestEnv,
 };
-use near_client::test_utils::{setup_client, setup_mock, TestEnv};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
@@ -45,9 +48,9 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::shard_layout::ShardUId;
 #[cfg(feature = "protocol_feature_simple_nightshade")]
-use near_primitives::shard_layout::ShardLayout;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
@@ -71,7 +74,9 @@ use near_primitives::views::{
 };
 use near_store::db::DBCol::ColStateParts;
 use near_store::get;
-use near_store::test_utils::{create_test_store, gen_accounts};
+use near_store::test_utils::create_test_store;
+#[cfg(feature = "protocol_feature_simple_nightshade")]
+use near_store::test_utils::gen_accounts;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::Rng;
