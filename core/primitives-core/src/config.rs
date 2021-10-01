@@ -110,8 +110,8 @@ impl VMConfig {
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
             limit_config: VMLimitConfig {
-                max_gas_burnt: std::u64::MAX,
-                max_gas_burnt_view: std::u64::MAX,
+                max_gas_burnt: u64::MAX,
+                max_gas_burnt_view: u64::MAX,
                 ..Default::default()
             },
         }

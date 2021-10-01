@@ -57,6 +57,7 @@ impl RuntimeTestbed {
 
             ..Default::default()
         };
+        runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
         let runtime = Runtime::new();
         let prev_receipts = vec![];

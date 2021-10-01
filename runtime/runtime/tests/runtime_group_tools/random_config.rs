@@ -47,7 +47,7 @@ pub fn random_config() -> RuntimeConfig {
                 100,
             ),
         },
-        ..Default::default()
+        ..RuntimeConfig::test()
     }
 }
 
