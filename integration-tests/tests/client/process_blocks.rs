@@ -64,7 +64,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
-use near_primitives::utils::to_timestamp;
+use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 #[cfg(feature = "protocol_feature_simple_nightshade")]
 use near_primitives::version::ProtocolFeature;
@@ -2602,7 +2602,7 @@ fn test_shard_layout_upgrade() {
     let epoch_length = 5;
     let mut rng = rand::thread_rng();
     let mut account_ids = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
-    account_ids.extend(gen_accounts(&mut rng, 100));
+    account_ids.extend(gen_accounts(&mut rng, 100).into_iter().collect::<HashSet<_>>());
     let mut genesis = Genesis::test(account_ids.clone(), 2);
     let simple_nightshade_protocol_version = ProtocolFeature::SimpleNightshade.protocol_version();
     genesis.config.epoch_length = epoch_length;
@@ -2621,10 +2621,12 @@ fn test_shard_layout_upgrade() {
     });
     let genesis_height = genesis.config.genesis_height;
     let chain_genesis = ChainGenesis::from(&genesis);
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .validator_seats(2)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
+        .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
         .build();
     let account_to_client_index = |account_id: &AccountId| {
         let index = if account_id.as_ref() == "test0" { 0 } else { 1 };
@@ -2655,18 +2657,38 @@ fn test_shard_layout_upgrade() {
             let chunk_producer_client = &mut env.clients[account_to_client_index(&chunk_producer)];
             let (encoded_chunk, merkle_paths, receipts) =
                 create_chunk_on_height_for_shard(chunk_producer_client, i, shard_id);
-            for client in env.clients.iter_mut() {
-                let mut chain_store =
-                    ChainStore::new(client.chain.store().owned_store(), genesis_height);
-                client
-                    .shards_mgr
-                    .distribute_encoded_chunk(
-                        encoded_chunk.clone(),
-                        merkle_paths.clone(),
-                        receipts.clone(),
-                        &mut chain_store,
-                    )
-                    .unwrap();
+            let mut chain_store =
+                ChainStore::new(chunk_producer_client.chain.store().owned_store(), genesis_height);
+            chunk_producer_client
+                .shards_mgr
+                .distribute_encoded_chunk(
+                    encoded_chunk.clone(),
+                    merkle_paths.clone(),
+                    receipts.clone(),
+                    &mut chain_store,
+                )
+                .unwrap();
+        }
+
+        // process partial encoded chunks
+        loop {
+            if let Some(request) = network_adapter.pop() {
+                match request {
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id,
+                        partial_encoded_chunk,
+                    } => {
+                        let client = &mut env.clients[account_to_client_index(&account_id)];
+                        client
+                            .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                                partial_encoded_chunk.into(),
+                            ))
+                            .unwrap();
+                    }
+                    _ => {}
+                }
+            } else {
+                break;
             }
         }
 
@@ -2686,7 +2708,15 @@ fn test_shard_layout_upgrade() {
 
         // process block
         for j in 0..2 {
-            let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
+            let (accepted_blocks, res) =
+                env.clients[j].process_block(block.clone(), Provenance::NONE);
+            for accepted_block in accepted_blocks {
+                let new_height =
+                    env.clients[j].chain.get_block(&accepted_block.hash).unwrap().header().height();
+                if accepted_block.status.is_new_head() {
+                    env.clients[j].shards_mgr.update_largest_seen_height(new_height);
+                }
+            }
             assert!(res.is_ok(), "{:?}", res);
             run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
@@ -2727,6 +2757,41 @@ fn test_shard_layout_upgrade() {
                             .unwrap();
                     }
                 }
+            }
+        }
+    }
+
+    let head = env.clients[0].chain.head().unwrap();
+    let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+    for chunk in block.chunks().iter() {
+        assert_eq!(block.header().height(), chunk.height_included());
+    }
+    for account_id in &account_ids {
+        let shard_uid = account_id_to_shard_uid(account_id, &simple_nightshade_shard_layout);
+        for j in 0..2 {
+            if env.clients[j].runtime_adapter.cares_about_shard(
+                None,
+                block.header().prev_hash(),
+                shard_uid.shard_id(),
+                true,
+            ) {
+                env.clients[j]
+                    .runtime_adapter
+                    .query(
+                        shard_uid,
+                        &block
+                            .chunks()
+                            .get(shard_uid.shard_id() as usize)
+                            .unwrap()
+                            .prev_state_root(),
+                        block.header().height(),
+                        0,
+                        block.header().prev_hash(),
+                        block.hash(),
+                        block.header().epoch_id(),
+                        &QueryRequest::ViewAccount { account_id: account_id.clone() },
+                    )
+                    .unwrap();
             }
         }
     }
