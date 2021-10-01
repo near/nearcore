@@ -354,8 +354,7 @@ def monkey_transactions(stopped, error, nodes, nonces):
                     for validator_id in shuffled_validator_ids:
                         try:
                             info = nodes[validator_id].send_tx(tx)
-                            if 'error' in info and info['error'][
-                                    'data'] == 'IsSyncing':
+                            if 'error' in info:
                                 pass
 
                             elif 'result' in info:
