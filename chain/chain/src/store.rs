@@ -476,9 +476,7 @@ impl ChainStore {
 
                 // get the shard from which the outgoing receipt were generated
                 let receipts_shard_id = if shard_layout != receipts_shard_layout {
-                    shard_layout
-                        .get_parent_shard_id(shard_id)
-                        .ok_or(ErrorKind::InvalidShardId(shard_id))?
+                    shard_layout.get_parent_shard_id(shard_id)?
                 } else {
                     shard_id
                 };
