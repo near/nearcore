@@ -476,9 +476,7 @@ impl ChainStore {
 
                 // get the shard from which the outgoing receipt were generated
                 let receipts_shard_id = if shard_layout != receipts_shard_layout {
-                    shard_layout
-                        .get_parent_shard_id(shard_id)
-                        .ok_or(ErrorKind::InvalidShardId(shard_id))?
+                    shard_layout.get_parent_shard_id(shard_id)?
                 } else {
                     shard_id
                 };
@@ -1187,10 +1185,8 @@ struct ChainStoreCacheUpdate {
     processed_block_heights: HashSet<BlockHeight>,
 }
 
-/// Provides layer to update chain without touching the underlying database.
-/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub struct ChainStoreUpdate<'a> {
-    chain_store: &'a mut ChainStore,
+pub struct ChainStoreUpdateImpl<T> {
+    chain_store: T,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
@@ -1214,6 +1210,10 @@ pub struct ChainStoreUpdate<'a> {
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
+
+/// Provides layer to update chain without touching the underlying database.
+/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
+pub type ChainStoreUpdate<'a> = ChainStoreUpdateImpl<&'a mut ChainStore>;
 
 impl<'a> ChainStoreUpdate<'a> {
     pub fn new(chain_store: &'a mut ChainStore) -> Self {
@@ -2985,6 +2985,62 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store.tail = self.tail;
 
         Ok(())
+    }
+}
+
+impl Into<SavedStoreUpdate> for ChainStoreUpdate<'_> {
+    fn into(self) -> SavedStoreUpdate {
+        SavedStoreUpdate {
+            chain_store: (),
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
+    }
+}
+
+/// Saves changes from ChainStoreUpdate without link to ChainStore. Needed to preserve changes while
+/// applying block in other thread
+pub type SavedStoreUpdate = ChainStoreUpdateImpl<()>;
+
+impl SavedStoreUpdate {
+    pub fn restore<'a>(self, chain_store: &'a mut ChainStore) -> ChainStoreUpdate<'a> {
+        ChainStoreUpdate {
+            chain_store,
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
     }
 }
 

@@ -52,6 +52,11 @@ pub struct ShardLayoutV1 {
     version: ShardVersion,
 }
 
+#[derive(Debug)]
+pub enum ShardLayoutError {
+    InvalidShardIdError { shard_id: ShardId },
+}
+
 impl ShardLayout {
     pub fn default() -> Self {
         Self::v0(1, 0)
@@ -110,14 +115,23 @@ impl ShardLayout {
     }
 
     #[inline]
-    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Option<ShardId> {
-        match self {
-            Self::V0(_) => None,
-            Self::V1(v1) => match &v1.to_parent_shard_map {
-                Some(to_parent_shard_map) => to_parent_shard_map.get(shard_id as usize).cloned(),
-                None => None,
-            },
+    /// Only calls this function for shard layout that has parent shard layouts
+    /// Returns error if `shard_id` is an invalid shard id in the current layout
+    /// Panics if `self` has no parent shard layout
+    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
+        if shard_id > self.num_shards() {
+            return Err(ShardLayoutError::InvalidShardIdError { shard_id });
         }
+        let parent_shard_id = match self {
+            Self::V0(_) => panic!("shard layout has no parent shard"),
+            Self::V1(v1) => match &v1.to_parent_shard_map {
+                // we can safely unwrap here because the construction of to_parent_shard_map guarantees
+                // that every shard has a parent shard
+                Some(to_parent_shard_map) => *to_parent_shard_map.get(shard_id as usize).unwrap(),
+                None => panic!("shard_layout has no parent shard"),
+            },
+        };
+        Ok(parent_shard_id)
     }
 
     #[inline]

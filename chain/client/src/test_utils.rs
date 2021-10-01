@@ -39,7 +39,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -51,6 +51,10 @@ use near_telemetry::TelemetryActor;
 #[cfg(feature = "adversarial")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
+use near_chain::types::AcceptedBlock;
+use near_client_primitives::types::Error;
+
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
@@ -1246,8 +1250,7 @@ impl TestEnv {
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let f = |_| {};
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f).unwrap();
+        let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
@@ -1355,22 +1358,30 @@ impl TestEnv {
     }
 }
 
-pub fn create_chunk_on_height(
+pub fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
+    shard_id: ShardId,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
         .produce_chunk(
             last_block_hash,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
+            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
+            Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
             next_height,
-            0,
+            shard_id,
         )
         .unwrap()
         .unwrap()
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
 pub fn create_chunk_with_transactions(
@@ -1475,4 +1486,36 @@ pub fn create_chunk(
         block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)
+}
+
+pub fn run_catchup(
+    client: &mut Client,
+    highest_height_peers: &Vec<FullPeerInfo>,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let mut result = vec![];
+    let f = |_| {};
+    let messages = Arc::new(RwLock::new(vec![]));
+    let inside_messages = messages.clone();
+    let block_catch_up = move |msg: BlockCatchUpRequest| {
+        inside_messages.write().unwrap().push(msg);
+    };
+    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up)?;
+        for msg in messages.write().unwrap().drain(..) {
+            let results = do_apply_chunks(msg.work);
+            if let Some((_, _, blocks_catch_up_state)) =
+                client.catchup_state_syncs.get_mut(&msg.sync_hash)
+            {
+                let saved_store_update =
+                    blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash).unwrap();
+                blocks_catch_up_state
+                    .processed_blocks
+                    .insert(msg.block_hash, (saved_store_update, results));
+            } else {
+                panic!("block catch up processing result from unknown sync hash");
+            }
+        }
+        result.extend(call);
+    }
+    Ok(result)
 }
