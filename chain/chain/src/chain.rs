@@ -3451,7 +3451,10 @@ impl<'a> ChainUpdate<'a> {
     where
         F: FnMut(ChallengeBody) -> (),
     {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header().height(), block.header().num_approvals(), me);
+        let _span =
+            tracing::debug_span!(target: "chain", "Process block", "#{}", block.header().height())
+                .entered();
+        debug!(target: "chain", "Block {}, approvals: {}, me: {:?}", block.hash(), block.header().num_approvals(), me);
 
         // Check that we know the epoch of the block before we try to get the header
         // (so that a block from unknown epoch doesn't get marked as an orphan)
