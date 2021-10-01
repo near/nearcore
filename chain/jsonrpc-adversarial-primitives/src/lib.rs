@@ -4,13 +4,14 @@ use near_primitives::network::PeerId;
 use serde::Deserialize;
 use serde_json::Value;
 
-#[derive(Deserialize)]
+#[cfg_attr(feature = "adversarial", derive(Deserialize))]
 pub struct SetRoutingTableRequest {
     pub add_edges: Option<Vec<Edge>>,
     pub remove_edges: Option<Vec<SimpleEdge>>,
     pub prune_edges: Option<bool>,
 }
 
+#[cfg(feature = "adversarial")]
 impl SetRoutingTableRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, RpcError> {
         if let Some(value) = value {
@@ -22,14 +23,14 @@ impl SetRoutingTableRequest {
     }
 }
 
-#[derive(Deserialize)]
+#[cfg_attr(feature = "adversarial", derive(Deserialize))]
 pub struct SetAdvOptionsRequest {
     pub disable_edge_signature_verification: Option<bool>,
     pub disable_edge_propagation: Option<bool>,
     pub disable_edge_pruning: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[cfg_attr(feature = "adversarial", derive(Deserialize))]
 pub struct StartRoutingTableSyncRequest {
     pub peer_id: PeerId,
 }
