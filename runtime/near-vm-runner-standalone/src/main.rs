@@ -1,6 +1,6 @@
 //! See package description.
 //! Usage example:
-//! ```
+//! ```bash
 //! cargo run --package near-vm-runner-standalone --bin near-vm-runner-standalone \
 //! -- --method-name=hello --wasm-file=/tmp/main.wasm
 //! ```

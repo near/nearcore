@@ -102,6 +102,9 @@ Note: `EpochManager` is constructed in `NightshadeRuntime` rather than in `Chain
 ### `chain/jsonrpc`
 
 This crate implements [JSON-RPC](https://www.jsonrpc.org/) API server to enable submission of new transactions and inspection of the blockchain data, the network state, and the node status.
+When a request is processed, it generates a message to either `ClientActor` or `ViewClientActor` to interact with the blockchain.
+For queries of blockchain data, such as block, chunk, account, etc, the request usually generates a message to `ViewClientActor`.
+Transactions, on the other hand, are sent to `ClientActor` for further processing.
 
 ### `runtime/runtime`
 
@@ -131,6 +134,7 @@ In other words, it defines the ABI of the contracts on NEAR.
 ### `neard`
 
 As mentioned before, `neard` is the crate that contains that main entry points.
+All the actors are spawned in `start_with_config`.
 It is also worth noting that `NightshadeRuntime` is the struct that implements `RuntimeAdapter`.
 
 ## Cross Cutting Concerns
