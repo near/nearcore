@@ -1013,7 +1013,7 @@ impl Client {
                     .runtime_adapter
                     .get_epoch_protocol_version(block.header().next_epoch_id()));
                 if next_epoch_protocol_version > PROTOCOL_VERSION {
-                    panic!("The client protocol version is older than the protocol version of the network. Please update nearcore");
+                    panic!("The client protocol version {} is older than the protocol version of the network {}. Please update nearcore", PROTOCOL_VERSION, next_epoch_protocol_version);
                 }
             }
         }

@@ -1,21 +1,19 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use crate::process_blocks::{create_nightshade_runtimes, set_block_protocol_version};
-use near_chain::{ChainGenesis, ChainStore, Provenance};
+use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::{create_chunk_on_height_for_shard, run_catchup, TestEnv};
+use near_client::test_utils::TestEnv;
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::MockNetworkAdapter;
-use near_network::NetworkRequests;
-use near_primitives::account::id::AccountId;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::utils::MaybeValidated;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_store::test_utils::gen_accounts;
 use nearcore::config::GenesisExt;
+use nearcore::NEAR_BASE;
 
 #[test]
 fn test_shard_layout_upgrade() {
@@ -40,22 +38,49 @@ fn test_shard_layout_upgrade() {
         avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
         shard_layout: simple_nightshade_shard_layout.clone(),
     });
-    let genesis_height = genesis.config.genesis_height;
     let chain_genesis = ChainGenesis::from(&genesis);
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .validator_seats(2)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
-        .network_adapters(vec![network_adapter.clone(), network_adapter.clone()])
         .build();
-    let account_to_client_index = |account_id: &AccountId| {
-        let index = if account_id.as_ref() == "test0" { 0 } else { 1 };
-        index
-    };
+
     // ShardLayout changes at epoch 2
     // Test that state is caught up correctly at epoch 1 (block height 6-10)
+    let mut txs = vec![];
+    let mut added_accounts = vec![];
+    let mut nonce = 100;
     for i in 1..=16 {
+        // add some transactions right before state split
+        if i == 4 || i == 10 {
+            let new_accounts = gen_accounts(&mut rng, 100);
+            let signer0 =
+                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+            for account_id in new_accounts.iter() {
+                let signer = InMemorySigner::from_seed(
+                    account_id.clone(),
+                    KeyType::ED25519,
+                    account_id.as_ref(),
+                );
+                let tx = SignedTransaction::create_account(
+                    nonce,
+                    "test0".parse().unwrap(),
+                    account_id.clone(),
+                    NEAR_BASE,
+                    signer.public_key(),
+                    &signer0,
+                    env.clients[0].chain.genesis_block().hash().clone(),
+                );
+                nonce += 1;
+                txs.push(tx.get_hash());
+                added_accounts.push(account_id.clone());
+
+                for j in 0..2 {
+                    env.clients[j].process_tx(tx.clone(), false, false);
+                }
+            }
+        }
+
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
             .runtime_adapter
@@ -71,52 +96,10 @@ fn test_shard_layout_upgrade() {
             shard_layout.num_shards()
         );
 
-        // produce chunks
-        for shard_id in 0..shard_layout.num_shards() {
-            let chunk_producer =
-                env.clients[0].runtime_adapter.get_chunk_producer(&epoch_id, i, shard_id).unwrap();
-            let chunk_producer_client = &mut env.clients[account_to_client_index(&chunk_producer)];
-            let (encoded_chunk, merkle_paths, receipts) =
-                create_chunk_on_height_for_shard(chunk_producer_client, i, shard_id);
-            let mut chain_store =
-                ChainStore::new(chunk_producer_client.chain.store().owned_store(), genesis_height);
-            chunk_producer_client
-                .shards_mgr
-                .distribute_encoded_chunk(
-                    encoded_chunk.clone(),
-                    merkle_paths.clone(),
-                    receipts.clone(),
-                    &mut chain_store,
-                )
-                .unwrap();
-        }
-
-        // process partial encoded chunks
-        loop {
-            if let Some(request) = network_adapter.pop() {
-                match request {
-                    NetworkRequests::PartialEncodedChunkMessage {
-                        account_id,
-                        partial_encoded_chunk,
-                    } => {
-                        let client = &mut env.clients[account_to_client_index(&account_id)];
-                        client
-                            .process_partial_encoded_chunk(MaybeValidated::NotValidated(
-                                partial_encoded_chunk.into(),
-                            ))
-                            .unwrap();
-                    }
-                    _ => {}
-                }
-            } else {
-                break;
-            }
-        }
-
         // produce block
         let block_producer =
             env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
-        let block_producer_client = &mut env.clients[account_to_client_index(&block_producer)];
+        let block_producer_client = env.client(&block_producer);
         let mut block = block_producer_client.produce_block(i).unwrap().unwrap();
         // upgrade to new protocol version but in the second epoch one node vote for the old version.
         if i != 10 {
@@ -126,21 +109,11 @@ fn test_shard_layout_upgrade() {
                 simple_nightshade_protocol_version,
             );
         }
-
-        // process block
         for j in 0..2 {
-            let (accepted_blocks, res) =
-                env.clients[j].process_block(block.clone(), Provenance::NONE);
-            for accepted_block in accepted_blocks {
-                let new_height =
-                    env.clients[j].chain.get_block(&accepted_block.hash).unwrap().header().height();
-                if accepted_block.status.is_new_head() {
-                    env.clients[j].shards_mgr.update_largest_seen_height(new_height);
-                }
-            }
-            assert!(res.is_ok(), "{:?}", res);
-            run_catchup(&mut env.clients[j], &vec![]).unwrap();
+            env.process_block(j, block.clone(), Provenance::NONE);
         }
+
+        env.process_partial_encoded_chunks();
 
         // after state split, check chunk extra exists and the states are correct
         if i >= 6 {
@@ -213,6 +186,23 @@ fn test_shard_layout_upgrade() {
                         &QueryRequest::ViewAccount { account_id: account_id.clone() },
                     )
                     .unwrap();
+            }
+        }
+    }
+
+    // check execution outcomes
+    for (i, id) in txs.iter().enumerate() {
+        let account_id = &added_accounts[i];
+        let shard_uid = account_id_to_shard_uid(account_id, &simple_nightshade_shard_layout);
+        for j in 0..2 {
+            if env.clients[j].runtime_adapter.cares_about_shard(
+                None,
+                block.header().prev_hash(),
+                shard_uid.shard_id(),
+                true,
+            ) {
+                let execution_outcome = env.clients[0].chain.get_execution_outcome(id).unwrap();
+                assert_eq!(execution_outcome.outcome_with_id.outcome.receipt_ids.len(), 1);
             }
         }
     }
