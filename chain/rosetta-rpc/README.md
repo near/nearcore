@@ -44,7 +44,7 @@ transactions to a blockchain network.
 | - `/network/options`         | Done                                                                                                                                |
 | - `/block`                   | Feature-complete (exposes only balance-changing operations)                                                                         |
 | - `/block/transaction`       | Feature-complete (exposes only balance-changing operations and the implementation is suboptimal from the performance point of view) |
-| - `/account/balance`         | Done (properly exposes liquid, liquid for storage, and locked [staked] balances through sub-accounts)                               |
+| - `/account/balance`         | Done (properly exposes liquid, liquid for storage, and locked (staked) balances through sub-accounts)                               |
 | - `/mempool`                 | Not implemented as mempool does not hold transactions for any meaningful time                                                       |
 | - `/mempool/transaction`     | Not implemented (see above)                                                                                                         |
 | Construction API             | Done                                                                                                                                |
@@ -142,7 +142,7 @@ current betanet and testnet, which have a single shard:
 ```
 
 By default, nearcore is configured to automatically clean old data (performs
-garbage collection [GC]), so querying the data that was observed a few epochs
+garbage collection), so querying the data that was observed a few epochs
 before may return an error saying that the data is missing. If you only need
 recent blocks, you don't need this tweak, but if you need access to the
 historical data, consider updating `"archive"` setting in `config.json` to

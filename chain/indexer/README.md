@@ -54,11 +54,11 @@ $ cargo run --release -- --home-dir ~/.near/testnet init --chain-id testnet --do
 
 The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
 
-**NB!** According to changes in `nearcore` config generation we don't fill all the necessary fields in the config file. While this issue is open https://github.com/nearprotocol/nearcore/issues/3156 you need to download config you want and replace the generated one manually.
+**NB!** According to changes in `nearcore` config generation we don't fill all the necessary fields in the config file. While this issue is open <https://github.com/nearprotocol/nearcore/issues/3156> you need to download config you want and replace the generated one manually.
  - [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/config.json)
  - [betanet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/betanet/config.json)
  - [mainnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json)
- 
+
 Replace `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`) with downloaded one.
 
 Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/testnet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
@@ -95,12 +95,12 @@ As already has been mentioned in this README, the most common tweak you need to 
 
 You can choose Indexer Framework sync mode by setting what to stream:
  - `LatestSynced` - Real-time syncing, always taking the latest finalized block to stream
- - `FromInterruption` - Starts syncing from the block NEAR Indexer was interrupted last time 
+ - `FromInterruption` - Starts syncing from the block NEAR Indexer was interrupted last time
  - `BlockHeight(u64)` - Specific block height to start syncing from
- 
+
  Refer to `main()` function in [Indexer Example](https://github.com/nearprotocol/nearcore/blob/master/tools/indexer/example/src/main.rs)
 
-Indexer Framework also exposes access to the internal APIs (see `Indexer::client_actors` method), so you can fetch data about any block, transaction, etc, yet by default, nearcore is configured to remove old data (garbage collection [GC]), so querying the data that was observed a few epochs before may return an error saying that the data is not found. If you only need blocks streaming, you don't need this tweak, but if you need access to the historical data right from your Indexer, consider updating `"archive"` setting in `config.json` to `true`:
+Indexer Framework also exposes access to the internal APIs (see `Indexer::client_actors` method), so you can fetch data about any block, transaction, etc, yet by default, nearcore is configured to remove old data (garbage collection), so querying the data that was observed a few epochs before may return an error saying that the data is not found. If you only need blocks streaming, you don't need this tweak, but if you need access to the historical data right from your Indexer, consider updating `"archive"` setting in `config.json` to `true`:
 
 ```
 ...

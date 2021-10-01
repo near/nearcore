@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::convert::{AsRef, TryInto};
 use std::sync::Arc;
 
