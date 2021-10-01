@@ -68,6 +68,7 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_store::split_state::get_delayed_receipts;
+use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
@@ -1018,6 +1019,33 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        if self.is_next_block_epoch_start(prev_hash)? {
+            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+            if prev_shard_layout != shard_layout {
+                return Ok(shard_ids
+                    .into_iter()
+                    .map(|shard_id| {
+                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
+                            assert!(parent_shard_id < prev_shard_layout.num_shards(),
+                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
+                                    shard_layout,
+                                    parent_shard_id
+                            );
+                            parent_shard_id
+                        })
+                    })
+                    .collect::<Result<_, ShardLayoutError>>()?);
+            }
+        }
+        Ok(shard_ids)
     }
 
     fn get_shard_layout_from_prev_block(

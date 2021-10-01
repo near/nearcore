@@ -67,7 +67,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use actix::Message;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayoutError, ShardUId};
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardUId};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 /// Maximum number of orphans chain can store.
@@ -2639,11 +2639,8 @@ impl Chain {
     ) -> Result<Vec<ShardChunkHeader>, Error> {
         let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&prev_block.hash())?;
         let num_shards = runtime_adapter.num_shards(&epoch_id)?;
-        let prev_shard_ids = Self::get_prev_chunk_headers_impl(
-            runtime_adapter,
-            prev_block,
-            (0..num_shards).collect(),
-        )?;
+        let prev_shard_ids =
+            runtime_adapter.get_prev_shard_ids(prev_block.hash(), (0..num_shards).collect())?;
         let chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
@@ -2657,37 +2654,8 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
         let prev_shard_id =
-            Self::get_prev_chunk_headers_impl(runtime_adapter, prev_block, vec![shard_id])?[0];
+            runtime_adapter.get_prev_shard_ids(prev_block.hash(), vec![shard_id])?[0];
         Ok(prev_block.chunks().get(prev_shard_id as usize).unwrap().clone())
-    }
-
-    fn get_prev_chunk_headers_impl(
-        runtime_adapter: &dyn RuntimeAdapter,
-        prev_block: &Block,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<ShardId>, Error> {
-        if runtime_adapter.is_next_block_epoch_start(prev_block.hash())? {
-            let shard_layout =
-                runtime_adapter.get_shard_layout_from_prev_block(prev_block.hash())?;
-            let prev_shard_layout =
-                runtime_adapter.get_shard_layout(prev_block.header().epoch_id())?;
-            if prev_shard_layout != shard_layout {
-                return Ok(shard_ids
-                    .into_iter()
-                    .map(|shard_id| {
-                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
-                            assert!(parent_shard_id < prev_shard_layout.num_shards(),
-                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
-                                    shard_layout,
-                                    parent_shard_id
-                            );
-                            parent_shard_id
-                        })
-                    })
-                    .collect::<Result<_, ShardLayoutError>>()?);
-            }
-        }
-        Ok(shard_ids)
     }
 }
 

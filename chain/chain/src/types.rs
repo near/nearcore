@@ -447,6 +447,12 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error>;
+
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
         &self,

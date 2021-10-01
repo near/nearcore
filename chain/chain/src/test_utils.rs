@@ -481,6 +481,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
+    fn get_prev_shard_ids(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        Ok(shard_ids)
+    }
+
     fn get_shard_layout_from_prev_block(
         &self,
         _parent_hash: &CryptoHash,
