@@ -24,6 +24,7 @@ fn test_shard_layout_upgrade() {
     account_ids.extend(gen_accounts(&mut rng, 100).into_iter().collect::<HashSet<_>>());
     let mut genesis = Genesis::test(account_ids.clone(), 2);
     let simple_nightshade_protocol_version = ProtocolFeature::SimpleNightshade.protocol_version();
+    genesis.config.chunk_producer_kickout_threshold = 50;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = simple_nightshade_protocol_version - 1;
     let new_num_shards = 4;
