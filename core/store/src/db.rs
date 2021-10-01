@@ -119,10 +119,12 @@ pub enum DBCol {
     ColEpochValidatorInfo = 47,
     /// Header Hashes indexed by Height
     ColHeaderHashesByHeight = 48,
+    /// State changes made by a chunk, used for splitting states
+    ColStateChangesForSplitStates = 49,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 49;
+pub const NUM_COLS: usize = 50;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -176,6 +178,9 @@ impl std::fmt::Display for DBCol {
             Self::ColCachedContractCode => "cached code",
             Self::ColEpochValidatorInfo => "epoch validator info",
             Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
+            Self::ColStateChangesForSplitStates => {
+                "state changes indexed by block hash and shard id"
+            }
         };
         write!(formatter, "{}", desc)
     }
@@ -328,9 +333,9 @@ pub struct RocksDBOptions {
     warn_treshold: bytesize::ByteSize,
 }
 
-/// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256,
-/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and
-/// [`free_disk_space_warn_threshold`](RocksDBOptions::free_disk_space_warn_threshold) to 256 Mb
+/// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
+/// [`RocksDBOptions::free_disk_space_threshold`] to 16 MB and
+/// [`RocksDBOptions::free_disk_space_warn_threshold`] to 256 MB.
 impl Default for RocksDBOptions {
     fn default() -> Self {
         RocksDBOptions {
@@ -799,14 +804,14 @@ mod tests {
     #[test]
     fn test_prewrite_check() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_prewrite_check").tempdir().unwrap();
-        let store = RocksDB::new(tmp_dir.path().to_str().unwrap()).unwrap();
+        let store = RocksDB::new(tmp_dir).unwrap();
         store.pre_write_check().unwrap()
     }
 
     #[test]
     fn test_clear_column() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_clear_column").tempdir().unwrap();
-        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let store = create_store(tmp_dir.path());
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);
         {
             let mut store_update = store.store_update();
@@ -827,7 +832,7 @@ mod tests {
     #[test]
     fn rocksdb_merge_sanity() {
         let tmp_dir = tempfile::Builder::new().prefix("_test_snapshot_sanity").tempdir().unwrap();
-        let store = create_store(tmp_dir.path().to_str().unwrap());
+        let store = create_store(tmp_dir.path());
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
         assert_eq!(store.get(ColState, &[1]).unwrap(), None);

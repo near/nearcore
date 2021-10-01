@@ -107,15 +107,15 @@ impl std::error::Error for StorageError {}
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
-    /// TX signer_id is not in a valid format or not satisfy requirements see `near_runtime_utils::utils::is_valid_account_id`
+    /// TX signer_id is not a valid [`AccountId`]
     InvalidSignerId { signer_id: String },
     /// TX signer_id is not found in a storage
     SignerDoesNotExist { signer_id: AccountId },
-    /// Transaction nonce must be account[access_key].nonce + 1
+    /// Transaction nonce must be `account[access_key].nonce + 1`.
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
     /// Transaction nonce is larger than the upper bound given by the block height
     NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
-    /// TX receiver_id is not in a valid format or not satisfy requirements see `near_runtime_utils::is_valid_account_id`
+    /// TX receiver_id is not a valid AccountId
     InvalidReceiverId { receiver_id: String },
     /// TX signature is not valid
     InvalidSignature,
@@ -426,8 +426,9 @@ pub enum ActionErrorKind {
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
-    /// Error occurs when a `CreateAccount` action is called on hex-characters account of length 64.
-    /// See implicit account creation NEP: https://github.com/nearprotocol/NEPs/pull/71
+    /// Error occurs when a `CreateAccount` action is called on hex-characters
+    /// account of length 64.  See implicit account creation NEP:
+    /// <https://github.com/nearprotocol/NEPs/pull/71>.
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState { account_id: AccountId },
@@ -520,12 +521,9 @@ impl Display for InvalidAccessKeyError {
                 "Transaction method name {:?} isn't allowed by the access key",
                 method_name
             ),
-            InvalidAccessKeyError::RequiresFullAccess => write!(
-                f,
-                "The transaction contains more then one action, but it was signed \
-                 with an access key which allows transaction to apply only one specific action. \
-                 To apply more then one actions TX must be signed with a full access key"
-            ),
+            InvalidAccessKeyError::RequiresFullAccess => {
+                write!(f, "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions")
+            }
             InvalidAccessKeyError::NotEnoughAllowance {
                 account_id,
                 public_key,
@@ -749,6 +747,10 @@ pub enum EpochError {
     IOErr(String),
     /// Given account ID is not a validator in the given epoch ID.
     NotAValidator(AccountId, EpochId),
+    /// Error getting information for a shard
+    ShardingError(String),
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    NotEnoughValidators { num_validators: u64, num_shards: u64 },
 }
 
 impl std::error::Error for EpochError {}
@@ -769,6 +771,11 @@ impl Display for EpochError {
             EpochError::NotAValidator(account_id, epoch_id) => {
                 write!(f, "{} is not a validator in epoch {:?}", account_id, epoch_id)
             }
+            EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            EpochError::NotEnoughValidators { num_shards, num_validators } => {
+                write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
+            }
         }
     }
 }
@@ -784,6 +791,11 @@ impl Debug for EpochError {
             EpochError::IOErr(err) => write!(f, "IOErr({})", err),
             EpochError::NotAValidator(account_id, epoch_id) => {
                 write!(f, "NotAValidator({}, {:?})", account_id, epoch_id)
+            }
+            EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            EpochError::NotEnoughValidators { num_shards, num_validators } => {
+                write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
             }
         }
     }

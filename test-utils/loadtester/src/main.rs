@@ -110,7 +110,7 @@ fn main() {
             Arg::with_name("home")
             .long("home")
             .takes_value(true)
-            .default_value(&default_home)
+            .default_value_os(default_home.as_os_str())
         )
         .arg(
             Arg::with_name("state_dump")
@@ -141,7 +141,7 @@ fn main() {
                 Arg::with_name("home")
                     .long("home")
                     .takes_value(true)
-                    .default_value(&default_home))
+                    .default_value_os(default_home.as_os_str()))
             .arg(
                 Arg::with_name("shards")
                     .long("shards")
@@ -189,7 +189,7 @@ fn create_genesis(matches: &clap::ArgMatches<'_>) {
         genesis.to_file(&node_dir.join(&configs[i].genesis_file));
         configs[i].consensus.min_num_peers = if v == 1 { 0 } else { 1 };
         configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
-        info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
+        info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.display());
     }
 }
 

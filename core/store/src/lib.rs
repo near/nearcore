@@ -23,8 +23,9 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 pub use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceivedData};
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
+pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
 
@@ -34,7 +35,7 @@ use crate::db::{
     DBOp, DBTransaction, Database, RocksDB, GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
 };
 pub use crate::trie::{
-    iterator::TrieIterator, update::TrieUpdate, update::TrieUpdateIterator,
+    iterator::TrieIterator, split_state, update::TrieUpdate, update::TrieUpdateIterator,
     update::TrieUpdateValuePtr, ApplyStatePartResult, KeyForStateChanges, PartialStorage,
     ShardTries, Trie, TrieChanges, WrappedTrieChanges,
 };
@@ -167,7 +168,7 @@ impl StoreUpdate {
     pub fn new_with_tries(tries: ShardTries) -> Self {
         let storage = tries.get_store().storage.clone();
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, tries: Some(tries) }
+        StoreUpdate { storage, transaction, tries: Some(tries.clone()) }
     }
 
     pub fn update_refcount(&mut self, column: DBCol, key: &[u8], value: &[u8], rc_delta: i64) {
@@ -206,10 +207,7 @@ impl StoreUpdate {
             if self.tries.is_none() {
                 self.tries = Some(tries);
             } else {
-                debug_assert_eq!(
-                    self.tries.as_ref().unwrap().caches.as_ref() as *const _,
-                    tries.caches.as_ref() as *const _
-                );
+                debug_assert!(self.tries.as_ref().unwrap().is_same(&tries));
             }
         }
 
@@ -295,7 +293,7 @@ pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     Ok(None)
 }
 
-pub fn create_store(path: &str) -> Arc<Store> {
+pub fn create_store(path: &Path) -> Arc<Store> {
     let db = Arc::pin(RocksDB::new(path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
@@ -379,6 +377,12 @@ pub fn get_postponed_receipt(
     get(state_update, &TrieKey::PostponedReceipt { receiver_id: receiver_id.clone(), receipt_id })
 }
 
+pub fn get_delayed_receipt_indices(
+    state_update: &TrieUpdate,
+) -> Result<DelayedReceiptIndices, StorageError> {
+    Ok(get(state_update, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default())
+}
+
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -419,7 +423,7 @@ pub fn get_access_key_raw(
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code.clone());
+    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
 }
 
 pub fn get_code(

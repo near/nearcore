@@ -18,8 +18,8 @@ mod wasmer_runner;
 #[cfg(feature = "wasmtime_vm")]
 mod wasmtime_runner;
 
-#[cfg(feature = "wasmer1_vm")]
-mod wasmer1_runner;
+#[cfg(feature = "wasmer2_vm")]
+mod wasmer2_runner;
 
 pub use near_vm_errors::VMError;
 pub use preload::{ContractCallPrepareRequest, ContractCallPrepareResult, ContractCaller};

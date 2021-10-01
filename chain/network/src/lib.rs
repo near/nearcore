@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-
 pub use peer::{EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS};
 pub use peer_manager::PeerManagerActor;
 pub use types::{
@@ -10,15 +7,15 @@ pub use types::{
 
 mod cache;
 mod codec;
+mod ibf;
+pub mod ibf_peer_set;
+pub mod ibf_set;
 pub mod metrics;
 mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
-#[cfg(feature = "metric_recorder")]
-pub mod recorder;
 pub mod routing;
+pub mod test_utils;
 pub mod types;
 pub mod utils;
-
-pub mod test_utils;

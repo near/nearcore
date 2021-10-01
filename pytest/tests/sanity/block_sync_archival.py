@@ -10,7 +10,7 @@ from cluster import start_cluster
 TARGET_HEIGHT = 100
 TIMEOUT = 120
 
-client_config0 = { "archive": True }
+client_config0 = {"archive": True}
 client_config1 = {
     "archive": True,
     "tracked_shards": [0],
@@ -18,7 +18,10 @@ client_config1 = {
 
 nodes = start_cluster(
     1, 1, 1, None,
-    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {0: client_config0, 1: client_config1})
+    [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {
+        0: client_config0,
+        1: client_config1
+    })
 
 nodes[1].kill()
 

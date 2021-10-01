@@ -30,4 +30,8 @@ lazy_static! {
         try_create_int_gauge("near_memory_usage_bytes", "Amount of RAM memory usage");
     pub static ref GC_TIME: near_metrics::Result<Histogram> =
         try_create_histogram("near_gc_time", "Time taken to do garbage collection");
+    pub static ref AVG_TGAS_USAGE: near_metrics::Result<IntGauge> = try_create_int_gauge(
+        "near_chunk_tgas_used",
+        "Number of Tgas (10^12 of gas) used by the last processed chunk"
+    );
 }

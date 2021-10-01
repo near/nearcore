@@ -13,7 +13,7 @@ pub struct Version {
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 26;
+pub const DB_VERSION: DbVersion = 28;
 
 /// Protocol version type.
 pub use near_primitives_core::types::ProtocolVersion;
@@ -97,25 +97,47 @@ pub enum ProtocolFeature {
     CountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
     MathExtension,
+    /// Restore receipts that were previously stuck because of
+    /// <https://github.com/near/nearcore/pull/4228>.
+    RestoreReceiptsAfterFix,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-    RestoreReceiptsAfterFix,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    ChunkOnlyProducers,
+    #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+    LowerDataReceiptCost,
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    RoutingExchangeAlgorithm,
+    /// This feature switch our WASM engine implementation from wasmer 0.* to
+    /// wasmer 2.*, brining better performance and reliability.
+    ///
+    /// The implementations should be sufficiently similar for this to not be a
+    /// protocol upgrade, but we concervatively do a protocol upgrade to be on
+    /// the safe side.
+    ///
+    /// Although wasmer2 is faster, we don't change fees with this protocol
+    /// version -- we can safely do that in a separate step.
+    #[cfg(feature = "protocol_feature_wasmer2")]
+    Wasmer2,
+    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+    LowerEcrecoverBaseCost,
 }
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 46;
+pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 114;
+pub const PROTOCOL_VERSION: ProtocolVersion = 119;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -133,14 +155,25 @@ impl ProtocolFeature {
             ProtocolFeature::CapMaxGasPrice => 46,
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
             ProtocolFeature::MathExtension => 46,
+            ProtocolFeature::RestoreReceiptsAfterFix => 47,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-            #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
-            ProtocolFeature::RestoreReceiptsAfterFix => 112,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            ProtocolFeature::SimpleNightshade => 114,
+            #[cfg(feature = "protocol_feature_chunk_only_producers")]
+            ProtocolFeature::ChunkOnlyProducers => 115,
+            #[cfg(feature = "protocol_feature_lower_data_receipt_cost")]
+            ProtocolFeature::LowerDataReceiptCost => 116,
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_wasmer2")]
+            ProtocolFeature::Wasmer2 => 118,
+            #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
+            ProtocolFeature::LowerEcrecoverBaseCost => 119,
         }
     }
 }

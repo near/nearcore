@@ -484,10 +484,8 @@ pub unsafe fn sum_n() {
     for i in 0..n {
         // LLVM optimizes sum += i into O(1) computation, use volatile to thwart
         // that.
-        unsafe {
-            let new_sum = std::ptr::read_volatile(&sum).wrapping_add(i);
-            std::ptr::write_volatile(&mut sum, new_sum);
-        }
+        let new_sum = std::ptr::read_volatile(&sum).wrapping_add(i);
+        std::ptr::write_volatile(&mut sum, new_sum);
     }
 
     let data = sum.to_le_bytes();

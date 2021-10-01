@@ -197,6 +197,10 @@ impl PeerStore {
         peers.iter().take(count as usize).cloned().collect::<Vec<_>>()
     }
 
+    pub fn all_peers(&self) -> Vec<KnownPeerState> {
+        self.peer_states.iter().map(|(_, v)| v.clone()).collect()
+    }
+
     /// Return unconnected or peers with unknown status that we can try to connect to.
     /// Peers with unknown addresses are filtered out.
     pub fn unconnected_peers(&self, ignore_fn: impl Fn(&KnownPeerState) -> bool) -> Vec<PeerInfo> {
@@ -219,6 +223,10 @@ impl PeerStore {
             },
             max_count,
         )
+    }
+
+    pub fn connected_peers(&self, max_count: u32) -> Vec<PeerInfo> {
+        self.find_peers(|p| matches!(p.status, KnownPeerStatus::Connected), max_count)
     }
 
     /// Return iterator over all known peers.
@@ -406,14 +414,14 @@ mod test {
         let peer_info_to_ban = gen_peer_info(1);
         let boot_nodes = vec![peer_info_a.clone(), peer_info_to_ban.clone()];
         {
-            let store = create_store(tmp_dir.path().to_str().unwrap());
+            let store = create_store(tmp_dir.path());
             let mut peer_store = PeerStore::new(store, &boot_nodes).unwrap();
             assert_eq!(peer_store.healthy_peers(3).iter().count(), 2);
             peer_store.peer_ban(&peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
             assert_eq!(peer_store.healthy_peers(3).iter().count(), 1);
         }
         {
-            let store_new = create_store(tmp_dir.path().to_str().unwrap());
+            let store_new = create_store(tmp_dir.path());
             let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
             assert_eq!(peer_store_new.healthy_peers(3).iter().count(), 1);
         }

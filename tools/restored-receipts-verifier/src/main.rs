@@ -8,17 +8,12 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-#[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-use near_primitives::receipt::ReceiptResult;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::create_store;
-#[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
-    #[cfg(not(feature = "protocol_feature_restore_receipts_after_fix"))]
-    let receipt_result = ReceiptResult::default();
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
     let receipts = receipt_result.get(&0u64).unwrap();
     receipts.into_iter().map(|receipt| receipt.get_hash()).collect()
@@ -48,7 +43,7 @@ fn main() -> Result<()> {
     let matches = App::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .about("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -67,6 +62,7 @@ fn main() -> Result<()> {
         near_config.client_config.track_all_shards,
         None,
         near_config.client_config.max_gas_burnt_view,
+        RuntimeConfigStore::new(None),
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();
@@ -89,9 +85,10 @@ fn main() -> Result<()> {
             eprintln!("{} included, skip", height);
             continue;
         }
+        let shard_uid = runtime.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
 
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
@@ -113,9 +110,7 @@ fn main() -> Result<()> {
             )
             .unwrap();
 
-        let receipts_missing_after_apply: Vec<Receipt> =
-            apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
-        receipts_missing.extend(receipts_missing_after_apply.into_iter());
+        receipts_missing.extend(apply_result.outgoing_receipts.into_iter());
         eprintln!("{} applied", height);
     }
 
@@ -143,11 +138,9 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     use super::*;
 
     #[test]
-    #[cfg(feature = "protocol_feature_restore_receipts_after_fix")]
     fn test_checking_differences() {
         let receipt_hashes_in_repo = get_receipt_hashes_in_repo();
 

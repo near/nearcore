@@ -1,8 +1,8 @@
-use chrono::{DateTime, Duration, Utc};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use borsh::de::BorshDeserialize;
+use chrono::{DateTime, Duration, Utc};
 
 use near_crypto::Signature;
 use near_network::routing::{
@@ -157,11 +157,11 @@ impl RoutingTableTest {
         let peer0 = self.get_peer(peer0).clone();
         let peer1 = self.get_peer(peer1).clone();
         let edge = Edge::new(peer0, peer1, nonce, Signature::default(), Signature::default());
-        self.routing_table.process_edges(vec![edge]);
+        self.routing_table.process_edges(Arc::new(vec![edge]));
     }
 
     fn update(&mut self) {
-        self.routing_table.update(true);
+        self.routing_table.update(true, false, SAVE_PEERS_AFTER_TIME);
     }
 }
 

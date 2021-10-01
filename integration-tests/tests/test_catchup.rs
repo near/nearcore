@@ -4,9 +4,9 @@
 fn test_catchup() {
     use std::time::Duration;
 
+    use integration_tests::node::{create_nodes, Node};
+    use integration_tests::test_helpers::{heavy_test, wait};
     use std::sync::{Arc, RwLock};
-    use testlib::node::{create_nodes, Node};
-    use testlib::test_helpers::{heavy_test, wait};
 
     /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`. After
     /// `num_blocks_to_wait` starts the last node and verifies that it can start validating within

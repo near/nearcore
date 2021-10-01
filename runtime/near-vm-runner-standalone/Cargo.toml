@@ -21,14 +21,14 @@ to make sure it has expected behavior once deployed to the blockchain.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = "=3.0.0-beta.2"
+clap_derive = "=3.0.0-beta.2"
 base64 = "0.13"
 strum = "0.20"
 num-rational = "0.3"
-tracing = "0.1"
-tracing-subscriber = "0.2"
+tracing-span-tree = "0.1"
 
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", features = ["costs_counting"]}
-near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer1_vm"] }
+near-vm-runner = { path = "../near-vm-runner", version = "3.0.0", features = ["wasmtime_vm", "wasmer2_vm"] }
 near-primitives-core = { path = "../../core/primitives-core", version = "0.1.0" }
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 
@@ -41,8 +41,7 @@ default = []
 no_cache = ["near-vm-runner/no_cache"]
 protocol_feature_alt_bn128 = ["near-vm-logic/protocol_feature_alt_bn128", "near-vm-runner/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_restore_receipts_after_fix"]
-protocol_feature_restore_receipts_after_fix = ["near-primitives/protocol_feature_restore_receipts_after_fix"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 
 [package.metadata.workspaces]

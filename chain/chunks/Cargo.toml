@@ -10,13 +10,14 @@ futures = "0.3"
 rand = "0.7"
 chrono = "0.4.6"
 log = "0.4"
-borsh = "0.8.1"
+borsh = "0.9"
 serde = { version = "1", features = [ "derive" ] }
 cached = "0.23"
 reed-solomon-erasure = "4"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
+near-chunks-primitives = { path = "../chunks-primitives" }
 near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
 near-chain = { path = "../chain" }

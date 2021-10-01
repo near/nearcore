@@ -1,11 +1,13 @@
+pub use near_primitives_core::runtime::fees;
+pub use near_primitives_core::runtime::*;
+
 use crate::account::Account;
 use crate::runtime::config::RuntimeConfig;
 use crate::types::Balance;
 
-pub use near_primitives_core::runtime::*;
 pub mod apply_state;
 pub mod config;
-pub use near_primitives_core::runtime::fees;
+pub mod config_store;
 pub mod migration_data;
 
 /// Checks if given account has enough balance for storage stake, and returns:
@@ -13,7 +15,8 @@ pub mod migration_data;
 ///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
 ///  - Err(message) if account has invalid storage usage or amount/locked.
 ///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
+/// Read details of state staking
+/// <https://nomicon.io/Economics/README.html#state-stake>.
 pub fn get_insufficient_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,

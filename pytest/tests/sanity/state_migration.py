@@ -21,6 +21,7 @@ import branches
 import cluster
 from utils import wait_for_blocks_or_timeout, get_near_tempdir
 
+
 def main():
     node_root = get_near_tempdir('state_migration', clean=True)
 
@@ -29,7 +30,7 @@ def main():
 
     # Run stable node for few blocks.
     subprocess.call([
-        "%snear-%s" % (near_root, stable_branch),
+        "%sneard-%s" % (near_root, stable_branch),
         "--home=%s/test0" % node_root, "init", "--fast"
     ])
     stable_protocol_version = json.load(
@@ -37,7 +38,7 @@ def main():
     config = {
         "local": True,
         'near_root': near_root,
-        'binary_name': "near-%s" % stable_branch
+        'binary_name': "neard-%s" % stable_branch
     }
     stable_node = cluster.spin_up_node(config, near_root,
                                        os.path.join(node_root, "test0"), 0,
@@ -80,7 +81,7 @@ def main():
                 os.path.join(node_root, 'test0/'))
 
     # Run new node and verify it runs for a few more blocks.
-    config["binary_name"] = "near-%s" % current_branch
+    config["binary_name"] = "neard-%s" % current_branch
     current_node = cluster.spin_up_node(config, near_root,
                                         os.path.join(node_root, "test0"), 0,
                                         None, None)
@@ -89,8 +90,7 @@ def main():
 
     # New genesis can be deserialized by new near is verified above (new near can produce blocks)
     # Also test new genesis protocol_version matches nearcore/res/genesis_config's
-    new_genesis = json.load(
-        open(os.path.join(node_root, 'test0/genesis.json')))
+    new_genesis = json.load(open(os.path.join(node_root, 'test0/genesis.json')))
     res_genesis = json.load(open('../nearcore/res/genesis_config.json'))
     assert new_genesis['protocol_version'] == res_genesis['protocol_version']
 

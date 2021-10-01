@@ -6,6 +6,7 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use tracing::debug;
 #[cfg(feature = "adversarial")]
 use tracing::error;
 use tracing::info;
@@ -49,7 +50,7 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path);
+                info!(target: "neard", "Removing all data from {}", store_path.display());
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
@@ -66,7 +67,7 @@ struct NeardOpts {
     #[clap(long)]
     verbose: Option<String>,
     /// Directory for config and data (default "~/.near").
-    #[clap(long, parse(from_os_str), default_value = &DEFAULT_HOME)]
+    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 }
 
@@ -274,7 +275,8 @@ impl RunCmd {
 
         let sys = actix::System::new();
         sys.block_on(async move {
-            nearcore::start_with_config(home_dir, near_config);
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config(home_dir, near_config);
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -288,7 +290,12 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping", sig);
+            info!(target: "neard", "Got {}, stopping...", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
             actix::System::current().stop();
         });
         sys.run().unwrap();
@@ -304,7 +311,7 @@ pub(super) struct TestnetCmd {
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the testnet with.
-    #[clap(long, default_value = "4")]
+    #[clap(long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the testnet with.
     #[clap(long = "v", default_value = "4")]

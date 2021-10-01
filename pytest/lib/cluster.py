@@ -1,29 +1,27 @@
-import multiprocessing
-import threading
-import subprocess
+import atexit
+import base64
 import json
+import multiprocessing
 import os
 import pathlib
-import sys
-import signal
-import atexit
-import signal
-import shutil
-import requests
-import time
-import base58
-import base64
-from retrying import retry
 import rc
-from rc import gcloud
+import requests
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
 import traceback
 import uuid
-import network
+from rc import gcloud
+from retrying import retry
 
-from proxy import NodesProxy
+import network
 from bridge import GanacheNode, RainbowBridge, alice, bob, carol
 from configured_logger import logger
 from key import Key
+from proxy import NodesProxy
 
 os.environ["ADVERSARY_CONSENT"] = "1"
 
@@ -68,13 +66,13 @@ def nretry(fn, timeout):
 
 
 class BaseNode(object):
+
     def __init__(self):
         self._start_proxy = None
         self._proxy_local_stopped = None
         self.proxy = None
         self.store_tests = 0
         self.is_check_store = True
-
 
     def _get_command_line(self,
                           near_root,
@@ -85,15 +83,14 @@ class BaseNode(object):
         if boot_key is None:
             assert boot_node_addr is None
             return [
-                os.path.join(near_root, binary_name), "--home",
-                node_dir, "run"
+                os.path.join(near_root, binary_name), "--home", node_dir, "run"
             ]
         else:
             assert boot_node_addr is not None
             boot_key = boot_key.split(':')[1]
             return [
-                os.path.join(near_root, binary_name), "--home",
-                node_dir, "run", '--boot-nodes',
+                os.path.join(near_root, binary_name), "--home", node_dir, "run",
+                '--boot-nodes',
                 "%s@%s:%s" % (boot_key, boot_node_addr[0], boot_node_addr[1])
             ]
 
@@ -123,7 +120,8 @@ class BaseNode(object):
                              timeout=timeout)
 
     def get_status(self, check_storage=True, timeout=2):
-        r = requests.get("http://%s:%s/status" % self.rpc_addr(), timeout=timeout)
+        r = requests.get("http://%s:%s/status" % self.rpc_addr(),
+                         timeout=timeout)
         r.raise_for_status()
         status = json.loads(r.content)
         if check_storage and status['sync_info']['syncing'] == False:
@@ -139,7 +137,8 @@ class BaseNode(object):
         while True:
             block = self.get_block(hash_)
             if 'error' in block and 'data' in block[
-                    'error'] and 'DB Not Found Error: BLOCK:' in block['error']['data']:
+                    'error'] and 'DB Not Found Error: BLOCK:' in block['error'][
+                        'data']:
                 break
             elif 'result' not in block:
                 logger.info(block)
@@ -162,14 +161,20 @@ class BaseNode(object):
             "finality": finality
         })
 
-    def call_function(self, acc, method, args, finality='optimistic', timeout=2):
+    def call_function(self,
+                      acc,
+                      method,
+                      args,
+                      finality='optimistic',
+                      timeout=2):
         return self.json_rpc('query', {
             "request_type": "call_function",
             "account_id": acc,
             "method_name": method,
             "args_base64": args,
             "finality": finality
-        }, timeout=timeout)
+        },
+                             timeout=timeout)
 
     def get_access_key_list(self, acc, finality='optimistic'):
         return self.json_rpc(
@@ -209,7 +214,7 @@ class BaseNode(object):
 
     def stop_checking_store(self):
         logger.warning("Stopping checking Storage for inconsistency for %s:%s" %
-              self.addr())
+                       self.addr())
         self.is_check_store = False
 
     def check_store(self):
@@ -221,8 +226,8 @@ class BaseNode(object):
             else:
                 if res['result'] == 0:
                     logger.error(
-                        "Storage for %s:%s in inconsistent state, stopping"
-                        % self.addr())
+                        "Storage for %s:%s in inconsistent state, stopping" %
+                        self.addr())
                     self.kill()
                 self.store_tests += res['result']
 
@@ -295,17 +300,16 @@ class LocalNode(BaseNode):
         if self._start_proxy is not None:
             self._proxy_local_stopped = self._start_proxy()
 
-
     def start(self, boot_key, boot_node_addr, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logger.info(f'Waiting for previous proxy instance to close')
                 time.sleep(1)
 
-
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get("RUST_LOG", "debug")
+        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
+            "RUST_LOG", "debug")
 
         self.stdout_name = os.path.join(self.node_dir, 'stdout')
         self.stderr_name = os.path.join(self.node_dir, 'stderr')
@@ -325,8 +329,7 @@ class LocalNode(BaseNode):
             self.wait_for_rpc(10)
         except:
             logger.error(
-                '=== failed to start node, rpc does not ready in 10 seconds'
-            )
+                '=== failed to start node, rpc does not ready in 10 seconds')
             self.stdout.close()
             self.stderr.close()
             if os.environ.get('BUILDKITE'):
@@ -337,7 +340,10 @@ class LocalNode(BaseNode):
 
     def kill(self):
         if self.pid.value != 0:
-            os.kill(self.pid.value, signal.SIGKILL)
+            try:
+                os.kill(self.pid.value, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # the process has already terminated
             self.pid.value = 0
 
             if self._proxy_local_stopped is not None:
@@ -381,20 +387,19 @@ class LocalNode(BaseNode):
         network.resume_network(self.pid.value)
 
 
-class BotoNode(BaseNode):
-    pass
-
-
 class GCloudNode(BaseNode):
 
-    def __init__(self, *args):
+    def __init__(self, *args, username=None, project=None, ssh_key_path=None):
         if len(args) == 1:
-            # Get existing instance assume it's ready to run
             name = args[0]
+            # Get existing instance assume it's ready to run.
             self.instance_name = name
             self.port = 24567
             self.rpc_port = 3030
-            self.machine = gcloud.get(name)
+            self.machine = gcloud.get(name,
+                                      username=username,
+                                      project=project,
+                                      ssh_key_path=ssh_key_path)
             self.ip = self.machine.ip
         elif len(args) == 4:
             # Create new instance from scratch
@@ -414,7 +419,7 @@ class GCloudNode(BaseNode):
                 min_cpu_platform='Intel Skylake',
                 preemptible=False,
             )
-            self.ip = self.machine.ip
+            # self.ip = self.machine.ip
             self._upload_config_files(node_dir)
             self._download_binary(binary)
             with remote_nodes_lock:
@@ -440,8 +445,8 @@ class GCloudNode(BaseNode):
     def _download_binary(self, binary):
         p = self.machine.run('bash',
                              input=f'''
-/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} near
-chmod +x near
+/snap/bin/gsutil cp gs://nearprotocol_nearcore_release/{binary} neard
+chmod +x neard
 ''')
         if p.returncode != 0:
             raise DownloadException(p.stderr)
@@ -484,9 +489,9 @@ chmod +x near
         return super().json_rpc(method, params, timeout=timeout)
 
     def get_status(self):
-        r = nretry(lambda: requests.get(
-            "http://%s:%s/status" % self.rpc_addr(), timeout=15),
-                           timeout=45)
+        r = nretry(lambda: requests.get("http://%s:%s/status" % self.rpc_addr(),
+                                        timeout=15),
+                   timeout=45)
         r.raise_for_status()
         return json.loads(r.content)
 
@@ -508,73 +513,72 @@ chmod +x near
 
 
 class AzureNode(BaseNode):
-        def __init__(self, ip, token, node_dir, release):
-            super(AzureNode, self).__init__()
-            self.ip = ip
-            self.token = token
-            if release:
-                self.near_root = '/datadrive/testnodes/worker/nearcore/target/release'
-            else:
-                self.near_root = '/datadrive/testnodes/worker/nearcore/target/debug'
-            self.port = 24567
-            self.rpc_port = 3030
-            self.node_dir = node_dir
-            self._upload_config_files(node_dir)
 
-        def _upload_config_files(self, node_dir):
-            post = {'ip': self.ip, 'token': self.token}
-            res = requests.post('http://40.112.59.229:5000/cleanup', json=post)
-            for f in os.listdir(node_dir):
-                if f.endswith(".json"):
-                    with open(os.path.join(node_dir, f), "r") as fl:
-                        cnt = fl.read()
-                    post = {'ip': self.ip, 'cnt': cnt, 'fl_name': f, 'token': self.token}
-                    res = requests.post('http://40.112.59.229:5000/upload', json=post)
-                    json_res = json.loads(res.text)
-                    if json_res['stderr'] != '':
-                        logger.info(json_res['stderr'])
-                        sys.exit()
-            self.validator_key = Key.from_json_file(
-                os.path.join(node_dir, "validator_key.json"))
-            self.node_key = Key.from_json_file(
-                os.path.join(node_dir, "node_key.json"))
-            self.signer_key = Key.from_json_file(
-                os.path.join(node_dir, "validator_key.json"))
+    def __init__(self, ip, token, node_dir, release):
+        super(AzureNode, self).__init__()
+        self.ip = ip
+        self.token = token
+        if release:
+            self.near_root = '/datadrive/testnodes/worker/nearcore/target/release'
+        else:
+            self.near_root = '/datadrive/testnodes/worker/nearcore/target/debug'
+        self.port = 24567
+        self.rpc_port = 3030
+        self.node_dir = node_dir
+        self._upload_config_files(node_dir)
 
-        def start(self, boot_key, boot_node_addr, skip_starting_proxy):
-            cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
-                self._get_command_line(self.near_root,
-                                       '.near', boot_key, boot_node_addr)))
-            post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
-            res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
-            json_res = json.loads(res.text)
-            if json_res['stderr'] != '':
-                logger.info(json_res['stderr'])
-                sys.exit()
-            self.wait_for_rpc(timeout=30)
+    def _upload_config_files(self, node_dir):
+        post = {'ip': self.ip, 'token': self.token}
+        res = requests.post('http://40.112.59.229:5000/cleanup', json=post)
+        for f in os.listdir(node_dir):
+            if f.endswith(".json"):
+                with open(os.path.join(node_dir, f), "r") as fl:
+                    cnt = fl.read()
+                post = {
+                    'ip': self.ip,
+                    'cnt': cnt,
+                    'fl_name': f,
+                    'token': self.token
+                }
+                res = requests.post('http://40.112.59.229:5000/upload',
+                                    json=post)
+                json_res = json.loads(res.text)
+                if json_res['stderr'] != '':
+                    logger.info(json_res['stderr'])
+                    sys.exit()
+        self.validator_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(
+            os.path.join(node_dir, "node_key.json"))
+        self.signer_key = Key.from_json_file(
+            os.path.join(node_dir, "validator_key.json"))
 
-        def kill(self):
-            cmd = ('killall -9 neard; pkill -9 -e -f companion.py')
-            post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
-            res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
-            json_res = json.loads(res.text)
-            if json_res['stderr'] != '':
-                logger.info(json_res['stderr'])
+    def start(self, boot_key, boot_node_addr, skip_starting_proxy):
+        cmd = ('RUST_BACKTRACE=1 ADVERSARY_CONSENT=1 ' + ' '.join(
+            self._get_command_line(self.near_root, '.near', boot_key,
+                                   boot_node_addr)))
+        post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
+        res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
+        json_res = json.loads(res.text)
+        if json_res['stderr'] != '':
+            logger.info(json_res['stderr'])
             sys.exit()
+        self.wait_for_rpc(timeout=30)
 
-        def addr(self):
-            return (self.ip, self.port)
+    def kill(self):
+        cmd = 'killall -9 neard'
+        post = {'ip': self.ip, 'cmd': cmd, 'token': self.token}
+        res = requests.post('http://40.112.59.229:5000/run_cmd', json=post)
+        json_res = json.loads(res.text)
+        if json_res['stderr'] != '':
+            logger.info(json_res['stderr'])
+        sys.exit()
 
-        def rpc_addr(self):
-            return (self.ip, self.rpc_port)
+    def addr(self):
+        return (self.ip, self.port)
 
-        def companion(self, *args):
-            post = {'ip': self.ip, 'args': ' '.join(map(str, args)), 'token': self.token}
-            res = requests.post('http://40.112.59.229:5000/companion', json=post)
-            json_res = json.loads(res.text)
-            if json_res['stderr'] != '':
-                logger.info(json_res['stderr'])
-                sys.exit()
+    def rpc_addr(self):
+        return (self.ip, self.rpc_port)
 
 
 def spin_up_node(config,
@@ -589,18 +593,18 @@ def spin_up_node(config,
                  single_node=False):
     is_local = config['local']
 
-    logger.info("Starting node %s %s" % (ordinal,
-                                   ("as BOOT NODE" if boot_addr is None else
-                                    ("with boot=%s@%s:%s" %
-                                     (boot_key, boot_addr[0], boot_addr[1])))))
+    logger.info("Starting node %s %s" %
+                (ordinal, ("as BOOT NODE" if boot_addr is None else
+                           ("with boot=%s@%s:%s" %
+                            (boot_key, boot_addr[0], boot_addr[1])))))
     if is_local:
         blacklist = [
             "127.0.0.1:%s" % (24567 + 10 + bl_ordinal)
             for bl_ordinal in blacklist
         ]
-        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal, near_root,
-                         node_dir, blacklist, config.get('binary_name'),
-                         single_node)
+        node = LocalNode(24567 + 10 + ordinal, 3030 + 10 + ordinal,
+                         near_root, node_dir, blacklist,
+                         config.get('binary_name'), single_node)
     else:
         # TODO: Figure out how to know IP address beforehand for remote deployment.
         assert len(
@@ -632,7 +636,8 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     Create cluster configuration
     """
     if 'local' not in config and 'nodes' in config:
-        logger.critical("Attempt to launch a regular test with a mocknet config")
+        logger.critical(
+            "Attempt to launch a regular test with a mocknet config")
         sys.exit(1)
 
     is_local = config['local']
@@ -640,7 +645,7 @@ def init_cluster(num_nodes, num_observers, num_shards, config,
     binary_name = config.get('binary_name', 'neard')
 
     logger.info("Creating %s cluster configuration with %s nodes" %
-          ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
+                ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
     process = subprocess.Popen([
         os.path.join(near_root, binary_name), "testnet", "--v",
@@ -729,7 +734,7 @@ def start_cluster(num_nodes,
         node_dirs = [
             str(dot_near / name)
             for name in os.listdir(dot_near)
-            if name.starts_with('test') and not name.endswith('_finished')
+            if name.startswith('test') and not name.endswith('_finished')
         ]
     else:
         near_root, node_dirs = init_cluster(num_nodes, num_observers,
@@ -742,8 +747,14 @@ def start_cluster(num_nodes,
 
     def spin_up_node_and_push(i, boot_key, boot_addr):
         single_node = (num_nodes == 1) and (num_observers == 0)
-        node = spin_up_node(config, near_root, node_dirs[i], i, boot_key,
-                            boot_addr, [], proxy, skip_starting_proxy=True,
+        node = spin_up_node(config,
+                            near_root,
+                            node_dirs[i],
+                            i,
+                            boot_key,
+                            boot_addr, [],
+                            proxy,
+                            skip_starting_proxy=True,
                             single_node=single_node)
         ret.append((i, node))
         return node
@@ -767,12 +778,19 @@ def start_cluster(num_nodes,
 
     return nodes
 
-def start_bridge(nodes, start_local_ethereum=True, handle_contracts=True, handle_relays=True, config=None):
+
+def start_bridge(nodes,
+                 start_local_ethereum=True,
+                 handle_contracts=True,
+                 handle_relays=True,
+                 config=None):
     if not config:
         config = load_config()
 
-    config['bridge']['bridge_dir'] = os.path.abspath(os.path.expanduser(os.path.expandvars(config['bridge']['bridge_dir'])))
-    config['bridge']['config_dir'] = os.path.abspath(os.path.expanduser(os.path.expandvars(config['bridge']['config_dir'])))
+    config['bridge']['bridge_dir'] = os.path.abspath(
+        os.path.expanduser(os.path.expandvars(config['bridge']['bridge_dir'])))
+    config['bridge']['config_dir'] = os.path.abspath(
+        os.path.expanduser(os.path.expandvars(config['bridge']['config_dir'])))
 
     # Run bridge.__init__() here.
     # It will create necessary folders, download repos and install services automatically.
@@ -809,6 +827,7 @@ def start_bridge(nodes, start_local_ethereum=True, handle_contracts=True, handle
 
     return (bridge, ganache_node)
 
+
 DEFAULT_CONFIG = {
     'local': True,
     'near_root': '../target/debug/',
@@ -838,7 +857,8 @@ def load_config():
                 config.update(new_config)
                 logger.info(f"Load config from {config_file}, config {config}")
         except FileNotFoundError:
-            logger.info(f"Failed to load config file, use default config {config}")
+            logger.info(
+                f"Failed to load config file, use default config {config}")
     else:
         logger.info(f"Use default config {config}")
     return config

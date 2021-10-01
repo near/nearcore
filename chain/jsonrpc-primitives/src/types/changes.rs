@@ -2,27 +2,27 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RpcStateChangesRequest {
+pub struct RpcStateChangesInBlockRequest {
     #[serde(flatten)]
-    pub block_reference: crate::types::blocks::BlockReference,
+    pub block_reference: near_primitives::types::BlockReference,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RpcStateChangesResponse {
+pub struct RpcStateChangesInBlockResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesView,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RpcStateChangesInBlockRequest {
+pub struct RpcStateChangesInBlockByTypeRequest {
     #[serde(flatten)]
-    pub block_reference: crate::types::blocks::BlockReference,
+    pub block_reference: near_primitives::types::BlockReference,
     #[serde(flatten)]
     pub state_changes_request: near_primitives::views::StateChangesRequestView,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct RpcStateChangesInBlockResponse {
+pub struct RpcStateChangesInBlockByTypeResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
     pub changes: near_primitives::views::StateChangesKindsView,
 }
@@ -41,13 +41,13 @@ pub enum RpcStateChangesError {
     InternalError { error_message: String },
 }
 
-impl RpcStateChangesRequest {
+impl RpcStateChangesInBlockRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         Ok(crate::utils::parse_params::<Self>(value)?)
     }
 }
 
-impl RpcStateChangesInBlockRequest {
+impl RpcStateChangesInBlockByTypeRequest {
     pub fn parse(value: Option<Value>) -> Result<Self, crate::errors::RpcParseError> {
         Ok(crate::utils::parse_params::<Self>(value)?)
     }

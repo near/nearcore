@@ -94,7 +94,8 @@ impl AccountId {
         // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
         let (prefix, suffix) = self.0.split_at(self.len() - parent_account_id.len());
 
-        prefix.ends_with('.') && &suffix[..suffix.len()] == parent_account_id.as_ref()
+        prefix.find('.') == Some(prefix.len() - 1)
+            && &suffix[..suffix.len()] == parent_account_id.as_ref()
     }
 
     /// Returns true if the account ID length is 64 characters and it's a hex representation.
@@ -357,6 +358,7 @@ mod tests {
         let bad_pairs = &[
             ("test", ".test"),
             ("test", "test"),
+            ("test", "a1.a.test"),
             ("test", "est"),
             ("test", ""),
             ("test", "st"),

@@ -21,7 +21,7 @@ fn test_function_call(metric: GasMetric, vm_kind: VMKind) {
         let contract = make_many_methods_contract(method_count);
         let cost = compute_function_call_cost(metric, vm_kind, REPEATS, &contract);
         println!("{:?} {:?} {} {}", vm_kind, metric, method_count, cost / REPEATS);
-        xs.push(contract.get_code().len() as u64);
+        xs.push(contract.code().len() as u64);
         ys.push(cost / REPEATS);
     }
 
@@ -47,7 +47,7 @@ fn test_function_call_time() {
     // cargo test --release --lib function_call::test_function_call_time
     //    --features required  -- --exact --nocapture
     test_function_call(GasMetric::Time, VMKind::Wasmer0);
-    test_function_call(GasMetric::Time, VMKind::Wasmer1);
+    test_function_call(GasMetric::Time, VMKind::Wasmer2);
     test_function_call(GasMetric::Time, VMKind::Wasmtime);
 }
 
@@ -61,7 +61,7 @@ fn test_function_call_icount() {
     // /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 \
     // -cpu Westmere-v1 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so $@
     test_function_call(GasMetric::ICount, VMKind::Wasmer0);
-    test_function_call(GasMetric::ICount, VMKind::Wasmer1);
+    test_function_call(GasMetric::ICount, VMKind::Wasmer2);
     test_function_call(GasMetric::ICount, VMKind::Wasmtime);
 }
 

@@ -19,7 +19,6 @@ nodes[1].kill()
 nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 started = time.time()
 
-
 while True:
     assert time.time() - started < TIMEOUT
     time.sleep(2)
