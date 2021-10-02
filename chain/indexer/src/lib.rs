@@ -105,9 +105,9 @@ impl Indexer {
             nearcore::config::load_config_without_genesis_records(&indexer_config.home_dir);
 
         assert!(
-            near_config.client_config.track_all_shards,
-            "Indexer should track all shards. \n\
-            Tip: You may want to update {} with `\"track_all_shards\": true`
+            !&near_config.client_config.tracked_shards.is_empty(),
+            "Indexer should track at least one shard. \n\
+            Tip: You may want to update {} with `\"tracked_shards\": [0]`
             ",
             indexer_config.home_dir.join("config.json").display()
         );

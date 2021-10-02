@@ -34,7 +34,6 @@ use crate::migrations::{
     migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 pub mod config;
 pub mod migrations;
@@ -285,15 +284,12 @@ pub struct NearNode {
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let store = init_and_migrate_store(home_dir, &config);
 
-    let runtime = Arc::new(NightshadeRuntime::new(
+    let runtime = Arc::new(NightshadeRuntime::new_with_config(
         home_dir,
         Arc::clone(&store),
-        &config.genesis,
-        config.client_config.tracked_accounts.clone(),
-        config.client_config.track_all_shards,
+        &config,
         config.client_config.trie_viewer_state_size_limit,
         config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();

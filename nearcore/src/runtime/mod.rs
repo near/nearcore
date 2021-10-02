@@ -60,6 +60,7 @@ use node_runtime::{
 use crate::shard_tracker::ShardTracker;
 
 use crate::migrations::load_migration_data;
+use crate::NearConfig;
 use errors::FromStateViewerErrors;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -147,6 +148,25 @@ pub struct NightshadeRuntime {
 impl NightshadeRuntime {
     pub fn default(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
         Self::new(home_dir, store, genesis, vec![], false, None, None, RuntimeConfigStore::test())
+    }
+
+    pub fn new_with_config(
+        home_dir: &Path,
+        store: Arc<Store>,
+        config: &NearConfig,
+        trie_viewer_state_size_limit: Option<u64>,
+        max_gas_burnt_view: Option<Gas>,
+    ) -> Self {
+        Self::new(
+            home_dir,
+            store,
+            &config.genesis,
+            config.client_config.tracked_accounts.clone(),
+            !config.client_config.tracked_shards.is_empty(),
+            trie_viewer_state_size_limit,
+            max_gas_burnt_view,
+            RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
+        )
     }
 
     pub fn new(

@@ -1,5 +1,7 @@
 use clap::{App, Arg};
+use near_primitives::types::ShardId;
 use nearcore::get_default_home;
+use std::collections::HashSet;
 use std::path::Path;
 
 pub mod csv_parser;
@@ -19,24 +21,28 @@ fn main() {
         )
         .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true))
         .arg(
-            Arg::with_name("track-all-shards")
-                .long("track-all-shards")
+            Arg::with_name("tracked-shards")
+                .long("tracked-shards")
                 .takes_value(true)
-                .help("Whether this node wants to track all shards (default false)"),
+                .help("Set of shards that this node wants to track (default empty)"),
         )
         .get_matches();
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
     let chain_id = matches.value_of("chain-id").expect("Chain id is requried");
-    let track_all_shards: bool = match matches.value_of("track-all-shards") {
+    let tracked_shards: HashSet<ShardId> = match matches.value_of("tracked-shards") {
         Some(s) => {
             if s.is_empty() {
-                false
+                HashSet::default()
             } else {
-                s.parse().unwrap()
+                s.split(',').map(|v| v.parse::<ShardId>().unwrap()).collect()
             }
         }
-        None => false,
+        None => HashSet::default(),
     };
-    csv_to_json_configs::csv_to_json_configs(home_dir, chain_id.to_string(), track_all_shards);
+    csv_to_json_configs::csv_to_json_configs(
+        home_dir,
+        chain_id.to_string(),
+        tracked_shards.into_iter().collect(),
+    );
 }

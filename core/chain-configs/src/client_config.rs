@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats};
+use near_primitives::types::{AccountId, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId};
 use near_primitives::version::Version;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -85,8 +85,8 @@ pub struct ClientConfig {
     pub gc_blocks_limit: NumBlocks,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
-    /// Whether to track all shards
-    pub track_all_shards: bool,
+    /// Shards that this client tracks
+    pub tracked_shards: Vec<ShardId>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// Number of threads for ViewClientActor pool.
@@ -151,7 +151,7 @@ impl ClientConfig {
             block_header_fetch_horizon: 50,
             gc_blocks_limit: 100,
             tracked_accounts: vec![],
-            track_all_shards: false,
+            tracked_shards: vec![],
             archive,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,

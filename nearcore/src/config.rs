@@ -29,7 +29,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
-    NumShards,
+    NumShards, ShardId,
 };
 use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -419,7 +419,7 @@ pub struct Config {
     pub network: Network,
     pub consensus: Consensus,
     pub tracked_accounts: Vec<AccountId>,
-    pub track_all_shards: bool,
+    pub tracked_shards: Vec<ShardId>,
     pub archive: bool,
     pub log_summary_style: LogSummaryStyle,
     #[serde(default = "default_gc_blocks_limit")]
@@ -451,7 +451,7 @@ impl Default for Config {
             network: Network::default(),
             consensus: Consensus::default(),
             tracked_accounts: vec![],
-            track_all_shards: false,
+            tracked_shards: vec![],
             archive: false,
             log_summary_style: LogSummaryStyle::Colored,
             gc_blocks_limit: default_gc_blocks_limit(),
@@ -672,7 +672,7 @@ impl NearConfig {
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
                 doosmslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
-                track_all_shards: config.track_all_shards,
+                tracked_shards: config.tracked_shards,
                 archive: config.archive,
                 log_summary_style: config.log_summary_style,
                 gc_blocks_limit: config.gc_blocks_limit,
