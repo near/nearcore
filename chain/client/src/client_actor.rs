@@ -58,7 +58,7 @@ use crate::StatusResponse;
 use actix::dev::SendError;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
@@ -100,6 +100,7 @@ pub struct ClientActor {
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
+    state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
 }
 
@@ -188,6 +189,9 @@ impl ClientActor {
                 sync_jobs_actor_addr.clone(),
             ),
             block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
+                sync_jobs_actor_addr.clone(),
+            ),
+            state_split_scheduler: create_sync_job_scheduler::<StateSplitRequest>(
                 sync_jobs_actor_addr,
             ),
             state_parts_client_arbiter: state_parts_arbiter,
@@ -1259,6 +1263,7 @@ impl ClientActor {
             &self.network_info.highest_height_peers,
             &self.state_parts_task_scheduler,
             &self.block_catch_up_scheduler,
+            &self.state_split_scheduler,
         ) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
@@ -1412,6 +1417,7 @@ impl ClientActor {
                     &self.network_info.highest_height_peers,
                     shards_to_sync,
                     &self.state_parts_task_scheduler,
+                    &self.state_split_scheduler,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
@@ -1642,6 +1648,37 @@ impl Handler<BlockCatchUpResponse> for ClientActor {
                 .insert(msg.block_hash, (saved_store_update, msg.results));
         } else {
             panic!("block catch up processing result from unknown sync hash");
+        }
+    }
+}
+
+impl Handler<StateSplitRequest> for SyncJobsActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
+        let results = self.runtime.build_state_for_split_shards(
+            msg.shard_uid,
+            &msg.state_root,
+            &msg.next_epoch_shard_layout,
+        );
+
+        self.client_addr.do_send(StateSplitResponse {
+            sync_hash: msg.sync_hash,
+            shard_id: msg.shard_id,
+            new_state_roots: results,
+        });
+    }
+}
+
+impl Handler<StateSplitResponse> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StateSplitResponse, _: &mut Self::Context) -> Self::Result {
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            // We are doing catchup
+            sync.set_split_result(msg.shard_id, msg.new_state_roots);
+        } else {
+            self.client.state_sync.set_split_result(msg.shard_id, msg.new_state_roots);
         }
     }
 }

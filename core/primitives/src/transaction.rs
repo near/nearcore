@@ -46,8 +46,9 @@ impl Transaction {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
-    /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
-    /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
+    /// Create an (sub)account using a transaction `receiver_id` as an ID for
+    /// a new account ID must pass validation rules described here
+    /// <http://nomicon.io/Primitives/Account.html>.
     CreateAccount(CreateAccountAction),
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
