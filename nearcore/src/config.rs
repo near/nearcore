@@ -977,7 +977,6 @@ pub fn init_configs(
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational::new(99, 100),
                 online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
-                runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key(),
