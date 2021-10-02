@@ -333,9 +333,9 @@ pub struct RocksDBOptions {
     warn_treshold: bytesize::ByteSize,
 }
 
-/// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256,
-/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and
-/// [`free_disk_space_warn_threshold`](RocksDBOptions::free_disk_space_warn_threshold) to 256 Mb
+/// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
+/// [`RocksDBOptions::free_disk_space_threshold`] to 16 MB and
+/// [`RocksDBOptions::free_disk_space_warn_threshold`] to 256 MB.
 impl Default for RocksDBOptions {
     fn default() -> Self {
         RocksDBOptions {

@@ -104,7 +104,7 @@ pub struct ApplyTransactionResult {
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
-    pub apply_split_state_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+    pub processed_delayed_receipts: Vec<Receipt>,
 }
 
 impl ApplyTransactionResult {
@@ -447,6 +447,12 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error>;
+
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
         &self,
@@ -455,7 +461,9 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
-    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+    /// Returns true if the shard layout will change in the next epoch
+    /// Current epoch is the epoch of the block after `parent_hash`
+    fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
 
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
@@ -552,23 +560,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
-    /// `split_state_roots` is only used when shards will change next epoch and we are building
-    /// states for the next epoch.
-    /// When shards will change next epoch,
-    ///    if `split_state_roots` is not None, that means states for the split shards are ready
-    ///    `apply_transations` will update these states and return apply results for these states
-    ///     through `ApplyTransactionResult.apply_split_state_result_or_state_changes`
-    ///    otherwise, `apply_transactions` will generate state changes needed to be applied to split
-    ///    states and return them through
-    ///    `ApplyTransactionResult.apply_split_state_result_or_state_changes`.
-    ///     The caller(chain) can store it in the database, waiting to be processed after state
-    ///     catchup is finished
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -587,7 +583,6 @@ pub trait RuntimeAdapter: Send + Sync {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
             state_root,
-            split_state_roots,
             height,
             block_timestamp,
             prev_block_hash,
@@ -610,7 +605,6 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
