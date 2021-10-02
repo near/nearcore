@@ -54,6 +54,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
+use near_primitives::utils::MaybeValidated;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -1105,6 +1106,7 @@ pub struct TestEnv {
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
+    account_to_client_index: HashMap<AccountId, usize>,
 }
 
 /// A builder for the TestEnv structure.
@@ -1158,10 +1160,11 @@ impl TestEnvBuilder {
     }
 
     /// Specifies custom runtime adaptors for each client.  This allows us to
-    /// construct [`TestEnv`] with [`NightshadeRuntime`].
+    /// construct [`TestEnv`] with `NightshadeRuntime`.
     ///
     /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`build`] method will panic.
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
     pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
         self.runtime_adapters = Some(adapters);
         self
@@ -1170,7 +1173,8 @@ impl TestEnvBuilder {
     /// Specifies custom network adaptors for each client.
     ///
     /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`build`] method will panic.
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
@@ -1187,14 +1191,14 @@ impl TestEnvBuilder {
     /// configured clients.
     pub fn build(self) -> TestEnv {
         let chain_genesis = self.chain_genesis;
-        let clients = self.clients;
+        let clients = self.clients.clone();
         let num_clients = clients.len();
         let validators = self.validators;
         let num_validators = validators.len();
         let network_adapters = self
             .network_adapters
             .unwrap_or_else(|| (0..num_clients).map(|_| Arc::new(Default::default())).collect());
-        assert!(clients.len() == network_adapters.len());
+        assert_eq!(clients.len(), network_adapters.len());
         let clients = match self.runtime_adapters {
             None => clients
                 .into_iter()
@@ -1232,7 +1236,18 @@ impl TestEnvBuilder {
             }
         };
 
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+        TestEnv {
+            chain_genesis,
+            validators,
+            network_adapters,
+            clients,
+            account_to_client_index: self
+                .clients
+                .into_iter()
+                .enumerate()
+                .map(|(index, client)| (client, index))
+                .collect(),
+        }
     }
 
     fn make_accounts(count: usize) -> Vec<AccountId> {
@@ -1266,6 +1281,36 @@ impl TestEnv {
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+    }
+
+    pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
+        &mut self.clients[self.account_to_client_index[account_id]]
+    }
+
+    pub fn process_partial_encoded_chunks(&mut self) {
+        let network_adapters = self.network_adapters.clone();
+        for network_adapter in network_adapters {
+            // process partial encoded chunks
+            loop {
+                if let Some(request) = network_adapter.pop() {
+                    match request {
+                        NetworkRequests::PartialEncodedChunkMessage {
+                            account_id,
+                            partial_encoded_chunk,
+                        } => {
+                            self.client(&account_id)
+                                .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                                    partial_encoded_chunk.into(),
+                                ))
+                                .unwrap();
+                        }
+                        _ => {}
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
