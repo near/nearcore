@@ -16,11 +16,7 @@ use crate::ibf_peer_set::IbfPeerSet;
 use crate::ibf_set::IbfSet;
 use crate::routing::Edge;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::SimpleEdge;
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::ValidIBFLevel;
-#[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::MIN_IBF_LEVEL;
+use crate::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, RoutingState, RoutingVersion2};
