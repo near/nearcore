@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use actix::dev::MessageResponse;
-use actix::{Actor, Handler, Message, SyncContext};
+use actix::{Actor, Handler, Message, SyncContext, System};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use tracing::error;
 
@@ -21,6 +21,7 @@ use crate::routing::SimpleEdge;
 use crate::routing::ValidIBFLevel;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::routing::MIN_IBF_LEVEL;
+use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, RoutingState, RoutingVersion2};
 
@@ -43,6 +44,13 @@ impl RoutingTableActor {
         unknown_edges: &[u64],
     ) -> (Vec<SimpleEdge>, Vec<u64>) {
         self.peer_ibf_set.split_edges_for_peer(peer_id, unknown_edges)
+    }
+}
+
+impl Handler<StopMsg> for RoutingTableActor {
+    type Result = ();
+    fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
+        System::current().stop();
     }
 }
 

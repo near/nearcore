@@ -53,8 +53,8 @@ use crate::types::{
     NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
     PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, SyncData,
-    Unregister,
+    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg,
+    SyncData, Unregister,
 };
 #[cfg(feature = "adversarial")]
 use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
@@ -146,7 +146,7 @@ pub struct PeerManagerActor {
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     edge_verifier_pool: Addr<EdgeVerifier>,
-    ibf_routing_pool: Addr<RoutingTableActor>,
+    routing_table_pool: Addr<RoutingTableActor>,
     txns_since_last_block: Arc<AtomicUsize>,
     pending_incoming_connections_counter: Arc<AtomicUsize>,
     peer_counter: Arc<AtomicUsize>,
@@ -199,7 +199,7 @@ impl PeerManagerActor {
             pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
-            ibf_routing_pool,
+            routing_table_pool: ibf_routing_pool,
             txns_since_last_block,
             pending_incoming_connections_counter: Arc::new(AtomicUsize::new(0)),
             peer_counter: Arc::new(AtomicUsize::new(0)),
@@ -222,7 +222,7 @@ impl PeerManagerActor {
         timeout: u64,
     ) {
         let edges_to_remove = self.routing_table.update(can_save_edges, force_pruning, timeout);
-        self.ibf_routing_pool
+        self.routing_table_pool
             .send(RoutingTableMessages::RemoveEdges(edges_to_remove))
             .into_actor(self)
             .map(|_, _, _| ())
@@ -354,7 +354,7 @@ impl PeerManagerActor {
             WAIT_FOR_SYNC_DELAY,
             move |act, ctx2| {
                 if peer_type == PeerType::Inbound {
-                    act.ibf_routing_pool
+                    act.routing_table_pool
                         .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
                         .into_actor(act)
                         .map(move |response, act2, _ctx| match response {
@@ -449,7 +449,7 @@ impl PeerManagerActor {
             line!(),
             WAIT_FOR_SYNC_DELAY,
             move |act, ctx2| {
-                act.ibf_routing_pool
+                act.routing_table_pool
                     .send(RoutingTableMessages::RequestRoutingTable)
                     .into_actor(act)
                     .map(move |response, act2, ctx3| match response {
@@ -542,7 +542,7 @@ impl PeerManagerActor {
         self.active_peers.remove(&peer_id);
 
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-        self.ibf_routing_pool
+        self.routing_table_pool
             .send(RoutingTableMessages::RemovePeer(peer_id.clone()))
             .into_actor(self)
             .map(|_, _, _| ())
@@ -792,7 +792,7 @@ impl PeerManagerActor {
         edges: Vec<Edge>,
     ) -> bool {
         let ProcessEdgeResult { new_edge, edges } = self.routing_table.process_edges(edges);
-        self.ibf_routing_pool
+        self.routing_table_pool
             .send(RoutingTableMessages::AddEdges(edges))
             .into_actor(self)
             .map(|_, _, _| ())
@@ -843,7 +843,7 @@ impl PeerManagerActor {
             })
             .collect();
         self.routing_table.remove_edges(&edges);
-        self.ibf_routing_pool
+        self.routing_table_pool
             .send(RoutingTableMessages::RemoveEdges(edges))
             .into_actor(self)
             .map(|_, _, _| ())
@@ -1475,12 +1475,24 @@ impl Actor for PeerManagerActor {
     }
 
     /// Try to gracefully disconnect from active peers.
-    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
         let msg = SendMessage { message: PeerMessage::Disconnect };
 
         for (_, active_peer) in self.active_peers.iter() {
             active_peer.addr.do_send(msg.clone());
         }
+
+        self.edge_verifier_pool
+            .send(StopMsg {})
+            .into_actor(self)
+            .then(move |_, _, _| actix::fut::ready(()))
+            .spawn(ctx);
+
+        self.routing_table_pool
+            .send(StopMsg {})
+            .into_actor(self)
+            .then(move |_, _, _| actix::fut::ready(()))
+            .spawn(ctx);
 
         Running::Stop
     }
@@ -2225,7 +2237,7 @@ impl PeerManagerActor {
         let mut edges: Vec<Edge> = Vec::new();
         swap(&mut edges, &mut ibf_msg.edges);
         self.verify_edges(ctx, peer_id.clone(), edges);
-        self.ibf_routing_pool
+        self.routing_table_pool
             .send(RoutingTableMessages::ProcessIbfMessage { peer_id: peer_id.clone(), ibf_msg })
             .into_actor(self)
             .map(move |response, _act2: &mut PeerManagerActor, _ctx2| match response {

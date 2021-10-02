@@ -1,15 +1,22 @@
 use std::cmp::max;
 
-use actix::{Actor, Handler, SyncContext};
+use actix::{Actor, Handler, SyncContext, System};
 
 use near_performance_metrics_macros::perf;
 
-use crate::types::EdgeList;
+use crate::types::{EdgeList, StopMsg};
 
 pub(crate) struct EdgeVerifier {}
 
 impl Actor for EdgeVerifier {
     type Context = SyncContext<Self>;
+}
+
+impl Handler<StopMsg> for EdgeVerifier {
+    type Result = ();
+    fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
+        System::current().stop();
+    }
 }
 
 impl Handler<EdgeList> for EdgeVerifier {
