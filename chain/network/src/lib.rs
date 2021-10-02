@@ -6,6 +6,7 @@ pub use routing::routing_table_actor::{
 };
 pub use stats::metrics;
 
+pub(crate) mod common;
 mod peer;
 mod peer_manager;
 pub mod routing;
