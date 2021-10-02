@@ -12,9 +12,10 @@ TODO: Fill out documentation for all available commands
 ### `apply_range`
 
 Basic example:
-```
+```bash
 make release
-./target/release/state-viewer --home ~/.near/ apply_range --shard_id=0 --verbose=false --start_index=42376889 --end_index=423770101 --progress=100
+./target/release/state-viewer --home ~/.near/ apply_range --shard_id=0 \
+    --verbose=false --start_index=42376889 --end_index=423770101 --progress=100
 ```
 
 This command will:

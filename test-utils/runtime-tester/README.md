@@ -13,22 +13,23 @@ supports one client, but you can specify the number of accounts
 through [`NetworkConfig`].
 
 Scenario can be loaded from a json file or constructed in rust code.
-```rust
-pub fn from_file(path: &Path) -> io::Result<Scenario>
+
+```ignore
+pub fn from_file(path: &Path) -> io::Result<Scenario>;
 ```
 
 [`Scenario::run`] tries to produce all the described blocks and if
 succeeded returns [`run_test::RuntimeStats`] wrapped in
 a [`run_test::ScenarioResult`].
 
-```rust
-pub fn run(&self) -> ScenarioResult<RuntimeStats, Error>
+```ignore
+pub fn run(&self) -> ScenarioResult<RuntimeStats, Error>;
 ```
 
 [`run_test::RuntimeStats`] contain stats for every produced block.
 Currently, only block production time is supported.
 
-```rust
+```ignore
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct RuntimeStats {
     pub blocks_stats: Vec<BlockStats>,
@@ -44,7 +45,7 @@ pub struct BlockStats {
 [`run_test::ScenarioResult`] is a wrapper around a `Result` type which
 adds a `homedir` field:
 
-```rust
+```ignore
 pub struct ScenarioResult<T, E> {
     pub result: std::result::Result<T, E>,
     pub homedir: Option<tempfile::TempDir>,

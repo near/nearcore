@@ -39,8 +39,9 @@ After the node is started, you should see logs of every block produced in your l
 
 Use [near-shell](https://github.com/near/near-shell) to submit transactions. For example, to create a new user you run the following command:
 
-```
-$ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_account new-account.test.near --masterAccount test.near
+```bash
+$ NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json \
+       create_account new-account.test.near --masterAccount test.near
 ```
 
 
@@ -63,7 +64,7 @@ Replace `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`) 
 
 Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/testnet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
 
-```
+```text
 ...
 "tracked_shards": [0],
 ...
@@ -84,9 +85,9 @@ After the network is synced, you should see logs of every block produced in Test
 
 By default, nearcore is configured to do as little work as possible while still operating on an up-to-date state. Indexers may have different requirements, so there is no solution that would work for everyone, and thus we are going to provide you with the set of knobs you can tune for your requirements.
 
-As already has been mentioned in this README, the most common tweak you need to apply is listing all the shards you want to index data from; to do that, you should ensure that `"tracked_shards"` in the `config.json` lists all the shard IDs, e.g. for the current betanet and testnet, which have a single shard:
+As already has been mentioned above, the most common tweak you need to apply is listing all the shards you want to index data from; to do that, you should ensure that `"tracked_shards"` in the `config.json` lists all the shard IDs, e.g. for the current betanet and testnet, which have a single shard:
 
-```
+```json
 ...
 "tracked_shards": [0],
 ...
@@ -102,7 +103,7 @@ You can choose Indexer Framework sync mode by setting what to stream:
 
 Indexer Framework also exposes access to the internal APIs (see `Indexer::client_actors` method), so you can fetch data about any block, transaction, etc, yet by default, nearcore is configured to remove old data (garbage collection), so querying the data that was observed a few epochs before may return an error saying that the data is not found. If you only need blocks streaming, you don't need this tweak, but if you need access to the historical data right from your Indexer, consider updating `"archive"` setting in `config.json` to `true`:
 
-```
+```json
 ...
 "archive": true,
 ...
