@@ -19,5 +19,5 @@ ser_de = [
   "serde_json",
   "serde",
   "near-jsonrpc-primitives",
-  "near-network/adversarial"
+  "near-network/test_features"
 ]

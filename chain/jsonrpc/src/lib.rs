@@ -228,7 +228,7 @@ struct JsonRpcHandler {
     genesis_config: GenesisConfig,
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     ibf_routing_pool: Addr<RoutingTableActor>,
 }
 
@@ -1351,7 +1351,7 @@ pub fn start_http(
                 genesis_config: genesis_config.clone(),
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
-                #[cfg(feature = "adversarial")]
+                #[cfg(feature = "test_features")]
                 ibf_routing_pool: ibf_routing_pool.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))

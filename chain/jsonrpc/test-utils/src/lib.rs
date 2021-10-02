@@ -50,7 +50,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         make_peer_manager("test2", open_port(), vec![("test1", open_port())], 10, ibf_routing_pool)
             .0
             .start();
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let ibf_routing_pool = make_ibf_routing_pool();
     start_http(
         RpcConfig::new(&addr),
@@ -59,7 +59,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         view_client_addr.clone(),
         #[cfg(feature = "test_features")]
         peer_manager_addr,
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         ibf_routing_pool,
     );
     (view_client_addr, addr)

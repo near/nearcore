@@ -1921,15 +1921,15 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
     #[perf]
     fn handle(&mut self, msg: crate::types::SetRoutingTable, ctx: &mut Self::Context) {
         if let Some(add_edges) = msg.add_edges {
-            debug!(target: "network", "adversarial add_edges {}", add_edges.len());
+            debug!(target: "network", "test_features add_edges {}", add_edges.len());
             self.add_verified_edges_to_routing_table(ctx, add_edges);
         }
         if let Some(remove_edges) = msg.remove_edges {
-            debug!(target: "network", "adversarial remove_edges {}", remove_edges.len());
+            debug!(target: "network", "test_features remove_edges {}", remove_edges.len());
             self.adv_remove_edges_from_routing_table(ctx, remove_edges);
         }
         if let Some(true) = msg.prune_edges {
-            debug!(target: "network", "adversarial prune_edges");
+            debug!(target: "network", "test_features prune_edges");
             self.update_and_remove_edges(ctx, true, true, 2);
         }
     }

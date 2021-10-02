@@ -334,7 +334,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     config.network_config.verify();
     let network_config = config.network_config;
     let ibf_routing_pool = make_ibf_routing_pool();
-    #[cfg(all(feature = "json_rpc", feature = "adversarial"))]
+    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let ibf_routing_pool2 = ibf_routing_pool.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
         PeerManagerActor::new(store, network_config, client_actor1, view_client1, ibf_routing_pool)
@@ -350,7 +350,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             view_client.clone(),
             #[cfg(feature = "test_features")]
             network_actor.clone(),
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             ibf_routing_pool2,
         ));
     }

@@ -10,7 +10,7 @@ use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_network::test_utils::open_port;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::test_utils::{make_ibf_routing_pool, make_peer_manager};
 use near_primitives::types::NumBlocks;
 
@@ -67,7 +67,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         view_client_addr.clone(),
         #[cfg(feature = "test_features")]
         peer_manager_addr,
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         ibf_routing_pool,
     );
     (view_client_addr, addr)
