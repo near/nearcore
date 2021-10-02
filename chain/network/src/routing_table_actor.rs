@@ -62,6 +62,7 @@ impl Actor for RoutingTableActor {
 pub enum RoutingTableMessages {
     AddEdges(Vec<Edge>),
     RemoveEdges(Vec<Edge>),
+    RequestRoutingTable,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     AddPeerIfMissing(PeerId, Option<u64>),
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -71,7 +72,6 @@ pub enum RoutingTableMessages {
         peer_id: PeerId,
         ibf_msg: RoutingVersion2,
     },
-    RequestRoutingTable,
 }
 
 impl Message for RoutingTableMessages {
@@ -146,6 +146,11 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 }
                 RoutingTableMessagesResponse::Empty
             }
+            RoutingTableMessages::RequestRoutingTable => {
+                RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                    edges_info: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
+                }
+            }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::AddPeerIfMissing(peer_id, ibf_set) => {
                 let seed = self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges);
@@ -155,11 +160,6 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             RoutingTableMessages::RemovePeer(peer_id) => {
                 self.peer_ibf_set.remove_peer(&peer_id);
                 RoutingTableMessagesResponse::Empty
-            }
-            RoutingTableMessages::RequestRoutingTable => {
-                RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                    edges_info: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
-                }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::ProcessIbfMessage { peer_id, ibf_msg } => {
