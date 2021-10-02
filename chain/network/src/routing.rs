@@ -385,7 +385,7 @@ impl Default for EdgeVerifierHelper {
 }
 
 #[cfg(feature = "adversarial")]
-pub struct TestHelper {
+pub struct NetworkTestHelper {
     ping_info: SizedCache<usize, Ping>,
     /// Ping received by nonce.
     pong_info: SizedCache<usize, Pong>,
@@ -396,8 +396,8 @@ pub struct TestHelper {
 }
 
 #[cfg(feature = "adversarial")]
-impl TestHelper {
-    fn default() -> TestHelper {
+impl NetworkTestHelper {
+    fn default() -> NetworkTestHelper {
         Self {
             ping_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
@@ -428,7 +428,7 @@ pub struct RoutingTable {
     route_nonce: SizedCache<PeerId, usize>,
     /// Contains data structures used for tests
     #[cfg(feature = "adversarial")]
-    test_helper: TestHelper,
+    test_helper: NetworkTestHelper,
     /// Last nonce used to store edges on disk.
     pub component_nonce: u64,
 }
@@ -463,7 +463,7 @@ impl RoutingTable {
             raw_graph: Graph::new(peer_id),
             route_nonce: SizedCache::with_size(ROUND_ROBIN_NONCE_CACHE_SIZE),
             #[cfg(feature = "adversarial")]
-            test_helper: TestHelper::default(),
+            test_helper: NetworkTestHelper::default(),
             component_nonce,
         }
     }
