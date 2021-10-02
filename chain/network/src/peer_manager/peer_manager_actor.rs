@@ -17,7 +17,6 @@ use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
-use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::stats::metrics;
@@ -68,6 +67,7 @@ use crate::types::{
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
+use near_tokio_util::codec::NearFramedRead;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
@@ -765,7 +765,7 @@ impl PeerManagerActor {
 
             // TODO: check if peer is banned or known based on IP address and port.
             PeerActor::add_stream(
-                FramedRead::new(read, Codec::new())
+                NearFramedRead::new(read, Codec::new())
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {

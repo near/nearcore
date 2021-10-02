@@ -35,8 +35,10 @@ near-metrics = { path = "../../core/metrics" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
+near-tokio-util = {path = "../../utils/tokio-util-0.6.3"}
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
+pin-project-lite = "0.2.7"
 
 [dev-dependencies]
 near-chain = { path = "../chain" }
