@@ -19,7 +19,6 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};

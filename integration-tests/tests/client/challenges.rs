@@ -23,7 +23,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
