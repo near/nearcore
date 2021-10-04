@@ -29,6 +29,7 @@ near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-jsonrpc-client = { path = "client" }
 near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
+near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 
@@ -38,7 +39,7 @@ near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
-adversarial = ["near-jsonrpc-primitives/adversarial"]
+adversarial = ["near-client/adversarial", "near-jsonrpc-primitives/adversarial", "near-jsonrpc-adversarial-primitives/ser_de"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
 sandbox = []
 protocol_feature_routing_exchange_algorithm = []
