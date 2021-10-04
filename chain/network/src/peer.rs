@@ -74,7 +74,7 @@ pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
 /// Limit cache size of 1000 messages
 pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
 /// Duplicated messages will be dropped if routed through the same peer multiple times.
-pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(100);
+pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
