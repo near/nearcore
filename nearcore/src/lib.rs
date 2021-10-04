@@ -284,7 +284,7 @@ pub struct NearNode {
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let store = init_and_migrate_store(home_dir, &config);
 
-    let runtime = Arc::new(NightshadeRuntime::new_with_config(
+    let runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
         Arc::clone(&store),
         &config,

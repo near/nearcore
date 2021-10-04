@@ -85,7 +85,7 @@ pub fn set_block_protocol_version(
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::default(
+            Arc::new(nearcore::NightshadeRuntime::test(
                 Path::new("."),
                 create_test_store(),
                 genesis,
@@ -1907,11 +1907,8 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::default(
-        Path::new("."),
-        create_test_store(),
-        &genesis,
-    ));
+    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+        Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), create_test_store(), &genesis));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -3373,7 +3370,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
         let runtime =
-            nearcore::NightshadeRuntime::default(Path::new("."), create_test_store(), &genesis);
+            nearcore::NightshadeRuntime::test(Path::new("."), create_test_store(), &genesis);
         // TODO #4305: get directly from NightshadeRuntime
         let migration_data = load_migration_data(&genesis.config.chain_id);
 
@@ -3667,11 +3664,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::default(
-                    Path::new("."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), store.clone(), &genesis))
+                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
 
@@ -3767,11 +3761,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::default(
-                    Path::new("."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), store.clone(), &genesis))
+                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
 
@@ -3845,11 +3836,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::default(
-                    Path::new("."),
-                    store.clone(),
-                    &genesis,
-                )) as Arc<dyn RuntimeAdapter>
+                Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), store.clone(), &genesis))
+                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
 

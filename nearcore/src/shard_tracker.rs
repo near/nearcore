@@ -55,7 +55,7 @@ impl ShardTracker {
             }
             tracking_shards.insert(epoch_id.clone(), tracking_mask);
         }
-        Ok(tracking_shards[epoch_id].get(shard_id as usize).cloned().unwrap_or(false))
+        Ok(tracking_shards[epoch_id].get(shard_id as usize).copied().unwrap_or(false))
     }
 
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {

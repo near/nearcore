@@ -271,7 +271,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let transaction_validity_period = genesis.config.transaction_validity_period;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::default(
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
             &genesis,
@@ -569,7 +569,7 @@ fn test_fishermen_challenge() {
     );
     genesis.config.epoch_length = 5;
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(nearcore::NightshadeRuntime::default(
+        Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             create_test_store(),
             &genesis.clone(),
@@ -630,12 +630,12 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(nearcore::NightshadeRuntime::default(
+    let runtime1 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),
     ));
-    let runtime2 = Arc::new(nearcore::NightshadeRuntime::default(
+    let runtime2 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),

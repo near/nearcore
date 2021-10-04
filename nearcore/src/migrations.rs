@@ -110,8 +110,7 @@ pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
-        let runtime =
-            NightshadeRuntime::new_with_config(path, store.clone(), near_config, None, None);
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
         store_update.commit().unwrap();
@@ -214,8 +213,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
-        let runtime =
-            NightshadeRuntime::new_with_config(path, store.clone(), near_config, None, None);
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
         let shard_uid = ShardUId::default();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -276,8 +274,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let runtime =
-            NightshadeRuntime::new_with_config(path, store.clone(), &near_config, None, None);
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), &near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];

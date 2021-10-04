@@ -26,7 +26,7 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         genesis.config.min_gas_price,
     );
     let env = TestEnv::builder(ChainGenesis::from(&genesis))
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::default(
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
             &genesis,

@@ -146,11 +146,11 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn default(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
         Self::new(home_dir, store, genesis, vec![], false, None, None, RuntimeConfigStore::test())
     }
 
-    pub fn new_with_config(
+    pub fn with_config(
         home_dir: &Path,
         store: Arc<Store>,
         config: &NearConfig,

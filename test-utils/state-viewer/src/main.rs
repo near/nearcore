@@ -61,7 +61,7 @@ fn load_trie_stop_at_height(
 ) -> (NightshadeRuntime, Vec<StateRoot>, BlockHeader) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
 
-    let runtime = NightshadeRuntime::new_with_config(
+    let runtime = NightshadeRuntime::with_config(
         &home_dir,
         store,
         &near_config,
@@ -117,7 +117,7 @@ fn print_chain(
     end_height: BlockHeight,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime = NightshadeRuntime::new_with_config(
+    let runtime = NightshadeRuntime::with_config(
         &home_dir,
         store,
         near_config,
@@ -186,7 +186,7 @@ fn replay_chain(
 ) {
     let mut chain_store = ChainStore::new(store, near_config.genesis.config.genesis_height);
     let new_store = create_test_store();
-    let runtime = NightshadeRuntime::new_with_config(
+    let runtime = NightshadeRuntime::with_config(
         &home_dir,
         new_store,
         near_config,
@@ -269,7 +269,7 @@ fn apply_chain_range(
     progress: u64,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new_with_config(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
         &home_dir,
         store,
         near_config,
@@ -450,7 +450,7 @@ fn apply_block_at_height(
     shard_id: ShardId,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::new_with_config(
+    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
         &home_dir,
         store,
         near_config,

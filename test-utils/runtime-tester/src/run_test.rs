@@ -57,7 +57,7 @@ impl Scenario {
         let env = TestEnv::builder(ChainGenesis::from(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::default(
+            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
