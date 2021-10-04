@@ -286,16 +286,19 @@ pub trait ChainStoreAccess {
     /// Get epoch id of the last block with existing chunk for the given shard id.
     fn get_epoch_id_of_last_block_with_chunk(
         &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<EpochId, Error> {
         let mut candidate_hash = *hash;
+        let mut shard_id = shard_id;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
             if block_header.chunk_mask()[shard_id as usize] {
                 break Ok(block_header.epoch_id().clone());
             }
             candidate_hash = *block_header.prev_hash();
+            shard_id = runtime_adapter.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
 }
@@ -457,7 +460,7 @@ impl ChainStore {
     /// changes very rarely.
     /// But we need to implement a more theoretically correct algorithm if shard layouts will change
     /// more often in the future
-    /// https://github.com/near/nearcore/issues/4877
+    /// <https://github.com/near/nearcore/issues/4877>
     pub fn get_outgoing_receipts_for_shard(
         &mut self,
         runtime_adapter: &dyn RuntimeAdapter,

@@ -97,7 +97,8 @@ pub enum ProtocolFeature {
     CountRefundReceiptsInGasLimit,
     /// Add `ripemd60` and `ecrecover` host function
     MathExtension,
-    /// Restore receipts that were previously stuck because of https://github.com/near/nearcore/pull/4228
+    /// Restore receipts that were previously stuck because of
+    /// <https://github.com/near/nearcore/pull/4228>.
     RestoreReceiptsAfterFix,
 
     // nightly features

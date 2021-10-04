@@ -1604,7 +1604,7 @@ mod tests {
             gas_limit: Some(gas_limit),
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::new(RuntimeConfig::default()),
+            config: Arc::new(RuntimeConfig::test()),
             cache: Some(Arc::new(StoreCompiledContractCache { store: tries.get_store() })),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),

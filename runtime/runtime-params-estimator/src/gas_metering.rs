@@ -178,7 +178,7 @@ pub fn compute_gas_metering_cost(
     let vm_config_gas = VMConfig::default();
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
 
     // Warmup.

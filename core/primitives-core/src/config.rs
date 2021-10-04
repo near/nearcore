@@ -32,7 +32,7 @@ pub struct VMLimitConfig {
 
     /// How tall the stack is allowed to grow?
     ///
-    /// See https://wiki.parity.io/WebAssembly-StackHeight to find out
+    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
 
@@ -110,8 +110,8 @@ impl VMConfig {
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
             limit_config: VMLimitConfig {
-                max_gas_burnt: std::u64::MAX,
-                max_gas_burnt_view: std::u64::MAX,
+                max_gas_burnt: u64::MAX,
+                max_gas_burnt_view: u64::MAX,
                 ..Default::default()
             },
         }
@@ -343,6 +343,7 @@ pub struct ExtCostsConfig {
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
 
+/// TODO #4649: remove default implementation when LowerEcrecoverBaseCost will be released
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {

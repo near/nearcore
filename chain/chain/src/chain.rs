@@ -2644,7 +2644,7 @@ impl Chain {
     /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
     /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
     /// `get_prev_chunks(runtime_adapter, prev_block)` will return
-    /// [prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]
+    /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
         runtime_adapter: &dyn RuntimeAdapter,
         prev_block: &Block,

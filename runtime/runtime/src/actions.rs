@@ -730,7 +730,7 @@ mod tests {
         let mut actor_id = predecessor_id.clone();
         let mut action_result = ActionResult::default();
         action_create_account(
-            &RuntimeFeesConfig::default(),
+            &RuntimeFeesConfig::test(),
             &AccountCreationConfig {
                 min_allowed_top_level_account_length: length,
                 registrar_account_id: "registrar".parse().unwrap(),

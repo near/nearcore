@@ -49,7 +49,7 @@ pub fn test_populate_trie(
 }
 
 pub fn gen_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
-    let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
+    let alphabet = b"abcdefghijklmn";
     let size = rng.gen_range(0, max_size) + 1;
 
     let mut accounts = vec![];
