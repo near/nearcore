@@ -19,10 +19,10 @@ from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
-MAX_TPS = 400  # FIXME # maximum transactions per second sent (across the whole network)
+MAX_TPS = 50  # FIXME # maximum transactions per second sent (across the whole network)
 # TODO: Get the number of nodes from the genesis config.
 # For now this number needs to be in-sync with the actual number of nodes.
-NUM_NODES = 100 # FIXME
+NUM_NODES = 100  # FIXME
 MAX_TPS_PER_NODE = MAX_TPS / NUM_NODES
 # We need to slowly deploy contracts, otherwise we stall out the nodes
 CONTRACT_DEPLOY_TIME = 10 * 60
@@ -78,46 +78,34 @@ def function_call(account, i):
     if added:
         # Note that the f'' strings don't work here, because json needs {} as part of the string.
         s = '{"account_id": "account_' + str(cnt) + '"}'
-        logger.info(f'Calling function "delete_state" with arguments {s} on account {i}')
+        logger.info(
+            f'Calling function "delete_state" with arguments {s} on account {i}'
+        )
         account.send_call_contract_tx('delete_state', bytes(s, encoding='utf8'))
         function_call_state[i] = (cnt + 1, False)
     else:
         s = '{"account_id": "account_' + str(cnt) + '", "message":"' + str(
             cnt) + '"}'
-        logger.info(f'Calling function "set_state" with arguments {s} on account {i}')
+        logger.info(
+            f'Calling function "set_state" with arguments {s} on account {i}')
         account.send_call_contract_tx('set_state', bytes(s, encoding='utf8'))
         function_call_state[i] = (cnt, True)
 
 
 def random_transaction(account, i, node_account_id):
-    choice = random.randint(0, 3)
+    time.sleep(random.random() * 30)
+    choice = random.randint(0, 1)
     if choice == 0:
         logger.info(f'Account {i} transfers')
         send_transfer(account, i, node_account_id)
     elif choice == 1:
         function_call(account, i)
-    elif choice == 2:
-        new_account_id = ''.join(
-            random.choice(string.ascii_lowercase) for _ in range(0, 10))
-        logger.info(f'Account {i} creates an account {new_account_id}')
-        account.send_create_account_tx(new_account_id)
-    elif choice == 3:
-        logger.info(f'Account {i} stakes')
-        account.send_stake_tx(1)
 
 
 def send_random_transactions(node_account_id, test_accounts):
     pmap(
         lambda account_and_index: random_transaction(account_and_index[
             0], account_and_index[1], node_account_id), test_accounts)
-
-
-def random_delay():
-    random_delay = random.random() * 10
-    logger.info(
-        f'Random delay of {random_delay} second in `throttle_txns` to evenly spread the load'
-    )
-    time.sleep(random_delay)
 
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps,
@@ -134,7 +122,6 @@ def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps,
         elapsed_time += delay
         logger.info(f'Sleeping for {delay} seconds to throttle transactions')
         time.sleep(delay)
-        random_delay()
 
     return (total_tx_sent, elapsed_time)
 
@@ -154,6 +141,8 @@ def get_test_accounts_from_args():
     node_account_id = sys.argv[1]
     pk = sys.argv[2]
     sk = sys.argv[3]
+    rpc_nodes = sys.argv[4].split(',')
+    logger.info(f'rpc_nodes: {str(rpc_nodes)}')
 
     test_account_keys = [
         (key.Key(mocknet.load_testing_account_id(node_account_id, i), pk,
@@ -161,22 +150,25 @@ def get_test_accounts_from_args():
     ]
 
     base_block_hash = get_latest_block_hash()
-    rpc_info = (LOCAL_ADDR, RPC_PORT)
+    rpc_infos = [(rpc_nodes[i % len(rpc_nodes)], RPC_PORT)
+                 for i in range(len(test_account_keys))]
 
-    return (node_account_id,
-            [(account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                              base_block_hash, rpc_info), i)
-             for (key, i) in test_account_keys])
+    accounts = [(account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
+                                 base_block_hash, rpc_infos[i]), i)
+                for (key, i) in test_account_keys]
+    return (node_account_id, accounts)
 
 
 if __name__ == '__main__':
     logger.info(sys.argv)
     (node_account_id, test_accounts) = get_test_accounts_from_args()
 
-    start_time = time.time()
+    # A random delay to avoid the thundering herd.
+    # Sleep before determining `start_time` to prevent different nodes from
+    # returning to a resonance.
+    time.sleep(random.random()*120)
 
-    # Avoid the thundering herd problem by adding random delays.
-    random_delay()
+    start_time = time.time()
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to

@@ -20,7 +20,7 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
 NUM_SHARDS = 1
-NUM_ACCOUNTS = int((100 * 100) // 100) # FIXME
+NUM_ACCOUNTS = int((100 * 100) // 100)  # FIXME
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -139,29 +139,31 @@ def setup_python_environments(nodes, wasm_contract):
     pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
-def start_load_test_helper_script(script, node_account_id, pk, sk):
+def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes=None):
     return '''
         cd {dir}
-        nohup ./venv/bin/python {script} {node_account_id} {pk} {sk} > load_test.out 2> load_test.err < /dev/null &
+        nohup ./venv/bin/python {script} {node_account_id} {pk} {sk} {rpc_nodes}> load_test.out 2> load_test.err < /dev/null &
     '''.format(dir=shlex.quote(PYTHON_DIR),
                script=shlex.quote(script),
                node_account_id=shlex.quote(node_account_id),
                pk=shlex.quote(pk),
-               sk=shlex.quote(sk))
+               sk=shlex.quote(sk),
+               rpc_nodes=shlex.quote(rpc_nodes))
 
 
-def start_load_test_helper(node, script, pk, sk):
+def start_load_test_helper(node, script, pk, sk, rpc_nodes):
     logger.info(f'Starting load_test_helper on {node.instance_name}')
+    rpc_node_ips = ','.join([rpc_node.ip for rpc_node in rpc_nodes])
     node.machine.run('bash',
                      input=start_load_test_helper_script(
-                         script, node_account_name(node), pk, sk))
+                         script, node_account_name(node), pk, sk, rpc_node_ips))
 
 
-def start_load_test_helpers(nodes, script):
+def start_load_test_helpers(nodes, script, rpc_nodes=None):
     account = get_validator_account(nodes[0])
     pmap(
-        lambda node: start_load_test_helper(node, script, account.pk, account.sk
-                                           ), nodes)
+        lambda node: start_load_test_helper(node, script, account.pk, account.
+                                            sk, rpc_nodes), nodes)
 
 
 def get_log(node):
@@ -410,20 +412,24 @@ def compress_and_upload(nodes, src_filename, dst_filename):
 
 # We assume that the nodes already have the .near directory with the files
 # node_key.json, validator_key.json and config.json.
-def create_and_upload_genesis(nodes, genesis_template_filename):
+def create_and_upload_genesis(nodes, genesis_template_filename, rpc_nodes=None):
     logger.info('Uploading genesis and config files')
     with tempfile.TemporaryDirectory() as tmp_dir:
         mocknet_genesis_filename = os.path.join(tmp_dir, "genesis.json")
-        create_genesis_file(nodes, genesis_template_filename,
-                            mocknet_genesis_filename)
+        create_genesis_file(nodes,
+                            genesis_template_filename,
+                            mocknet_genesis_filename,
+                            rpc_nodes=rpc_nodes)
         # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
-        compress_and_upload(nodes, mocknet_genesis_filename,
+        compress_and_upload(nodes + rpc_nodes, mocknet_genesis_filename,
                             '/home/ubuntu/.near/genesis.json')
-        update_config_file(nodes, tmp_dir)
+        update_config_file(nodes + rpc_nodes, tmp_dir)
 
 
-def create_genesis_file(nodes, genesis_template_filename,
-                        mocknet_genesis_filename):
+def create_genesis_file(nodes,
+                        genesis_template_filename,
+                        mocknet_genesis_filename,
+                        rpc_nodes=None):
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
 
@@ -432,15 +438,18 @@ def create_genesis_file(nodes, genesis_template_filename,
     TREASURY_BALANCE = (10**7) * ONE_NEAR
     VALIDATOR_BALANCE = 5 * (10**5) * ONE_NEAR
     STAKED_BALANCE = 15 * (10**5) * ONE_NEAR
+    RPC_BALANCE = (10**1) * ONE_NEAR
     MASTER_ACCOUNT = "near"
     TREASURY_ACCOUNT = "test.near"
     LOAD_TESTER_BALANCE = (10**4) * ONE_NEAR
 
     genesis_config['chain_id'] = "mocknet"
     genesis_config['total_supply'] = str(TOTAL_SUPPLY)
-    master_balance = TOTAL_SUPPLY - (TREASURY_BALANCE + len(nodes) *
-                                     (VALIDATOR_BALANCE + STAKED_BALANCE +
-                                      NUM_ACCOUNTS * LOAD_TESTER_BALANCE))
+    master_balance = (
+        TOTAL_SUPPLY -
+        (TREASURY_BALANCE + len(nodes) *
+         (VALIDATOR_BALANCE + STAKED_BALANCE +
+          NUM_ACCOUNTS * LOAD_TESTER_BALANCE) + len(rpc_nodes) * RPC_BALANCE))
     assert master_balance > 0
     genesis_config['records'] = []
     genesis_config['validators'] = []
@@ -541,7 +550,31 @@ def create_genesis_file(nodes, genesis_template_filename,
                     }
                 }
             })
-    genesis_config["epoch_length"] = 500
+    for node in rpc_nodes:
+        account_id = node_account_name(node)
+        genesis_config['records'].append({
+            "Account": {
+                "account_id": account_id,
+                "account": {
+                    "amount": str(RPC_BALANCE),
+                    "locked": str(0),
+                    "code_hash": "11111111111111111111111111111111",
+                    "storage_usage": 0,
+                    "version": "V1"
+                }
+            }
+        })
+        genesis_config['records'].append({
+            "AccessKey": {
+                "account_id": account_id,
+                "public_key": PUBLIC_KEY,
+                "access_key": {
+                    "nonce": 0,
+                    "permission": "FullAccess"
+                }
+            }
+        })
+    genesis_config["epoch_length"] = 1200
     genesis_config["num_block_producer_seats"] = len(nodes)
     genesis_config["num_block_producer_seats_per_shard"] = [len(nodes)
                                                            ] * NUM_SHARDS
@@ -550,6 +583,10 @@ def create_genesis_file(nodes, genesis_template_filename,
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
     genesis_config["transaction_validity_period"] = 10**9
     genesis_config["shard_layout"]["V0"]["num_shards"] = NUM_SHARDS
+    # Disable validator rewards, this avoid a problem of a validator being
+    # unable to become a validator again after a kickout.
+    genesis_config["max_inflation_rate"] = [0,1]
+    genesis_config["burnt_gas_reward"] = [0,1]
     # The json object gets truncated if I don't close and reopen the file.
     with open(mocknet_genesis_filename, "w") as f:
         json.dump(genesis_config, f, indent=2)

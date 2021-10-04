@@ -2,7 +2,9 @@
 # about 20 minutes. Monitor the block production time
 # stays consistent.
 
-import sys, time
+import sys
+import time
+import random
 
 sys.path.append('lib')
 
@@ -61,19 +63,26 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 if __name__ == '__main__':
     logger.info('Starting Load test.')
-    nodes = mocknet.get_nodes()
-    logger.info(f'Starting Load test using {len(nodes)} nodes.')
+    all_nodes = mocknet.get_nodes()
+    random.shuffle(all_nodes)
+    assert len(all_nodes) > load_testing_add_and_delete_helper.NUM_NODES
+    nodes = all_nodes[:load_testing_add_and_delete_helper.NUM_NODES]
+    rpc_nodes = all_nodes[load_testing_add_and_delete_helper.NUM_NODES:]
+    logger.info(
+        f'Starting Load test using {len(nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
+    )
 
     if '--skip_restart' not in sys.argv:
         # Make sure nodes are running by restarting them.
-        mocknet.stop_nodes(nodes)
+        mocknet.stop_nodes(all_nodes)
         time.sleep(10)
-        mocknet.create_and_upload_genesis(
-            nodes, '../nearcore/res/genesis_config.json')
-        mocknet.start_nodes(nodes)
+        mocknet.create_and_upload_genesis(nodes,
+                                          '../nearcore/res/genesis_config.json',
+                                          rpc_nodes=rpc_nodes)
+        mocknet.start_nodes(all_nodes)
         time.sleep(60)
 
-    archival_node = nodes[-1]
+    archival_node = rpc_nodes[0]
     logger.info(f'Archival node: {archival_node.instance_name}')
     initial_validator_accounts = mocknet.list_validators(archival_node)
     test_passed = True
@@ -97,7 +106,8 @@ if __name__ == '__main__':
     mocknet.setup_python_environments(nodes, 'add_and_delete_state.wasm')
     logger.info('Starting transaction spamming scripts.')
     mocknet.start_load_test_helpers(nodes,
-                                    'load_testing_add_and_delete_helper.py')
+                                    'load_testing_add_and_delete_helper.py',
+                                    rpc_nodes=rpc_nodes)
 
     initial_metrics = mocknet.get_metrics(archival_node)
     logger.info(
