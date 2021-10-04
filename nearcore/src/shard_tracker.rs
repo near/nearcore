@@ -6,21 +6,28 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use std::hash::Hash;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 struct AppendOnlyMap<K, V> {
-    map: RwLock<HashMap<K, V>>,
+    map: RwLock<HashMap<K, Arc<V>>>,
 }
 
-impl<K, V> AppendOnlyMap<K, V> {
+impl<K, V> AppendOnlyMap<K, V>
+where
+    K: Eq + Hash + Clone,
+{
     fn new() -> Self {
         Self { map: RwLock::new(HashMap::new()) }
     }
 
-    fn get_or_insert<F: FnOnce() -> V>(&self, key: &K, value: F) -> &V {
+    fn get_or_insert<F: FnOnce() -> V>(&self, key: &K, value: F) -> Arc<V> {
         let mut map = self.map.write().expect(POISONED_LOCK_ERR);
-        map.entry(key).or_insert_with(value)
+        if !map.contains_key(key) {
+            map.insert(key.clone(), Arc::new(value()));
+        }
+        map.get(key).unwrap().clone()
     }
 }
 
@@ -59,9 +66,9 @@ impl ShardTracker {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
-            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
             let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
             for account_id in self.tracked_accounts.iter() {
                 let shard_id = account_id_to_shard_id(account_id, shard_layout);
