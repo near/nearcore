@@ -22,7 +22,7 @@ impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
             config: VMConfig::default(),
-            fees_config: RuntimeFeesConfig::default(),
+            fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
             promise_results: vec![],

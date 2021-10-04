@@ -919,7 +919,7 @@ impl EncodedShardChunkBody {
 }
 
 #[derive(BorshSerialize, Debug, Clone)]
-pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
+pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
@@ -1276,7 +1276,7 @@ const RS_TTL: u64 = 2 * 1024;
 
 /// Wrapper around reed solomon which occasionally resets the underlying
 /// reed solomon instead to work around the memory leak in reed solomon
-/// implementation https://github.com/darrenldl/reed-solomon-erasure/issues/74.
+/// implementation <https://github.com/darrenldl/reed-solomon-erasure/issues/74>
 pub struct ReedSolomonWrapper {
     rs: ReedSolomon,
     ttl: u64,

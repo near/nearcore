@@ -15,7 +15,8 @@ pub mod migration_data;
 ///  - Some(insufficient_balance) if account doesn't have enough and how much need to be added,
 ///  - Err(message) if account has invalid storage usage or amount/locked.
 ///
-/// Read details of state staking https://nomicon.io/Economics/README.html#state-stake
+/// Read details of state staking
+/// <https://nomicon.io/Economics/README.html#state-stake>.
 pub fn get_insufficient_storage_stake(
     account: &Account,
     runtime_config: &RuntimeConfig,

@@ -14,7 +14,7 @@ ActionAddFunctionAccessKeyPerByte                   3_850_662
 ActionDeleteKey                               189_893_250_000
 ActionDeleteAccount                           294_978_000_000
 HostFunctionCall                                   88_256_037
-WasmInstruction                                     3_856_371
+WasmInstruction                                     1_285_457
 ReadMemoryBase                                    869_954_400
 ReadMemoryByte                                      1_267_111
 WriteMemoryBase                                   934_598_287
@@ -35,7 +35,7 @@ Keccak512Base                                   1_937_129_412
 Keccak512Byte                                      12_216_567
 Ripemd160Base                                     284_558_362
 Ripemd160Block                                    226_702_528
-EcrecoverBase                               1_121_789_875_000
+EcrecoverBase                                  92_940_662_819
 LogBase                                         1_181_104_350
 LogByte                                             4_399_597
 StorageWriteBase                               21_398_912_000

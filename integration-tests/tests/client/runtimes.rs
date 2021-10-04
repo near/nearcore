@@ -53,8 +53,8 @@ fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
 
 #[test]
 fn test_pending_approvals() {
-    let runtimes = create_runtimes(1);
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env =
+        TestEnv::builder(ChainGenesis::test()).runtime_adapters(create_runtimes(1)).build();
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let parent_hash = hash(&[1]);
@@ -72,15 +72,11 @@ fn test_pending_approvals() {
 
 #[test]
 fn test_invalid_approvals() {
-    let runtimes = create_runtimes(1);
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let mut env = TestEnv::new_with_runtime_and_network_adapter(
-        ChainGenesis::test(),
-        1,
-        1,
-        runtimes,
-        vec![network_adapter.clone()],
-    );
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(create_runtimes(1))
+        .network_adapters(vec![network_adapter.clone()])
+        .build();
     let signer =
         InMemoryValidatorSigner::from_seed("random".parse().unwrap(), KeyType::ED25519, "random");
     let parent_hash = hash(&[1]);
@@ -110,8 +106,9 @@ fn test_cap_max_gas_price() {
     genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
     genesis.config.epoch_length = epoch_length;
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes = create_nightshade_runtimes(&genesis, 1);
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
 
     for i in 1..epoch_length {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -130,8 +127,8 @@ fn test_cap_max_gas_price() {
 
 #[test]
 fn test_process_partial_encoded_chunk_with_missing_block() {
-    let runtimes = create_runtimes(1);
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env =
+        TestEnv::builder(ChainGenesis::test()).runtime_adapters(create_runtimes(1)).build();
     let client = &mut env.clients[0];
     let chunk_producer = ChunkForwardingTestFixture::default();
     let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);

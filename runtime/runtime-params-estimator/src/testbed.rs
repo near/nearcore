@@ -1,6 +1,6 @@
 use genesis_populate::state_dump::StateDump;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
@@ -38,24 +38,26 @@ impl RuntimeTestbed {
         assert!(!roots.is_empty(), "No state roots found.");
         let root = roots[0];
 
-        let mut runtime_config = RuntimeConfig::default();
+        let mut runtime_config =
+            RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
 
         runtime_config.wasm_config.limit_config = VMLimitConfig {
-            max_total_log_length: u64::max_value(),
-            max_number_registers: u64::max_value(),
-            max_gas_burnt: u64::max_value(),
-            max_register_size: u64::max_value(),
-            max_number_logs: u64::max_value(),
+            max_total_log_length: u64::MAX,
+            max_number_registers: u64::MAX,
+            max_gas_burnt: u64::MAX,
+            max_register_size: u64::MAX,
+            max_number_logs: u64::MAX,
 
-            max_actions_per_receipt: u64::max_value(),
-            max_promises_per_function_call_action: u64::max_value(),
-            max_number_input_data_dependencies: u64::max_value(),
+            max_actions_per_receipt: u64::MAX,
+            max_promises_per_function_call_action: u64::MAX,
+            max_number_input_data_dependencies: u64::MAX,
 
-            max_total_prepaid_gas: u64::max_value(),
-            max_number_bytes_method_names: u64::max_value(),
+            max_total_prepaid_gas: u64::MAX,
+            max_number_bytes_method_names: u64::MAX,
 
             ..Default::default()
         };
+        runtime_config.account_creation_config.min_allowed_top_level_account_length = 0;
 
         let runtime = Runtime::new();
         let prev_receipts = vec![];

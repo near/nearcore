@@ -19,13 +19,13 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode,
+    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -79,15 +79,32 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
+pub struct ApplySplitStateResult {
+    pub shard_uid: ShardUId,
+    pub trie_changes: WrappedTrieChanges,
+    pub new_root: StateRoot,
+}
+
+// This struct captures two cases
+// when apply transactions, split states may or may not be ready
+// if it's ready, apply transactions also apply updates to split states and this enum will be
+//    ApplySplitStateResults
+// otherwise, it simply returns the state changes needed to be applied to split states
+pub enum ApplySplitStateResultOrStateChanges {
+    ApplySplitStateResults(Vec<ApplySplitStateResult>),
+    StateChangesForSplitStates(StateChangesForSplitStates),
+}
+
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub receipt_result: ReceiptResult,
+    pub outgoing_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
+    pub processed_delayed_receipts: Vec<Receipt>,
 }
 
 impl ApplyTransactionResult {
@@ -430,9 +447,23 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error>;
+
+    /// Get shard layout given hash of previous block.
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error>;
+
     fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
 
-    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+    /// Returns true if the shard layout will change in the next epoch
+    /// Current epoch is the epoch of the block after `parent_hash`
+    fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
 
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
@@ -650,6 +681,14 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &Vec<u8>,
     ) -> bool;
 
+    fn apply_update_to_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        state_roots: HashMap<ShardUId, StateRoot>,
+        next_shard_layout: &ShardLayout,
+        state_changes: StateChangesForSplitStates,
+    ) -> Result<Vec<ApplySplitStateResult>, Error>;
+
     fn build_state_for_split_shards(
         &self,
         shard_uid: ShardUId,
@@ -711,7 +750,7 @@ pub trait RuntimeAdapter: Send + Sync {
     // here.
     fn build_receipts_hashes(
         &self,
-        receipts: &Vec<Receipt>,
+        receipts: &[Receipt],
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         if shard_layout.num_shards() == 1 {

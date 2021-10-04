@@ -6,12 +6,13 @@ use bytesize::{GIB, MIB};
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::error;
 
-use crate::metrics;
-use crate::types::{PeerMessage, ReasonForBan};
 use near_performance_metrics::framed_write::EncoderCallBack;
 #[cfg(feature = "performance_stats")]
 use near_performance_metrics::stats_enabled::get_thread_stats_logger;
 use near_rust_allocator_proxy::allocator::get_tid;
+
+use crate::metrics;
+use crate::types::{PeerMessage, ReasonForBan};
 
 const NETWORK_MESSAGE_MAX_SIZE: u32 = 512 * MIB as u32;
 const MAX_CAPACITY: u64 = GIB;
@@ -172,13 +173,13 @@ mod test {
         version::{OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION},
     };
 
-    use crate::routing::EdgeInfo;
     use crate::types::{
         Handshake, HandshakeFailureReason, HandshakeV2, PeerChainInfo, PeerChainInfoV2,
         PeerIdOrHash, PeerInfo, RoutedMessage, RoutedMessageBody, SyncData,
     };
 
     use super::*;
+    use crate::routing::EdgeInfo;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();

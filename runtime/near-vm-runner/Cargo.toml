@@ -20,16 +20,16 @@ wasmer-runtime-core = { version = "0.18.2", package = "wasmer-runtime-core-near"
 wasmparser = "0.51"
 
 # Use the following for development versions of Wasmer.
-# wasmer = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
-# wasmer-types = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-compiler-singlepass = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-engine-universal = { git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
-# wasmer-vm = { git = "https://github.com/near/wasmer", branch = "near-main" }
-wasmer = { package = "wasmer-near", version = "2.0.0", optional = true, default-features = false, features = ["singlepass", "universal"] }
-wasmer-types = { package = "wasmer-types-near", version = "2.0.0", optional = true }
-wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "2.0.0", optional = true }
-wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "2.0.0", optional = true }
-wasmer-vm = { package = "wasmer-vm-near", version = "2.0.0" }
+# wasmer = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true, default-features = false, features = ["singlepass", "universal"] }
+# wasmer-types = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-compiler-singlepass = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-engine-universal = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main", optional = true }
+# wasmer-vm = { package = "wasmer-near", git = "https://github.com/near/wasmer", branch = "near-main" }
+wasmer = { package = "wasmer-near", version = "2.0.1", optional = true, default-features = false, features = ["singlepass", "universal"] }
+wasmer-types = { package = "wasmer-types-near", version = "2.0.1", optional = true }
+wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "2.0.1", optional = true }
+wasmer-engine-universal = { package = "wasmer-engine-universal-near", version = "2.0.1", optional = true }
+wasmer-vm = { package = "wasmer-vm-near", version = "2.0.1" }
 
 pwasm-utils = "0.12"
 parity-wasm = "0.41"
@@ -38,6 +38,7 @@ anyhow = { version = "1.0.19", optional = true }
 near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 near-primitives = { path = "../../core/primitives" }
+near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 cached = "0.23.0"
 tracing = { version = "0.1", default-features = false }
 threadpool = "1.8.1"
@@ -49,15 +50,16 @@ wat = "1.0.40"
 base64 = "0.13"
 
 [features]
-# all vms enabled for tests, but only one default vm, specified by runtime crate
+# all vms enabled for now
 default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
 
-wasmer0_default = []
-wasmtime_default = []
-wasmer2_default = []
+# Force usage of a specific wasm vm irrespective of protocol version.
+force_wasmer0 = []
+force_wasmtime = []
+force_wasmer2 = []
 
 lightbeam = ["wasmtime/lightbeam"]
 no_cpu_compatibility_checks = []
@@ -69,6 +71,7 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
+protocol_feature_wasmer2 = [ "near-primitives/protocol_feature_wasmer2" ]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

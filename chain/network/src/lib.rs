@@ -7,13 +7,15 @@ pub use types::{
 
 mod cache;
 mod codec;
+mod ibf;
+pub mod ibf_peer_set;
+pub mod ibf_set;
 pub mod metrics;
 mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
 pub mod routing;
+pub mod test_utils;
 pub mod types;
 pub mod utils;
-
-pub mod test_utils;

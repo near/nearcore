@@ -1,9 +1,9 @@
 use borsh::BorshSerialize;
-use serde::Serialize;
+use near_primitives::checked_feature;
+use near_vm_logic::ProtocolVersion;
 use std::hash::Hash;
 
-#[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
-#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Hash, BorshSerialize)]
 // Note, that VMKind is part of serialization protocol, so we cannor remove entries
 // from this list if particular VM reached publically visible networks.
 pub enum VMKind {
@@ -17,50 +17,22 @@ pub enum VMKind {
     Wasmer2,
 }
 
-impl Default for VMKind {
-    #[cfg(all(
-        feature = "wasmer0_default",
-        not(feature = "wasmer2_default"),
-        not(feature = "wasmtime_default")
-    ))]
-    fn default() -> Self {
-        VMKind::Wasmer0
-    }
+impl VMKind {
+    pub fn for_protocol_version(protocol_version: ProtocolVersion) -> VMKind {
+        if cfg!(feature = "force_wasmer0") {
+            return VMKind::Wasmer0;
+        }
+        if cfg!(feature = "force_wasmtime") {
+            return VMKind::Wasmtime;
+        }
+        if cfg!(feature = "force_wasmer2") {
+            return VMKind::Wasmer2;
+        }
 
-    #[cfg(all(
-        not(feature = "wasmer0_default"),
-        feature = "wasmer2_default",
-        not(feature = "wasmtime_default")
-    ))]
-    fn default() -> Self {
-        VMKind::Wasmer2
-    }
-
-    #[cfg(all(
-        not(feature = "wasmer0_default"),
-        not(feature = "wasmer2_default"),
-        feature = "wasmtime_default"
-    ))]
-    fn default() -> Self {
-        VMKind::Wasmtime
-    }
-
-    #[cfg(all(
-        not(feature = "wasmer0_default"),
-        not(feature = "wasmer2_default"),
-        not(feature = "wasmtime_default")
-    ))]
-    fn default() -> Self {
-        VMKind::Wasmer0
-    }
-
-    // These features should be mutually exclusive, but implement this to work around CI cargo check --all-features
-    #[cfg(all(
-        feature = "wasmer0_default",
-        feature = "wasmer2_default",
-        feature = "wasmtime_default"
-    ))]
-    fn default() -> Self {
-        VMKind::Wasmer0
+        if checked_feature!("protocol_feature_wasmer2", Wasmer2, protocol_version) {
+            VMKind::Wasmer2
+        } else {
+            VMKind::Wasmer0
+        }
     }
 }

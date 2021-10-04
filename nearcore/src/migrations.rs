@@ -286,7 +286,8 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
     set_store_version(&store, 20);
 }
 
-/// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
+/// This is a one time patch to fix an existing issue in mainnet database
+/// (<https://github.com/near/near-indexer-for-explorer/issues/110>)
 pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
@@ -368,7 +369,8 @@ lazy_static_include::lazy_static_include_bytes! {
     MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
 
-/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
+/// Put receipts restored in scope of issue
+/// <https://github.com/near/nearcore/pull/4248> to storage.
 pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {

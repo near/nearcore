@@ -27,10 +27,10 @@ steps:
         cargo-deny --all-features check bans
       fi
       RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
-      RUSTFLAGS='-D warnings' cargo check -p neard
       RUSTFLAGS='-D warnings' cargo check -p neard --features nightly_protocol,nightly_protocol_features
-      # build a sandbox node should succeed
+      RUSTFLAGS='-D warnings' cargo check -p neard --features adversarial
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
+      RUSTFLAGS='-D warnings' cargo check -p neard
       python3 scripts/state/update_res.py check
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
@@ -95,8 +95,7 @@ steps:
       rustup target add wasm32-unknown-unknown
       ./build.sh
       cd ..
-      RUSTFLAGS='-D warnings' cargo run --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --home /tmp/data --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
+      RUSTFLAGS='-D warnings' cargo run --release --package runtime-params-estimator --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
 
     branches: "!master !beta !stable"
     timeout: 60

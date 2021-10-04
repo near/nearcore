@@ -119,10 +119,12 @@ pub enum DBCol {
     ColEpochValidatorInfo = 47,
     /// Header Hashes indexed by Height
     ColHeaderHashesByHeight = 48,
+    /// State changes made by a chunk, used for splitting states
+    ColStateChangesForSplitStates = 49,
 }
 
 // Do not move this line from enum DBCol
-pub const NUM_COLS: usize = 49;
+pub const NUM_COLS: usize = 50;
 
 impl std::fmt::Display for DBCol {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -176,6 +178,9 @@ impl std::fmt::Display for DBCol {
             Self::ColCachedContractCode => "cached code",
             Self::ColEpochValidatorInfo => "epoch validator info",
             Self::ColHeaderHashesByHeight => "header hashes indexed by their height",
+            Self::ColStateChangesForSplitStates => {
+                "state changes indexed by block hash and shard id"
+            }
         };
         write!(formatter, "{}", desc)
     }
@@ -328,9 +333,9 @@ pub struct RocksDBOptions {
     warn_treshold: bytesize::ByteSize,
 }
 
-/// Sets [`check_free_space_interval`](RocksDBOptions::check_free_space_interval) to 256,
-/// [`free_space_threshold`](RocksDBOptions::free_space_threshold) to 16 Mb and
-/// [`free_disk_space_warn_threshold`](RocksDBOptions::free_disk_space_warn_threshold) to 256 Mb
+/// Sets [`RocksDBOptions::check_free_space_interval`] to 256,
+/// [`RocksDBOptions::free_disk_space_threshold`] to 16 MB and
+/// [`RocksDBOptions::free_disk_space_warn_threshold`] to 256 MB.
 impl Default for RocksDBOptions {
     fn default() -> Self {
         RocksDBOptions {

@@ -24,17 +24,6 @@ use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView};
 
 use crate::node_cluster::NodeCluster;
 
-macro_rules! panic_on_rpc_error {
-    ($e:expr) => {
-        if !serde_json::to_string(&$e.data.clone().unwrap_or_default())
-            .unwrap()
-            .contains("IsSyncing")
-        {
-            panic!("{:?}", $e)
-        }
-    };
-}
-
 #[test]
 fn test_get_validator_info_rpc() {
     init_integration_logger();
@@ -440,11 +429,8 @@ fn test_send_tx_sync_returns_transaction_hash() {
                 let res = view_client.send(GetBlock::latest()).await;
                 if let Ok(Ok(block)) = res {
                     if block.header.height > 10 {
-                        let response = client
-                            .EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes))
-                            .map_err(|err| panic_on_rpc_error!(err))
-                            .await
-                            .unwrap();
+                        let response =
+                            client.EXPERIMENTAL_broadcast_tx_sync(to_base64(&bytes)).await.unwrap();
                         assert_eq!(response["transaction_hash"], tx_hash.to_string());
                         System::current().stop();
                         break;
