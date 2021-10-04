@@ -1,5 +1,6 @@
 mod support;
 
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::time::Instant;
 
@@ -78,6 +79,8 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::AltBn128G1SumByte, alt_bn128g1_sum_byte),
     (Cost::AltBn128PairingCheckBase, alt_bn128_pairing_check_base),
     (Cost::AltBn128PairingCheckByte, alt_bn128_pairing_check_byte),
+    (Cost::StorageHasKeyBase, storage_has_key_base),
+    (Cost::StorageHasKeyByte, storage_has_key_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -668,6 +671,25 @@ fn alt_bn128_pairing_check_byte(ctx: &mut Ctx) -> GasCost {
     return GasCost { value: 0.into(), metric: ctx.config.metric };
 }
 
+fn storage_has_key_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10b_key_10b_value_1k",
+        "storage_has_key_10b_key_10b_value_1k",
+        ExtCosts::storage_has_key_base,
+        1000,
+    )
+}
+fn storage_has_key_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10kib_key_10b_value_1k",
+        "storage_has_key_10kib_key_10b_value_1k",
+        ExtCosts::storage_has_key_byte,
+        10 * 1024 * 1000,
+    )
+}
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -723,20 +745,81 @@ fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u
     (gas_cost, ext_cost)
 }
 
+fn fn_cost_with_setup(
+    ctx: &mut Ctx,
+    setup: &str,
+    method: &str,
+    ext_cost: ExtCosts,
+    count: u64,
+) -> GasCost {
+    let (total_cost, measured_count) = {
+        let block_size = 2;
+        let n_iters = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
+
+        let mut testbed = ctx.test_bed_with_contracts().block_size(block_size);
+
+        let mut blocks = Vec::with_capacity(2 * n_iters);
+        for _ in 0..n_iters {
+            let mut setup_block = Vec::new();
+            let mut block = Vec::new();
+            for _ in 0..block_size {
+                let mut tb = testbed.transaction_builder();
+                let sender = tb.random_unused_account();
+                let setup_tx = tb.transaction_from_function_call(sender.clone(), setup, Vec::new());
+                let tx = testbed.transaction_builder().transaction_from_function_call(
+                    sender,
+                    method,
+                    Vec::new(),
+                );
+
+                setup_block.push(setup_tx);
+                block.push(tx);
+            }
+            blocks.push(setup_block);
+            blocks.push(block);
+        }
+
+        let setup_measurements = testbed.measure_blocks(blocks);
+        let measurements: Vec<_> = setup_measurements
+            .into_iter()
+            .skip(ctx.config.warmup_iters_per_block * 2)
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 1)
+            .map(|(_, m)| m)
+            .collect();
+
+        let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
+        let mut total = GasCost { value: 0.into(), metric: ctx.config.metric };
+        let mut n = 0;
+        for (gas_cost, ext_cost) in measurements.into_iter().skip(ctx.config.warmup_iters_per_block)
+        {
+            total += gas_cost;
+            n += block_size as u64;
+            for (c, v) in ext_cost {
+                *total_ext_costs.entry(c).or_default() += v;
+            }
+        }
+
+        for v in total_ext_costs.values_mut() {
+            *v /= n;
+        }
+
+        let gas_cost = total / n;
+        (gas_cost, total_ext_costs[&ext_cost])
+    };
+    assert_eq!(measured_count, count);
+
+    let base_cost = noop_host_function_call_cost(ctx);
+
+    (total_cost - base_cost) / count
+}
+
 #[test]
 fn smoke() {
     use crate::testbed_runners::GasMetric;
     use nearcore::get_default_home;
 
-    let metrics = [
-        "AltBn128G1MultiexpBase",
-        "AltBn128G1MultiexpByte",
-        "AltBn128G1MultiexpSublinear",
-        "AltBn128G1SumBase",
-        "AltBn128G1SumByte",
-        "AltBn128PairingCheckBase",
-        "AltBn128PairingCheckByte",
-    ];
+    let metrics = ["StorageHasKeyBase", "StorageHasKeyByte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,

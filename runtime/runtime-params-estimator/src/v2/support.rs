@@ -172,6 +172,10 @@ impl<'c> TestBed<'c> {
         (gas_cost, total_ext_costs)
     }
 
+    pub(crate) fn transaction_builder<'a>(&'a mut self) -> TransactionBuilder<'a, 'c> {
+        TransactionBuilder { testbed: self }
+    }
+
     fn make_blocks<'a>(
         &'a mut self,
         block_size: usize,
@@ -190,7 +194,7 @@ impl<'c> TestBed<'c> {
         .collect::<Vec<_>>()
     }
 
-    fn measure_blocks<'a>(
+    pub(crate) fn measure_blocks<'a>(
         &'a mut self,
         blocks: Vec<Vec<SignedTransaction>>,
     ) -> Vec<(GasCost, HashMap<ExtCosts, u64>)> {
