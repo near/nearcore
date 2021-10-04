@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use actix::{Actor, ActorContext, Addr, Context, Handler, MailboxError, Message, SyncArbiter};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use lazy_static::lazy_static;
@@ -26,7 +26,7 @@ use crate::types::{
 };
 use crate::{
     NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerManagerActor,
+    NetworkResponses, PeerManagerActor, RoutingTableActor,
 };
 
 type ClientMock = Mocker<NetworkClientMessages>;
@@ -281,12 +281,17 @@ impl MockNetworkAdapter {
     }
 }
 
+pub fn make_ibf_routing_pool() -> Addr<RoutingTableActor> {
+    SyncArbiter::start(1, move || RoutingTableActor::default())
+}
+
 #[allow(dead_code)]
 pub fn make_peer_manager(
     seed: &str,
     port: u16,
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
+    ibf_routing_pool: Addr<RoutingTableActor>,
 ) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
@@ -324,8 +329,14 @@ pub fn make_peer_manager(
     .start();
     let peer_id = config.public_key.clone().into();
     (
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap(),
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            ibf_routing_pool,
+        )
+        .unwrap(),
         peer_id,
         counter,
     )

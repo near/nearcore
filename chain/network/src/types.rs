@@ -508,6 +508,10 @@ pub struct Unregister {
     pub remove_from_peer_store: bool,
 }
 
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopMsg {}
+
 /// Message from peer to peer manager
 #[derive(strum::AsRefStr)]
 pub enum PeerRequest {
