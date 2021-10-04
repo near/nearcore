@@ -290,6 +290,10 @@ impl WrappedTrieChanges {
         WrappedTrieChanges { tries, shard_uid, trie_changes, state_changes, block_hash }
     }
 
+    pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
+        &self.state_changes
+    }
+
     pub fn insertions_into(&self, store_update: &mut StoreUpdate) -> Result<(), StorageError> {
         self.tries.apply_insertions(&self.trie_changes, self.shard_uid, store_update)
     }

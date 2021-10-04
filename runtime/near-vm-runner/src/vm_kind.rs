@@ -1,11 +1,9 @@
 use borsh::BorshSerialize;
 use near_primitives::checked_feature;
 use near_vm_logic::ProtocolVersion;
-use serde::Serialize;
 use std::hash::Hash;
 
-#[derive(Clone, Copy, Debug, Hash, Serialize, BorshSerialize)]
-#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Hash, BorshSerialize)]
 // Note, that VMKind is part of serialization protocol, so we cannor remove entries
 // from this list if particular VM reached publically visible networks.
 pub enum VMKind {

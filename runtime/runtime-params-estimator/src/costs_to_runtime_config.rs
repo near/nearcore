@@ -1,11 +1,14 @@
 use std::convert::TryFrom;
 
 use anyhow::Context;
+use near_primitives::runtime::config::AccountCreationConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::{
     AccessKeyCreationConfig, ActionCreationConfig, DataReceiptCreationConfig, Fee,
     RuntimeFeesConfig,
 };
 use near_primitives::types::Gas;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_logic::{ExtCostsConfig, VMConfig, VMLimitConfig};
 use node_runtime::config::RuntimeConfig;
 
@@ -24,14 +27,16 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
         .with_context(|| format!("undefined cost: {}", Cost::WasmInstruction))?;
 
     let res = RuntimeConfig {
+        // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
+        storage_amount_per_byte: 909 * 100_000_000_000_000_000,
+        transaction_costs: runtime_fees_config(cost_table)?,
         wasm_config: VMConfig {
             ext_costs: ext_costs_config(cost_table)?,
             grow_mem_cost: 1,
             regular_op_cost: u32::try_from(regular_op_cost).unwrap(),
             limit_config: VMLimitConfig::default(),
         },
-        transaction_costs: runtime_fees_config(cost_table)?,
-        ..RuntimeConfig::default()
+        account_creation_config: AccountCreationConfig::default(),
     };
     Ok(res)
 }
@@ -44,6 +49,8 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
         Ok(Fee { send_sir: total_gas / 2, send_not_sir: total_gas / 2, execution: total_gas / 2 })
     };
 
+    let config_store = RuntimeConfigStore::new(None);
+    let actual_fees_config = &config_store.get_config(PROTOCOL_VERSION).transaction_costs;
     let res = RuntimeFeesConfig {
         action_receipt_creation_config: fee(Cost::ActionReceiptCreation)?,
         data_receipt_creation_config: DataReceiptCreationConfig {
@@ -66,7 +73,7 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             delete_key_cost: fee(Cost::ActionDeleteKey)?,
             delete_account_cost: fee(Cost::ActionDeleteAccount)?,
         },
-        ..RuntimeFeesConfig::default()
+        ..actual_fees_config.clone()
     };
     Ok(res)
 }

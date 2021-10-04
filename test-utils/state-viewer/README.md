@@ -37,14 +37,18 @@ obtaining this whole history is the following:
 
 * Patch https://github.com/near/near-ops/pull/591 to define your own GCP instance in project `rpc-prod`.
 * Make sure to change `machine-name` and `role` to something unique.
+* Make a Pull Request and ask Mario (@mhalambek) or Sandi (@chefsale) for review.
+* Ask Mario or Sandi to grant you permissions to the GCP project `rpc-prod`.
 * Run `terraform init` and `terraform apply` to start an instance. This instance will have a running `neard` systemd 
-  service, with `/home/ubuntu/.near` as the home directory.
-* SSH using `gcloud compute ssh <machine_name>" --project=rpc-prod`.
-* It's recommended to run all the following commands as user `ubuntu`: `sudo su ubuntu`.
+  service, with `/home/ubuntu/.near` as the home directory. Follow the `terraform` CLI
+  [installation guide](https://learn.hashicorp.com/tutorials/terraform/install-cli) if needed.
+* SSH using `gcloud compute ssh <machine_name>" --project=rpc-prod`. Follow the `gcloud` CLI
+  [installation guide](https://cloud.google.com/sdk/docs/install) if needed.
+* It is recommended to run all the following commands as user `ubuntu`: `sudo su ubuntu`.
 * Install tools be able to compile `state-viewer`:
-  * Install packages as described here: https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node
-  * Install Rust.
-  * Clone the git repository.
+  * Install development packages: https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node
+  * Install Rust: https://rustup.rs/
+  * Clone the git repository: `git clone http://github.com/near/nearcore`
   * `make release` - note that this compiles not only `state-viewer` but also a few other tools.
 * `sudo systemctl stop neard`, because a running node has a LOCK over the database.
 * Run `state-viewer` as described above

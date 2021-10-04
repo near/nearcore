@@ -107,11 +107,11 @@ impl std::error::Error for StorageError {}
 pub enum InvalidTxError {
     /// Happens if a wrong AccessKey used or AccessKey has not enough permissions
     InvalidAccessKeyError(InvalidAccessKeyError),
-    /// TX signer_id is not a valid AccountId
+    /// TX signer_id is not a valid [`AccountId`]
     InvalidSignerId { signer_id: String },
     /// TX signer_id is not found in a storage
     SignerDoesNotExist { signer_id: AccountId },
-    /// Transaction nonce must be account[access_key].nonce + 1
+    /// Transaction nonce must be `account[access_key].nonce + 1`.
     InvalidNonce { tx_nonce: Nonce, ak_nonce: Nonce },
     /// Transaction nonce is larger than the upper bound given by the block height
     NonceTooLarge { tx_nonce: Nonce, upper_bound: Nonce },
@@ -426,8 +426,9 @@ pub enum ActionErrorKind {
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
-    /// Error occurs when a `CreateAccount` action is called on hex-characters account of length 64.
-    /// See implicit account creation NEP: https://github.com/nearprotocol/NEPs/pull/71
+    /// Error occurs when a `CreateAccount` action is called on hex-characters
+    /// account of length 64.  See implicit account creation NEP:
+    /// <https://github.com/nearprotocol/NEPs/pull/71>.
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     /// Delete account whose state is large is temporarily banned.
     DeleteAccountWithLargeState { account_id: AccountId },

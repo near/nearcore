@@ -250,7 +250,9 @@ fn display_sync_status(
                             ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
                             ShardSyncStatus::StateDownloadApplying => format!("applying"),
                             ShardSyncStatus::StateDownloadComplete => format!("download complete"),
-                            ShardSyncStatus::StateSplit => format!("split"),
+                            ShardSyncStatus::StateSplitScheduling => format!("split scheduling"),
+                            ShardSyncStatus::StateSplitApplying => format!("split applying"),
+                            ShardSyncStatus::StateSyncDone => format!("done"),
                         }
                     )
                     .as_str();

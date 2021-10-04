@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
+"""Checks or updates contents of nearcore/res/genesis_config.json file.
 
-# update_res.py: update nearcore/res/genesis_config.json to be current `near init` without records
-# update_res.py check: check nearcore/res/genesis_config.json matches current `near init`
+* `update_res.py` updates nearcore/res/genesis_config.json to current
+  `near init` version without any records.
 
-from collections import OrderedDict
+* `update_res.py check` checks whether nearcore/res/genesis_config.json
+  file matches what `near init` generates.
+"""
+
+import collections
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,29 +23,26 @@ def main():
     elif len(sys.argv) == 2 and sys.argv[1] == 'check':
         check_res()
     else:
-        print('Usage: update-res.py | update-res.py check')
-        exit(2)
+        sys.exit(__doc__.rstrip())
 
 
-genesis_config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                   '../../nearcore/res/genesis_config.json')
+GENESIS_REPO_PATH = 'nearcore/res/genesis_config.json'
+REPO_FULL_PATH = pathlib.Path(__file__).resolve().parent.parent.parent
+GENESIS_FULL_PATH = REPO_FULL_PATH / GENESIS_REPO_PATH
+SCRIPT_REPO_PATH = pathlib.Path(__file__).resolve().relative_to(REPO_FULL_PATH)
 
 
 def near_init_genesis():
-    tempdir = pathlib.Path(tempfile.gettempdir()) / 'update_res'
-    if tempdir.exists():
-        shutil.rmtree(tempdir)
-    tempdir.mkdir(parents=True, exist_ok=True)
-
-    subprocess.check_output(('cargo', 'run', '-p', 'neard', '--bin', 'neard',
-                             '--' ,'--home', tempdir, 'init' ,'--chain-id',
-                             'sample'))
-    genesis = json.load(open(tempdir / 'genesis.json'),
-                        object_pairs_hook=OrderedDict)
+    with tempfile.TemporaryDirectory() as tempdir:
+        subprocess.check_call(
+            ('cargo', 'run', '-p', 'neard', '--bin', 'neard', '--', '--home',
+             tempdir, 'init', '--chain-id', 'sample'))
+        with open(os.path.join(tempdir, 'genesis.json')) as rd:
+            genesis = json.load(rd, object_pairs_hook=collections.OrderedDict)
     genesis['records'] = []
-    # To avoid nearcore/res/genesis_config.json doesn't change everytime
+    # To avoid the genesis config changing each time
     genesis['genesis_time'] = '1970-01-01T00:00:00.000000000Z'
-    # secret key is seed from test.near
+    # Secret key is seeded from test.near
     genesis['validators'][0][
         'public_key'] = 'ed25519:9BmAFNRTa5mRRXpSAm6MxSEeqRASDGNh2FuuwZ4gyxTw'
     return genesis
@@ -49,20 +50,19 @@ def near_init_genesis():
 
 def update_res():
     genesis = near_init_genesis()
-    json.dump(genesis, open(genesis_config_path, 'w'), indent=2)
-    print('nearcore/res/genesis_config.json updated')
+    with open(GENESIS_FULL_PATH, 'w') as wr:
+        json.dump(genesis, wr, indent=2)
+    print(f'{GENESIS_REPO_PATH} updated')
 
 
 def check_res():
-    genesis = near_init_genesis()
-    res_genesis_config = json.load(open(genesis_config_path),
-                                   object_pairs_hook=OrderedDict)
-    if genesis != res_genesis_config:
-        print(
-            'nearcore/res/genesis_config.json does not match `near init` generated'
-        )
-        print('Please update by run scripts/state/update_res.py')
-        exit(1)
+    want_genesis = near_init_genesis()
+    with open(GENESIS_FULL_PATH) as rd:
+        got_genesis = json.load(rd)
+    if want_genesis != got_genesis:
+        sys.exit(
+            f'`{GENESIS_REPO_PATH}` does not match `near init` generated one\n'
+            f'Please update by running `{SCRIPT_REPO_PATH}` script')
 
 
 if __name__ == '__main__':

@@ -1,7 +1,8 @@
 use log::{debug, LevelFilter};
 use near_chain_configs::Genesis;
-use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::state_record::StateRecord;
+use near_primitives::version::PROTOCOL_VERSION;
 use node_runtime::Runtime;
 use std::fs::File;
 use std::io::Error;
@@ -18,8 +19,9 @@ fn main() -> Result<(), Error> {
     let genesis = Genesis::from_file("output.json");
     debug!("Genesis read");
 
-    let storage_usage =
-        Runtime::new().compute_storage_usage(&genesis.records.0[..], &RuntimeConfig::default());
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION);
+    let storage_usage = Runtime::new().compute_storage_usage(&genesis.records.0[..], config);
     debug!("Storage usage calculated");
 
     let mut result = Vec::new();
