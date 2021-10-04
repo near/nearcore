@@ -9,6 +9,21 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+struct AppendOnlyMap<K, V> {
+    map: RwLock<HashMap<K, V>>,
+}
+
+impl<K, V> AppendOnlyMap<K, V> {
+    fn new() -> Self {
+        Self { map: RwLock::new(HashMap::new()) }
+    }
+
+    fn get_or_insert<F: FnOnce() -> V>(&self, key: &K, value: F) -> &V {
+        let mut map = self.map.write().expect(POISONED_LOCK_ERR);
+        map.entry(key).or_insert_with(value)
+    }
+}
+
 // bit mask for which shard to track
 type ShardBitMask = Vec<bool>;
 
@@ -18,7 +33,7 @@ type ShardBitMask = Vec<bool>;
 pub struct ShardTracker {
     tracked_accounts: Vec<AccountId>,
     /// Stores tracking information by epoch
-    tracking_shards: RwLock<HashMap<EpochId, ShardBitMask>>,
+    tracking_shards: AppendOnlyMap<EpochId, ShardBitMask>,
     /// Whether to track all shards
     track_all_shards: bool,
     /// Epoch manager that for given block hash computes the epoch id.
@@ -33,7 +48,7 @@ impl ShardTracker {
     ) -> Self {
         ShardTracker {
             tracked_accounts: accounts,
-            tracking_shards: RwLock::new(HashMap::new()),
+            tracking_shards: AppendOnlyMap::new(),
             track_all_shards,
             epoch_manager,
         }
@@ -44,8 +59,7 @@ impl ShardTracker {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
-        let mut tracking_shards = self.tracking_shards.write().expect(POISONED_LOCK_ERR);
-        if !tracking_shards.contains_key(epoch_id) {
+        let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
             let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
             let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
@@ -53,9 +67,9 @@ impl ShardTracker {
                 let shard_id = account_id_to_shard_id(account_id, shard_layout);
                 *tracking_mask.get_mut(shard_id as usize).unwrap() = true;
             }
-            tracking_shards.insert(epoch_id.clone(), tracking_mask);
-        }
-        Ok(tracking_shards[epoch_id].get(shard_id as usize).copied().unwrap_or(false))
+            tracking_mask
+        });
+        Ok(tracking_mask.get(shard_id as usize).copied().unwrap_or(false))
     }
 
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
