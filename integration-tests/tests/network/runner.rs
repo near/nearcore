@@ -20,7 +20,7 @@ use near_network::test_utils::{
     peer_id_from_seed, BanPeerSignal, GetInfo, StopSignal, WaitOrTimeout,
 };
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
@@ -123,7 +123,7 @@ pub enum Action {
     Stop(usize),
     // Wait time in milliseconds
     Wait(usize),
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     SetOptions {
         target: usize,
         max_num_peers: Option<u64>,
@@ -151,7 +151,7 @@ impl StateMachine {
 
     pub fn push(&mut self, action: Action) {
         match action {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             Action::SetOptions { target, max_num_peers } => {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,
