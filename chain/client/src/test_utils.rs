@@ -965,7 +965,7 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _)=> {}
-                        #[cfg(feature = "adversarial")]
+                        #[cfg(feature = "test_features")]
                         | NetworkRequests::PingTo(_, _)
                         | NetworkRequests::FetchPingPongInfo
                         | NetworkRequests::FetchRoutingTable  => {}
