@@ -32,6 +32,12 @@ mod types;
 mod utils;
 
 const INTERVAL: Duration = Duration::from_millis(500);
+// Blocks #47317863 and #47317864
+// with restored receipts
+const PROBLEMATIC_BLOKS: [&'static str; 2] = [
+    "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
+    "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw",
+];
 
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
@@ -153,7 +159,6 @@ async fn build_streamer_message(
             receipt_execution_outcomes
                 .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
         }
-        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes.clone();
 
         // Blocks #47317863 and #47317864
         // (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK, 2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw)
@@ -163,12 +168,7 @@ async fn build_streamer_message(
         // so it was decided to artificially include the Receipts into the Chunk of the Block where
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
-        if vec![
-            "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
-            "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw",
-        ]
-        .contains(&block.header.hash.to_string().as_str())
-        {
+        if PROBLEMATIC_BLOKS.contains(&block.header.hash.to_string().as_str()) {
             let protocol_config =
                 fetchers::fetch_protocol_config(&client, block.header.hash).await?;
 
@@ -177,7 +177,7 @@ async fn build_streamer_message(
                 let receipt_ids_included: std::collections::HashSet<CryptoHash> =
                     chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
 
-                for outcome in receipt_execution_outcomes.into_iter() {
+                for outcome in &receipt_execution_outcomes {
                     if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
                         restored_receipts.push(outcome.receipt.clone());
                     }
@@ -189,6 +189,7 @@ async fn build_streamer_message(
 
         chunk_receipts.extend(chunk_non_local_receipts);
 
+        indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_id].chunk = Some(IndexerChunkView {
             author,
