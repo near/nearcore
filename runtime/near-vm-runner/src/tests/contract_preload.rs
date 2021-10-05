@@ -197,19 +197,19 @@ fn test_precompile_vm(vm_kind: VMKind) {
     let code1 = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
     let code2 = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
 
-    let result = precompile_contract_vm(vm_kind, &code1, &vm_config, cache);
+    let result = precompile_contract_vm(vm_kind, &code1, &vm_config, cache).unwrap();
     assert_eq!(result, Result::Ok(ContractPrecompilatonResult::ContractCompiled));
     assert_eq!(mock_cache.len(), 1);
-    let result = precompile_contract_vm(vm_kind, &code1, &vm_config, cache);
+    let result = precompile_contract_vm(vm_kind, &code1, &vm_config, cache).unwrap();
     assert_eq!(result, Result::Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
     assert_eq!(mock_cache.len(), 1);
-    let result = precompile_contract_vm(vm_kind, &code2, &vm_config, None);
+    let result = precompile_contract_vm(vm_kind, &code2, &vm_config, None).unwrap();
     assert_eq!(result, Result::Ok(ContractPrecompilatonResult::CacheNotAvailable));
     assert_eq!(mock_cache.len(), 1);
-    let result = precompile_contract_vm(vm_kind, &code2, &vm_config, cache);
+    let result = precompile_contract_vm(vm_kind, &code2, &vm_config, cache).unwrap();
     assert_eq!(result, Result::Ok(ContractPrecompilatonResult::ContractCompiled));
     assert_eq!(mock_cache.len(), 2);
-    let result = precompile_contract_vm(vm_kind, &code2, &vm_config, cache);
+    let result = precompile_contract_vm(vm_kind, &code2, &vm_config, cache).unwrap();
     assert_eq!(result, Result::Ok(ContractPrecompilatonResult::ContractAlreadyInCache));
     assert_eq!(mock_cache.len(), 2);
 }

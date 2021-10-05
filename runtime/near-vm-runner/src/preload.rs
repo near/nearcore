@@ -10,7 +10,7 @@ use near_vm_errors::VMError;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{External, ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
-use crate::cache;
+use crate::cache::{self, into_vm_result};
 use crate::memory::WasmerMemory;
 use crate::preload::VMModule::{Wasmer0, Wasmer2};
 use crate::wasmer2_runner::{default_wasmer2_store, run_wasmer2_module, Wasmer2Memory};
@@ -229,17 +229,21 @@ fn preload_in_thread(
     let cache = request.cache.as_deref();
     let result = match (vm_kind, vm_data_shared) {
         (VMKind::Wasmer0, VMDataShared::Wasmer0) => {
-            cache::wasmer0_cache::compile_module_cached_wasmer0(&request.code, &vm_config, cache)
-                .map(VMModule::Wasmer0)
+            let module = cache::wasmer0_cache::compile_module_cached_wasmer0(
+                &request.code,
+                &vm_config,
+                cache,
+            );
+            into_vm_result(module).map(VMModule::Wasmer0)
         }
         (VMKind::Wasmer2, VMDataShared::Wasmer2(store)) => {
-            cache::wasmer2_cache::compile_module_cached_wasmer2(
+            let module = cache::wasmer2_cache::compile_module_cached_wasmer2(
                 &request.code,
                 &vm_config,
                 cache,
                 &store,
-            )
-            .map(|m| VMModule::Wasmer2(m))
+            );
+            into_vm_result(module).map(VMModule::Wasmer2)
         }
         _ => panic!("Incorrect logic"),
     };
