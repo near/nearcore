@@ -1,35 +1,13 @@
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use crate::append_only_map::AppendOnlyMap;
 use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use std::hash::Hash;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-
-struct AppendOnlyMap<K, V> {
-    map: RwLock<HashMap<K, Arc<V>>>,
-}
-
-impl<K, V> AppendOnlyMap<K, V>
-where
-    K: Eq + Hash + Clone,
-{
-    fn new() -> Self {
-        Self { map: RwLock::new(HashMap::new()) }
-    }
-
-    fn get_or_insert<F: FnOnce() -> V>(&self, key: &K, value: F) -> Arc<V> {
-        let mut map = self.map.write().expect(POISONED_LOCK_ERR);
-        if !map.contains_key(key) {
-            map.insert(key.clone(), Arc::new(value()));
-        }
-        map.get(key).unwrap().clone()
-    }
-}
 
 // bit mask for which shard to track
 type ShardBitMask = Vec<bool>;

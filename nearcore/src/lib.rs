@@ -36,6 +36,7 @@ use crate::migrations::{
 pub use crate::runtime::NightshadeRuntime;
 use near_network::test_utils::make_ibf_routing_pool;
 
+pub mod append_only_map;
 pub mod config;
 pub mod migrations;
 mod runtime;
