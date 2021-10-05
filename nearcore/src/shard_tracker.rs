@@ -95,6 +95,7 @@ impl ShardTracker {
         is_me: bool,
     ) -> bool {
         // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
+        // https://github.com/near/nearcore/issues/4936
         if let Some(account_id) = account_id {
             let account_cares_about_shard = {
                 let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
