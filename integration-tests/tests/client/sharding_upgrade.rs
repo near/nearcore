@@ -33,6 +33,7 @@ struct TestShardUpgradeEnv {
     initial_accounts: Vec<AccountId>,
     init_txs: Vec<SignedTransaction>,
     txs_by_height: HashMap<u64, Vec<SignedTransaction>>,
+    #[allow(unused)]
     epoch_length: u64,
     num_validators: usize,
     num_clients: usize,
@@ -43,13 +44,6 @@ struct TestShardUpgradeEnv {
 /// Epoch 0: 1 shard
 /// Epoch 1: 1 shard, state split happens
 /// Epoch 2: shard layout upgrades to simple_night_shade_shard,
-/// `init_txs` are added before any block is produced
-/// `txs_by_height` is a hashmap from block height to transactions to be included at block at
-/// that height
-/// This functions checks
-/// 1) all transactions are processed successfully
-/// 2) all accounts in `initial_accounts_to_check` always exists in state at every step
-/// 2) all accounts in `final_accounts_to_check` exist in the final state
 impl TestShardUpgradeEnv {
     fn new(
         epoch_length: u64,
@@ -83,10 +77,13 @@ impl TestShardUpgradeEnv {
         }
     }
 
+    /// `init_txs` are added before any block is produced
     fn set_init_tx(&mut self, init_txs: Vec<SignedTransaction>) {
         self.init_txs = init_txs;
     }
 
+    /// `txs_by_height` is a hashmap from block height to transactions to be included at block at
+    /// that height
     fn set_tx_at_height(&mut self, height: u64, txs: Vec<SignedTransaction>) {
         self.txs_by_height.insert(height, txs);
     }
@@ -145,6 +142,7 @@ impl TestShardUpgradeEnv {
         }
     }
 
+    /// check that all accounts in `accounts` exist in the current state
     fn check_accounts(&mut self, accounts: &[AccountId]) {
         let head = self.env.clients[0].chain.head().unwrap();
         let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
@@ -153,6 +151,8 @@ impl TestShardUpgradeEnv {
         }
     }
 
+    /// This functions checks that the outcomes of all transactions and associated receipts
+    /// have successful status
     fn check_tx_outcomes(&mut self) {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -340,7 +340,6 @@ fn test_shard_layout_upgrade_simple() {
 
 const GAS_1: u64 = 300_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
-const GAS_3: u64 = GAS_2 / 3;
 
 fn gen_cross_contract_transactions(
     signer: &InMemorySigner,
