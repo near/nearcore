@@ -8,9 +8,9 @@ trait for [`Scenario`], thus enabling creating random scenarios.
 
 ## Scenario
 
-Runtime test is described by Scenario.  Currently, scenario only
-supports one client, but you can specify the number of accounts
-through [`NetworkConfig`].
+Runtime test is described by a [`Scenario`] object.  Currently,
+scenario supports only one client, but you can specify number of
+accounts through [`NetworkConfig`].
 
 Scenario can be loaded from a json file or constructed in rust code.
 
