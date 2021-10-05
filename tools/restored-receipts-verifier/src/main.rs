@@ -11,7 +11,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
-use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
+use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
@@ -58,8 +58,7 @@ fn main() -> Result<()> {
         &home_dir,
         store,
         &near_config.genesis,
-        near_config.client_config.tracked_accounts.clone(),
-        !near_config.client_config.tracked_accounts.is_empty(),
+        TrackedConfig::from_config(&near_config.client_config),
         None,
         near_config.client_config.max_gas_burnt_view,
         RuntimeConfigStore::new(None),

@@ -34,6 +34,7 @@ use crate::migrations::{
     migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
+pub use crate::shard_tracker::TrackedConfig;
 use near_network::test_utils::make_ibf_routing_pool;
 
 pub mod append_only_map;

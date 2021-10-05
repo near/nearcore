@@ -57,7 +57,7 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::ShardTracker;
+use crate::shard_tracker::{ShardTracker, TrackedConfig};
 
 use crate::migrations::load_migration_data;
 use crate::NearConfig;
@@ -147,7 +147,15 @@ pub struct NightshadeRuntime {
 
 impl NightshadeRuntime {
     pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::new(home_dir, store, genesis, vec![], false, None, None, RuntimeConfigStore::test())
+        Self::new(
+            home_dir,
+            store,
+            genesis,
+            TrackedConfig::new_empty(),
+            None,
+            None,
+            RuntimeConfigStore::test(),
+        )
     }
 
     pub fn with_config(
@@ -161,8 +169,7 @@ impl NightshadeRuntime {
             home_dir,
             store,
             &config.genesis,
-            config.client_config.tracked_accounts.clone(),
-            !config.client_config.tracked_shards.is_empty(),
+            TrackedConfig::from_config(&config.client_config),
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
             RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
@@ -173,8 +180,7 @@ impl NightshadeRuntime {
         home_dir: &Path,
         store: Arc<Store>,
         genesis: &Genesis,
-        tracking_accounts: Vec<AccountId>,
-        track_all_shards: bool,
+        tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
         runtime_config_store: RuntimeConfigStore,
@@ -200,8 +206,7 @@ impl NightshadeRuntime {
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
                 .expect("Failed to start Epoch Manager"),
         ));
-        let shard_tracker =
-            ShardTracker::new(tracking_accounts, track_all_shards, epoch_manager.clone());
+        let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
         NightshadeRuntime {
             genesis_config,
             runtime_config_store,
@@ -2001,15 +2006,20 @@ mod test {
             epoch_length: BlockHeightDelta,
             has_reward: bool,
         ) -> Self {
-            Self::new_with_tracking(prefix, validators, epoch_length, vec![], false, has_reward)
+            Self::new_with_tracking(
+                prefix,
+                validators,
+                epoch_length,
+                TrackedConfig::new_empty(),
+                has_reward,
+            )
         }
 
         pub fn new_with_tracking(
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
-            tracked_accounts: Vec<AccountId>,
-            track_all_shards: bool,
+            tracked_config: TrackedConfig,
             has_reward: bool,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
@@ -2036,8 +2046,7 @@ mod test {
                 dir.path(),
                 store,
                 &genesis,
-                tracked_accounts,
-                track_all_shards,
+                tracked_config,
                 None,
                 None,
                 RuntimeConfigStore::free(),
@@ -2839,8 +2848,7 @@ mod test {
             "test_validator_get_validator_info",
             vec![validators.clone(), vec![validators[0].clone()]],
             2,
-            vec![validators[1].clone()],
-            false,
+            TrackedConfig::Accounts(vec![validators[1].clone()]),
             true,
         );
         let block_producers: Vec<_> = validators

@@ -1,6 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::append_only_map::AppendOnlyMap;
+use near_chain_configs::ClientConfig;
 use near_epoch_manager::EpochManager;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -9,34 +10,42 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+pub enum TrackedConfig {
+    Accounts(Vec<AccountId>),
+    AllShards,
+}
+
+impl TrackedConfig {
+    pub fn new_empty() -> Self {
+        TrackedConfig::Accounts(vec![])
+    }
+
+    pub fn from_config(config: &ClientConfig) -> Self {
+        if config.tracked_shards.is_empty() {
+            TrackedConfig::Accounts(config.tracked_accounts.clone())
+        } else {
+            TrackedConfig::AllShards
+        }
+    }
+}
+
 // bit mask for which shard to track
-type ShardBitMask = Vec<bool>;
+type BitMask = Vec<bool>;
 
 /// Tracker that tracks shard ids and accounts. It maintains two items: `tracked_accounts` and
 /// `tracked_shards`. The shards that are actually tracked are the union of shards that `tracked_accounts`
 /// are in and `tracked_shards`.
 pub struct ShardTracker {
-    tracked_accounts: Vec<AccountId>,
-    /// Stores tracking information by epoch
-    tracking_shards: AppendOnlyMap<EpochId, ShardBitMask>,
-    /// Whether to track all shards
-    track_all_shards: bool,
+    tracked_config: TrackedConfig,
+    /// Stores shard tracking information by epoch, only useful if TrackedState == Accounts
+    tracking_shards: AppendOnlyMap<EpochId, BitMask>,
     /// Epoch manager that for given block hash computes the epoch id.
     epoch_manager: Arc<RwLock<EpochManager>>,
 }
 
 impl ShardTracker {
-    pub fn new(
-        accounts: Vec<AccountId>,
-        track_all_shards: bool,
-        epoch_manager: Arc<RwLock<EpochManager>>,
-    ) -> Self {
-        ShardTracker {
-            tracked_accounts: accounts,
-            tracking_shards: AppendOnlyMap::new(),
-            track_all_shards,
-            epoch_manager,
-        }
+    pub fn new(tracked_config: TrackedConfig, epoch_manager: Arc<RwLock<EpochManager>>) -> Self {
+        ShardTracker { tracked_config, tracking_shards: AppendOnlyMap::new(), epoch_manager }
     }
 
     fn tracks_shard_at_epoch(
@@ -44,17 +53,22 @@ impl ShardTracker {
         shard_id: ShardId,
         epoch_id: &EpochId,
     ) -> Result<bool, EpochError> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
-            let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
-            for account_id in self.tracked_accounts.iter() {
-                let shard_id = account_id_to_shard_id(account_id, shard_layout);
-                *tracking_mask.get_mut(shard_id as usize).unwrap() = true;
+        match &self.tracked_config {
+            TrackedConfig::Accounts(tracked_accounts) => {
+                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+                let tracking_mask = self.tracking_shards.get_or_insert(epoch_id, || {
+                    let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
+                    for account_id in tracked_accounts {
+                        let shard_id = account_id_to_shard_id(account_id, shard_layout);
+                        *tracking_mask.get_mut(shard_id as usize).unwrap() = true;
+                    }
+                    tracking_mask
+                });
+                Ok(tracking_mask.get(shard_id as usize).copied().unwrap_or(false))
             }
-            tracking_mask
-        });
-        Ok(tracking_mask.get(shard_id as usize).copied().unwrap_or(false))
+            TrackedConfig::AllShards => Ok(true),
+        }
     }
 
     fn tracks_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -87,7 +101,8 @@ impl ShardTracker {
                 return true;
             }
         }
-        self.track_all_shards || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+        matches!(self.tracked_config, TrackedConfig::AllShards)
+            || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
     }
 
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
@@ -113,7 +128,8 @@ impl ShardTracker {
                 return true;
             }
         }
-        self.track_all_shards || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
+        matches!(self.tracked_config, TrackedConfig::AllShards)
+            || self.tracks_shard(shard_id, parent_hash).unwrap_or(false)
     }
 }
 
@@ -136,6 +152,7 @@ mod tests {
     use super::{account_id_to_shard_id, ShardTracker};
     use near_primitives::shard_layout::ShardLayout;
 
+    use crate::shard_tracker::TrackedConfig;
     #[cfg(feature = "protocol_feature_simple_nightshade")]
     use crate::shard_tracker::POISONED_LOCK_ERR;
     #[cfg(feature = "protocol_feature_simple_nightshade")]
@@ -255,8 +272,10 @@ mod tests {
         let mut epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, None);
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap().clone();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
-        let tracker =
-            ShardTracker::new(tracked_accounts, false, Arc::new(RwLock::new(epoch_manager)));
+        let tracker = ShardTracker::new(
+            TrackedConfig::Accounts(tracked_accounts),
+            Arc::new(RwLock::new(epoch_manager)),
+        );
         let mut total_tracked_shards = HashSet::new();
         total_tracked_shards
             .insert(account_id_to_shard_id(&"test1".parse().unwrap(), &shard_layout));
@@ -277,7 +296,8 @@ mod tests {
     fn test_track_all_shards() {
         let num_shards = 4;
         let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, None);
-        let tracker = ShardTracker::new(vec![], true, Arc::new(RwLock::new(epoch_manager)));
+        let tracker =
+            ShardTracker::new(TrackedConfig::AllShards, Arc::new(RwLock::new(epoch_manager)));
         let total_tracked_shards: HashSet<_> = (0..num_shards).collect();
 
         assert_eq!(
@@ -311,7 +331,10 @@ mod tests {
             Some(shard_config),
         )));
         let tracked_accounts = vec!["near".parse().unwrap(), "zoo".parse().unwrap()];
-        let tracker = ShardTracker::new(tracked_accounts.clone(), false, epoch_manager.clone());
+        let tracker = ShardTracker::new(
+            TrackedConfig::Accounts(tracked_accounts.clone()),
+            epoch_manager.clone(),
+        );
 
         let h = hash_range(8);
         {
