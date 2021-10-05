@@ -115,7 +115,6 @@ async fn build_streamer_message(
         }
 
         let mut chunk_receipts = chunk_local_receipts;
-        chunk_receipts.extend(chunk_non_local_receipts);
 
         let shard_id = header.shard_id.clone() as usize;
 
@@ -156,20 +155,27 @@ async fn build_streamer_message(
         }
         indexer_shards[shard_id].receipt_execution_outcomes = receipt_execution_outcomes.clone();
 
-        // Block #47317863 (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK) is the first block of upgraded
-        // protocol version on mainnet. In this block ExecutionOutcomes for restored Receipts appear.
+        // Blocks #47317863 and #47317864
+        // (ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK, 2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw)
+        // are the first blocks of an upgraded protocol version on mainnet.
+        // In this block ExecutionOutcomes for restored Receipts appear.
         // However the Receipts are not included in any Chunk. Indexer Framework needs to include them,
         // so it was decided to artificially include the Receipts into the Chunk of the Block where
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
-        if &block.header.hash.to_string() == "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK" {
+        if vec![
+            "ErdT2vLmiMjkRoSUfgowFYXvhGaLJZUWrgimHRkousrK",
+            "2Fr7dVAZGoPYgpwj6dfASSde6Za34GNUJb4CkZ8NSQqw",
+        ]
+        .contains(&block.header.hash.to_string().as_str())
+        {
             let protocol_config =
                 fetchers::fetch_protocol_config(&client, block.header.hash).await?;
 
             if &protocol_config.chain_id == "mainnet" {
                 let mut restored_receipts: Vec<views::ReceiptView> = vec![];
                 let receipt_ids_included: std::collections::HashSet<CryptoHash> =
-                    chunk_receipts.iter().map(|receipt| receipt.receipt_id).collect();
+                    chunk_non_local_receipts.iter().map(|receipt| receipt.receipt_id).collect();
 
                 for outcome in receipt_execution_outcomes.into_iter() {
                     if receipt_ids_included.get(&outcome.receipt.receipt_id).is_none() {
@@ -177,10 +183,11 @@ async fn build_streamer_message(
                     }
                 }
 
-                restored_receipts.extend(chunk_receipts);
-                chunk_receipts = restored_receipts;
+                chunk_receipts.extend(restored_receipts);
             }
         }
+
+        chunk_receipts.extend(chunk_non_local_receipts);
 
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_id].chunk = Some(IndexerChunkView {
