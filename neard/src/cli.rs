@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 use tracing::debug;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use tracing::error;
 use tracing::info;
 use tracing::metadata::LevelFilter;
@@ -30,7 +30,7 @@ impl NeardCmd {
         neard_cmd.opts.init();
         info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
 
