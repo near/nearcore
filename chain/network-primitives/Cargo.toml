@@ -17,5 +17,5 @@ near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 
 [features]
-adversarial = []
+test_features = []
 sandbox = []

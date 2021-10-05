@@ -2,9 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use near_primitives::contract::ContractCode;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
@@ -113,6 +113,8 @@ impl Script {
             external.fake_trie = trie;
         }
 
+        let config_store = RuntimeConfigStore::new(None);
+        let runtime_fees_config = &config_store.get_config(self.protocol_version).transaction_costs;
         let mut outcomes = Vec::new();
         for step in &self.steps {
             for _ in 0..step.repeat {
@@ -122,7 +124,7 @@ impl Script {
                     &mut external,
                     step.vm_context.clone(),
                     &self.vm_config,
-                    &RuntimeFeesConfig::default(),
+                    runtime_fees_config,
                     &step.promise_results,
                     self.vm_kind,
                     self.protocol_version,

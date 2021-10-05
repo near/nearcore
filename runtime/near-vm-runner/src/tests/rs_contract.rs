@@ -56,7 +56,7 @@ pub fn test_read_write() {
 
         let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
         let config = VMConfig::default();
-        let fees = RuntimeFeesConfig::default();
+        let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
         let result = run_vm(
@@ -129,7 +129,7 @@ fn run_test_ext(
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
 
     let (outcome, err) = run_vm(

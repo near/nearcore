@@ -122,14 +122,14 @@ for (left, right, common, TIMEOUT) in tests:
     logger.info("sending new edges")
 
     for chunk in chunks(to_node0, 10000):
-        nodes[0].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30)
+        logger.info(nodes[0].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30))
     for chunk in chunks(to_node1, 10000):
-        nodes[1].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30)
+        logger.info(nodes[1].json_rpc("adv_set_routing_table", {"add_edges": chunk}, timeout=30))
 
     time.sleep(1)
 
 
-    def get_routing_tables(n):
+    def adv_get_routing_table(n):
         logger.info("getting routing tables")
         var_a = n[0].json_rpc("adv_get_routing_table", {}, timeout=60)["result"]["edges_info"]
         var_b = n[1].json_rpc("adv_get_routing_table", {}, timeout=60)["result"]["edges_info"]
@@ -137,13 +137,25 @@ for (left, right, common, TIMEOUT) in tests:
         var_b = {(x['key'][0], x['key'][1], x['nonce']) for x in var_b}
         return var_a, var_b
 
+    def adv_get_routing_table_new(n):
+        logger.info("getting routing tables")
+        var_a = n[0].json_rpc("adv_get_routing_table_new", {}, timeout=60)["result"]["edges_info"]
+        var_b = n[1].json_rpc("adv_get_routing_table_new", {}, timeout=60)["result"]["edges_info"]
+        var_a = {(x['key'][0], x['key'][1], x['nonce']) for x in var_a}
+        var_b = {(x['key'][0], x['key'][1], x['nonce']) for x in var_b}
+        return var_a, var_b
 
     # compute set difference of routing tables
-    a, b = get_routing_tables(nodes)
+    a, b = adv_get_routing_table(nodes)
     logger.info("case 1 nodes %s vs %s diff %s " % (len(a), len(b), len(a.symmetric_difference(b))))
     assert(len(a) == 1 + left + common)
     assert(len(b) == 1 + right + common)
     assert(len(a.symmetric_difference(b)) == left + right)
+    a2, b2 = adv_get_routing_table_new(nodes)
+    logger.info("case 1 nodes %s vs %s diff %s " % (len(a2), len(b2), len(a2.symmetric_difference(b2))))
+    assert(len(a2) == 1 + left + common)
+    assert(len(b2) == 1 + right + common)
+    assert(len(a2.symmetric_difference(b2)) == left + right)
 
     time.sleep(1)
 
@@ -167,9 +179,12 @@ for (left, right, common, TIMEOUT) in tests:
 
     # force synchronization
 
-    a, b = get_routing_tables(nodes)
+    a, b = adv_get_routing_table(nodes)
     logger.info("case 2 nodes %s vs %s diff %s " % (len(a), len(b), len(a.symmetric_difference(b))))
     assert(len(a.symmetric_difference(b)) == 0)
+    a2, b2 = adv_get_routing_table_new(nodes)
+    logger.info("case 2 nodes %s vs %s diff %s " % (len(a2), len(b2), len(a2.symmetric_difference(b2))))
+    assert(len(a2.symmetric_difference(b2)) == 0)
 
     # remove edges
     logger.info("removing edges")
@@ -180,6 +195,10 @@ for (left, right, common, TIMEOUT) in tests:
     nodes[0].json_rpc("adv_set_routing_table", {"prune_edges": True}, timeout=30)
     nodes[1].json_rpc("adv_set_routing_table", {"prune_edges": True}, timeout=30)
 
-    a, b = get_routing_tables(nodes)
+    a, b = adv_get_routing_table(nodes)
+    a2, b2 = adv_get_routing_table_new(nodes)
+    logger.info("case 3: %s %s" % (len(a), len(b)))
     assert(len(a) == 1 and len(b) == 1)
+    logger.info("case 3: %s %s" % (len(a2), len(b2)))
+    assert(len(a2) == 1 and len(b2) == 1)
     logger.info("test took %s" % round(time.time() - start))

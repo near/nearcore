@@ -89,7 +89,7 @@ honest I can’t vouch whether it even works.
 Lastly, at the end of the test specification line additional features
 can be given in the form of `--features <features>` arguments.
 Similarly to `--release`, this results in given features being enabled
-in builds.  Note that the `adversarial` feature is always enabled so
+in builds.  Note that the `test_features` feature is always enabled so
 there's no need to specify it explicitly.
 
 ### Include directive

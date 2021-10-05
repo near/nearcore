@@ -6,7 +6,7 @@ use std::time::Instant;
 use cached::{Cached, SizedCache};
 use chrono;
 use conqueue::{QueueReceiver, QueueSender};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
@@ -77,7 +77,7 @@ pub enum EdgeType {
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "adversarial", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
     pub peer0: PeerId,
@@ -285,7 +285,7 @@ impl Edge {
 
 /// Represents edge between two nodes. Unlike `Edge` it doesn't contain signatures.
 #[derive(Hash, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct SimpleEdge {
     key: (PeerId, PeerId),
     nonce: u64,
@@ -336,7 +336,7 @@ impl ValidIBFLevel {
     }
 }
 
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
@@ -354,11 +354,11 @@ where
 }
 
 #[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct SetAdvOptionsResult {}
 
 #[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
 }
@@ -603,7 +603,7 @@ impl RoutingTable {
         }
     }
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
             let key = (edge.peer0.clone(), edge.peer1.clone());
@@ -636,11 +636,12 @@ impl RoutingTable {
     /// Add several edges to the current view of the network.
     /// These edges are assumed to be valid at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Arc<Vec<Edge>>) -> ProcessEdgeResult {
+    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
+        let mut result = Vec::with_capacity(edges.len() as usize);
 
-        for edge in edges.iter() {
+        for edge in edges {
             let key = edge.get_pair();
 
             self.touch(&key.0);
@@ -648,6 +649,7 @@ impl RoutingTable {
 
             if self.add_edge(edge.clone()) {
                 new_edge = true;
+                result.push(edge);
             }
         }
 
@@ -655,7 +657,7 @@ impl RoutingTable {
         near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
         near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
 
-        ProcessEdgeResult { new_edge }
+        ProcessEdgeResult { new_edge, edges: result }
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -665,10 +667,6 @@ impl RoutingTable {
     pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
         let key = Edge::key(peer0, peer1);
         self.edges_info.get(&key).cloned()
-    }
-
-    pub fn get_edges(&self) -> Vec<Edge> {
-        self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 
     pub fn get_edges_by_id(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
@@ -797,16 +795,6 @@ impl RoutingTable {
                 true
             }
         });
-        if force_pruning {
-            let mut edges_to_remove2 = vec![];
-            for (k, edge) in self.edges_info.iter() {
-                if !self.peer_last_time_reachable.contains_key(&k.0)
-                    || !self.peer_last_time_reachable.contains_key(&k.1)
-                {
-                    edges_to_remove2.push(edge.clone());
-                }
-            }
-        }
 
         let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
@@ -884,6 +872,7 @@ impl RoutingTable {
 
 pub struct ProcessEdgeResult {
     pub new_edge: bool,
+    pub edges: Vec<Edge>,
 }
 
 #[derive(Debug)]

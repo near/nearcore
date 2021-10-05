@@ -39,7 +39,7 @@ harness = false
 [features]
 default = []
 no_cache = []
-adversarial = []
+test_features = []
 protocol_feature_block_header_v3 = []
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]
