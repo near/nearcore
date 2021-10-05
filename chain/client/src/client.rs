@@ -58,9 +58,9 @@ const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 pub struct Client {
     /// Adversarial controls
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_produce_blocks: bool,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
 
     pub config: ClientConfig,
@@ -160,9 +160,9 @@ impl Client {
         );
 
         Ok(Self {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_produce_blocks: false,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
             config,
             sync_status,
@@ -246,7 +246,7 @@ impl Client {
 
     /// Check that this block height is not known yet.
     fn known_block_height(&self, next_height: BlockHeight, known_height: BlockHeight) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks {
                 return false;
@@ -262,7 +262,7 @@ impl Client {
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks_only_valid {
                 return account_id == next_block_proposer;
@@ -294,7 +294,7 @@ impl Client {
             return Ok(true);
         }
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks {
                 return Ok(false);
@@ -371,9 +371,9 @@ impl Client {
         let validator_pk = validator_stake.take_public_key();
         if validator_pk != validator_signer.public_key() {
             debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
-            #[cfg(not(feature = "adversarial"))]
+            #[cfg(not(feature = "test_features"))]
             return Ok(None);
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             if !self.adv_produce_blocks || self.adv_produce_blocks_only_valid {
                 return Ok(None);
             }

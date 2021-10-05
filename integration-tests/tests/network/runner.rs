@@ -16,8 +16,8 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
-    GetInfo, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, make_ibf_routing_pool, open_port,
+    peer_id_from_seed, BanPeerSignal, GetInfo, StopSignal, WaitOrTimeout,
 };
 use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
@@ -68,7 +68,7 @@ pub fn setup_network_node(
         let network_adapter = NetworkRecipient::new();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         let adv = Arc::new(RwLock::new(Default::default()));
 
         let client_actor = start_client(
@@ -79,7 +79,7 @@ pub fn setup_network_node(
             network_adapter.clone(),
             Some(signer),
             telemetry_actor,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv.clone(),
         )
         .0;
@@ -89,15 +89,17 @@ pub fn setup_network_node(
             runtime.clone(),
             network_adapter.clone(),
             client_config,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv.clone(),
         );
 
+        let ibf_routing_pool = make_ibf_routing_pool();
         PeerManagerActor::new(
             store.clone(),
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
+            ibf_routing_pool,
         )
         .unwrap()
     });

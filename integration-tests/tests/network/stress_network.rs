@@ -10,7 +10,9 @@ use tracing::info;
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
-use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeout};
+use near_network::test_utils::{
+    convert_boot_nodes, make_ibf_routing_pool, open_port, GetInfo, StopSignal, WaitOrTimeout,
+};
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientResponses, NetworkConfig, PeerManagerActor};
 use near_store::test_utils::create_test_store;
@@ -41,8 +43,15 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         }
     }))
     .start();
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    let ibf_routing_pool = make_ibf_routing_pool();
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        ibf_routing_pool,
+    )
+    .unwrap()
 }
 
 /// This test spawns several (7) nodes but node 0 crash very frequently and restart.

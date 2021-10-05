@@ -10,7 +10,7 @@ use near_rust_allocator_proxy::allocator::reset_memory_usage_max;
 use tracing::{error, info, trace};
 
 use near_chain::ChainGenesis;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
 use near_network::{NetworkRecipient, PeerManagerActor};
@@ -34,6 +34,7 @@ use crate::migrations::{
     migrate_24_to_25,
 };
 pub use crate::runtime::NightshadeRuntime;
+use near_network::test_utils::make_ibf_routing_pool;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 pub mod config;
@@ -301,7 +302,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
 
     let node_id = config.network_config.public_key.clone().into();
     let network_adapter = Arc::new(NetworkRecipient::new());
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let adv = Arc::new(std::sync::RwLock::new(AdversarialControls::default()));
 
     let view_client = start_view_client(
@@ -310,7 +311,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         runtime.clone(),
         network_adapter.clone(),
         config.client_config.clone(),
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         adv.clone(),
     );
     let (client_actor, client_arbiter_handle) = start_client(
@@ -321,7 +322,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         network_adapter.clone(),
         config.validator_signer,
         telemetry,
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         adv.clone(),
     );
 
@@ -332,8 +333,12 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify();
     let network_config = config.network_config;
+    let ibf_routing_pool = make_ibf_routing_pool();
+    #[cfg(all(feature = "json_rpc", feature = "test_features"))]
+    let ibf_routing_pool2 = ibf_routing_pool.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(store, network_config, client_actor1, view_client1).unwrap()
+        PeerManagerActor::new(store, network_config, client_actor1, view_client1, ibf_routing_pool)
+            .unwrap()
     });
 
     #[cfg(feature = "json_rpc")]
@@ -343,8 +348,10 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             config.genesis.config.clone(),
             client_actor.clone(),
             view_client.clone(),
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             network_actor.clone(),
+            #[cfg(feature = "test_features")]
+            ibf_routing_pool2,
         ));
     }
 

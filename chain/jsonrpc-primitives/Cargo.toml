@@ -22,7 +22,6 @@ near-metrics = { path = "../../core/metrics" }
 near-primitives = { path = "../../core/primitives" }
 near-primitives-core = { path = "../../core/primitives-core" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-network = { path = "../network", optional = true, features = ["adversarial"] }
 
 [features]
-adversarial = ["near-network"]
+test_features = []

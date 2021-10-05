@@ -1,6 +1,8 @@
+use crate::near_primitives::version::PROTOCOL_VERSION;
 use crate::{actions::execute_function_call, ext::RuntimeExt};
 use log::debug;
 use near_crypto::{KeyType, PublicKey};
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::{
     account::{AccessKey, Account},
     borsh::BorshDeserialize,
@@ -10,7 +12,6 @@ use near_primitives::{
     receipt::ActionReceipt,
     runtime::{
         apply_state::ApplyState,
-        config::RuntimeConfig,
         migration_data::{MigrationData, MigrationFlags},
     },
     serialize::to_base64,
@@ -191,7 +192,8 @@ impl TrieViewer {
             epoch_info_provider,
             view_state.current_protocol_version,
         );
-        let config = Arc::new(RuntimeConfig::default());
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
             block_index: view_state.block_height,
             // Used for legacy reasons

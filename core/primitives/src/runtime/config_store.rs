@@ -56,9 +56,7 @@ impl RuntimeConfigStore {
 
     /// Constructs test store.
     pub fn test() -> Self {
-        Self {
-            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
-        }
+        Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::test()))].iter().cloned()) }
     }
 
     /// Constructs store with a single config with zero costs.
