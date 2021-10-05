@@ -32,12 +32,12 @@ impl Handler<EdgeList> for EdgeVerifier {
                 continue;
             }
 
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             if !msg.adv_disable_edge_signature_verification && !edge.verify() {
                 return false;
             }
 
-            #[cfg(not(feature = "adversarial"))]
+            #[cfg(not(feature = "test_features"))]
             if !edge.verify() {
                 return false;
             }

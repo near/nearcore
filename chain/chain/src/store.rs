@@ -1769,7 +1769,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let header = self.get_header_by_height(height)?;
         let tip = Tip::from_header(&header);

@@ -6,7 +6,7 @@ use std::time::Instant;
 use cached::{Cached, SizedCache};
 use chrono;
 use conqueue::{QueueReceiver, QueueSender};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
@@ -77,7 +77,7 @@ pub enum EdgeType {
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "adversarial", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
     pub peer0: PeerId,
@@ -285,7 +285,7 @@ impl Edge {
 
 /// Represents edge between two nodes. Unlike `Edge` it doesn't contain signatures.
 #[derive(Hash, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct SimpleEdge {
     key: (PeerId, PeerId),
     nonce: u64,
@@ -336,7 +336,7 @@ impl ValidIBFLevel {
     }
 }
 
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
 }
@@ -354,11 +354,11 @@ where
 }
 
 #[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct SetAdvOptionsResult {}
 
 #[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
 }
@@ -603,7 +603,7 @@ impl RoutingTable {
         }
     }
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
             let key = (edge.peer0.clone(), edge.peer1.clone());

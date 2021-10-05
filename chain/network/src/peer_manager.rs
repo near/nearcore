@@ -36,7 +36,7 @@ use rand::thread_rng;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::routing::SetAdvOptionsResult;
 use crate::{metrics, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
@@ -56,7 +56,7 @@ use crate::types::{
     RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg,
     SyncData, Unregister,
 };
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingState, RoutingSyncV2, RoutingVersion2};
@@ -153,11 +153,11 @@ pub struct PeerManagerActor {
     scheduled_routing_table_update: bool,
     edge_verifier_requests_in_progress: u64,
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     adv_disable_edge_propagation: bool,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     adv_disable_edge_signature_verification: bool,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     adv_disable_edge_pruning: bool,
 }
 
@@ -205,11 +205,11 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             scheduled_routing_table_update: false,
             edge_verifier_requests_in_progress: 0,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_disable_edge_propagation: false,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_disable_edge_signature_verification: false,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_disable_edge_pruning: false,
         })
     }
@@ -300,9 +300,9 @@ impl PeerManagerActor {
         let new_data = SyncData { edges: new_edges, accounts: Default::default() };
 
         if !new_data.is_empty() {
-            #[cfg(not(feature = "adversarial"))]
+            #[cfg(not(feature = "test_features"))]
             let condition = true;
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             let condition = !self.adv_disable_edge_propagation;
 
             if condition {
@@ -809,10 +809,10 @@ impl PeerManagerActor {
                     act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
 
-                    #[cfg(feature = "adversarial")]
+                    #[cfg(feature = "test_features")]
                     let cond = act.edge_verifier_requests_in_progress == 0
                         && !act.adv_disable_edge_pruning;
-                    #[cfg(not(feature = "adversarial"))]
+                    #[cfg(not(feature = "test_features"))]
                     let cond = act.edge_verifier_requests_in_progress == 0;
 
                     act.update_and_remove_edges(ctx2, cond, false, SAVE_PEERS_AFTER_TIME);
@@ -823,7 +823,7 @@ impl PeerManagerActor {
         new_edge
     }
 
-    #[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
+    #[cfg(all(feature = "test_features", feature = "protocol_feature_routing_exchange_algorithm"))]
     fn adv_remove_edges_from_routing_table(
         &mut self,
         ctx: &mut Context<Self>,
@@ -1130,7 +1130,7 @@ impl PeerManagerActor {
                 edges,
                 edges_info_shared: self.routing_table_exchange_helper.edges_info_shared.clone(),
                 sender: self.routing_table_exchange_helper.edges_to_add_sender.clone(),
-                #[cfg(feature = "adversarial")]
+                #[cfg(feature = "test_features")]
                 adv_disable_edge_signature_verification: self
                     .adv_disable_edge_signature_verification,
             })
@@ -1863,7 +1863,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
     type Result = ();
@@ -1878,7 +1878,7 @@ impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 impl Handler<SetAdvOptions> for PeerManagerActor {
     type Result = SetAdvOptionsResult;
 
@@ -1913,7 +1913,7 @@ impl Handler<GetRoutingTable> for PeerManagerActor {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
     type Result = ();
@@ -1921,21 +1921,21 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
     #[perf]
     fn handle(&mut self, msg: crate::types::SetRoutingTable, ctx: &mut Self::Context) {
         if let Some(add_edges) = msg.add_edges {
-            debug!(target: "network", "adversarial add_edges {}", add_edges.len());
+            debug!(target: "network", "test_features add_edges {}", add_edges.len());
             self.add_verified_edges_to_routing_table(ctx, add_edges);
         }
         if let Some(remove_edges) = msg.remove_edges {
-            debug!(target: "network", "adversarial remove_edges {}", remove_edges.len());
+            debug!(target: "network", "test_features remove_edges {}", remove_edges.len());
             self.adv_remove_edges_from_routing_table(ctx, remove_edges);
         }
         if let Some(true) = msg.prune_edges {
-            debug!(target: "network", "adversarial prune_edges");
+            debug!(target: "network", "test_features prune_edges");
             self.update_and_remove_edges(ctx, true, true, 2);
         }
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 impl Handler<GetPeerId> for PeerManagerActor {
     type Result = GetPeerIdResult;
 

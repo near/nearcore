@@ -68,7 +68,7 @@ pub fn setup_network_node(
         let network_adapter = NetworkRecipient::new();
         network_adapter.set_recipient(ctx.address().recipient());
         let network_adapter = Arc::new(network_adapter);
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         let adv = Arc::new(RwLock::new(Default::default()));
 
         let client_actor = start_client(
@@ -79,7 +79,7 @@ pub fn setup_network_node(
             network_adapter.clone(),
             Some(signer),
             telemetry_actor,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv.clone(),
         )
         .0;
@@ -89,7 +89,7 @@ pub fn setup_network_node(
             runtime.clone(),
             network_adapter.clone(),
             client_config,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv.clone(),
         );
 

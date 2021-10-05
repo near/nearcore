@@ -18,29 +18,38 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
 };
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest;
-#[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
 use near_jsonrpc_adversarial_primitives::SetRoutingTableRequest;
-#[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
 use near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::routing::GetRoutingTableResult;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::types::{
     GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
-#[cfg(all(feature = "adversarial", feature = "protocol_feature_routing_exchange_algorithm"))]
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
 use near_network::types::{SetRoutingTable, StartRoutingTableSync};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::{
     PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
@@ -108,7 +117,7 @@ impl RpcConfig {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -118,7 +127,7 @@ fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 fn jsonify<T: serde::Serialize>(
     response: Result<Result<T, String>, actix::MailboxError>,
 ) -> Result<Value, RpcError> {
@@ -217,9 +226,9 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     ibf_routing_pool: Addr<RoutingTableActor>,
 }
 
@@ -243,7 +252,7 @@ impl JsonRpcHandler {
             &[request.method.as_ref()],
         );
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             let params = request.params.clone();
 
@@ -1120,7 +1129,7 @@ impl JsonRpcHandler {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let height = parse_params::<u64>(params)?;
@@ -1323,8 +1332,8 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-    #[cfg(feature = "adversarial")] peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "adversarial")] ibf_routing_pool: Addr<RoutingTableActor>,
+    #[cfg(feature = "test_features")] peer_manager_addr: Addr<PeerManagerActor>,
+    #[cfg(feature = "test_features")] ibf_routing_pool: Addr<RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
@@ -1340,9 +1349,9 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
-                #[cfg(feature = "adversarial")]
+                #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
-                #[cfg(feature = "adversarial")]
+                #[cfg(feature = "test_features")]
                 ibf_routing_pool: ibf_routing_pool.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
