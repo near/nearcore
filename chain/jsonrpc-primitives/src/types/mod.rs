@@ -1,5 +1,3 @@
-#[cfg(feature = "adversarial")]
-pub mod adversarial;
 pub mod blocks;
 pub mod changes;
 pub mod chunks;

@@ -7,8 +7,7 @@ use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 
-// TODO: remove serialization derives, once fix compilation caching.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
     /// Serialized external error from External trait implementation.
@@ -20,8 +19,8 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-// TODO(4217): remove serialization derives, once fix compilation caching.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+// TODO(4217): remove borsh serialization derives, once fix compilation caching.
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),

@@ -15,4 +15,4 @@ near-network = { path = "../../network" }
 near-jsonrpc = { path = "../" }
 
 [features]
-adversarial = []
+test_features = []

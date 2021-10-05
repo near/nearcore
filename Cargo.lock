@@ -2865,6 +2865,7 @@ dependencies = [
  "near-chain-configs",
  "near-client",
  "near-crypto",
+ "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
  "near-logger-utils",
@@ -2879,6 +2880,17 @@ dependencies = [
  "tokio",
  "tracing",
  "validator",
+]
+
+[[package]]
+name = "near-jsonrpc-adversarial-primitives"
+version = "0.2.0"
+dependencies = [
+ "near-jsonrpc-primitives",
+ "near-network",
+ "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2906,7 +2918,6 @@ dependencies = [
  "near-client-primitives",
  "near-crypto",
  "near-metrics",
- "near-network",
  "near-primitives",
  "near-primitives-core",
  "near-rpc-error-macro",
@@ -5348,9 +5359,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.17"
+version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f50de3927f93d202783f4513cda820ab47ef17f624b03c096e86ef00c67e6b5f"
+checksum = "46125608c26121c81b0c6d693eab5a420e416da7e43c426d2e8f7df8da8a3acf"
 dependencies = [
  "lazy_static",
 ]
@@ -5388,9 +5399,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.2.16"
+version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ab8966ac3ca27126141f7999361cc97dd6fb4b71da04c02044fa9045d98bb96"
+checksum = "fdd0568dbfe3baf7048b7908d2b32bca0d81cd56bec6d2a8f894b01d74f86be3"
 dependencies = [
  "ansi_term 0.12.1",
  "chrono",

@@ -907,7 +907,7 @@ mod tests {
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
-        let runtime_config = near_primitives::runtime::config::RuntimeConfig::default();
+        let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
         let block_hash = near_primitives::hash::CryptoHash::default();
         let nfvalidator1_receipt_processing_hash =
             near_primitives::hash::CryptoHash::try_from(vec![1u8; 32]).unwrap();
