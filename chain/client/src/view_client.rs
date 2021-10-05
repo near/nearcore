@@ -1095,16 +1095,30 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
-                    let height = self.get_height(&head);
-
-                    NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId {
-                            chain_id: self.config.chain_id.clone(),
-                            hash: *self.chain.genesis().hash(),
-                        },
-                        height,
-                        tracked_shards: self.config.tracked_shards.clone(),
-                        archival: self.config.archive,
+                    match self.runtime_adapter.num_shards(&head.epoch_id) {
+                        Ok(num_shards) => {
+                            // convert config tracked shards
+                            // runtime will track all shards if config tracked shards is not empty
+                            // https://github.com/near/nearcore/issues/4930
+                            let tracked_shards = if self.config.tracked_shards.is_empty() {
+                                vec![]
+                            } else {
+                                (0..num_shards).collect()
+                            };
+                            NetworkViewClientResponses::ChainInfo {
+                                genesis_id: GenesisId {
+                                    chain_id: self.config.chain_id.clone(),
+                                    hash: *self.chain.genesis().hash(),
+                                },
+                                height: self.get_height(&head),
+                                tracked_shards,
+                                archival: self.config.archive,
+                            }
+                        }
+                        Err(err) => {
+                            error!(target: "view_client", "Cannot retrieve num shards: {}", err);
+                            NetworkViewClientResponses::NoResponse
+                        }
                     }
                 }
                 Err(err) => {

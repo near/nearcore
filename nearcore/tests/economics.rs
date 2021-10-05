@@ -14,7 +14,6 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use primitive_types::U256;
 
 fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
@@ -27,15 +26,10 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
         genesis.config.min_gas_price,
     );
     let env = TestEnv::builder(ChainGenesis::from(&genesis))
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::new(
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
             &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
         )) as Arc<dyn RuntimeAdapter>])
         .build();
     (env, fee_helper)
