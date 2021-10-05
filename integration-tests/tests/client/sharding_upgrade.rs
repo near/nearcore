@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::process_blocks::{create_nightshade_runtimes, set_block_protocol_version};
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -9,21 +7,24 @@ use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
 use near_primitives::epoch_manager::ShardConfig;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
+};
 use near_primitives::types::ProtocolVersion;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
-use near_store::test_utils::gen_accounts;
+use near_store::test_utils::gen_unique_accounts;
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
-// Checks that account exists in the state after `block` is processed
-// This function checks both state_root from chunk extra and state root from chunk header, if
-// the corresponding chunk is included in the block
+/// Checks that account exists in the state after `block` is processed
+/// This function checks both state_root from chunk extra and state root from chunk header, if
+/// the corresponding chunk is included in the block
 fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
@@ -72,14 +73,12 @@ fn check_account(env: &mut TestEnv, account_id: &AccountId, block: &Block) {
     }
 }
 
-fn setup_test_env(
+fn setup_genesis(
     epoch_length: u64,
-    num_clients: usize,
-    num_validators: usize,
+    num_validators: u64,
     initial_accounts: Vec<AccountId>,
-) -> TestEnv {
-    init_test_logger();
-    let mut genesis = Genesis::test(initial_accounts, 2);
+) -> Genesis {
+    let mut genesis = Genesis::test(initial_accounts, num_validators);
     // Set kickout threshold to 50 because chunks in the first block won't be produced (a known issue)
     // We don't want the validators get kicked out because of that
     genesis.config.chunk_producer_kickout_threshold = 50;
@@ -94,17 +93,12 @@ fn setup_test_env(
     );
 
     genesis.config.simple_nightshade_shard_config = Some(ShardConfig {
-        num_block_producer_seats_per_shard: vec![2; new_num_shards],
+        num_block_producer_seats_per_shard: vec![num_validators; new_num_shards],
         avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
         shard_layout: simple_nightshade_shard_layout.clone(),
     });
-    let chain_genesis = ChainGenesis::from(&genesis);
 
-    TestEnv::builder(chain_genesis)
-        .clients_count(num_clients)
-        .validator_seats(num_validators)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
-        .build()
+    genesis
 }
 
 /// Test shard layout upgrade. This function runs `env` to produce and process blocks
@@ -217,7 +211,11 @@ fn test_shard_layout_upgrade_helper(
             ) {
                 let execution_outcome =
                     env.clients[i].chain.get_final_transaction_result(id).unwrap();
-                assert!(execution_outcome.status.as_success().is_some());
+                assert!(
+                    execution_outcome.status.clone().as_success().is_some(),
+                    "{:?}",
+                    execution_outcome
+                );
             }
         }
     }
@@ -226,11 +224,21 @@ fn test_shard_layout_upgrade_helper(
 // test some shard layout upgrade with some simple transactions to create accounts
 #[test]
 fn test_shard_layout_upgrade_simple() {
+    init_test_logger();
+
+    // setup
+    let num_clients = 2;
+    let num_validators = 2;
     let mut rng = rand::thread_rng();
     let mut initial_accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
-    initial_accounts.extend(gen_accounts(&mut rng, 100).into_iter().collect::<HashSet<_>>());
-
-    let mut env = setup_test_env(5, 2, 2, initial_accounts.clone());
+    initial_accounts.extend(gen_unique_accounts(&mut rng, 100));
+    let genesis = setup_genesis(5, num_validators, initial_accounts.clone());
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(num_clients)
+        .validator_seats(num_validators as usize)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, num_clients))
+        .build();
 
     let mut nonce = 100;
 
@@ -238,7 +246,7 @@ fn test_shard_layout_upgrade_simple() {
     let mut all_accounts = initial_accounts.clone();
     let generate_create_accounts_txs: &mut dyn FnMut(usize) -> Vec<SignedTransaction> =
         &mut |max_size: usize| -> Vec<SignedTransaction> {
-            let new_accounts = gen_accounts(&mut rng, max_size);
+            let new_accounts = gen_unique_accounts(&mut rng, max_size);
             let signer0 =
                 InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
             let mut txs = vec![];
@@ -270,5 +278,123 @@ fn test_shard_layout_upgrade_simple() {
         generate_create_accounts_txs(100),
         &initial_accounts,
         &all_accounts,
+    );
+}
+
+const GAS_1: u64 = 300_000_000_000_000;
+const GAS_2: u64 = GAS_1 / 3;
+const GAS_3: u64 = GAS_2 / 3;
+
+fn gen_cross_contract_transactions(
+    signer: &InMemorySigner,
+    receiver: &AccountId,
+    nonce: u64,
+    block_hash: &CryptoHash,
+) -> SignedTransaction {
+    let data = serde_json::json!([
+        {"create": {
+        "account_id": "test_2",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": "0",
+        "gas": GAS_2,
+        }, "id": 0 },
+        {"then": {
+        "promise_index": 0,
+        "account_id": "test_3",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": "0",
+        "gas": GAS_2,
+        }, "id": 1}
+    ]);
+
+    SignedTransaction::from_actions(
+        nonce,
+        signer.account_id.clone(),
+        receiver.clone(),
+        signer,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: GAS_1,
+            deposit: 0,
+        })],
+        block_hash.clone(),
+    )
+}
+
+// test some shard layout upgrade with some simple transactions to create accounts
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls() {
+    init_test_logger();
+
+    // setup
+    let num_clients = 4;
+    let num_validators = 4;
+    let mut rng = rand::thread_rng();
+    let mut initial_accounts = vec![
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        "test2".parse().unwrap(),
+        "test3".parse().unwrap(),
+    ];
+    initial_accounts.extend(gen_unique_accounts(&mut rng, 100));
+    let genesis = setup_genesis(5, num_validators, initial_accounts.clone());
+    let chain_genesis = ChainGenesis::from(&genesis);
+    let mut env = TestEnv::builder(chain_genesis)
+        .clients_count(num_clients)
+        .validator_seats(num_validators as usize)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, num_clients))
+        .build();
+
+    let genesis_hash = env.clients[0].chain.genesis_block().hash().clone();
+
+    let init_txs: Vec<_> = initial_accounts[0..num_clients]
+        .iter()
+        .map(|account_id| {
+            let signer = InMemorySigner::from_seed(
+                account_id.clone(),
+                KeyType::ED25519,
+                &account_id.to_string(),
+            );
+            SignedTransaction::from_actions(
+                1,
+                account_id.clone(),
+                account_id.clone(),
+                &signer,
+                vec![Action::DeployContract(DeployContractAction {
+                    code: near_test_contracts::rs_contract().to_vec(),
+                })],
+                genesis_hash.clone(),
+            )
+        })
+        .collect();
+
+    let mut nonce = 100;
+    let generate_txs: &mut dyn FnMut(usize) -> Vec<SignedTransaction> =
+        &mut |size: usize| -> Vec<SignedTransaction> {
+            let signer0 =
+                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+            let mut txs = vec![];
+            for _ in 0..size {
+                txs.push(gen_cross_contract_transactions(
+                    &signer0,
+                    &"test1".parse().unwrap(),
+                    nonce,
+                    &genesis_hash,
+                ));
+                nonce += 1;
+            }
+            txs
+        };
+
+    test_shard_layout_upgrade_helper(
+        &mut env,
+        init_txs,
+        generate_txs(1),
+        generate_txs(1),
+        &initial_accounts,
+        &initial_accounts,
     );
 }

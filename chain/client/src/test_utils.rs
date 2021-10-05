@@ -1291,23 +1291,17 @@ impl TestEnv {
         let network_adapters = self.network_adapters.clone();
         for network_adapter in network_adapters {
             // process partial encoded chunks
-            loop {
-                if let Some(request) = network_adapter.pop() {
-                    match request {
-                        NetworkRequests::PartialEncodedChunkMessage {
-                            account_id,
-                            partial_encoded_chunk,
-                        } => {
-                            self.client(&account_id)
-                                .process_partial_encoded_chunk(MaybeValidated::NotValidated(
-                                    partial_encoded_chunk.into(),
-                                ))
-                                .unwrap();
-                        }
-                        _ => {}
-                    }
-                } else {
-                    break;
+            while let Some(request) = network_adapter.pop() {
+                if let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                } = request
+                {
+                    self.client(&account_id)
+                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                            partial_encoded_chunk.into(),
+                        ))
+                        .unwrap();
                 }
             }
         }

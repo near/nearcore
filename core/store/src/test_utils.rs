@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use rand::seq::SliceRandom;
@@ -48,8 +48,11 @@ pub fn test_populate_trie(
     root
 }
 
-pub fn gen_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
-    let alphabet = b"abcdefghijklmn";
+fn gen_accounts_from_alphabet(
+    rng: &mut impl Rng,
+    max_size: usize,
+    alphabet: &[u8],
+) -> Vec<AccountId> {
     let size = rng.gen_range(0, max_size) + 1;
 
     let mut accounts = vec![];
@@ -62,8 +65,15 @@ pub fn gen_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
     accounts
 }
 
+pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
+    let alphabet = b"abcdefghijklmn";
+    let accounts = gen_accounts_from_alphabet(rng, max_size, alphabet);
+    accounts.into_iter().collect::<HashSet<_>>().into_iter().collect()
+}
+
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
-    let accounts = gen_accounts(rng, max_size);
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(4, 8)];
+    let accounts = gen_accounts_from_alphabet(rng, max_size, &alphabet);
     accounts
         .iter()
         .map(|account_id| Receipt {
