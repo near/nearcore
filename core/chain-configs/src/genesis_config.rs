@@ -70,6 +70,25 @@ fn default_num_chunk_only_producer_seats() -> u64 {
     300
 }
 
+fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    return Some(ShardConfig {
+        num_block_producer_seats_per_shard: vec![],
+        avg_hidden_validator_seats_per_shard: vec![],
+        shard_layout: ShardLayout::v1(
+            vec![],
+            vec!["aurora", "aurora-", "kkuuue2akv_1630967379.near"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        ),
+    });
+    #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
+    None
+}
+
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
     /// Protocol version that this genesis works with.
@@ -153,9 +172,8 @@ pub struct GenesisConfig {
     #[serde(default = "default_shard_layout")]
     #[default(ShardLayout::default())]
     pub shard_layout: ShardLayout,
-    #[default(None)]
-    // TODO: add config for simple nightshade shards
-    pub simple_nightshade_shard_config: Option<ShardConfig>,
+    #[serde(default = "default_simple_nightshade_shard_layout")]
+    pub simple_nightshade_shard_layout: Option<ShardLayout>,
     // For now we are skipping serialization/deserialization of the following
     // fields. They are only needed with protocol_feature_chunk_only_producers,
     // however the #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -210,10 +228,24 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = Self::new(
-            initial_epoch_config.clone(),
-            genesis_config.simple_nightshade_shard_config.clone(),
-        );
+        let shard_config =
+            if let Some(shard_layout) = &genesis_config.simple_nightshade_shard_layout {
+                let num_shards = shard_layout.num_shards() as usize;
+                Some(ShardConfig {
+                    num_block_producer_seats_per_shard: vec![
+                        genesis_config.num_block_producer_seats;
+                        num_shards
+                    ],
+                    avg_hidden_validator_seats_per_shard: vec![
+                    genesis_config.avg_hidden_validator_seats_per_shard[0];
+                    num_shards
+                ],
+                    shard_layout: shard_layout.clone(),
+                })
+            } else {
+                None
+            };
+        let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
         debug_assert_eq!(
             initial_epoch_config,
             epoch_config.for_protocol_version(genesis_config.protocol_version).clone()

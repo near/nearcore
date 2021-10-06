@@ -85,7 +85,6 @@ fn setup_test_env(
     genesis.config.chunk_producer_kickout_threshold = 50;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
-    let new_num_shards = 4;
     let simple_nightshade_shard_layout = ShardLayout::v1(
         vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
         vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
@@ -93,11 +92,8 @@ fn setup_test_env(
         1,
     );
 
-    genesis.config.simple_nightshade_shard_config = Some(ShardConfig {
-        num_block_producer_seats_per_shard: vec![2; new_num_shards],
-        avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
-        shard_layout: simple_nightshade_shard_layout.clone(),
-    });
+    genesis.config.simple_nightshade_shard_layout =
+        Some(ShardLayout { shard_layout: simple_nightshade_shard_layout.clone() });
     let chain_genesis = ChainGenesis::from(&genesis);
 
     TestEnv::builder(chain_genesis)
