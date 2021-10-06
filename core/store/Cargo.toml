@@ -3,6 +3,7 @@ name = "near-store"
 version = "2.2.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
 edition = "2018"
 
 [dependencies]
@@ -39,7 +40,7 @@ harness = false
 [features]
 default = []
 no_cache = []
-adversarial = []
+test_features = []
 protocol_feature_block_header_v3 = []
 nightly_protocol = []
 nightly_protocol_features = ["nightly_protocol", "protocol_feature_block_header_v3"]

@@ -1,3 +1,4 @@
+use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::{cache, imports};
 use near_primitives::contract::ContractCode;
@@ -62,14 +63,6 @@ impl MemoryLike for Wasmer2Memory {
             .iter()
             .zip(buffer.iter())
             .for_each(|(cell, v)| cell.set(*v));
-    }
-}
-
-impl IntoVMError for wasmer::CompileError {
-    fn into_vm_error(self) -> VMError {
-        VMError::FunctionCallError(FunctionCallError::CompilationError(
-            CompilationError::WasmerCompileError { msg: self.to_string() },
-        ))
     }
 }
 
@@ -199,13 +192,10 @@ pub fn run_wasmer2(
     }
 
     let store = default_wasmer2_store();
-    let module = match cache::wasmer2_cache::compile_module_cached_wasmer2(
-        &code,
-        wasm_config,
-        cache,
-        &store,
-    ) {
-        Ok(x) => x,
+    let module =
+        cache::wasmer2_cache::compile_module_cached_wasmer2(&code, wasm_config, cache, &store);
+    let module = match into_vm_result(module) {
+        Ok(it) => it,
         Err(err) => return (None, Some(err)),
     };
 

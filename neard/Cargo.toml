@@ -2,6 +2,7 @@
 name = "neard"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
 edition = "2018"
 default-run = "neard"
 
@@ -35,7 +36,7 @@ default = ["json_rpc"]
 performance_stats = ["nearcore/performance_stats"]
 memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
 c_memory_stats = ["nearcore/c_memory_stats"]
-adversarial = ["nearcore/adversarial"]
+test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
 no_cache = ["nearcore/no_cache"]
 delay_detector = ["nearcore/delay_detector"]

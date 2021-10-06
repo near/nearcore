@@ -26,7 +26,7 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlock, GetValidatorInfoError, Query, QueryError, TxStatus,
     TxStatusError,
 };
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
@@ -82,7 +82,7 @@ pub struct ViewClientRequestManager {
     pub receipt_outcome_requests: SizedCache<CryptoHash, Instant>,
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 #[derive(Default)]
 pub struct AdversarialControls {
     pub adv_disable_header_sync: bool,
@@ -92,7 +92,7 @@ pub struct AdversarialControls {
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv: Arc<RwLock<AdversarialControls>>,
 
     /// Validator account (if present).
@@ -128,7 +128,7 @@ impl ViewClientActor {
         network_adapter: Arc<dyn NetworkAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
-        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
@@ -137,7 +137,7 @@ impl ViewClientActor {
             DoomslugThresholdMode::TwoThirds,
         )?;
         Ok(ViewClientActor {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
             validator_account_id,
             chain,
@@ -499,7 +499,7 @@ impl ViewClientActor {
     }
 
     fn get_height(&self, head: &Tip) -> BlockHeight {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if let Some(height) = self.adv.read().unwrap().adv_sync_height {
                 return height;
@@ -971,7 +971,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
     #[perf_with_debug]
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             NetworkViewClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
@@ -1080,7 +1080,7 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
             }
             NetworkViewClientMessages::BlockHeadersRequest(hashes) => {
-                #[cfg(feature = "adversarial")]
+                #[cfg(feature = "test_features")]
                 {
                     if self.adv.read().unwrap().adv_disable_header_sync {
                         return NetworkViewClientResponses::NoResponse;
@@ -1095,16 +1095,30 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
             }
             NetworkViewClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => {
-                    let height = self.get_height(&head);
-
-                    NetworkViewClientResponses::ChainInfo {
-                        genesis_id: GenesisId {
-                            chain_id: self.config.chain_id.clone(),
-                            hash: *self.chain.genesis().hash(),
-                        },
-                        height,
-                        tracked_shards: self.config.tracked_shards.clone(),
-                        archival: self.config.archive,
+                    match self.runtime_adapter.num_shards(&head.epoch_id) {
+                        Ok(num_shards) => {
+                            // convert config tracked shards
+                            // runtime will track all shards if config tracked shards is not empty
+                            // https://github.com/near/nearcore/issues/4930
+                            let tracked_shards = if self.config.tracked_shards.is_empty() {
+                                vec![]
+                            } else {
+                                (0..num_shards).collect()
+                            };
+                            NetworkViewClientResponses::ChainInfo {
+                                genesis_id: GenesisId {
+                                    chain_id: self.config.chain_id.clone(),
+                                    hash: *self.chain.genesis().hash(),
+                                },
+                                height: self.get_height(&head),
+                                tracked_shards,
+                                archival: self.config.archive,
+                            }
+                        }
+                        Err(err) => {
+                            error!(target: "view_client", "Cannot retrieve num shards: {}", err);
+                            NetworkViewClientResponses::NoResponse
+                        }
                     }
                 }
                 Err(err) => {
@@ -1298,7 +1312,7 @@ pub fn start_view_client(
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     network_adapter: Arc<dyn NetworkAdapter>,
     config: ClientConfig,
-    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> Addr<ViewClientActor> {
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
@@ -1315,7 +1329,7 @@ pub fn start_view_client(
             network_adapter1,
             config1,
             request_manager1,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv.clone(),
         )
         .unwrap()

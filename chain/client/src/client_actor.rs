@@ -17,17 +17,17 @@ use log::{debug, error, info, trace, warn};
 use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan};
 #[cfg(feature = "sandbox")]
@@ -45,14 +45,14 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
 use actix::dev::SendError;
@@ -78,7 +78,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
@@ -135,7 +135,7 @@ impl ClientActor {
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -163,7 +163,7 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
             client,
             network_adapter,
@@ -253,7 +253,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
         self.check_triggers(ctx);
 
         match msg {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
@@ -1189,7 +1189,7 @@ impl ClientActor {
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv.read().unwrap().adv_disable_header_sync {
                 return false;
@@ -1692,7 +1692,7 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
@@ -1706,7 +1706,7 @@ pub fn start_client(
             telemetry_actor,
             true,
             ctx,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
         )
         .unwrap()

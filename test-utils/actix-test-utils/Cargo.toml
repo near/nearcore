@@ -2,6 +2,7 @@
 name = "near-actix-test-utils"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
 edition = "2018"
 
 [dependencies]

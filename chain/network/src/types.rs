@@ -10,7 +10,7 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future::BoxFuture, FutureExt};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use serde::Serialize;
 use strum::AsStaticStr;
 
@@ -33,7 +33,7 @@ use near_primitives::views::QueryRequest;
 
 use crate::ibf::IbfBox;
 use crate::peer::Peer;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::routing::SetAdvOptionsResult;
 use crate::routing::{
     Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
@@ -459,7 +459,7 @@ impl Message for GetPeerId {
 }
 
 #[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "adversarial", derive(Serialize))]
+#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetPeerIdResult {
     pub peer_id: PeerId,
 }
@@ -470,24 +470,24 @@ impl Message for GetRoutingTable {
     type Result = GetRoutingTableResult;
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 pub struct StartRoutingTableSync {
     pub peer_id: PeerId,
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
     pub disable_edge_propagation: Option<bool>,
     pub disable_edge_pruning: Option<bool>,
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 impl Message for SetAdvOptions {
     type Result = SetAdvOptionsResult;
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 impl Message for StartRoutingTableSync {
     type Result = ();
 }
@@ -507,6 +507,10 @@ pub struct Unregister {
     pub peer_type: PeerType,
     pub remove_from_peer_store: bool,
 }
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct StopMsg {}
 
 /// Message from peer to peer manager
 #[derive(strum::AsRefStr)]
@@ -665,7 +669,7 @@ pub struct EdgeList {
     pub edges: Vec<Edge>,
     pub edges_info_shared: Arc<Mutex<HashMap<(PeerId, PeerId), u64>>>,
     pub sender: QueueSender<Edge>,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_disable_edge_signature_verification: bool,
 }
 
@@ -736,7 +740,7 @@ impl Message for NetworkRequests {
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     Adversarial(NetworkAdversarialMessage),
 
     #[cfg(feature = "sandbox")]
@@ -783,7 +787,7 @@ pub enum NetworkClientMessages {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// Adv controls.
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     AdvResult(u64),
 
     /// Sandbox controls
