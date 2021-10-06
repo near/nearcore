@@ -104,7 +104,7 @@ pub enum ProtocolFeature {
     /// wasmer 2.*, brining better performance and reliability.
     ///
     /// The implementations should be sufficiently similar for this to not be a
-    /// protocol upgrade, but we concervatively do a protocol upgrade to be on
+    /// protocol upgrade, but we conservatively do a protocol upgrade to be on
     /// the safe side.
     ///
     /// Although wasmer2 is faster, we don't change fees with this protocol
