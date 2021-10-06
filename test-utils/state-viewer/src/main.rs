@@ -880,8 +880,13 @@ fn main() {
             let home_dir = PathBuf::from(&home_dir);
 
             let records_path = home_dir.join("records.json");
-            let new_genesis =
-                state_dump(runtime, state_roots.clone(), header, &near_config.genesis.config, records_path);
+            let new_genesis = state_dump(
+                runtime,
+                state_roots.clone(),
+                header,
+                &near_config.genesis.config,
+                records_path,
+            );
 
             let output_path = home_dir.join("output.json");
             println!(
