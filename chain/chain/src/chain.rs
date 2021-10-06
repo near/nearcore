@@ -391,11 +391,11 @@ impl Chain {
             BlockHeaderV3,
             protocol_version,
             {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
+                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
                 Chain::compute_collection_hash(validator_stakes)
             },
             {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
+                let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
                 Chain::compute_collection_hash(validator_stakes)
             }
         )
