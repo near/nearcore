@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 
 use near_chain::RuntimeAdapter;
-use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig};
+use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
 use near_store::TrieIterator;
 use nearcore::NightshadeRuntime;
+use serde::ser::{SerializeSeq, Serializer};
+use std::path::PathBuf;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
     state_roots: Vec<StateRoot>,
     last_block_header: BlockHeader,
     genesis_config: &GenesisConfig,
+    records_path: PathBuf,
 ) -> Genesis {
     println!(
         "Generating genesis from state data of #{} / {}",
@@ -35,7 +38,12 @@ pub fn state_dump(
         })
         .collect::<HashMap<_, _>>();
 
-    let mut records = vec![];
+    let mut total_supply = 0;
+
+    let records_file = std::fs::File::create(&records_path).unwrap();
+    let mut ser = serde_json::Serializer::new(records_file);
+    let mut seq = ser.serialize_seq(None).unwrap();
+
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
@@ -44,16 +52,18 @@ pub fn state_dump(
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
+                    total_supply += account.amount() + account.locked();
                     if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
                         account.set_amount(account.amount() + account.locked() - stake);
                         account.set_locked(stake);
                     }
                 }
-                records.push(sr);
+                seq.serialize_element(&sr).unwrap();
             }
         }
     }
+    seq.end().unwrap();
 
     let mut genesis_config = genesis_config.clone();
     genesis_config.genesis_height = genesis_height;
@@ -67,9 +77,9 @@ pub fn state_dump(
     genesis_config.protocol_version = last_block_header.latest_protocol_version();
     // `total_supply` is expected to change due to the natural processes of burning tokens and
     // minting tokens every epoch.
-    genesis_config.total_supply = get_initial_supply(&records);
+    genesis_config.total_supply = total_supply;
     genesis_config.shard_layout = runtime.get_shard_layout(last_block_header.epoch_id()).unwrap();
-    Genesis::new(genesis_config, records.into())
+    Genesis::new_with_path(genesis_config, records_path)
 }
 
 #[cfg(test)]
@@ -166,8 +176,14 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_genesis = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &genesis.config,
+            records_file.path().to_path_buf(),
+        );
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
@@ -195,8 +211,14 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_genesis = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &genesis.config,
+            records_file.path().to_path_buf(),
+        );
         assert_eq!(
             new_genesis
                 .config
@@ -261,8 +283,14 @@ mod test {
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
-        let _ =
-            state_dump(runtime2, state_roots.clone(), last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let _ = state_dump(
+            runtime2,
+            state_roots.clone(),
+            last_block.header().clone(),
+            &genesis.config,
+            records_file.path().to_path_buf(),
+        );
     }
 
     #[test]
@@ -309,8 +337,14 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_genesis = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &genesis.config,
+            records_file.path().to_path_buf(),
+        );
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
