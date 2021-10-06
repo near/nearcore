@@ -1,3 +1,5 @@
+use borsh::BorshSerialize;
+
 use crate::process_blocks::{create_nightshade_runtimes, set_block_protocol_version};
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
@@ -16,14 +18,14 @@ use near_primitives::types::ProtocolVersion;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::ExecutionStatusView;
 use near_primitives::views::QueryRequest;
-use near_store::test_utils::gen_unique_accounts;
+use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
 
 use assert_matches::assert_matches;
 use near_store::get_delayed_receipt_indices;
-use rand::thread_rng;
-use std::collections::HashMap;
+use rand::{thread_rng, Rng};
+use std::collections::{HashMap, HashSet};
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
@@ -300,33 +302,34 @@ fn test_shard_layout_upgrade_simple() {
 
     let mut nonce = 100;
     let genesis_hash = test_env.env.clients[0].chain.genesis_block().hash().clone();
-    let mut all_accounts = test_env.initial_accounts.clone();
+    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let generate_create_accounts_txs: &mut dyn FnMut(usize) -> Vec<SignedTransaction> =
         &mut |max_size: usize| -> Vec<SignedTransaction> {
-            let new_accounts = gen_unique_accounts(&mut rng, max_size);
-            let signer0 =
-                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-            let mut txs = vec![];
-            for account_id in new_accounts.iter() {
-                let signer = InMemorySigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    account_id.as_ref(),
-                );
-                let tx = SignedTransaction::create_account(
-                    nonce,
-                    "test0".parse().unwrap(),
-                    account_id.clone(),
-                    NEAR_BASE,
-                    signer.public_key(),
-                    &signer0,
-                    genesis_hash.clone(),
-                );
-                nonce += 1;
-                txs.push(tx);
-                all_accounts.push(account_id.clone());
-            }
-            txs
+            let size = rng.gen_range(0, max_size) + 1;
+            std::iter::repeat_with(|| loop {
+                let account_id = gen_account(&mut rng, b"abcdefghijkmn");
+                if all_accounts.insert(account_id.clone()) {
+                    let signer = InMemorySigner::from_seed(
+                        account_id.clone(),
+                        KeyType::ED25519,
+                        account_id.as_ref(),
+                    );
+                    let tx = SignedTransaction::create_account(
+                        nonce,
+                        signer0.account_id.clone(),
+                        account_id.clone(),
+                        NEAR_BASE,
+                        signer.public_key(),
+                        &signer0,
+                        genesis_hash.clone(),
+                    );
+                    nonce += 1;
+                    return tx;
+                }
+            })
+            .take(size)
+            .collect()
         };
 
     test_env.set_tx_at_height(epoch_length - 1, generate_create_accounts_txs(100));
@@ -336,19 +339,24 @@ fn test_shard_layout_upgrade_simple() {
         test_env.step();
     }
 
-    test_env.check_accounts(&all_accounts);
+    test_env.check_accounts(&all_accounts.into_iter().collect::<Vec<_>>());
     test_env.check_tx_outcomes();
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
 const GAS_2: u64 = GAS_1 / 3;
 
-fn gen_cross_contract_transactions(
-    signer: &InMemorySigner,
-    receiver: &AccountId,
+// create a transaction signed by `test0` and calls a contract on `test1`
+// the contract creates a promise that executes a cross contract call on "test2"
+// then executes another contract call on "test3" that creates a new account
+fn gen_cross_contract_transaction(
+    new_account: &AccountId,
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
+    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer_new_account =
+        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
     let data = serde_json::json!([
         {"create": {
         "account_id": "test2",
@@ -361,17 +369,31 @@ fn gen_cross_contract_transactions(
         "promise_index": 0,
         "account_id": "test3",
         "method_name": "call_promise",
-        "arguments": [],
-        "amount": "0",
+        "arguments": [
+                {"batch_create": { "account_id": new_account.to_string() }, "id": 0 },
+                {"action_create_account": {
+                    "promise_index": 0, },
+                    "id": 0 },
+                {"action_transfer": {
+                    "promise_index": 0,
+                    "amount": format!("{}", NEAR_BASE),
+                }, "id": 0 },
+                {"action_add_key_with_full_access": {
+                    "promise_index": 0,
+                    "public_key": base64::encode(&signer_new_account.public_key.try_to_vec().unwrap()),
+                    "nonce": 0,
+                }, "id": 0 }
+            ],
+        "amount": format!("{}", NEAR_BASE),
         "gas": GAS_2,
         }, "id": 1}
     ]);
 
     SignedTransaction::from_actions(
         nonce,
-        signer.account_id.clone(),
-        receiver.clone(),
-        signer,
+        signer0.account_id.clone(),
+        "test1".parse().unwrap(),
+        &signer0,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -417,32 +439,34 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
     );
 
     let mut nonce = 100;
-    let generate_txs: &mut dyn FnMut(usize) -> Vec<SignedTransaction> =
-        &mut |size: usize| -> Vec<SignedTransaction> {
-            let signer0 =
-                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-            let mut txs = vec![];
-            for _ in 0..size {
-                txs.push(gen_cross_contract_transactions(
-                    &signer0,
-                    &"test1".parse().unwrap(),
-                    nonce,
-                    &genesis_hash,
-                ));
-                nonce += 1;
-            }
-            txs
+    let mut rng = thread_rng();
+    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
+        &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
+            let size = rng.gen_range(min_size, max_size + 1);
+            std::iter::repeat_with(|| loop {
+                let account_id = gen_account(&mut rng, b"abcdefghijkmn");
+                if all_accounts.insert(account_id.clone()) {
+                    nonce += 1;
+                    return gen_cross_contract_transaction(&account_id, nonce, &genesis_hash);
+                }
+            })
+            .take(size)
+            .collect()
         };
 
-    let num_txs = 5;
-    test_env.set_tx_at_height(epoch_length - 2, generate_txs(num_txs));
-    test_env.set_tx_at_height(epoch_length - 1, generate_txs(num_txs));
-    test_env.set_tx_at_height(epoch_length, generate_txs(num_txs));
-    test_env.set_tx_at_height(2 * epoch_length - 2, generate_txs(num_txs));
-    test_env.set_tx_at_height(2 * epoch_length - 1, generate_txs(num_txs));
-    test_env.set_tx_at_height(2 * epoch_length, generate_txs(num_txs));
+    for height in vec![
+        epoch_length - 2,
+        epoch_length - 1,
+        epoch_length,
+        2 * epoch_length - 2,
+        2 * epoch_length - 1,
+        2 * epoch_length,
+    ] {
+        test_env.set_tx_at_height(height, generate_txs(5, 8));
+    }
 
-    for i in 1..3 * epoch_length + 1 {
+    for i in 1..4 * epoch_length {
         test_env.step();
         if i == epoch_length || i == 2 * epoch_length {
             // check that there are delayed receipts
@@ -463,4 +487,5 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
     }
 
     test_env.check_tx_outcomes();
+    test_env.check_accounts(&all_accounts.into_iter().collect::<Vec<_>>());
 }

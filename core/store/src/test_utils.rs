@@ -55,14 +55,13 @@ fn gen_accounts_from_alphabet(
 ) -> Vec<AccountId> {
     let size = rng.gen_range(0, max_size) + 1;
 
-    let mut accounts = vec![];
-    for _ in 0..size {
-        let str_length = rng.gen_range(4, 8);
-        let s: Vec<u8> = (0..str_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
-        let account_id: AccountId = from_utf8(&s).unwrap().parse().unwrap();
-        accounts.push(account_id);
-    }
-    accounts
+    std::iter::repeat_with(|| gen_account(rng, alphabet)).take(size).collect()
+}
+
+pub fn gen_account(rng: &mut impl Rng, alphabet: &[u8]) -> AccountId {
+    let str_length = rng.gen_range(4, 8);
+    let s: Vec<u8> = (0..str_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+    from_utf8(&s).unwrap().parse().unwrap()
 }
 
 pub fn gen_unique_accounts(rng: &mut impl Rng, max_size: usize) -> Vec<AccountId> {
