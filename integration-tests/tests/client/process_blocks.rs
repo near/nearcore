@@ -2569,6 +2569,9 @@ fn test_refund_receipts_processing() {
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise we hit an assert: https://github.com/near/nearcore/pull/4934#issuecomment-935863800
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_wasmer2_upgrade() {
     let mut capture = near_logger_utils::TracingCapture::enable();
