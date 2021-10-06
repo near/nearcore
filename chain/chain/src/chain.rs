@@ -3505,7 +3505,7 @@ impl<'a> ChainUpdate<'a> {
 
                     let mut sum_gas_used = 0;
                     let mut sum_balance_burnt = 0;
-                    for result in results.into_iter() {
+                    for result in results {
                         let shard_id = result.shard_uid.shard_id();
                         let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
                         let balance_burnt =

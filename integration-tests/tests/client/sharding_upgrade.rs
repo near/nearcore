@@ -33,8 +33,7 @@ struct TestShardUpgradeEnv {
     initial_accounts: Vec<AccountId>,
     init_txs: Vec<SignedTransaction>,
     txs_by_height: HashMap<u64, Vec<SignedTransaction>>,
-    #[allow(unused)]
-    epoch_length: u64,
+    _epoch_length: u64,
     num_validators: usize,
     num_clients: usize,
 }
@@ -69,7 +68,7 @@ impl TestShardUpgradeEnv {
         Self {
             env,
             initial_accounts,
-            epoch_length,
+            _epoch_length: epoch_length,
             num_validators,
             num_clients,
             init_txs: vec![],
@@ -104,8 +103,10 @@ impl TestShardUpgradeEnv {
             }
         }
 
-        // chunks for the block at height has already been produced at this point, so we need to
-        // add these transactions at i+1 for them to be included in block at height i
+        // At every step, chunks for the next block are produced after the current block is processed
+        // (inside env.process_block)
+        // Therefore, if we want a transaction to be included at the block at `height+1`, we must add
+        // it when we are producing the block at `height`
         if let Some(txs) = self.txs_by_height.get(&(height + 1)) {
             for tx in txs {
                 for j in 0..self.num_validators {
@@ -170,12 +171,13 @@ impl TestShardUpgradeEnv {
             let account_id = &tx.transaction.signer_id;
             let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
             for (i, account_id) in env.validators.iter().enumerate() {
-                if env.clients[i].runtime_adapter.cares_about_shard(
+                let cares_about_shard = env.clients[i].runtime_adapter.cares_about_shard(
                     Some(account_id),
                     block.header().prev_hash(),
                     shard_uid.shard_id(),
                     true,
-                ) {
+                );
+                if cares_about_shard {
                     let execution_outcome =
                         env.clients[i].chain.get_final_transaction_result(id).unwrap();
                     let execution_outcome = env.clients[i]
