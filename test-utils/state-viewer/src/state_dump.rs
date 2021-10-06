@@ -93,7 +93,6 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
-    use near_primitives::runtime::config_store::RuntimeConfigStore;
 
     fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis =
@@ -102,16 +101,7 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -175,16 +165,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -213,16 +194,7 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(
@@ -251,16 +223,7 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(
-                Path::new("."),
-                store,
-                &genesis,
-                vec![],
-                vec![],
-                None,
-                None,
-                RuntimeConfigStore::test(),
-            )
+            NightshadeRuntime::test(Path::new("."), store, &genesis)
         };
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
@@ -311,16 +274,7 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
@@ -354,16 +308,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
