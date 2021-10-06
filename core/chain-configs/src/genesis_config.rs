@@ -249,7 +249,7 @@ pub struct Genesis {
     /// In this case records can be found in records_file.
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
-    #[serde(skip)]
+    #[serde(default)]
     pub records_file: PathBuf,
 }
 
