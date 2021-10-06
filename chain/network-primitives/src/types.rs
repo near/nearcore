@@ -834,7 +834,7 @@ impl StateResponseInfo {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 #[derive(Debug)]
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
@@ -855,7 +855,7 @@ pub enum NetworkSandboxMessage {
 
 #[derive(AsStaticStr)]
 pub enum NetworkViewClientMessages {
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     Adversarial(NetworkAdversarialMessage),
 
     /// Transaction status query
