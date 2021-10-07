@@ -2,6 +2,9 @@
 
 ## [unreleased]
 
+### Protocol Changes
+* Lower data receipt cost and base cost of `ecrecover` host function
+
 ## `1.20.0` [07-26-2021]
 
 ### Protocol Changes
