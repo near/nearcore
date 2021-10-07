@@ -16,7 +16,7 @@ pub fn test_ts_contract() {
 
         let context = create_context(Vec::new());
         let config = VMConfig::default();
-        let fees = RuntimeFeesConfig::default();
+        let fees = RuntimeFeesConfig::test();
 
         // Call method that panics.
         let promise_results = vec![];

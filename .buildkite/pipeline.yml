@@ -28,7 +28,7 @@ steps:
       fi
       RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
       RUSTFLAGS='-D warnings' cargo check -p neard --features nightly_protocol,nightly_protocol_features
-      RUSTFLAGS='-D warnings' cargo check -p neard --features adversarial
+      RUSTFLAGS='-D warnings' cargo check -p neard --features test_features
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
       RUSTFLAGS='-D warnings' cargo check -p neard
       python3 scripts/state/update_res.py check

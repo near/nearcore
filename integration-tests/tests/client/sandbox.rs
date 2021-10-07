@@ -6,7 +6,6 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::Account;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
@@ -21,15 +20,10 @@ fn test_setup() -> (TestEnv, InMemorySigner) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::new(
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             create_test_store(),
             &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
         )) as Arc<dyn RuntimeAdapter>])
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");

@@ -14,7 +14,6 @@ use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
 pub struct ScenarioResult<T, E> {
@@ -58,15 +57,10 @@ impl Scenario {
         let env = TestEnv::builder(ChainGenesis::from(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::new(
+            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
-                vec![],
-                vec![],
-                None,
-                None,
-                RuntimeConfigStore::test(),
             ))])
             .build();
 

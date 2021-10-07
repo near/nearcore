@@ -38,8 +38,6 @@ use near_primitives::types::{
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
 };
 use near_primitives::unwrap_or_return;
-#[cfg(feature = "protocol_feature_block_header_v3")]
-use near_primitives::version::ProtocolFeature;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus, LightClientBlockView,
@@ -372,7 +370,7 @@ impl Chain {
         })
     }
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn adv_disable_doomslug(&mut self) {
         self.doomslug_threshold_mode = DoomslugThresholdMode::NoApprovals
     }
@@ -387,23 +385,20 @@ impl Chain {
         last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
         let bps = runtime_adapter.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
-        {
-            let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
-            Chain::compute_collection_hash(validator_stakes)
-        }
-        #[cfg(feature = "protocol_feature_block_header_v3")]
-        {
-            let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
-            let block_header_v3_version = ProtocolFeature::BlockHeaderV3.protocol_version();
-            if protocol_version < block_header_v3_version {
-                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
-                Chain::compute_collection_hash(validator_stakes)
-            } else {
+        let protocol_version = runtime_adapter.get_epoch_protocol_version(&epoch_id)?;
+        checked_feature!(
+            "protocol_feature_block_header_v3",
+            BlockHeaderV3,
+            protocol_version,
+            {
                 let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect();
                 Chain::compute_collection_hash(validator_stakes)
+            },
+            {
+                let validator_stakes = bps.into_iter().map(|(bp, _)| bp.into_v1()).collect();
+                Chain::compute_collection_hash(validator_stakes)
             }
-        }
+        )
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -3505,10 +3500,11 @@ impl<'a> ChainUpdate<'a> {
 
                     let mut sum_gas_used = 0;
                     let mut sum_balance_burnt = 0;
-                    for (i, result) in results.into_iter().enumerate() {
-                        let i = i as NumShards;
-                        let gas_burnt = gas_split + if i < gas_res { 1 } else { 0 };
-                        let balance_burnt = balance_split + if i < balance_res { 1 } else { 0 };
+                    for result in results {
+                        let shard_id = result.shard_uid.shard_id();
+                        let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
+                        let balance_burnt =
+                            balance_split + if shard_id < balance_res { 1 } else { 0 };
                         let new_chunk_extra = ChunkExtra::new(
                             &result.new_root,
                             outcome_root.clone(),
