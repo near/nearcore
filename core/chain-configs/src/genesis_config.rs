@@ -72,19 +72,15 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
     #[cfg(feature = "protocol_feature_simple_nightshade")]
-    return Some(ShardConfig {
-        num_block_producer_seats_per_shard: vec![],
-        avg_hidden_validator_seats_per_shard: vec![],
-        shard_layout: ShardLayout::v1(
-            vec![],
-            vec!["aurora", "aurora-", "kkuuue2akv_1630967379.near"]
-                .into_iter()
-                .map(|s| s.parse().unwrap())
-                .collect(),
-            Some(vec![vec![0, 1, 2, 3]]),
-            1,
-        ),
-    });
+    return Some(ShardLayout::v1(
+        vec![],
+        vec!["aurora", "aurora-", "kkuuue2akv_1630967379.near"]
+            .into_iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        Some(vec![vec![0, 1, 2, 3]]),
+        1,
+    ));
     #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
     None
 }
@@ -237,9 +233,9 @@ impl From<&GenesisConfig> for AllEpochConfig {
                         num_shards
                     ],
                     avg_hidden_validator_seats_per_shard: vec![
-                    genesis_config.avg_hidden_validator_seats_per_shard[0];
-                    num_shards
-                ],
+                        genesis_config.avg_hidden_validator_seats_per_shard[0];
+                        num_shards
+                    ],
                     shard_layout: shard_layout.clone(),
                 })
             } else {
