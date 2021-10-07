@@ -7,12 +7,14 @@ use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_
 
 use near_rust_allocator_proxy::allocator::get_tid;
 
-pub fn spawn<F>(class_name: &'static str, file: &'static str, line: u32, f: F)
+#[track_caller]
+pub fn spawn<F>(class_name: &'static str, f: F)
 where
     F: futures::Future<Output = ()> + 'static,
 {
-    *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
-    actix::spawn(MyFuture { f, class_name, file, line });
+    let loc = Location::caller();
+    *REF_COUNTER.lock().unwrap().entry((loc.file(), loc.line())).or_insert_with(|| 0) += 1;
+    actix::spawn(MyFuture { f, class_name, file: loc.file(), line: loc.line() });
 }
 
 #[track_caller]
