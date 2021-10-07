@@ -345,26 +345,20 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            WAIT_FOR_SYNC_DELAY,
-            move |act, ctx2| {
-                if peer_type == PeerType::Inbound {
-                    act.routing_table_pool
-                        .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
-                        .into_actor(act)
-                        .map(move |response, act2, _ctx| match response {
-                            Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
-                                act2.start_routing_table_syncv2(addr, seed)
-                            }
-                            _ => error!(target: "network", "expected AddIbfSetResponse"),
-                        })
-                        .spawn(ctx2);
-                }
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx2| {
+            if peer_type == PeerType::Inbound {
+                act.routing_table_pool
+                    .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
+                    .into_actor(act)
+                    .map(move |response, act2, _ctx| match response {
+                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
+                            act2.start_routing_table_syncv2(addr, seed)
+                        }
+                        _ => error!(target: "network", "expected AddIbfSetResponse"),
+                    })
+                    .spawn(ctx2);
+            }
+        });
     }
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     fn start_routing_table_syncv2(&self, addr: Addr<Peer>, seed: u64) {
