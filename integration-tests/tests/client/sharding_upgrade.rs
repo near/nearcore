@@ -8,7 +8,6 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use near_primitives::transaction::{
@@ -267,7 +266,6 @@ fn setup_genesis(
     genesis.config.chunk_producer_kickout_threshold = 50;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
-    let new_num_shards = 4;
     let simple_nightshade_shard_layout = ShardLayout::v1(
         vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
         vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
@@ -275,11 +273,7 @@ fn setup_genesis(
         1,
     );
 
-    genesis.config.simple_nightshade_shard_config = Some(ShardConfig {
-        num_block_producer_seats_per_shard: vec![num_validators; new_num_shards],
-        avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
-        shard_layout: simple_nightshade_shard_layout.clone(),
-    });
+    genesis.config.simple_nightshade_shard_layout = Some(simple_nightshade_shard_layout.clone());
 
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
