@@ -168,7 +168,7 @@ pub fn validate_chunk_with_chunk_extra(
         prev_chunk_height_included,
     )?;
     let outgoing_receipts_hashes = {
-        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+        let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(prev_block_hash)?;
         runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id)
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);

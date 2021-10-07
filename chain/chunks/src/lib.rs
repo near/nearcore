@@ -1629,12 +1629,11 @@ impl ShardsManager {
         prev_block_hash: &CryptoHash,
     ) -> HashMap<AccountId, Vec<u64>> {
         let mut block_producer_mapping = HashMap::new();
-
-        for part_ord in 0..self.runtime_adapter.num_total_parts() {
-            let part_ord = part_ord as u64;
-            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
+        for part_id in 0..self.runtime_adapter.num_total_parts() {
+            let part_id = part_id as u64;
+            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_id).unwrap();
             let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
-            entry.push(part_ord);
+            entry.push(part_id);
         }
         block_producer_mapping
     }
