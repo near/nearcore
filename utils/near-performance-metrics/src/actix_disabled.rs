@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-pub fn spawn<F>(_class_name: &'static str, _file: &'static str, _line: u32, f: F)
+pub fn spawn<F>(_class_name: &'static str, f: F)
 where
     F: futures::Future<Output = ()> + 'static,
 {
