@@ -1,6 +1,7 @@
 use log::warn;
 use std::time::Duration;
 use std::time::Instant;
+use std::panic::Location;
 
 use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
 
@@ -14,10 +15,9 @@ where
     actix::spawn(MyFuture { f, class_name, file, line });
 }
 
+#[track_caller]
 pub fn run_later<F, A, B>(
     ctx: &mut B,
-    file: &'static str,
-    line: u32,
     dur: Duration,
     f: F,
 ) -> actix::SpawnHandle
@@ -26,7 +26,9 @@ where
     A: actix::Actor<Context = B>,
     F: FnOnce(&mut A, &mut A::Context) + 'static,
 {
-    *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) += 1;
+    let loc = Location::caller();
+    *REF_COUNTER.lock().unwrap().entry((loc.file(), loc.line())).or_insert_with(|| 0) += 1;
+
     let f2 = move |a: &mut A, b: &mut A::Context| {
         let stat = get_thread_stats_logger();
         let now = Instant::now();
@@ -36,18 +38,18 @@ where
 
         let ended = Instant::now();
         let took = ended - now;
-        stat.lock().unwrap().log("run_later", file, line, took, ended, "");
+        stat.lock().unwrap().log("run_later", loc.file(), loc.line(), took, ended, "");
         if took > SLOW_CALL_THRESHOLD {
             warn!(
                 "Slow function call {}:{} {}:{} took: {}ms",
                 "run_later",
                 get_tid(),
-                file,
-                line,
+                loc.file(),
+                loc.line(),
                 took.as_millis()
             );
         }
-        *REF_COUNTER.lock().unwrap().entry((file, line)).or_insert_with(|| 0) -= 1;
+        *REF_COUNTER.lock().unwrap().entry((loc.file(), loc.line())).or_insert_with(|| 0) -= 1;
     };
     ctx.run_later(dur, f2)
 }

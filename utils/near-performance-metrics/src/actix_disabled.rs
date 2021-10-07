@@ -9,8 +9,6 @@ where
 
 pub fn run_later<F, A, B>(
     ctx: &mut B,
-    _file: &'static str,
-    _line: u32,
     dur: Duration,
     f: F,
 ) -> actix::SpawnHandle
