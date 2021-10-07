@@ -3500,10 +3500,11 @@ impl<'a> ChainUpdate<'a> {
 
                     let mut sum_gas_used = 0;
                     let mut sum_balance_burnt = 0;
-                    for (i, result) in results.into_iter().enumerate() {
-                        let i = i as NumShards;
-                        let gas_burnt = gas_split + if i < gas_res { 1 } else { 0 };
-                        let balance_burnt = balance_split + if i < balance_res { 1 } else { 0 };
+                    for result in results {
+                        let shard_id = result.shard_uid.shard_id();
+                        let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
+                        let balance_burnt =
+                            balance_split + if shard_id < balance_res { 1 } else { 0 };
                         let new_chunk_extra = ChunkExtra::new(
                             &result.new_root,
                             outcome_root.clone(),

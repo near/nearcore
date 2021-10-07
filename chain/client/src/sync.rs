@@ -1077,8 +1077,6 @@ impl StateSync {
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
-                    file!(),
-                    line!(),
                     self.network_adapter
                         .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
                         .then(move |result| {
@@ -1113,8 +1111,6 @@ impl StateSync {
 
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
-                        file!(),
-                        line!(),
                         self.network_adapter
                             .send(NetworkRequests::StateRequestPart {
                                 shard_id,

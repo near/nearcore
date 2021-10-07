@@ -2569,16 +2569,15 @@ fn test_refund_receipts_processing() {
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise we hit an assert: https://github.com/near/nearcore/pull/4934#issuecomment-935863800
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_wasmer2_upgrade() {
     let mut capture = near_logger_utils::TracingCapture::enable();
 
-    #[cfg(all(feature = "protocol_feature_wasmer2", feature = "nightly_protocol"))]
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
-    #[cfg(not(feature = "protocol_feature_wasmer2"))]
-    let old_protocol_version = PROTOCOL_VERSION - 1;
-
     let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
@@ -2659,12 +2658,7 @@ fn test_wasmer2_upgrade() {
     };
 
     assert!(logs_at_old_version.contains(&"run_vm vm_kind=Wasmer0".to_string()));
-
-    if cfg!(all(feature = "protocol_feature_wasmer2", feature = "nightly_protocol")) {
-        assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer2".to_string()));
-    } else {
-        assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer0".to_string()));
-    }
+    assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer2".to_string()));
 }
 
 #[test]

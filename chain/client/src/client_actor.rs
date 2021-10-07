@@ -822,7 +822,7 @@ impl ClientActor {
     fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
         let wait = self.check_triggers(ctx);
 
-        near_performance_metrics::actix::run_later(ctx, file!(), line!(), wait, move |act, ctx| {
+        near_performance_metrics::actix::run_later(ctx, wait, move |act, ctx| {
             act.schedule_triggers(ctx);
         });
     }
@@ -1207,8 +1207,6 @@ impl ClientActor {
         {
             near_performance_metrics::actix::run_later(
                 ctx,
-                file!(),
-                line!(),
                 self.client.config.sync_step_period,
                 move |act, ctx| {
                     act.start_sync(ctx);
@@ -1275,8 +1273,6 @@ impl ClientActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.client.config.catchup_step_period,
             move |act, ctx| {
                 act.catchup(ctx);
@@ -1318,8 +1314,6 @@ impl ClientActor {
 
                 near_performance_metrics::actix::run_later(
                     ctx,
-                    file!(),
-                    line!(),
                     self.client.config.sync_step_period, move |act, ctx| {
                         act.sync(ctx);
                     }
@@ -1484,23 +1478,15 @@ impl ClientActor {
             }
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            wait_period,
-            move |act, ctx| {
-                act.sync(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, wait_period, move |act, ctx| {
+            act.sync(ctx);
+        });
     }
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.client.config.log_summary_period,
             move |act, ctx| {
                 #[cfg(feature = "delay_detector")]
