@@ -101,7 +101,7 @@ pub enum ProtocolFeature {
     /// <https://github.com/near/nearcore/pull/4228>.
     RestoreReceiptsAfterFix,
     /// This feature switch our WASM engine implementation from wasmer 0.* to
-    /// wasmer 2.*, brining better performance and reliability.
+    /// wasmer 2.*, bringing better performance and reliability.
     ///
     /// The implementations should be sufficiently similar for this to not be a
     /// protocol upgrade, but we conservatively do a protocol upgrade to be on

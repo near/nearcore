@@ -3,6 +3,7 @@
 ## [unreleased]
 
 ### Protocol Changes
+* Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. 
 * Lower data receipt cost and base cost of `ecrecover` host function
 
 ## `1.20.0` [07-26-2021]
