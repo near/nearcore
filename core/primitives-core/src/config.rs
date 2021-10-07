@@ -81,6 +81,9 @@ pub struct VMLimitConfig {
     pub max_promises_per_function_call_action: u64,
     /// Max number of input data dependencies
     pub max_number_input_data_dependencies: u64,
+    /// If present, stores max number of functions in one contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_functions_number: Option<u64>,
 }
 
 impl Default for VMConfig {

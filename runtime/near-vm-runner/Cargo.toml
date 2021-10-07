@@ -73,6 +73,7 @@ protocol_feature_alt_bn128 = [
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
 protocol_feature_wasmer2 = [ "near-primitives/protocol_feature_wasmer2" ]
+protocol_feature_limit_contract_functions_number = ["near-primitives/protocol_feature_limit_contract_functions_number"]
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate

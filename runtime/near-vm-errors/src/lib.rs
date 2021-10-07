@@ -141,6 +141,8 @@ pub enum PrepareError {
     Instantiate,
     /// Error creating memory.
     Memory,
+    /// Contract contains too many functions.
+    TooManyFunctions { number: u64 },
 }
 
 #[derive(

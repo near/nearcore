@@ -141,6 +141,7 @@ pub fn precompile<'a>(
                 wasm_config,
                 code_hash,
                 cache,
+                ,
             );
             into_vm_result(result).err()
         }

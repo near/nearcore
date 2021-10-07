@@ -127,6 +127,8 @@ pub enum ProtocolFeature {
     Wasmer2,
     #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     LowerEcrecoverBaseCost,
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+    LimitContractFunctionsNumber,
 }
 
 /// Current latest stable version of the protocol.
@@ -137,7 +139,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 47;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 119;
+pub const PROTOCOL_VERSION: ProtocolVersion = 120;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -174,6 +176,8 @@ impl ProtocolFeature {
             ProtocolFeature::Wasmer2 => 118,
             #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
             ProtocolFeature::LowerEcrecoverBaseCost => 119,
+            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+            ProtocolFeature::LimitContractFunctionsNumber => 120,
         }
     }
 }

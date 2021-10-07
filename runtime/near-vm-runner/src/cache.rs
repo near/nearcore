@@ -7,14 +7,16 @@ use crate::VMKind;
 use borsh::{BorshDeserialize, BorshSerialize};
 #[cfg(not(feature = "no_cache"))]
 use cached::{cached_key, SizedCache};
+use near_primitives::checked_feature;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::CompiledContractCache;
-use near_vm_errors::{CacheError, CompilationError, FunctionCallError, VMError};
+use near_vm_errors::{CacheError, CompilationError, FunctionCallError, PrepareError, VMError};
 use near_vm_logic::{ProtocolVersion, VMConfig};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use wasmer_runtime::Module;
 
 #[derive(Debug, Clone, BorshSerialize)]
 enum ContractCacheKey {
@@ -79,6 +81,46 @@ pub fn into_vm_result<T>(
     }
 }
 
+/// For now StorageError can happen at any time from ViewClient because of
+/// the used isolation level + running ViewClient in a separate thread.
+pub trait WasmerModule {
+    fn functions_number(self) -> usize;
+}
+
+impl WasmerModule for wasmer_runtime::Module {
+    fn functions_number(self) -> usize {
+        module.info().func_assoc.len()
+    }
+}
+
+impl WasmerModule for wasmer::Module {
+    fn functions_number(self) -> usize {
+        module.info().func_assoc.len()
+    }
+}
+
+fn validate_functions_number(
+    module: &dyn WasmerModule,
+    config: &VMConfig,
+    protocol_version: ProtocolVersion,
+) -> Result<(), CompilationError> {
+    if checked_feature!(
+        "protocol_feature_limit_contract_functions_number",
+        LimitContractFunctionsNumber,
+        protocol_version
+    ) {
+        if let Some(max_functions_number) = config.limit_config.max_functions_number {
+            let functions_number = module.functions_number() as u64;
+            if functions_number > max_functions_number {
+                return Err(CompilationError::PrepareError(PrepareError::TooManyFunctions {
+                    number: functions_number,
+                }));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Default)]
 pub struct MockCompiledContractCache {
     store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
@@ -116,7 +158,7 @@ const CACHE_SIZE: usize = 128;
 #[cfg(feature = "wasmer0_vm")]
 pub mod wasmer0_cache {
     use super::*;
-    use near_vm_errors::CompilationError;
+    use near_vm_errors::{CompilationError, PrepareError};
     use wasmer_runtime::{compiler_for_backend, Backend};
     use wasmer_runtime_core::cache::Artifact;
     use wasmer_runtime_core::load_cache_with;
@@ -124,10 +166,11 @@ pub mod wasmer0_cache {
     pub(crate) fn compile_module(
         code: &[u8],
         config: &VMConfig,
+        protocol_version: ProtocolVersion,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
-        wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
+        let module = wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
             wasmer_runtime::error::CompileError::ValidationError { .. } => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
@@ -136,7 +179,9 @@ pub mod wasmer0_cache {
             wasmer_runtime::error::CompileError::InternalError { .. } => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
-        })
+        })?;
+        validate_functions_number(&module, config, protocol_version)?;
+        Ok(module)
     }
 
     pub(crate) fn compile_and_serialize_wasmer(
@@ -144,10 +189,11 @@ pub mod wasmer0_cache {
         config: &VMConfig,
         key: &CryptoHash,
         cache: &dyn CompiledContractCache,
+        protocol_version: ProtocolVersion,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
 
-        let module = match compile_module(wasm_code, config) {
+        let module = match compile_module(wasm_code, config, protocol_version) {
             Ok(module) => module,
             Err(err) => {
                 cache_error(&err, key, cache)?;
@@ -248,10 +294,11 @@ pub mod wasmer2_cache {
         code: &[u8],
         config: &VMConfig,
         store: &wasmer::Store,
+        protocol_version: ProtocolVersion,
     ) -> Result<wasmer::Module, CompilationError> {
         let prepared_code =
             prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
-        wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
+        let module = wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
             wasmer::CompileError::Wasm(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
@@ -270,7 +317,9 @@ pub mod wasmer2_cache {
             wasmer::CompileError::Resource(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
-        })
+        })?;
+        validate_functions_number(&module, config, protocol_version)?;
+        Ok(module)
     }
 
     pub(crate) fn compile_and_serialize_wasmer2(
@@ -279,10 +328,11 @@ pub mod wasmer2_cache {
         config: &VMConfig,
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
+        protocol_version: ProtocolVersion,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer2").entered();
 
-        let module = match compile_module_wasmer2(wasm_code, config, store) {
+        let module = match compile_module_wasmer2(wasm_code, config, store, protocol_version) {
             Ok(module) => module,
             Err(err) => {
                 cache_error(&err, key, cache)?;
@@ -321,9 +371,10 @@ pub mod wasmer2_cache {
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
+        protocol_version: ProtocolVersion,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         match cache {
-            None => Ok(compile_module_wasmer2(wasm_code, config, store)),
+            None => Ok(compile_module_wasmer2(wasm_code, config, store, protocol_version)),
             Some(cache) => {
                 let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::WriteError)?;
                 match serialized {
@@ -347,9 +398,10 @@ pub mod wasmer2_cache {
             wasm_code: &[u8],
             config: &VMConfig,
             cache: Option<&dyn CompiledContractCache>,
-            store: &wasmer::Store
+            store: &wasmer::Store,
+            protocol_version: ProtocolVersion,
         ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> = {
-            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store)
+            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store, protocol_version)
         }
     }
 
