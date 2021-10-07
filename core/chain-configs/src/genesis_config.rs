@@ -74,7 +74,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
     #[cfg(feature = "protocol_feature_simple_nightshade")]
     return Some(ShardLayout::v1(
         vec![],
-        vec!["aurora", "aurora-", "kkuuue2akv_1630967379.near"]
+        vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
             .into_iter()
             .map(|s| s.parse().unwrap())
             .collect(),
