@@ -633,8 +633,6 @@ impl Actor for Peer {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.handshake_timeout,
             move |act, ctx| {
                 if act.peer_status != PeerStatus::Ready {

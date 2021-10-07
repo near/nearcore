@@ -315,8 +315,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             BROADCAST_EDGES_INTERVAL,
             move |act, ctx| {
                 act.broadcast_edges(ctx);
@@ -445,8 +443,6 @@ impl PeerManagerActor {
         );
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             WAIT_FOR_SYNC_DELAY,
             move |act, ctx2| {
                 act.routing_table_pool
@@ -488,8 +484,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             WAIT_FOR_SYNC_DELAY,
             move |act, ctx| {
                 let _ = addr.do_send(SendMessage {
@@ -802,8 +796,6 @@ impl PeerManagerActor {
             self.scheduled_routing_table_update = true;
             near_performance_metrics::actix::run_later(
                 ctx,
-                file!(),
-                line!(),
                 Duration::from_millis(1000),
                 |act, ctx2| {
                     act.scheduled_routing_table_update = false;
@@ -856,8 +848,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(WAIT_PEER_BEFORE_REMOVE),
             move |act, ctx| {
                 let other = edge.other(&act.peer_id).unwrap();
@@ -900,8 +890,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(WAIT_ON_TRY_UPDATE_NONCE),
             move |act, _ctx| {
                 if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
@@ -948,8 +936,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.config.peer_stats_period,
             move |act, ctx| {
                 act.monitor_peer_stats(ctx);
@@ -1111,8 +1097,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(wait),
             move |act, ctx| {
                 act.monitor_peers(ctx);
@@ -1398,8 +1382,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.config.push_info_period,
             move |act, ctx| {
                 act.push_network_info(ctx);
