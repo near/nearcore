@@ -441,31 +441,27 @@ impl PeerManagerActor {
                 return;
             }
         );
-        near_performance_metrics::actix::run_later(
-            ctx,
-            WAIT_FOR_SYNC_DELAY,
-            move |act, ctx2| {
-                act.routing_table_pool
-                    .send(RoutingTableMessages::RequestRoutingTable)
-                    .into_actor(act)
-                    .map(move |response, act2, ctx3| match response {
-                        Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                            edges_info: routing_table,
-                        }) => {
-                            act2.send_sync(
-                                peer_type,
-                                addr,
-                                ctx3,
-                                target_peer_id.clone(),
-                                new_edge,
-                                routing_table,
-                            );
-                        }
-                        _ => error!(target: "network", "expected AddIbfSetResponse"),
-                    })
-                    .spawn(ctx2);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx2| {
+            act.routing_table_pool
+                .send(RoutingTableMessages::RequestRoutingTable)
+                .into_actor(act)
+                .map(move |response, act2, ctx3| match response {
+                    Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                        edges_info: routing_table,
+                    }) => {
+                        act2.send_sync(
+                            peer_type,
+                            addr,
+                            ctx3,
+                            target_peer_id.clone(),
+                            new_edge,
+                            routing_table,
+                        );
+                    }
+                    _ => error!(target: "network", "expected AddIbfSetResponse"),
+                })
+                .spawn(ctx2);
+        });
     }
 
     fn send_sync(
@@ -482,35 +478,31 @@ impl PeerManagerActor {
         // Start syncing network point of view. Wait until both parties are connected before start
         // sending messages.
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            WAIT_FOR_SYNC_DELAY,
-            move |act, ctx| {
-                let _ = addr.do_send(SendMessage {
-                    message: PeerMessage::RoutingTableSync(SyncData {
-                        edges: known_edges,
-                        accounts: known_accounts,
-                    }),
-                });
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
+            let _ = addr.do_send(SendMessage {
+                message: PeerMessage::RoutingTableSync(SyncData {
+                    edges: known_edges,
+                    accounts: known_accounts,
+                }),
+            });
 
-                // Ask for peers list on connection.
-                let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
-                if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                    active_peer.last_time_peer_requested = Instant::now();
-                }
+            // Ask for peers list on connection.
+            let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
+            if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
+                active_peer.last_time_peer_requested = Instant::now();
+            }
 
-                if peer_type == PeerType::Outbound {
-                    // Only broadcast new message from the outbound endpoint.
-                    // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                    act.broadcast_message(
-                        ctx,
-                        SendMessage {
-                            message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
-                        },
-                    );
-                }
-            },
-        );
+            if peer_type == PeerType::Outbound {
+                // Only broadcast new message from the outbound endpoint.
+                // Wait a time out before broadcasting this new edge to let the other party finish handshake.
+                act.broadcast_message(
+                    ctx,
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                    },
+                );
+            }
+        });
     }
 
     /// Remove peer from active set.

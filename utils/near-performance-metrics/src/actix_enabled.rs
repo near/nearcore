@@ -1,7 +1,7 @@
 use log::warn;
+use std::panic::Location;
 use std::time::Duration;
 use std::time::Instant;
-use std::panic::Location;
 
 use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
 
@@ -18,11 +18,7 @@ where
 }
 
 #[track_caller]
-pub fn run_later<F, A, B>(
-    ctx: &mut B,
-    dur: Duration,
-    f: F,
-) -> actix::SpawnHandle
+pub fn run_later<F, A, B>(ctx: &mut B, dur: Duration, f: F) -> actix::SpawnHandle
 where
     B: actix::AsyncContext<A>,
     A: actix::Actor<Context = B>,

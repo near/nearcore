@@ -1478,13 +1478,9 @@ impl ClientActor {
             }
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            wait_period,
-            move |act, ctx| {
-                act.sync(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, wait_period, move |act, ctx| {
+            act.sync(ctx);
+        });
     }
 
     /// Periodically log summary.
