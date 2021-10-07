@@ -274,10 +274,8 @@ fn setup_genesis(
         1,
     );
 
-
     genesis.config.simple_nightshade_shard_layout =
         Some(ShardLayout { shard_layout: simple_nightshade_shard_layout.clone() });
-    
 
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
