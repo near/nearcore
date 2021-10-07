@@ -8,7 +8,6 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::Block;
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use near_primitives::transaction::{
@@ -274,8 +273,7 @@ fn setup_genesis(
         1,
     );
 
-    genesis.config.simple_nightshade_shard_layout =
-        Some(ShardLayout { shard_layout: simple_nightshade_shard_layout.clone() });
+    genesis.config.simple_nightshade_shard_layout = Some(simple_nightshade_shard_layout.clone());
 
     if let Some(gas_limit) = gas_limit {
         genesis.config.gas_limit = gas_limit;
