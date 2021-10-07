@@ -25,7 +25,7 @@ os_and_arch=${os}-${arch}
 function tar_binary {
   mkdir -p $1/${os_and_arch}
   cp target/release/$1 $1/${os_and_arch}/
-  tar -C $1 -czvf ${os_and_arch}-${1}.tar.gz ${os_and_arch}
+  tar -C $1 -czvf $1.tar.gz ${os_and_arch}
 }
 
 make $release
@@ -34,16 +34,16 @@ function upload_binary {
 	if [ "$release" == "release" ]
 	then
 		tar_binary $1
-		tar_file=${os_and_arch}-$1.tar.gz
+		tar_file=$1.tar.gz
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/$1
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/$1
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os}/${branch}/${commit}/stable/$1
 		
-		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${commit}/$1
+		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/$1
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${commit}/$1
 		aws s3 cp --acl public-read target/release/$1 s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${commit}/stable/$1
 
-		aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${commit}/${tar_file}
+		aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${tar_file}
 		aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${commit}/${tar_file}
 		aws s3 cp --acl public-read ${tar_file} s3://build.nearprotocol.com/nearcore/${os_and_arch}/${branch}/${commit}/stable/${tar_file}
 	elif [ "$release" == "perf-release" ]
