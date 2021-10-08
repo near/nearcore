@@ -1577,7 +1577,7 @@ impl ShardsManager {
         let header = encoded_chunk.cloned_header();
         let shard_id = header.shard_id();
         let epoch_id =
-            self.runtime_adapter.get_epoch_id_from_prev_block(&header.prev_block_hash()).unwrap();
+            self.runtime_adapter.get_epoch_id_from_prev_block(&header.prev_block_hash())?;
         let outgoing_receipts_hashes =
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
@@ -1585,7 +1585,7 @@ impl ShardsManager {
         assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
 
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
-        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id).unwrap();
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
         let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipts = outgoing_receipts_proofs
             .into_iter()
@@ -1627,14 +1627,15 @@ impl ShardsManager {
     fn build_block_producer_mapping(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<AccountId, Vec<u64>> {
+    ) -> Result<HashMap<AccountId, Vec<u64>>, Error> {
+        // {
         let mut block_producer_mapping: HashMap<AccountId, Vec<_>> = HashMap::new();
         for part_id in 0..self.runtime_adapter.num_total_parts() {
             let part_id = part_id as u64;
-            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_id).unwrap();
+            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_id)?;
             block_producer_mapping.entry(to_whom).or_default().push(part_id);
         }
-        block_producer_mapping
+        Ok(block_producer_mapping)
     }
 
     pub fn distribute_encoded_chunk(
@@ -1669,7 +1670,7 @@ impl ShardsManager {
             })
             .collect();
 
-        for (to_whom, part_ords) in self.build_block_producer_mapping(&prev_block_hash) {
+        for (to_whom, part_ords) in self.build_block_producer_mapping(&prev_block_hash)? {
             let part_receipt_proofs = receipt_proofs
                 .iter()
                 .filter(|proof| {
