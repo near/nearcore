@@ -429,13 +429,14 @@ fn action_function_call_base_per_byte_v2(ctx: &mut Ctx) -> (GasCost, GasCost) {
 }
 
 fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
+    // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     let (total_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
     let (base_cost, _) = fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base);
-
-    total_cost - base_cost
+    (total_cost - base_cost) / 1000
 }
 
 fn data_receipt_creation_per_byte(ctx: &mut Ctx) -> GasCost {
+    // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     let (total_cost, _) = fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base);
     let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
 
