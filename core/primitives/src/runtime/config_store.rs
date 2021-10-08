@@ -79,7 +79,7 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    use crate::version::ProtocolFeature::LowerEcrecoverBaseCost;
+    use crate::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
 
@@ -158,7 +158,7 @@ mod tests {
     fn test_lower_data_receipt_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
                 > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
@@ -185,7 +185,7 @@ mod tests {
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
         );
 
-        let config = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
             config.as_ref(),
@@ -197,7 +197,7 @@ mod tests {
     fn test_lower_ecrecover_base_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.wasm_config.ext_costs.ecrecover_base
                 > new_cfg.wasm_config.ext_costs.ecrecover_base

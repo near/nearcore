@@ -110,8 +110,7 @@ pub enum ProtocolFeature {
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
     Wasmer2,
-    LowerDataReceiptCost,
-    LowerEcrecoverBaseCost,
+    LowerDataReceiptAndEcrecoverBaseCost,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -154,8 +153,7 @@ impl ProtocolFeature {
             ProtocolFeature::MathExtension => 46,
             ProtocolFeature::RestoreReceiptsAfterFix => 47,
             ProtocolFeature::Wasmer2 => 48,
-            ProtocolFeature::LowerDataReceiptCost => 49,
-            ProtocolFeature::LowerEcrecoverBaseCost => 49,
+            ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost => 49,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
