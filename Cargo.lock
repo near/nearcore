@@ -2170,6 +2170,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
+ "base64 0.11.0",
  "borsh 0.9.0",
  "cached",
  "chrono",
@@ -2830,7 +2831,7 @@ dependencies = [
 
 [[package]]
 name = "near-indexer"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "actix",
  "async-recursion",
