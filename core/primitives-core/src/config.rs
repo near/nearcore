@@ -121,6 +121,7 @@ impl VMConfig {
     }
 }
 
+// TODO #4649: remove default impl and create impls with explicitly stated purposes
 impl Default for VMLimitConfig {
     fn default() -> Self {
         Self {
@@ -165,6 +166,7 @@ impl Default for VMLimitConfig {
             max_promises_per_function_call_action: 1024,
             // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
+            max_functions_number: None,
         }
     }
 }
