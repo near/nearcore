@@ -45,9 +45,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
-use near_primitives::sharding::{
-    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader,
-};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::syncing::{get_num_state_parts, ShardStateSyncResponseHeader, StatePartKey};

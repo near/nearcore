@@ -1624,16 +1624,15 @@ impl ShardsManager {
         Ok(())
     }
 
-    pub fn build_block_producer_mapping(
+    fn build_block_producer_mapping(
         &self,
         prev_block_hash: &CryptoHash,
     ) -> HashMap<AccountId, Vec<u64>> {
-        let mut block_producer_mapping = HashMap::new();
+        let mut block_producer_mapping: HashMap<AccountId, Vec<_>> = HashMap::new();
         for part_id in 0..self.runtime_adapter.num_total_parts() {
             let part_id = part_id as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_id).unwrap();
-            let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
-            entry.push(part_id);
+            block_producer_mapping.entry(to_whom).or_default().push(part_id);
         }
         block_producer_mapping
     }
@@ -1649,14 +1648,14 @@ impl ShardsManager {
         let chunk_header = encoded_chunk.cloned_header();
         let prev_block_hash = chunk_header.prev_block_hash();
         let shard_id = chunk_header.shard_id();
-        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let outgoing_receipts_hashes =
             self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id);
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(chunk_header.outgoing_receipts_root(), outgoing_receipts_root);
 
-        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id).unwrap();
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
         let mut receipts_by_shard = self.group_receipts_by_shard(outgoing_receipts, &shard_layout);
         let receipt_proofs: Vec<_> = outgoing_receipts_proofs
             .into_iter()
