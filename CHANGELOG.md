@@ -6,6 +6,19 @@
 * Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. 
 * Lower data receipt cost and base cost of `ecrecover` host function
 
+## `1.21.0` [09-06-2021]
+
+### Protocol Changes
+
+* Fix some receipts that were stuck previously due to #4228. [#4248](https://github.com/near/nearcore/pull/4248)
+
+### Non-protocol Changes
+
+* Improve contract module serialization/deserialization speed by 30% [#4448](https://github.com/near/nearcore/pull/4448)
+* Make `AccountId` strictly typed and correct by construction [#4621](https://github.com/near/nearcore/pull/4621)
+* Address test dependency issue #4556 [#4606](https://github.com/near/nearcore/pull/4606). [#4622](https://github.com/near/nearcore/pull/4622).
+* Fix neard shutdown issue [#4429](https://github.com/near/nearcore/pull/4429). #[4442](https://github.com/near/nearcore/pull/4442)
+
 ## `1.20.0` [07-26-2021]
 
 ### Protocol Changes
@@ -17,7 +30,7 @@
 * Fix `storageUsage` for accounts that were affected by [#3824](https://github.com/near/nearcore/issues/3824). [#4272](https://github.com/near/nearcore/pull/4274)
 * Fix a bug in computation of gas for refunds. [#4405](https://github.com/near/nearcore/pull/4405)
 
-### Non-protocol changes
+### Non-protocol Changes
 
 * Compile contracts after state sync. [#4344](https://github.com/near/nearcore/pull/4344)
 * Introduce `max_gas_burnt_view` config for rpc. [#4381](https://github.com/near/nearcore/pull/4381)
