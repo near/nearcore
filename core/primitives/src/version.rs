@@ -142,18 +142,17 @@ impl ProtocolFeature {
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::ForwardChunkParts => 45,
-            ProtocolFeature::RectifyInflation => 45,
-            ProtocolFeature::AccessKeyNonceRange => 45,
-            ProtocolFeature::AccountVersions => 46,
-            ProtocolFeature::TransactionSizeLimit => 46,
-            ProtocolFeature::FixStorageUsage => 46,
-            ProtocolFeature::CapMaxGasPrice => 46,
-            ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
-            ProtocolFeature::MathExtension => 46,
+            ProtocolFeature::ForwardChunkParts
+            | ProtocolFeature::RectifyInflation
+            | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::AccountVersions
+            | ProtocolFeature::TransactionSizeLimit
+            | ProtocolFeature::FixStorageUsage
+            | ProtocolFeature::CapMaxGasPrice
+            | ProtocolFeature::CountRefundReceiptsInGasLimit
+            | ProtocolFeature::MathExtension => 46,
             ProtocolFeature::RestoreReceiptsAfterFix => 47,
-            ProtocolFeature::Wasmer2 => 48,
-            ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost => 48,
+            ProtocolFeature::Wasmer2 | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost => 48,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
