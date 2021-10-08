@@ -22,6 +22,7 @@ mod adapters;
 mod config;
 mod errors;
 mod models;
+mod types;
 mod utils;
 
 pub const BASE_PATH: &str = "";
@@ -368,10 +369,9 @@ async fn account_balance(
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
 
+    let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
-        match crate::utils::query_account(block_id, account_identifier.address, &view_client_addr)
-            .await
-        {
+        match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
             Ok(account_info_response) => account_info_response,
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
@@ -520,11 +520,11 @@ async fn construction_preprocess(
 
     Ok(Json(models::ConstructionPreprocessResponse {
         required_public_keys: vec![models::AccountIdentifier {
-            address: near_actions.sender_account_id.clone(),
+            address: near_actions.sender_account_id.clone().into(),
             sub_account: None,
         }],
         options: models::ConstructionMetadataOptions {
-            signer_account_id: near_actions.sender_account_id,
+            signer_account_id: near_actions.sender_account_id.into(),
         },
     }))
 }
@@ -567,7 +567,7 @@ async fn construction_metadata(
 
     let (block_hash, _block_height, access_key) = crate::utils::query_access_key(
         near_primitives::types::BlockReference::latest(),
-        options.signer_account_id,
+        options.signer_account_id.into(),
         (&signer_public_access_key).try_into().map_err(|err| {
             errors::ErrorKind::InvalidInput(format!(
                 "public key could not be parsed due to: {:?}",
