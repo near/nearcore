@@ -99,28 +99,6 @@ impl WasmerModule for wasmer::Module {
     }
 }
 
-fn validate_functions_number(
-    module: &dyn WasmerModule,
-    config: &VMConfig,
-    protocol_version: ProtocolVersion,
-) -> Result<(), CompilationError> {
-    if checked_feature!(
-        "protocol_feature_limit_contract_functions_number",
-        LimitContractFunctionsNumber,
-        protocol_version
-    ) {
-        if let Some(max_functions_number) = config.limit_config.max_functions_number {
-            let functions_number = module.functions_number() as u64;
-            if functions_number > max_functions_number {
-                return Err(CompilationError::PrepareError(PrepareError::TooManyFunctions {
-                    number: functions_number,
-                }));
-            }
-        }
-    }
-    Ok(())
-}
-
 #[derive(Default)]
 pub struct MockCompiledContractCache {
     store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
@@ -166,10 +144,9 @@ pub mod wasmer0_cache {
     pub(crate) fn compile_module(
         code: &[u8],
         config: &VMConfig,
-        protocol_version: ProtocolVersion,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
-        let prepared_code =
-            prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
+        let prepared_code = prepare::prepare_contract(code, config, protocol_version)
+            .map_err(CompilationError::PrepareError)?;
         let module = wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
             wasmer_runtime::error::CompileError::ValidationError { .. } => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
@@ -180,7 +157,6 @@ pub mod wasmer0_cache {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
         })?;
-        validate_functions_number(&module, config, protocol_version)?;
         Ok(module)
     }
 
@@ -189,11 +165,10 @@ pub mod wasmer0_cache {
         config: &VMConfig,
         key: &CryptoHash,
         cache: &dyn CompiledContractCache,
-        protocol_version: ProtocolVersion,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
 
-        let module = match compile_module(wasm_code, config, protocol_version) {
+        let module = match compile_module(wasm_code, config) {
             Ok(module) => module,
             Err(err) => {
                 cache_error(&err, key, cache)?;
@@ -294,10 +269,9 @@ pub mod wasmer2_cache {
         code: &[u8],
         config: &VMConfig,
         store: &wasmer::Store,
-        protocol_version: ProtocolVersion,
     ) -> Result<wasmer::Module, CompilationError> {
-        let prepared_code =
-            prepare::prepare_contract(code, config).map_err(CompilationError::PrepareError)?;
+        let prepared_code = prepare::prepare_contract(code, config, protocol_version)
+            .map_err(CompilationError::PrepareError)?;
         let module = wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
             wasmer::CompileError::Wasm(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
@@ -318,7 +292,6 @@ pub mod wasmer2_cache {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
         })?;
-        validate_functions_number(&module, config, protocol_version)?;
         Ok(module)
     }
 
@@ -328,11 +301,10 @@ pub mod wasmer2_cache {
         config: &VMConfig,
         cache: &dyn CompiledContractCache,
         store: &wasmer::Store,
-        protocol_version: ProtocolVersion,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer2").entered();
 
-        let module = match compile_module_wasmer2(wasm_code, config, store, protocol_version) {
+        let module = match compile_module_wasmer2(wasm_code, config, store) {
             Ok(module) => module,
             Err(err) => {
                 cache_error(&err, key, cache)?;

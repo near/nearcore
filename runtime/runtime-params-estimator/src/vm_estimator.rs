@@ -110,7 +110,8 @@ type CompileCost = (u64, Ratio<u64>);
 fn compile(code: &[u8], gas_metric: GasMetric, vm_kind: VMKind) -> Option<CompileCost> {
     let start = start_count(gas_metric);
     for _ in 0..NUM_ITERATIONS {
-        let prepared_code = prepare::prepare_contract(code, &VMConfig::default()).unwrap();
+        let prepared_code =
+            prepare::prepare_contract(code, &VMConfig::default(), PROTOCOL_VERSION).unwrap();
         if compile_module(vm_kind, &prepared_code) {
             return None;
         }
