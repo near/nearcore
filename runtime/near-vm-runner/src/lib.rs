@@ -1,5 +1,3 @@
-extern crate near_primitives;
-
 #[cfg(test)]
 mod tests;
 

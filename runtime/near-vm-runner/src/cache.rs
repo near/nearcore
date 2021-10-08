@@ -81,24 +81,6 @@ pub fn into_vm_result<T>(
     }
 }
 
-/// For now StorageError can happen at any time from ViewClient because of
-/// the used isolation level + running ViewClient in a separate thread.
-pub trait WasmerModule {
-    fn functions_number(self) -> usize;
-}
-
-impl WasmerModule for wasmer_runtime::Module {
-    fn functions_number(self) -> usize {
-        module.info().func_assoc.len()
-    }
-}
-
-impl WasmerModule for wasmer::Module {
-    fn functions_number(self) -> usize {
-        module.info().func_assoc.len()
-    }
-}
-
 #[derive(Default)]
 pub struct MockCompiledContractCache {
     store: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
@@ -147,7 +129,7 @@ pub mod wasmer0_cache {
     ) -> Result<wasmer_runtime::Module, CompilationError> {
         let prepared_code = prepare::prepare_contract(code, config, protocol_version)
             .map_err(CompilationError::PrepareError)?;
-        let module = wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
+        wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
             wasmer_runtime::error::CompileError::ValidationError { .. } => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
@@ -156,8 +138,7 @@ pub mod wasmer0_cache {
             wasmer_runtime::error::CompileError::InternalError { .. } => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
-        })?;
-        Ok(module)
+        })
     }
 
     pub(crate) fn compile_and_serialize_wasmer(
@@ -272,7 +253,7 @@ pub mod wasmer2_cache {
     ) -> Result<wasmer::Module, CompilationError> {
         let prepared_code = prepare::prepare_contract(code, config, protocol_version)
             .map_err(CompilationError::PrepareError)?;
-        let module = wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
+        wasmer::Module::new(&store, prepared_code).map_err(|err| match err {
             wasmer::CompileError::Wasm(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
@@ -291,8 +272,7 @@ pub mod wasmer2_cache {
             wasmer::CompileError::Resource(_) => {
                 CompilationError::WasmerCompileError { msg: err.to_string() }
             }
-        })?;
-        Ok(module)
+        })
     }
 
     pub(crate) fn compile_and_serialize_wasmer2(
@@ -343,10 +323,9 @@ pub mod wasmer2_cache {
         config: &VMConfig,
         cache: Option<&dyn CompiledContractCache>,
         store: &wasmer::Store,
-        protocol_version: ProtocolVersion,
     ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> {
         match cache {
-            None => Ok(compile_module_wasmer2(wasm_code, config, store, protocol_version)),
+            None => Ok(compile_module_wasmer2(wasm_code, config, store)),
             Some(cache) => {
                 let serialized = cache.get(&key.0).map_err(|_io_err| CacheError::WriteError)?;
                 match serialized {
@@ -371,9 +350,8 @@ pub mod wasmer2_cache {
             config: &VMConfig,
             cache: Option<&dyn CompiledContractCache>,
             store: &wasmer::Store,
-            protocol_version: ProtocolVersion,
         ) -> Result<Result<wasmer::Module, CompilationError>, CacheError> = {
-            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store, protocol_version)
+            compile_module_cached_wasmer2_impl(key, wasm_code, config, cache, store)
         }
     }
 
