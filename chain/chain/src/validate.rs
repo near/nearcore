@@ -81,7 +81,8 @@ pub fn validate_chunk_proofs(
             };
             runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?
         };
-        let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(receipts, &epoch_id)?;
+        let outgoing_receipts_hashes =
+            runtime_adapter.build_receipts_hashes(receipts, &epoch_id)?;
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
         if receipts_root != outgoing_receipts_root {
             byzantine_assert!(false);
