@@ -2620,7 +2620,6 @@ name = "near-account-id"
 version = "0.1.0"
 dependencies = [
  "borsh 0.9.0",
- "paperclip",
  "serde",
  "serde_json",
 ]
