@@ -71,7 +71,6 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     return Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
@@ -81,8 +80,6 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
         Some(vec![vec![0, 1, 2, 3]]),
         1,
     ));
-    #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
-    None
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
