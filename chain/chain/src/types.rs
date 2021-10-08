@@ -746,10 +746,15 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<EpochId, Error>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(&self, receipts: &[Receipt], epoch_id: &EpochId) -> Vec<CryptoHash> {
-        let shard_layout = self.get_shard_layout(&epoch_id).unwrap();
+    fn build_receipts_hashes(
+        &self,
+        receipts: &[Receipt],
+        epoch_id: &EpochId,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
         if shard_layout.num_shards() == 1 {
-            return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
+            let res = vec![hash(&ReceiptList(0, receipts).try_to_vec()?)];
+            return Ok(res);
         }
         let mut account_id_to_shard_id_map = HashMap::new();
         let mut shard_receipts: Vec<_> =
@@ -765,13 +770,13 @@ pub trait RuntimeAdapter: Send + Sync {
             };
             shard_receipts[shard_id as usize].1.push(receipt);
         }
-        shard_receipts
+        Ok(shard_receipts
             .into_iter()
             .map(|(i, rs)| {
                 let bytes = (i, rs).try_to_vec().unwrap();
                 hash(&bytes)
             })
-            .collect()
+            .collect())
     }
 }
 

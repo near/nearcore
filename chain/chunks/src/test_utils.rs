@@ -207,7 +207,7 @@ impl Default for ChunkForwardingTestFixture {
             mock_network.clone(),
         );
         let receipts = Vec::new();
-        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts, &EpochId::default());
+        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts, &EpochId::default()).unwrap();
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkles) = producer_shard_manager
             .create_encoded_shard_chunk(

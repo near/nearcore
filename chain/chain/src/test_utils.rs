@@ -1460,7 +1460,7 @@ mod test {
         let naive_result = runtime_adapter.naive_build_receipt_hashes(&receipts);
         let naive_duration = start.elapsed();
         let start = Instant::now();
-        let prod_result = runtime_adapter.build_receipts_hashes(&receipts, &EpochId::default());
+        let prod_result = runtime_adapter.build_receipts_hashes(&receipts, &EpochId::default()).unwrap();
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);
         // production implementation is at least 50% faster

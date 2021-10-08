@@ -1579,7 +1579,7 @@ impl ShardsManager {
         let epoch_id =
             self.runtime_adapter.get_epoch_id_from_prev_block(&header.prev_block_hash())?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id)?;
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(header.outgoing_receipts_root(), outgoing_receipts_root);
@@ -1651,7 +1651,7 @@ impl ShardsManager {
         let shard_id = chunk_header.shard_id();
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash)?;
         let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id);
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts, &epoch_id)?;
         let (outgoing_receipts_root, outgoing_receipts_proofs) =
             merklize(&outgoing_receipts_hashes);
         assert_eq!(chunk_header.outgoing_receipts_root(), outgoing_receipts_root);
