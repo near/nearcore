@@ -19,6 +19,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
+    #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+    (120, include_config!("120.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
