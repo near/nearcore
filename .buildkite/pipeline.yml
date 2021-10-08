@@ -34,6 +34,11 @@ steps:
       python3 scripts/state/update_res.py check
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
+      if ! python3 -m yapf -pdr pytest scripts; then
+          echo 'Some of the Python files are not correctly formatted; please run'
+          echo '    python3 -m pip install -U yapf'
+          echo '    python3 -m yapf -pir pytest scripts'
+      fi >&2
     timeout: 30
     agents:
     - "distro=amazonlinux"
