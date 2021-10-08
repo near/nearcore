@@ -71,6 +71,9 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
+    // TODO: uncomment this when we are ready to enable simple nightshade on betanet
+    //       also remember to bump SimpleNightshade protocol version to a higher number
+    /*
     #[cfg(feature = "protocol_feature_simple_nightshade")]
     return Some(ShardLayout::v1(
         vec![],
@@ -82,6 +85,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
         1,
     ));
     #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
+     */
     None
 }
 
