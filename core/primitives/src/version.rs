@@ -100,6 +100,16 @@ pub enum ProtocolFeature {
     /// Restore receipts that were previously stuck because of
     /// <https://github.com/near/nearcore/pull/4228>.
     RestoreReceiptsAfterFix,
+    /// This feature switch our WASM engine implementation from wasmer 0.* to
+    /// wasmer 2.*, brining better performance and reliability.
+    ///
+    /// The implementations should be sufficiently similar for this to not be a
+    /// protocol upgrade, but we conservatively do a protocol upgrade to be on
+    /// the safe side.
+    ///
+    /// Although wasmer2 is faster, we don't change fees with this protocol
+    /// version -- we can safely do that in a separate step.
+    Wasmer2,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -114,17 +124,6 @@ pub enum ProtocolFeature {
     LowerDataReceiptCost,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
-    /// This feature switch our WASM engine implementation from wasmer 0.* to
-    /// wasmer 2.*, brining better performance and reliability.
-    ///
-    /// The implementations should be sufficiently similar for this to not be a
-    /// protocol upgrade, but we concervatively do a protocol upgrade to be on
-    /// the safe side.
-    ///
-    /// Although wasmer2 is faster, we don't change fees with this protocol
-    /// version -- we can safely do that in a separate step.
-    #[cfg(feature = "protocol_feature_wasmer2")]
-    Wasmer2,
     #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     LowerEcrecoverBaseCost,
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
@@ -135,7 +134,7 @@ pub enum ProtocolFeature {
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 47;
+pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
@@ -158,6 +157,7 @@ impl ProtocolFeature {
             ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
             ProtocolFeature::MathExtension => 46,
             ProtocolFeature::RestoreReceiptsAfterFix => 47,
+            ProtocolFeature::Wasmer2 => 48,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -172,8 +172,6 @@ impl ProtocolFeature {
             ProtocolFeature::LowerDataReceiptCost => 116,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
-            #[cfg(feature = "protocol_feature_wasmer2")]
-            ProtocolFeature::Wasmer2 => 118,
             #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
             ProtocolFeature::LowerEcrecoverBaseCost => 119,
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]

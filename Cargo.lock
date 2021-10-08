@@ -2170,6 +2170,7 @@ dependencies = [
  "actix",
  "actix-rt",
  "assert_matches",
+ "base64 0.11.0",
  "borsh 0.9.0",
  "cached",
  "chrono",
