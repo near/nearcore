@@ -131,7 +131,6 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 context.clone(),
                 &fees,
                 &promise_results,
-                protocol_version,
             );
             let (ok, err) = test_result(result, true);
             oks += ok;
