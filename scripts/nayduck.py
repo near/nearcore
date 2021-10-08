@@ -38,9 +38,11 @@ def _parse_args():
                          DEFAULT_TEST_FILE)
 
     parser = argparse.ArgumentParser(description='Run tests.')
-    parser.add_argument('--branch', '-b',
-                        help='Branch to test. By default gets current one.' )
-    parser.add_argument('--sha', '-s',
+    parser.add_argument('--branch',
+                        '-b',
+                        help='Branch to test. By default gets current one.')
+    parser.add_argument('--sha',
+                        '-s',
                         help='Sha to test. By default gets current one.')
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--test-file',
@@ -58,6 +60,7 @@ def _parse_args():
 
 def get_curent_sha():
     return subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True)
+
 
 def get_current_branch():
     return subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
@@ -206,7 +209,8 @@ def main():
     while True:
         print('Sending request ...')
         res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
-                            json=post, cookies={'nay-code': code})
+                            json=post,
+                            cookies={'nay-code': code})
         if res.status_code != 401:
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')

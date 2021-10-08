@@ -7,7 +7,6 @@ import sys
 
 import nayduck
 
-
 expensive_pattern = '#[cfg(feature = "expensive_tests")]'
 test_pattern = '#[test]'
 
@@ -22,14 +21,14 @@ def find_first(data, tokens, start):
 
 def find_fn(str1, start):
     fn_start = str1.find('fn ', start)
-    match = re.search(r'[a-zA-Z0-9_]+', str1[fn_start+3:])
+    match = re.search(r'[a-zA-Z0-9_]+', str1[fn_start + 3:])
     if match:
         return match.group(0)
     return None
 
 
 def expensive_tests_in_file(file):
-    with(open(file)) as f:
+    with (open(file)) as f:
         content = f.read()
     start = 0
     while True:
@@ -56,8 +55,9 @@ def expensive_tests_in_file(file):
 
 
 def nightly_tests(repo_dir):
-    for test in nayduck.read_tests_from_file(
-            repo_dir / nayduck.DEFAULT_TEST_FILE, include_comments=True):
+    for test in nayduck.read_tests_from_file(repo_dir /
+                                             nayduck.DEFAULT_TEST_FILE,
+                                             include_comments=True):
         t = test.split()
         try:
             # It's okay to comment out a test intentionally.
@@ -65,6 +65,7 @@ def nightly_tests(repo_dir):
                 yield t[-1].split('::')[-1]
         except IndexError:
             pass
+
 
 def main():
     repo_dir = pathlib.Path(__file__).parent.parent

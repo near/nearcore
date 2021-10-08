@@ -37,8 +37,8 @@ if __name__ == "__main__":
                   args.image,
                   home_dir,
                   init_flags=[
-                      '--test-seed=alice.near',
-                      '--account-id=test.near', '--fast'
+                      '--test-seed=alice.near', '--account-id=test.near',
+                      '--fast'
                   ],
                   boot_nodes='',
                   telemetry_url='',

@@ -17,7 +17,6 @@ import yaml
 
 import nayduck
 
-
 # List of globs of Python scripts in the pytest/tests directory which are not
 # test but rather helper scripts and libraries.
 HELPER_SCRIPTS = [
@@ -25,7 +24,6 @@ HELPER_SCRIPTS = [
     'mocknet/load_testing_helper.py',
     'stress/hundred_nodes/*',
 ]
-
 
 PYTEST_TESTS_DIRECTORY = pathlib.Path('pytest/tests')
 NIGHTLY_TESTS_FILE = pathlib.Path(nayduck.DEFAULT_TEST_FILE)
@@ -64,6 +62,7 @@ def read_nayduck_tests(path: pathlib.Path) -> StrGenerator:
     Yields:
         pytest and mocknet tests mentioned in the file.  May include duplicates.
     """
+
     def extract_name(line: str) -> StrGenerator:
         tokens = line.split()
         try:
@@ -143,13 +142,15 @@ contain a #<number> string).
 If the file is not a test but a helper library, consider moving it out
 of the pytest/tests directory to pytest/lib or add it to HELPER_SCRIPTS
 list at the top of {this_file} file.'''.format(
-    count=len(missing),
-    s='' if len(missing) == 1 else 's',
-    missing='\n'.join(' -  pytest/tests/' + name for name in sorted(missing)),
-    example=example,
-    this_file=this_file,
-    todo='TO' 'DO',
-)
+        count=len(missing),
+        s='' if len(missing) == 1 else 's',
+        missing='\n'.join(
+            ' -  pytest/tests/' + name for name in sorted(missing)),
+        example=example,
+        this_file=this_file,
+        todo='TO'
+        'DO',
+    )
     print(msg, file=sys.stderr)
 
 
@@ -160,10 +161,8 @@ def main() -> int:
     missing.difference_update(
         read_nayduck_tests(pathlib.Path(nayduck.DEFAULT_TEST_FILE)))
     missing.difference_update(read_pipeline_tests(BUILDKITE_PIPELINE_FILE))
-    missing = set(filename
-                  for filename in missing
-                  if not any(fnmatch.fnmatch(filename, pattern)
-                             for pattern in HELPER_SCRIPTS))
+    missing = set(filename for filename in missing if not any(
+        fnmatch.fnmatch(filename, pattern) for pattern in HELPER_SCRIPTS))
     if missing:
         print_error(missing)
         return 1
