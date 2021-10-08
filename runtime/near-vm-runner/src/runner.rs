@@ -130,6 +130,7 @@ pub fn precompile<'a>(
     wasm_config: &'a VMConfig,
     cache: &'a dyn CompiledContractCache,
     vm_kind: VMKind,
+    protocol_version: ProtocolVersion,
 ) -> Option<VMError> {
     match vm_kind {
         #[cfg(not(feature = "wasmer0_vm"))]
@@ -141,6 +142,7 @@ pub fn precompile<'a>(
                 wasm_config,
                 code_hash,
                 cache,
+                protocol_version,
             );
             into_vm_result(result).err()
         }
@@ -155,6 +157,7 @@ pub fn precompile<'a>(
                 wasm_config,
                 cache,
                 &store,
+                protocol_version,
             );
             into_vm_result(result).err()
         }

@@ -192,8 +192,13 @@ pub fn run_wasmer2(
     }
 
     let store = default_wasmer2_store();
-    let module =
-        cache::wasmer2_cache::compile_module_cached_wasmer2(&code, wasm_config, cache, &store);
+    let module = cache::wasmer2_cache::compile_module_cached_wasmer2(
+        &code,
+        wasm_config,
+        cache,
+        &store,
+        current_protocol_version,
+    );
     let module = match into_vm_result(module) {
         Ok(it) => it,
         Err(err) => return (None, Some(err)),

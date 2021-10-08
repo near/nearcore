@@ -1,3 +1,6 @@
+extern crate near_primitives;
+extern crate near_vm_logic;
+
 #[cfg(test)]
 mod tests;
 

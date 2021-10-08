@@ -56,13 +56,19 @@ pub struct ContractCaller {
     pool: ThreadPool,
     vm_kind: VMKind,
     vm_config: VMConfig,
+    protocol_version: ProtocolVersion,
     vm_data_private: VMDataPrivate,
     vm_data_shared: VMDataShared,
     preloaded: Vec<CallInner>,
 }
 
 impl ContractCaller {
-    pub fn new(num_threads: usize, vm_kind: VMKind, vm_config: VMConfig) -> ContractCaller {
+    pub fn new(
+        num_threads: usize,
+        vm_kind: VMKind,
+        vm_config: VMConfig,
+        protocol_version: ProtocolVersion,
+    ) -> ContractCaller {
         let (shared, private) = match vm_kind {
             VMKind::Wasmer0 => (
                 VMDataShared::Wasmer0,
@@ -103,6 +109,7 @@ impl ContractCaller {
             pool: ThreadPool::new(num_threads),
             vm_kind,
             vm_config,
+            protocol_version,
             vm_data_private: private,
             vm_data_shared: shared,
             preloaded: Vec::new(),
@@ -121,9 +128,19 @@ impl ContractCaller {
             self.pool.execute({
                 let tx = tx.clone();
                 let vm_config = self.vm_config.clone();
+                let protocol_version = self.protocol_version.clone();
                 let vm_data_shared = self.vm_data_shared.clone();
                 let vm_kind = self.vm_kind.clone();
-                move || preload_in_thread(request, vm_kind, vm_config, vm_data_shared, tx)
+                move || {
+                    preload_in_thread(
+                        request,
+                        vm_kind,
+                        vm_config,
+                        protocol_version,
+                        vm_data_shared,
+                        tx,
+                    )
+                }
             });
             result.push(ContractCallPrepareResult { handle: index });
         }
@@ -138,7 +155,6 @@ impl ContractCaller {
         context: VMContext,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
-        current_protocol_version: ProtocolVersion,
     ) -> (Option<VMOutcome>, Option<VMError>) {
         match self.preloaded.get(preloaded.handle) {
             Some(call) => {
@@ -171,7 +187,7 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    current_protocol_version,
+                                    self.protocol_version,
                                 )
                             }
                             (
@@ -200,7 +216,7 @@ impl ContractCaller {
                                     &self.vm_config,
                                     fees_config,
                                     promise_results,
-                                    current_protocol_version,
+                                    self.protocol_version,
                                 )
                             }
                             _ => panic!("Incorrect logic"),
@@ -223,6 +239,7 @@ fn preload_in_thread(
     request: ContractCallPrepareRequest,
     vm_kind: VMKind,
     vm_config: VMConfig,
+    protocol_version: ProtocolVersion,
     vm_data_shared: VMDataShared,
     tx: Sender<VMCallData>,
 ) {
@@ -233,6 +250,7 @@ fn preload_in_thread(
                 &request.code,
                 &vm_config,
                 cache,
+                protocol_version,
             );
             into_vm_result(module).map(VMModule::Wasmer0)
         }
@@ -242,6 +260,7 @@ fn preload_in_thread(
                 &vm_config,
                 cache,
                 &store,
+                protocol_version,
             );
             into_vm_result(module).map(VMModule::Wasmer2)
         }

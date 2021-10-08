@@ -139,10 +139,11 @@ fn measure_contract(
     gas_metric: GasMetric,
     contract: &ContractCode,
     cache: Option<&dyn CompiledContractCache>,
+    protocol_version: ProtocolVersion,
 ) -> u64 {
     let vm_config = VMConfig::default();
     let start = start_count(gas_metric);
-    let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache);
+    let result = precompile_contract_vm(vm_kind, &contract, &vm_config, cache, protocol_version);
     let end = end_count(gas_metric, &start);
     assert!(result.is_ok(), "Compilation failed");
     end
@@ -236,7 +237,7 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     for raw_bytes in measure_contracts {
         let contract = ContractCode::new(raw_bytes.to_vec(), None);
         xs.push(raw_bytes.len() as u64);
-        ys.push(measure_contract(vm_kind, gas_metric, &contract, cache));
+        ys.push(measure_contract(vm_kind, gas_metric, &contract, cache, PROTOCOL_VERSION));
     }
 
     let (a, b, _) = least_squares_method(&xs, &ys);
@@ -261,7 +262,7 @@ fn precompilation_cost(gas_metric: GasMetric, vm_kind: VMKind) -> (Ratio<i128>, 
     for raw_bytes in validate_contracts {
         let contract = ContractCode::new(raw_bytes.to_vec(), None);
         let x = raw_bytes.len() as u64;
-        let y = measure_contract(vm_kind, gas_metric, &contract, cache);
+        let y = measure_contract(vm_kind, gas_metric, &contract, cache, PROTOCOL_VERSION);
         let expect = (corrected_a + corrected_b * (x as i128)).to_integer();
         let error = expect - (y as i128);
         if gas_metric == GasMetric::ICount {
@@ -353,7 +354,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     let cache: Option<&dyn CompiledContractCache> = Some(cache_store.as_ref());
     let vm_config = VMConfig::default();
     for contract in &contracts {
-        let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache);
+        let result = precompile_contract_vm(vm_kind, contract, &vm_config, cache, PROTOCOL_VERSION);
         assert!(result.is_ok());
     }
     let mut fake_external = MockedExternal::new();
