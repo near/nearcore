@@ -20,8 +20,8 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
-    create_chunk_on_height, run_catchup, setup_client, setup_mock, setup_mock_all_validators,
-    TestEnv,
+    create_chunk_on_height, create_chunk_on_height_for_shard, run_catchup, setup_client,
+    setup_mock, setup_mock_all_validators, TestEnv,
 };
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
@@ -39,7 +39,6 @@ use near_network::routing::EdgeInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::merklize;
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
@@ -47,7 +46,7 @@ use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
 use near_primitives::sharding::{
-    EncodedShardChunk, ReceiptProof, ReedSolomonWrapper, ShardChunkHeader, ShardProof,
+    EncodedShardChunk, ReedSolomonWrapper, ShardChunkHeader,
 };
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_primitives::sharding::{ShardChunkHeaderInner, ShardChunkHeaderV3};
@@ -60,7 +59,6 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
-use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -4026,87 +4024,33 @@ mod contract_precompilation_tests {
                 .runtime_adapter
                 .get_chunk_producer(&epoch_id, next_block_height as u64, shard_id)
                 .unwrap();
+
             let chunk_id = accounts.iter().position(|r| r == &chunk_producer_account).unwrap();
-            let (block_producer_mapping, receipt_proofs, encoded_chunk, merkle_paths) = {
+            let (encoded_chunk, merkle_paths, receipts) = create_chunk_on_height_for_shard(
+                &mut env.clients[chunk_id],
+                next_block_height,
+                shard_id,
+            );
+            let genesis_height = genesis_block.header().height();
+            {
                 let client = &mut env.clients[chunk_id];
                 let r = client.process_tx(tx, false, false);
                 assert_eq!(r, NetworkClientResponses::ValidTx);
                 let r2 = client.process_tx(tx2, false, false);
                 assert_eq!(r2, NetworkClientResponses::ValidTx);
-
-                let last_block = client.chain.get_block(&prev_block_hash).unwrap().clone();
-                let (encoded_chunk, merkle_paths, receipts) = client
-                    .produce_chunk(
-                        prev_block_hash,
-                        last_block.header().epoch_id(),
-                        last_block.chunks()[0].clone(),
-                        next_block_height,
-                        shard_id,
+                let mut chain_store =
+                    ChainStore::new(client.chain.store().owned_store(), genesis_height);
+                client
+                    .shards_mgr
+                    .distribute_encoded_chunk(
+                        encoded_chunk,
+                        merkle_paths,
+                        receipts,
+                        &mut chain_store,
                     )
-                    .unwrap()
                     .unwrap();
-                let receipts_hashes =
-                    client.runtime_adapter.build_receipts_hashes(&receipts, &epoch_id);
-                let (_receipts_root, receipts_proofs) = merklize(&receipts_hashes);
-                let shard_layout = client.runtime_adapter.get_shard_layout(&epoch_id).unwrap();
-
-                let mut receipts_by_shard =
-                    client.shards_mgr.group_receipts_by_shard(receipts, &shard_layout);
-                let receipt_proofs: Vec<_> = receipts_proofs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(proof_shard_id, proof)| {
-                        let proof_shard_id = proof_shard_id as u64;
-                        let receipts =
-                            receipts_by_shard.remove(&proof_shard_id).unwrap_or_else(Vec::new);
-                        let shard_proof = ShardProof {
-                            from_shard_id: shard_id,
-                            to_shard_id: proof_shard_id,
-                            proof,
-                        };
-                        ReceiptProof(receipts, shard_proof)
-                    })
-                    .collect();
-
-                let block_producer_mapping =
-                    client.shards_mgr.build_block_producer_mapping(&prev_block_hash);
-                (block_producer_mapping, receipt_proofs, encoded_chunk, merkle_paths)
-            };
-            {
-                for (to_whom, part_ords) in block_producer_mapping {
-                    let destination_id = accounts.iter().position(|r| r == &to_whom).unwrap();
-
-                    let client = &mut env.clients[destination_id];
-                    println!("To {} parts = {:?} client {}", to_whom, part_ords, destination_id);
-
-                    let part_receipt_proofs = receipt_proofs
-                        .iter()
-                        .filter(|proof| {
-                            let proof_shard_id = proof.1.to_shard_id;
-                            client.shards_mgr.cares_about_shard_this_or_next_epoch(
-                                Some(&to_whom),
-                                &prev_block_hash,
-                                proof_shard_id,
-                                false,
-                            )
-                        })
-                        .cloned()
-                        .collect();
-
-                    let partial_encoded_chunk = encoded_chunk.create_partial_encoded_chunk(
-                        part_ords,
-                        part_receipt_proofs,
-                        &merkle_paths,
-                    );
-                    let res = client
-                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
-                            partial_encoded_chunk,
-                        ))
-                        .unwrap();
-                    assert_eq!(res.len(), 0)
-                }
             }
-
+            env.process_partial_encoded_chunks();
             // Check that we are were called at the block that we are producer for.
             let block =
                 env.clients[producer_id].produce_block(next_block_height as u64).unwrap().unwrap();
