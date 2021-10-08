@@ -524,7 +524,7 @@ async fn construction_preprocess(
             sub_account: None,
         }],
         options: models::ConstructionMetadataOptions {
-            signer_account_id: near_actions.sender_account_id.clone().into(),
+            signer_account_id: near_actions.sender_account_id.into(),
         },
     }))
 }
