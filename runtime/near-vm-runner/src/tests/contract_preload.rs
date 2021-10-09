@@ -5,11 +5,23 @@ use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
 
 use crate::cache::precompile_contract_vm;
 use crate::errors::ContractPrecompilatonResult;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+use assert_matches::assert_matches;
 use near_primitives::types::CompiledContractCache;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+use near_vm_errors::CompilationError::PrepareError;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+use near_vm_errors::FunctionCallError::CompilationError;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+use near_vm_errors::PrepareError::TooManyFunctions;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use std::collections::HashMap;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
@@ -147,7 +159,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &fees,
                 &promise_results,
                 vm_kind,
-                ProtocolVersion::MAX,
+                protocol_version,
                 cache.as_deref(),
             );
             let (ok, err) = test_result(result1, false);
@@ -162,7 +174,7 @@ fn test_vm_runner(preloaded: bool, vm_kind: VMKind, repeat: i32) {
                 &fees,
                 &promise_results,
                 vm_kind,
-                ProtocolVersion::MAX,
+                protocol_version,
                 cache.as_deref(),
             );
             let (ok, err) = test_result(result2, false);
@@ -227,4 +239,77 @@ pub fn test_precompile() {
     test_precompile_vm(VMKind::Wasmer0);
     #[cfg(feature = "wasmer2_vm")]
     test_precompile_vm(VMKind::Wasmer2);
+}
+
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+fn make_many_methods_contract(method_count: i32) -> ContractCode {
+    let mut methods = String::new();
+    for i in 0..method_count {
+        write!(
+            &mut methods,
+            "
+            (export \"hello{}\" (func {i}))
+              (func (;{i};)
+                i32.const {i}
+                drop
+                return
+              )
+            ",
+            i = i
+        )
+        .unwrap();
+    }
+
+    let code = format!(
+        "
+        (module
+            {}
+            )",
+        methods
+    );
+    ContractCode::new(wat::parse_str(code).unwrap(), None)
+}
+
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
+    const FUNCTIONS_NUMBER: u64 = 100;
+    let code = Arc::new(make_many_methods_contract(FUNCTIONS_NUMBER as i32));
+    let method_name = "hello0";
+
+    let mut fake_external = MockedExternal::new();
+
+    let context = default_vm_context();
+    let mut vm_config = VMConfig::default();
+    vm_config.limit_config.max_functions_number = Some(2 * FUNCTIONS_NUMBER);
+    let cache: Option<Arc<dyn CompiledContractCache>> =
+        Some(Arc::new(MockCompiledContractCache::new(0)));
+    let fees = RuntimeFeesConfig::test();
+
+    let promise_results = vec![];
+    let protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version();
+    let result = run_vm(
+        &code,
+        method_name,
+        &mut fake_external,
+        context.clone(),
+        &vm_config,
+        &fees,
+        &promise_results,
+        vm_kind,
+        protocol_version,
+        cache.as_deref(),
+    );
+    assert_matches!(
+        result.1,
+        Some(FunctionCallError(CompilationError(PrepareError(TooManyFunctions { number: _ }))))
+    );
+}
+
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+#[test]
+pub fn test_max_contract_functions() {
+    #[cfg(feature = "wasmer0_vm")]
+    test_max_contract_functions_vm(VMKind::Wasmer0);
+    #[cfg(feature = "wasmer2_vm")]
+    test_max_contract_functions_vm(VMKind::Wasmer2);
 }
