@@ -695,7 +695,6 @@ pub(crate) fn outcome_indexed_by_block_hash(
                     ColChunkExtra,
                     &get_block_shard_uid(block.hash(), &shard_uid),
                 ) {
-                    println!("getting outcome ids for block {}, shard {}", block.hash(), chunk_header.shard_id());
                     outcome_ids.extend(unwrap_or_err_db!(
                         sv.store.get_ser::<Vec<CryptoHash>>(
                             ColOutcomeIds,
