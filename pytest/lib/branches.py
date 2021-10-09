@@ -1,8 +1,10 @@
 import os
+import pathlib
 import subprocess
+import sys
+import tempfile
 
 import semver
-import sys
 from configured_logger import logger
 from github import Github
 
@@ -77,23 +79,49 @@ def compile_current(branch=None):
     subprocess.check_call(['git', 'checkout', '../Cargo.lock'])
 
 
+def download_file_if_missing(filename: pathlib.Path, url: str) -> None:
+    """Downloads a file from given URL if it does not exist already.
+
+    Does nothing if file `filename` already exists.  Otherwise, downloads data
+    from `url` and saves them in `filename`.  Downloading is done with `curl`
+    tool and on failure (i.e. if it returns non-zero exit code) `filename` is
+    not created.  On success, the file’s mode is set to 0x555 (i.e. readable and
+    executable by anyone).
+
+    Args:
+        filename: Path to the file.
+        url: URL of the file to download (if the file is missing).
+    """
+    if filename.exists():
+        if not filename.is_file():
+            sys.exit(f'{filename} exists but is not a file')
+        return
+
+    proto = '"=https"' if os.uname()[0] == 'Darwin' else '=https'
+    cmd = ('curl', '--proto', proto, '--tlsv1.2', '-sSfL', url)
+    name = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=filename.parent,
+                                         delete=False) as tmp:
+            name = pathlib.Path(tmp.name)
+            subprocess.check_call(cmd, stdout=tmp)
+        name.chmod(0o555)
+        name.rename(filename)
+        name = None
+    finally:
+        if name:
+            name.unlink()
+
+
 def download_binary(uname, branch):
     """Download binary for given platform and branch."""
-    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/neard'
-    proto = '"=https"' if uname == 'Darwin' else '=https'
-    logger.info(f'Downloading near & state-viewer for {branch}@{uname}')
-    subprocess.check_output([
-        'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
-        f'../target/debug/neard-{branch}'
-    ])
-    subprocess.check_output(['chmod', '+x', f'../target/debug/neard-{branch}'])
-    url = f'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/{uname}/{branch}/state-viewer'
-    subprocess.check_output([
-        'curl', '--proto', proto, '--tlsv1.2', '-sSfL', url, '-o',
-        f'../target/debug/state-viewer-{branch}'
-    ])
-    subprocess.check_output(
-        ['chmod', '+x', f'../target/debug/state-viewer-{branch}'])
+    logger.info(f'Getting near & state-viewer for {branch}@{uname}')
+    outdir = pathlib.Path('../target/debug')
+    basehref = ('https://s3-us-west-1.amazonaws.com/build.nearprotocol.com'
+                f'/nearcore/{uname}/{branch}/')
+    download_file_if_missing(outdir / f'neard-{branch}', basehref + 'neard')
+    download_file_if_missing(outdir / f'state-viewer-{branch}',
+                             basehref + 'state-viewer')
 
 
 def prepare_ab_test(other_branch):
@@ -104,7 +132,6 @@ def prepare_ab_test(other_branch):
     #    if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
     #        download_binary(uname, other_branch)
     #    else:
-    # TODO: re-enable caching
     uname = os.uname()[0]
     if not os.getenv('NAYDUCK'):
         compile_current()
