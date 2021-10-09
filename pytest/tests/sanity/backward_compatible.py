@@ -32,7 +32,7 @@ def main():
 
     # Run both binaries at the same time.
     config = executables.stable.node_config()
-    stable_node = cluster.spin_up_node(config, executable.stable.root,
+    stable_node = cluster.spin_up_node(config, executables.stable.root,
                                        str(node_root / 'test0'), 0, None, None)
     config = executables.current.node_config()
     current_node = cluster.spin_up_node(config, executables.current.root,
