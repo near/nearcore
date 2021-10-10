@@ -25,18 +25,13 @@ def main():
     node_root = get_near_tempdir('upgradable', clean=True)
     branch = branches.latest_rc_branch()
     logger.info(f"Latest rc release branch is {branch}")
-    neard_root, (stable_branch,
-                 current_branch) = branches.prepare_ab_test(branch)
+    executables = branches.prepare_ab_test(branch)
 
     # Setup local network.
-    logger.info([
-        "%sneard-%s" % (neard_root, stable_branch),
-        "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
-    ])
-    subprocess.call([
-        "%sneard-%s" % (neard_root, stable_branch),
-        "--home=%s" % node_root, "testnet", "--v", "4", "--prefix", "test"
-    ])
+    cmd = (executables.stable.neard, "--home=%s" % node_root, "testnet", "--v",
+           "4", "--prefix", "test")
+    logger.info(' '.join(str(arg) for arg in cmd))
+    subprocess.check_call(cmd)
     genesis_config_changes = [("epoch_length", 20),
                               ("num_block_producer_seats", 10),
                               ("num_block_producer_seats_per_shard", [10]),
@@ -48,22 +43,18 @@ def main():
         cluster.apply_genesis_changes(node_dir, genesis_config_changes)
 
     # Start 3 stable nodes and one current node.
-    config = {
-        "local": True,
-        'neard_root': neard_root,
-        'binary_name': "neard-%s" % stable_branch
-    }
+    config = executables.stable.node_config()
     nodes = [
-        cluster.spin_up_node(config, neard_root, node_dirs[0], 0, None, None)
+        cluster.spin_up_node(config, executables.stable.root, node_dirs[0], 0,
+                             None, None)
     ]
     for i in range(1, 3):
         nodes.append(
-            cluster.spin_up_node(config, neard_root, node_dirs[i], i,
-                                 nodes[0].node_key.pk, nodes[0].addr()))
-    if not os.getenv('NAYDUCK'):
-        config["binary_name"] = "neard-%s" % current_branch
+            cluster.spin_up_node(config, executables.stable.root, node_dirs[i],
+                                 i, nodes[0].node_key.pk, nodes[0].addr()))
+    config = executables.current.node_config()
     nodes.append(
-        cluster.spin_up_node(config, neard_root, node_dirs[3], 3,
+        cluster.spin_up_node(config, executables.current.root, node_dirs[3], 3,
                              nodes[0].node_key.pk, nodes[0].addr()))
 
     time.sleep(2)
