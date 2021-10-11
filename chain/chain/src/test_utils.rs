@@ -481,6 +481,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
+    fn get_prev_shard_ids(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        Ok(shard_ids)
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        _parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
     fn shard_id_to_uid(&self, shard_id: ShardId, _epoch_id: &EpochId) -> Result<ShardUId, Error> {
         Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
@@ -627,7 +642,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         state_root: &StateRoot,
-        _state_roots: Option<HashMap<ShardUId, StateRoot>>,
         _height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
@@ -719,7 +733,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        let mut new_receipts = HashMap::new();
+        let mut outgoing_receipts = vec![];
 
         for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
@@ -757,12 +771,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         }),
                     };
                     let receipt_hash = receipt.get_hash();
-                    new_receipts
-                        .entry(
-                            self.account_id_to_shard_id(&receipt.receiver_id, &EpochId::default())?,
-                        )
-                        .or_insert_with(|| vec![])
-                        .push(receipt);
+                    outgoing_receipts.push(receipt);
                     vec![receipt_hash]
                 };
 
@@ -812,12 +821,12 @@ impl RuntimeAdapter for KeyValueRuntime {
             ),
             new_root: state_root,
             outcomes: tx_results,
-            receipt_result: new_receipts,
+            outgoing_receipts,
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
             proof: None,
-            apply_split_state_result_or_state_changes: None,
+            processed_delayed_receipts: vec![],
         })
     }
 
@@ -1168,7 +1177,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
     }
 
-    fn will_shard_layout_change(&self, _parent_hash: &CryptoHash) -> Result<bool, Error> {
+    fn will_shard_layout_change_next_epoch(
+        &self,
+        _parent_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
         Ok(false)
     }
 

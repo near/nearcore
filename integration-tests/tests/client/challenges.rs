@@ -10,7 +10,7 @@ use near_chain::{
     Block, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error, ErrorKind, Provenance,
 };
 use near_chain_configs::Genesis;
-use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
+use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_catchup, TestEnv};
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
@@ -23,7 +23,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::num_rational::Rational;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
@@ -272,15 +271,10 @@ fn test_verify_chunk_invalid_state_challenge() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let transaction_validity_period = genesis.config.transaction_validity_period;
     let mut env = TestEnv::builder(ChainGenesis::test())
-        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::new(
+        .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
             &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
         ))])
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -575,15 +569,10 @@ fn test_fishermen_challenge() {
     );
     genesis.config.epoch_length = 5;
     let create_runtime = || -> Arc<NightshadeRuntime> {
-        Arc::new(nearcore::NightshadeRuntime::new(
+        Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             create_test_store(),
             &genesis.clone(),
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
         ))
     };
     let runtime1 = create_runtime();
@@ -641,25 +630,15 @@ fn test_challenge_in_different_epoch() {
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
     let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let runtime1 = Arc::new(nearcore::NightshadeRuntime::new(
+    let runtime1 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),
-        vec![],
-        vec![],
-        None,
-        None,
-        RuntimeConfigStore::test(),
     ));
-    let runtime2 = Arc::new(nearcore::NightshadeRuntime::new(
+    let runtime2 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("."),
         create_test_store(),
         &genesis.clone(),
-        vec![],
-        vec![],
-        None,
-        None,
-        RuntimeConfigStore::test(),
     ));
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = 3;
@@ -689,8 +668,7 @@ fn test_challenge_in_different_epoch() {
     for block in fork_blocks {
         let height = block.header().height();
         let (_, result) = env.clients[0].process_block(block, Provenance::NONE);
-        let f = |_| {};
-        match env.clients[0].run_catchup(&vec![], &f) {
+        match run_catchup(&mut env.clients[0], &vec![]) {
             Ok(accepted_blocks) => {
                 for accepted_block in accepted_blocks {
                     env.clients[0].on_block_accepted(

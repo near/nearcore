@@ -47,7 +47,7 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
 
@@ -357,7 +357,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     }
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
 
     let start = start_count(gas_metric);
     for contract in &contracts {

@@ -39,7 +39,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -48,9 +48,14 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::types::AcceptedBlock;
+use near_client_primitives::types::Error;
+use near_primitives::utils::MaybeValidated;
+
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
@@ -116,7 +121,7 @@ pub fn setup(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let adv = Arc::new(RwLock::new(AdversarialControls::default()));
 
     let view_client_addr = start_view_client(
@@ -125,7 +130,7 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         adv.clone(),
     );
 
@@ -139,7 +144,7 @@ pub fn setup(
         telemetry,
         enable_doomslug,
         ctx,
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         adv,
     )
     .unwrap();
@@ -207,7 +212,7 @@ pub fn setup_only_view(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let adv = Arc::new(RwLock::new(AdversarialControls::default()));
 
     start_view_client(
@@ -216,7 +221,7 @@ pub fn setup_only_view(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         adv.clone(),
     )
 }
@@ -1101,6 +1106,7 @@ pub struct TestEnv {
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
     pub clients: Vec<Client>,
+    account_to_client_index: HashMap<AccountId, usize>,
 }
 
 /// A builder for the TestEnv structure.
@@ -1154,10 +1160,11 @@ impl TestEnvBuilder {
     }
 
     /// Specifies custom runtime adaptors for each client.  This allows us to
-    /// construct [`TestEnv`] with [`NightshadeRuntime`].
+    /// construct [`TestEnv`] with `NightshadeRuntime`.
     ///
     /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`build`] method will panic.
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
     pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
         self.runtime_adapters = Some(adapters);
         self
@@ -1166,7 +1173,8 @@ impl TestEnvBuilder {
     /// Specifies custom network adaptors for each client.
     ///
     /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`build`] method will panic.
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
     pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
@@ -1183,14 +1191,14 @@ impl TestEnvBuilder {
     /// configured clients.
     pub fn build(self) -> TestEnv {
         let chain_genesis = self.chain_genesis;
-        let clients = self.clients;
+        let clients = self.clients.clone();
         let num_clients = clients.len();
         let validators = self.validators;
         let num_validators = validators.len();
         let network_adapters = self
             .network_adapters
             .unwrap_or_else(|| (0..num_clients).map(|_| Arc::new(Default::default())).collect());
-        assert!(clients.len() == network_adapters.len());
+        assert_eq!(clients.len(), network_adapters.len());
         let clients = match self.runtime_adapters {
             None => clients
                 .into_iter()
@@ -1228,7 +1236,18 @@ impl TestEnvBuilder {
             }
         };
 
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+        TestEnv {
+            chain_genesis,
+            validators,
+            network_adapters,
+            clients,
+            account_to_client_index: self
+                .clients
+                .into_iter()
+                .enumerate()
+                .map(|(index, client)| (client, index))
+                .collect(),
+        }
     }
 
     fn make_accounts(count: usize) -> Vec<AccountId> {
@@ -1241,14 +1260,19 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    /// Process a given block in the client with index `id`.
-    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
-    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+    pub fn process_block_with_optional_catchup(
+        &mut self,
+        id: usize,
+        block: Block,
+        provenance: Provenance,
+        should_run_catchup: bool,
+    ) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let f = |_| {};
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![], &f).unwrap();
-        accepted_blocks.extend(more_accepted_blocks);
+        if should_run_catchup {
+            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
+            accepted_blocks.extend(more_accepted_blocks);
+        }
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
                 accepted_block.hash,
@@ -1258,11 +1282,41 @@ impl TestEnv {
         }
     }
 
+    /// Process a given block in the client with index `id`.
+    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
+    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+        self.process_block_with_optional_catchup(id, block, provenance, true);
+    }
+
     /// Produces block by given client, which may kick off chunk production.
     /// This means that transactions added before this call will be included in the next block produced by this validator.
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+    }
+
+    pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
+        &mut self.clients[self.account_to_client_index[account_id]]
+    }
+
+    pub fn process_partial_encoded_chunks(&mut self) {
+        let network_adapters = self.network_adapters.clone();
+        for network_adapter in network_adapters {
+            // process partial encoded chunks
+            while let Some(request) = network_adapter.pop() {
+                if let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                } = request
+                {
+                    self.client(&account_id)
+                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                            partial_encoded_chunk.into(),
+                        ))
+                        .unwrap();
+                }
+            }
+        }
     }
 
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
@@ -1355,22 +1409,30 @@ impl TestEnv {
     }
 }
 
-pub fn create_chunk_on_height(
+pub fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
+    shard_id: ShardId,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
         .produce_chunk(
             last_block_hash,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
+            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
+            Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
             next_height,
-            0,
+            shard_id,
         )
         .unwrap()
         .unwrap()
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
 pub fn create_chunk_with_transactions(
@@ -1475,4 +1537,55 @@ pub fn create_chunk(
         block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)
+}
+
+pub fn run_catchup(
+    client: &mut Client,
+    highest_height_peers: &Vec<FullPeerInfo>,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let mut result = vec![];
+    let f = |_| {};
+    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_inside_messages = block_messages.clone();
+    let block_catch_up = move |msg: BlockCatchUpRequest| {
+        block_inside_messages.write().unwrap().push(msg);
+    };
+    let state_split_messages = Arc::new(RwLock::new(vec![]));
+    let state_split_inside_messages = state_split_messages.clone();
+    let state_split = move |msg: StateSplitRequest| {
+        state_split_inside_messages.write().unwrap().push(msg);
+    };
+    let rt = client.runtime_adapter.clone();
+    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+        for msg in block_messages.write().unwrap().drain(..) {
+            let results = do_apply_chunks(msg.work);
+            if let Some((_, _, blocks_catch_up_state)) =
+                client.catchup_state_syncs.get_mut(&msg.sync_hash)
+            {
+                let saved_store_update =
+                    blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash).unwrap();
+                blocks_catch_up_state
+                    .processed_blocks
+                    .insert(msg.block_hash, (saved_store_update, results));
+            } else {
+                panic!("block catch up processing result from unknown sync hash");
+            }
+        }
+        for msg in state_split_messages.write().unwrap().drain(..) {
+            let results = rt.build_state_for_split_shards(
+                msg.shard_uid,
+                &msg.state_root,
+                &msg.next_epoch_shard_layout,
+            );
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+                // We are doing catchup
+                sync.set_split_result(msg.shard_id, results);
+            } else {
+                client.state_sync.set_split_result(msg.shard_id, results);
+            }
+        }
+        result.extend(call);
+    }
+    Ok(result)
 }

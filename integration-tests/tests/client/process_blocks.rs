@@ -19,8 +19,10 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{create_chunk_on_height, setup_mock_all_validators};
-use near_client::test_utils::{setup_client, setup_mock, TestEnv};
+use near_client::test_utils::{
+    create_chunk_on_height, run_catchup, setup_client, setup_mock, setup_mock_all_validators,
+    TestEnv,
+};
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
@@ -34,16 +36,11 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::BlockHeader;
 
 use near_network::routing::EdgeInfo;
-#[cfg(feature = "protocol_feature_simple_nightshade")]
-use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
-#[cfg(feature = "protocol_feature_simple_nightshade")]
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::sharding::ShardChunkHeaderV2;
@@ -60,8 +57,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-#[cfg(feature = "protocol_feature_simple_nightshade")]
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
@@ -73,7 +68,7 @@ use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::NEAR_BASE;
 use rand::Rng;
 
-fn set_block_protocol_version(
+pub fn set_block_protocol_version(
     block: &mut Block,
     block_producer: AccountId,
     protocol_version: ProtocolVersion,
@@ -90,15 +85,10 @@ fn set_block_protocol_version(
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::new(
+            Arc::new(nearcore::NightshadeRuntime::test(
                 Path::new("."),
                 create_test_store(),
                 genesis,
-                vec![],
-                vec![],
-                None,
-                None,
-                RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
@@ -944,8 +934,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
     for i in 1..num {
         let b = client.produce_block(i).unwrap().unwrap();
         let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let f = |_| {};
-        let more_accepted_blocks = client.run_catchup(&vec![], &f).unwrap();
+        let more_accepted_blocks = run_catchup(client, &vec![]).unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks {
             client.on_block_accepted(
@@ -1918,16 +1907,8 @@ fn test_invalid_block_root() {
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(nearcore::NightshadeRuntime::new(
-        Path::new("."),
-        create_test_store(),
-        &genesis,
-        vec![],
-        vec![],
-        None,
-        None,
-        RuntimeConfigStore::test(),
-    ));
+    let runtime_adapter: Arc<dyn RuntimeAdapter> =
+        Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), create_test_store(), &genesis));
     let signer = Arc::new(InMemoryValidatorSigner::from_seed(
         "test0".parse().unwrap(),
         KeyType::ED25519,
@@ -2246,7 +2227,7 @@ fn test_validate_chunk_extra() {
         &*env.clients[0].runtime_adapter,
         block1.hash(),
         &chunk_extra,
-        &block1.chunks()[0],
+        block1.chunks()[0].height_included(),
         &chunks.get(&0).cloned().unwrap(),
     )
     .is_ok());
@@ -2588,90 +2569,15 @@ fn test_refund_receipts_processing() {
     assert_eq!(processed_refund_receipt_ids, refund_receipt_ids);
 }
 
-#[test]
-#[cfg(feature = "protocol_feature_simple_nightshade")]
-fn test_shard_layout_upgrade() {
-    init_test_logger();
-    let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
-    let simple_nightshade_protocol_version = ProtocolFeature::SimpleNightshade.protocol_version();
-    genesis.config.epoch_length = epoch_length;
-    genesis.config.protocol_version = simple_nightshade_protocol_version - 1;
-    let new_num_shards = 4;
-    genesis.config.simple_nightshade_shard_config = Some(ShardConfig {
-        num_block_producer_seats_per_shard: vec![2; new_num_shards],
-        avg_hidden_validator_seats_per_shard: vec![0; new_num_shards],
-        shard_layout: ShardLayout::v1(
-            vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
-            Some(vec![vec![0, 1, 2, 3]]),
-            1,
-        ),
-    });
-    let genesis_height = genesis.config.genesis_height;
-    let chain_genesis = ChainGenesis::from(&genesis);
-    let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(2)
-        .validator_seats(2)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
-        .build();
-    // ShardLayout changes at epoch 2
-    // Test that state is caught up correctly at epoch 1 (block height 6-10)
-    // TODO: change this number to 16 once splitting states is fully implemented
-    for i in 1..=10 {
-        let head = env.clients[0].chain.head().unwrap();
-        let epoch_id = env.clients[0]
-            .runtime_adapter
-            .get_epoch_id_from_prev_block(&head.last_block_hash)
-            .unwrap();
-        let block_producer =
-            env.clients[0].runtime_adapter.get_block_producer(&epoch_id, i).unwrap();
-        let index = if block_producer.as_ref() == "test0" { 0 } else { 1 };
-        let (encoded_chunk, merkle_paths, receipts) =
-            create_chunk_on_height(&mut env.clients[index], i);
-
-        for j in 0..2 {
-            let mut chain_store =
-                ChainStore::new(env.clients[j].chain.store().owned_store(), genesis_height);
-            env.clients[j]
-                .shards_mgr
-                .distribute_encoded_chunk(
-                    encoded_chunk.clone(),
-                    merkle_paths.clone(),
-                    receipts.clone(),
-                    &mut chain_store,
-                )
-                .unwrap();
-        }
-
-        let mut block = env.clients[index].produce_block(i).unwrap().unwrap();
-        // upgrade to new protocol version but in the second epoch one node vote for the old version.
-        if i != 10 {
-            set_block_protocol_version(
-                &mut block,
-                block_producer.clone(),
-                simple_nightshade_protocol_version,
-            );
-        }
-        let f = |_| {};
-        for j in 0..2 {
-            let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok(), "{:?}", res);
-            env.clients[j].run_catchup(&vec![], &f).unwrap();
-        }
-    }
-}
-
+// This test cannot be enabled at the same time as `protocol_feature_block_header_v3`.
+// Otherwise we hit an assert: https://github.com/near/nearcore/pull/4934#issuecomment-935863800
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_wasmer2_upgrade() {
     let mut capture = near_logger_utils::TracingCapture::enable();
 
-    #[cfg(all(feature = "protocol_feature_wasmer2", feature = "nightly_protocol"))]
     let old_protocol_version =
         near_primitives::version::ProtocolFeature::Wasmer2.protocol_version() - 1;
-    #[cfg(not(feature = "protocol_feature_wasmer2"))]
-    let old_protocol_version = PROTOCOL_VERSION - 1;
-
     let new_protocol_version = old_protocol_version + 1;
 
     // Prepare TestEnv with a contract at the old protocol version.
@@ -2752,12 +2658,7 @@ fn test_wasmer2_upgrade() {
     };
 
     assert!(logs_at_old_version.contains(&"run_vm vm_kind=Wasmer0".to_string()));
-
-    if cfg!(all(feature = "protocol_feature_wasmer2", feature = "nightly_protocol")) {
-        assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer2".to_string()));
-    } else {
-        assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer0".to_string()));
-    }
+    assert!(logs_at_new_version.contains(&"run_vm vm_kind=Wasmer2".to_string()));
 }
 
 #[test]
@@ -2777,12 +2678,9 @@ fn test_epoch_protocol_version_change() {
     for i in 1..=16 {
         let head = env.clients[0].chain.head().unwrap();
         let epoch_id = env.clients[0]
-            .chain
-            .get_block(&head.last_block_hash)
-            .unwrap()
-            .header()
-            .epoch_id()
-            .clone();
+            .runtime_adapter
+            .get_epoch_id_from_prev_block(&head.last_block_hash)
+            .unwrap();
         let chunk_producer =
             env.clients[0].runtime_adapter.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer.as_ref() == "test0" { 0 } else { 1 };
@@ -2815,11 +2713,10 @@ fn test_epoch_protocol_version_change() {
         if i != 10 {
             set_block_protocol_version(&mut block, block_producer.clone(), PROTOCOL_VERSION + 1);
         }
-        let f = |_| {};
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            env.clients[j].run_catchup(&vec![], &f).unwrap();
+            run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }
     let last_block = env.clients[0].chain.get_block_by_height(16).unwrap().clone();
@@ -3466,16 +3363,8 @@ mod protocol_feature_restore_receipts_after_fix_tests {
         genesis.config.epoch_length = EPOCH_LENGTH;
         genesis.config.protocol_version = protocol_version;
         let chain_genesis = ChainGenesis::from(&genesis);
-        let runtime = nearcore::NightshadeRuntime::new(
-            Path::new("."),
-            create_test_store(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let runtime =
+            nearcore::NightshadeRuntime::test(Path::new("."), create_test_store(), &genesis);
         // TODO #4305: get directly from NightshadeRuntime
         let migration_data = load_migration_data(&genesis.config.chain_id);
 
@@ -3625,8 +3514,7 @@ mod storage_usage_fix_tests {
 
             let (_, res) = env.clients[0].process_block(block.clone(), Provenance::NONE);
             assert!(res.is_ok());
-            let f = |_| {};
-            env.clients[0].run_catchup(&vec![], &f).unwrap();
+            run_catchup(&mut env.clients[0], &vec![]).unwrap();
 
             let root = env.clients[0]
                 .chain
@@ -3770,16 +3658,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::new(
-                    Path::new("."),
-                    store.clone(),
-                    &genesis,
-                    vec![],
-                    vec![],
-                    None,
-                    None,
-                    RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), store.clone(), &genesis))
+                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
 
@@ -3875,16 +3755,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::new(
-                    Path::new("."),
-                    store.clone(),
-                    &genesis,
-                    vec![],
-                    vec![],
-                    None,
-                    None,
-                    RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), store.clone(), &genesis))
+                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
 
@@ -3958,16 +3830,8 @@ mod contract_precompilation_tests {
         let runtime_adapters = stores
             .iter()
             .map(|store| {
-                Arc::new(nearcore::NightshadeRuntime::new(
-                    Path::new("."),
-                    store.clone(),
-                    &genesis,
-                    vec![],
-                    vec![],
-                    None,
-                    None,
-                    RuntimeConfigStore::test(),
-                )) as Arc<dyn RuntimeAdapter>
+                Arc::new(nearcore::NightshadeRuntime::test(Path::new("."), store.clone(), &genesis))
+                    as Arc<dyn RuntimeAdapter>
             })
             .collect();
 

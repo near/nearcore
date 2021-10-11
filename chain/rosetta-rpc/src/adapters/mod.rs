@@ -39,6 +39,7 @@ async fn convert_genesis_records_to_transaction(
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
+        let account_id = super::types::AccountId::from(account_id);
         let account_balances = crate::utils::RosettaAccountBalances::from_account(
             &account,
             &genesis.config.runtime_config,
@@ -228,7 +229,7 @@ fn convert_block_changes_to_transactions(
                         operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
-                            address: account_id.clone(),
+                            address: account_id.clone().into(),
                             sub_account: None,
                         },
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -250,7 +251,7 @@ fn convert_block_changes_to_transactions(
                         operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
-                            address: account_id.clone(),
+                            address: account_id.clone().into(),
                             sub_account: Some(
                                 crate::models::SubAccount::LiquidBalanceForStorage.into(),
                             ),
@@ -272,7 +273,7 @@ fn convert_block_changes_to_transactions(
                         operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
-                            address: account_id.clone(),
+                            address: account_id.clone().into(),
                             sub_account: Some(crate::models::SubAccount::Locked.into()),
                         },
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -309,7 +310,7 @@ fn convert_block_changes_to_transactions(
                         operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
-                            address: account_id.clone(),
+                            address: account_id.clone().into(),
                             sub_account: None,
                         },
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -331,7 +332,7 @@ fn convert_block_changes_to_transactions(
                         operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
-                            address: account_id.clone(),
+                            address: account_id.clone().into(),
                             sub_account: Some(
                                 crate::models::SubAccount::LiquidBalanceForStorage.into(),
                             ),
@@ -353,7 +354,7 @@ fn convert_block_changes_to_transactions(
                         operation_identifier: crate::models::OperationIdentifier::new(&operations),
                         related_operations: None,
                         account: crate::models::AccountIdentifier {
-                            address: account_id.clone(),
+                            address: account_id.clone().into(),
                             sub_account: Some(crate::models::SubAccount::Locked.into()),
                         },
                         amount: Some(crate::models::Amount::from_yoctonear_diff(
@@ -692,7 +693,8 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
                         near_primitives::transaction::DeleteAccountAction {
                             beneficiary_id: refund_delete_account_operation
                                 .beneficiary_account
-                                .address,
+                                .address
+                                .into(),
                         }
                         .into(),
                     )
@@ -880,18 +882,19 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
         // backwards.
         actions.reverse();
 
-        let receiver_account_id = receiver_account_id
+        let receiver_account_id: near_primitives::types::AccountId = receiver_account_id
             .into_inner()
             .ok_or_else(|| {
                 crate::errors::ErrorKind::InvalidInput(
                     "There are no operations specifying receiver account".to_string(),
                 )
             })?
-            .address;
+            .address
+            .into();
         Ok(Self {
             sender_account_id: sender_account_id
                 .into_inner()
-                .map(|account_identifier| account_identifier.address)
+                .map(|account_identifier| account_identifier.address.into())
                 .unwrap_or_else(|| receiver_account_id.clone()),
             receiver_account_id,
             actions,
@@ -907,7 +910,7 @@ mod tests {
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
-        let runtime_config = near_primitives::runtime::config::RuntimeConfig::default();
+        let runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
         let block_hash = near_primitives::hash::CryptoHash::default();
         let nfvalidator1_receipt_processing_hash =
             near_primitives::hash::CryptoHash::try_from(vec![1u8; 32]).unwrap();

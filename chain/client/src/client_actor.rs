@@ -5,7 +5,8 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use actix::dev::ToEnvelope;
+use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler, Message};
 use actix_rt::ArbiterHandle;
 use borsh::BorshSerialize;
 use chrono::Duration as OldDuration;
@@ -16,17 +17,17 @@ use log::{debug, error, info, trace, warn};
 use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan};
 #[cfg(feature = "sandbox")]
@@ -44,17 +45,21 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
-use near_chain::chain::{ApplyStatePartsRequest, ApplyStatePartsResponse};
+use actix::dev::SendError;
+use near_chain::chain::{
+    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
+};
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusError, StatusSyncInfo, SyncStatus,
@@ -73,7 +78,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
@@ -94,6 +99,8 @@ pub struct ClientActor {
     chunk_request_retry_next_attempt: DateTime<Utc>,
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
+    block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
+    state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
 }
 
@@ -128,16 +135,16 @@ impl ClientActor {
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
         let runtime_adapter_clone = Arc::clone(&runtime_adapter);
-        let state_parts_actor_addr = StatePartsActor::start_in_arbiter(
+        let sync_jobs_actor_addr = SyncJobsActor::start_in_arbiter(
             &state_parts_arbiter.handle(),
-            move |ctx: &mut Context<StatePartsActor>| -> StatePartsActor {
-                ctx.set_mailbox_capacity(StatePartsActor::MAILBOX_CAPACITY);
-                StatePartsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
+            move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
+                ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
+                SyncJobsActor { runtime: runtime_adapter_clone, client_addr: self_addr }
             },
         );
         wait_until_genesis(&chain_genesis.time);
@@ -156,7 +163,7 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
             client,
             network_adapter,
@@ -178,14 +185,39 @@ impl ClientActor {
             doomslug_timer_next_attempt: now,
             chunk_request_retry_next_attempt: now,
             sync_started: false,
-            state_parts_task_scheduler: Box::new(move |msg: ApplyStatePartsRequest| {
-                if let Err(_) = state_parts_actor_addr.try_send(msg) {
-                    panic!("Can't send message to StatePartsActor");
-                }
-            }),
+            state_parts_task_scheduler: create_sync_job_scheduler::<ApplyStatePartsRequest>(
+                sync_jobs_actor_addr.clone(),
+            ),
+            block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
+                sync_jobs_actor_addr.clone(),
+            ),
+            state_split_scheduler: create_sync_job_scheduler::<StateSplitRequest>(
+                sync_jobs_actor_addr,
+            ),
             state_parts_client_arbiter: state_parts_arbiter,
         })
     }
+}
+
+fn create_sync_job_scheduler<M>(address: Addr<SyncJobsActor>) -> Box<dyn Fn(M)>
+where
+    M: Message + Send + 'static,
+    M::Result: Send,
+    SyncJobsActor: Handler<M>,
+    Context<SyncJobsActor>: ToEnvelope<SyncJobsActor, M>,
+{
+    Box::new(move |msg: M| {
+        if let Err(err) = address.try_send(msg) {
+            match err {
+                SendError::Full(request) => {
+                    address.do_send(request);
+                }
+                SendError::Closed(_) => {
+                    error!("Can't send message to SyncJobsActor, mailbox is closed");
+                }
+            }
+        }
+    })
 }
 
 impl Actor for ClientActor {
@@ -221,7 +253,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
         self.check_triggers(ctx);
 
         match msg {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
@@ -328,7 +360,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             ),
                         )
                     }
-                }
+                };
             }
             NetworkClientMessages::Transaction { transaction, is_forwarded, check_only } => {
                 self.client.process_tx(transaction, is_forwarded, check_only)
@@ -427,7 +459,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
 
                     // ... Or one of the catchups
-                    if let Some((_, shards_to_download)) =
+                    if let Some((_, shards_to_download, _)) =
                         self.client.catchup_state_syncs.get_mut(&hash)
                     {
                         if let Some(part_id) = state_response.part_id() {
@@ -790,7 +822,7 @@ impl ClientActor {
     fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
         let wait = self.check_triggers(ctx);
 
-        near_performance_metrics::actix::run_later(ctx, file!(), line!(), wait, move |act, ctx| {
+        near_performance_metrics::actix::run_later(ctx, wait, move |act, ctx| {
             act.schedule_triggers(ctx);
         });
     }
@@ -1157,7 +1189,7 @@ impl ClientActor {
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv.read().unwrap().adv_disable_header_sync {
                 return false;
@@ -1175,8 +1207,6 @@ impl ClientActor {
         {
             near_performance_metrics::actix::run_later(
                 ctx,
-                file!(),
-                line!(),
                 self.client.config.sync_step_period,
                 move |act, ctx| {
                     act.start_sync(ctx);
@@ -1227,22 +1257,22 @@ impl ClientActor {
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client catchup".into());
-        match self
-            .client
-            .run_catchup(&self.network_info.highest_height_peers, &self.state_parts_task_scheduler)
-        {
+        match self.client.run_catchup(
+            &self.network_info.highest_height_peers,
+            &self.state_parts_task_scheduler,
+            &self.block_catch_up_scheduler,
+            &self.state_split_scheduler,
+        ) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
             }
             Err(err) => {
-                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err)
+                error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
             }
         }
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.client.config.catchup_step_period,
             move |act, ctx| {
                 act.catchup(ctx);
@@ -1277,15 +1307,13 @@ impl ClientActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
-        macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
+        macro_rules! unwrap_or_run_later (($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
                 error!(target: "sync", "Sync: Unexpected error: {}", err);
 
                 near_performance_metrics::actix::run_later(
                     ctx,
-                    file!(),
-                    line!(),
                     self.client.config.sync_step_period, move |act, ctx| {
                         act.sync(ctx);
                     }
@@ -1383,6 +1411,7 @@ impl ClientActor {
                     &self.network_info.highest_height_peers,
                     shards_to_sync,
                     &self.state_parts_task_scheduler,
+                    &self.state_split_scheduler,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
@@ -1449,23 +1478,15 @@ impl ClientActor {
             }
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            wait_period,
-            move |act, ctx| {
-                act.sync(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, wait_period, move |act, ctx| {
+            act.sync(ctx);
+        });
     }
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.client.config.log_summary_period,
             move |act, ctx| {
                 #[cfg(feature = "delay_detector")]
@@ -1520,12 +1541,12 @@ impl Drop for ClientActor {
     }
 }
 
-struct StatePartsActor {
+struct SyncJobsActor {
     runtime: Arc<dyn RuntimeAdapter>,
     client_addr: Addr<ClientActor>,
 }
 
-impl StatePartsActor {
+impl SyncJobsActor {
     const MAILBOX_CAPACITY: usize = 100;
 
     fn apply_parts(
@@ -1552,11 +1573,11 @@ impl StatePartsActor {
     }
 }
 
-impl Actor for StatePartsActor {
+impl Actor for SyncJobsActor {
     type Context = Context<Self>;
 }
 
-impl Handler<ApplyStatePartsRequest> for StatePartsActor {
+impl Handler<ApplyStatePartsRequest> for SyncJobsActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsRequest, _: &mut Self::Context) -> Self::Result {
@@ -1574,11 +1595,76 @@ impl Handler<ApplyStatePartsResponse> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: ApplyStatePartsResponse, _: &mut Self::Context) -> Self::Result {
-        if let Some((sync, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
             sync.set_apply_result(msg.shard_id, msg.apply_result);
         } else {
             self.client.state_sync.set_apply_result(msg.shard_id, msg.apply_result);
+        }
+    }
+}
+
+impl Handler<BlockCatchUpRequest> for SyncJobsActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: BlockCatchUpRequest, _: &mut Self::Context) -> Self::Result {
+        let results = do_apply_chunks(msg.work);
+
+        self.client_addr.do_send(BlockCatchUpResponse {
+            sync_hash: msg.sync_hash,
+            block_hash: msg.block_hash,
+            results,
+        });
+    }
+}
+
+impl Handler<BlockCatchUpResponse> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: BlockCatchUpResponse, _: &mut Self::Context) -> Self::Result {
+        if let Some((_, _, blocks_catch_up_state)) =
+            self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
+        {
+            let saved_store_update = blocks_catch_up_state
+                .scheduled_blocks
+                .remove(&msg.block_hash)
+                .expect("block caught up, but is not in processing");
+            blocks_catch_up_state
+                .processed_blocks
+                .insert(msg.block_hash, (saved_store_update, msg.results));
+        } else {
+            panic!("block catch up processing result from unknown sync hash");
+        }
+    }
+}
+
+impl Handler<StateSplitRequest> for SyncJobsActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
+        let results = self.runtime.build_state_for_split_shards(
+            msg.shard_uid,
+            &msg.state_root,
+            &msg.next_epoch_shard_layout,
+        );
+
+        self.client_addr.do_send(StateSplitResponse {
+            sync_hash: msg.sync_hash,
+            shard_id: msg.shard_id,
+            new_state_roots: results,
+        });
+    }
+}
+
+impl Handler<StateSplitResponse> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StateSplitResponse, _: &mut Self::Context) -> Self::Result {
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            // We are doing catchup
+            sync.set_split_result(msg.shard_id, msg.new_state_roots);
+        } else {
+            self.client.state_sync.set_split_result(msg.shard_id, msg.new_state_roots);
         }
     }
 }
@@ -1592,7 +1678,7 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
@@ -1606,7 +1692,7 @@ pub fn start_client(
             telemetry_actor,
             true,
             ctx,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
         )
         .unwrap()

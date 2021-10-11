@@ -13,15 +13,15 @@ use near_primitives::block::{Approval, Tip};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
-use near_primitives::receipt::{Receipt, ReceiptResult};
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
 use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ReceiptResponse, ShardStateSyncResponseHeader,
-    StateHeaderKey, StatePartKey,
+    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
+    StatePartKey,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, SignedTransaction,
@@ -50,8 +50,8 @@ use near_store::{
     TAIL_KEY,
 };
 
-use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::{byzantine_assert, RuntimeAdapter};
 use near_store::db::DBCol::ColStateChangesForSplitStates;
 
 /// lru cache size
@@ -286,16 +286,19 @@ pub trait ChainStoreAccess {
     /// Get epoch id of the last block with existing chunk for the given shard id.
     fn get_epoch_id_of_last_block_with_chunk(
         &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<EpochId, Error> {
         let mut candidate_hash = *hash;
+        let mut shard_id = shard_id;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
             if block_header.chunk_mask()[shard_id as usize] {
                 break Ok(block_header.epoch_id().clone());
             }
             candidate_hash = *block_header.prev_hash();
+            shard_id = runtime_adapter.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
         }
     }
 }
@@ -440,25 +443,59 @@ impl ChainStore {
         )
     }
 
+    /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
+    /// is `prev_block_hash`
+    /// Note that the meaning of outgoing receipts here are slightly different from
+    /// `save_outgoing_receipts` or `get_outgoing_receipts`.
+    /// There, outgoing receipts for a shard refers to receipts that are generated
+    /// from the shard from block `prev_block_hash`.
+    /// Here, outgoing receipts for a shard refers to receipts that will be sent from this shard
+    /// to other shards in the block after `prev_block_hash`
+    /// The difference of one block is important because shard layout may change between the previous
+    /// block and the current block and the meaning of `shard_id` will change.
+    ///
+    /// Note, the current way of implementation assumes that at least one chunk is generated before
+    /// shard layout are changed twice. This is not a problem right now because we are changing shard
+    /// layout for the first time for simple nightshade and generally not a problem if shard layout
+    /// changes very rarely.
+    /// But we need to implement a more theoretically correct algorithm if shard layouts will change
+    /// more often in the future
+    /// <https://github.com/near/nearcore/issues/4877>
     pub fn get_outgoing_receipts_for_shard(
         &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
         last_included_height: BlockHeight,
-    ) -> Result<ReceiptResponse, Error> {
+    ) -> Result<Vec<Receipt>, Error> {
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() == last_included_height {
-                let receipts = if let Ok(cur_receipts) =
-                    self.get_outgoing_receipts(&receipts_block_hash, shard_id)
-                {
-                    cur_receipts.clone()
+                let receipts_shard_layout =
+                    runtime_adapter.get_shard_layout(block_header.epoch_id())?;
+
+                // get the shard from which the outgoing receipt were generated
+                let receipts_shard_id = if shard_layout != receipts_shard_layout {
+                    shard_layout.get_parent_shard_id(shard_id)?
                 } else {
-                    vec![]
+                    shard_id
                 };
-                return Ok(ReceiptResponse(receipts_block_hash, receipts));
+                let mut receipts = self
+                    .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
+                    .map(|v| v.clone())
+                    .unwrap_or_default();
+
+                // filter to receipts that belong to `shard_id` in the current shard layout
+                if shard_layout != receipts_shard_layout {
+                    receipts.retain(|receipt| {
+                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout) == shard_id
+                    });
+                }
+
+                return Ok(receipts);
             } else {
                 receipts_block_hash = *block_header.prev_hash();
             }
@@ -962,9 +999,11 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    /// Get outgoing receipts *generated* from shard `shard_id` in block `prev_hash`
+    /// Note that this function is different from get_outgoing_receipts_for_shard, see comments there
     fn get_outgoing_receipts(
         &mut self,
-        block_hash: &CryptoHash,
+        prev_block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<Receipt>, Error> {
         option_to_not_found(
@@ -972,9 +1011,9 @@ impl ChainStoreAccess for ChainStore {
                 &*self.store,
                 ColOutgoingReceipts,
                 &mut self.outgoing_receipts,
-                &get_block_shard_id(block_hash, shard_id),
+                &get_block_shard_id(prev_block_hash, shard_id),
             ),
-            &format!("OUTGOING RECEIPT: {}", block_hash),
+            &format!("OUTGOING RECEIPT: {}", prev_block_hash),
         )
     }
 
@@ -1149,10 +1188,8 @@ struct ChainStoreCacheUpdate {
     processed_block_heights: HashSet<BlockHeight>,
 }
 
-/// Provides layer to update chain without touching the underlying database.
-/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub struct ChainStoreUpdate<'a> {
-    chain_store: &'a mut ChainStore,
+pub struct ChainStoreUpdateImpl<T> {
+    chain_store: T,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     chain_store_cache_update: ChainStoreCacheUpdate,
@@ -1176,6 +1213,10 @@ pub struct ChainStoreUpdate<'a> {
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
 }
+
+/// Provides layer to update chain without touching the underlying database.
+/// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
+pub type ChainStoreUpdate<'a> = ChainStoreUpdateImpl<&'a mut ChainStore>;
 
 impl<'a> ChainStoreUpdate<'a> {
     pub fn new(chain_store: &'a mut ChainStore) -> Self {
@@ -1728,7 +1769,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn adv_save_latest_known(&mut self, height: BlockHeight) -> Result<(), Error> {
         let header = self.get_header_by_height(height)?;
         let tip = Tip::from_header(&header);
@@ -1824,24 +1865,39 @@ impl<'a> ChainStoreUpdate<'a> {
             .insert(epoch_hash.clone(), light_client_block);
     }
 
+    // save the outgoing receipts generated by chunk from block `hash` for shard `shard_id`
     pub fn save_outgoing_receipt(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
-        receipt_result: ReceiptResult,
+        outgoing_receipts: Vec<Receipt>,
     ) {
-        let mut outgoing_receipts = Vec::new();
-        for (receipt_shard_id, receipts) in receipt_result {
-            for receipt in receipts {
-                self.chain_store_cache_update
-                    .receipt_id_to_shard_id
-                    .insert(receipt.receipt_id, receipt_shard_id);
-                outgoing_receipts.push(receipt);
-            }
-        }
         self.chain_store_cache_update
             .outgoing_receipts
             .insert((*hash, shard_id), outgoing_receipts);
+    }
+
+    pub fn save_receipt_id_to_shard_id(
+        &mut self,
+        runtime_adapter: &dyn RuntimeAdapter,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+        last_height_included: BlockHeight,
+    ) -> Result<(), Error> {
+        let outgoing_receipts = self.chain_store.get_outgoing_receipts_for_shard(
+            runtime_adapter,
+            *prev_hash,
+            shard_id,
+            last_height_included,
+        )?;
+        let shard_layout = runtime_adapter.get_shard_layout_from_prev_block(prev_hash)?;
+        for receipt in outgoing_receipts {
+            let to_shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+            self.chain_store_cache_update
+                .receipt_id_to_shard_id
+                .insert(receipt.receipt_id, to_shard_id);
+        }
+        Ok(())
     }
 
     pub fn save_incoming_receipt(
@@ -2932,6 +2988,62 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store.tail = self.tail;
 
         Ok(())
+    }
+}
+
+impl Into<SavedStoreUpdate> for ChainStoreUpdate<'_> {
+    fn into(self) -> SavedStoreUpdate {
+        SavedStoreUpdate {
+            chain_store: (),
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
+    }
+}
+
+/// Saves changes from ChainStoreUpdate without link to ChainStore. Needed to preserve changes while
+/// applying block in other thread
+pub type SavedStoreUpdate = ChainStoreUpdateImpl<()>;
+
+impl SavedStoreUpdate {
+    pub fn restore<'a>(self, chain_store: &'a mut ChainStore) -> ChainStoreUpdate<'a> {
+        ChainStoreUpdate {
+            chain_store,
+            store_updates: self.store_updates,
+            chain_store_cache_update: self.chain_store_cache_update,
+            head: self.head,
+            tail: self.tail,
+            chunk_tail: self.chunk_tail,
+            fork_tail: self.fork_tail,
+            header_head: self.header_head,
+            final_head: self.final_head,
+            largest_target_height: self.largest_target_height,
+            trie_changes: self.trie_changes,
+            add_state_changes_for_split_states: self.add_state_changes_for_split_states,
+            remove_state_changes_for_split_states: self.remove_state_changes_for_split_states,
+            add_blocks_to_catchup: self.add_blocks_to_catchup,
+            remove_blocks_to_catchup: self.remove_blocks_to_catchup,
+            remove_prev_blocks_to_catchup: self.remove_prev_blocks_to_catchup,
+            add_state_dl_infos: self.add_state_dl_infos,
+            remove_state_dl_infos: self.remove_state_dl_infos,
+            challenged_blocks: self.challenged_blocks,
+        }
     }
 }
 

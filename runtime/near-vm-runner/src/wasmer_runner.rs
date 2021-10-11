@@ -1,3 +1,4 @@
+use crate::cache::into_vm_result;
 use crate::errors::IntoVMError;
 use crate::memory::WasmerMemory;
 use crate::{cache, imports};
@@ -33,7 +34,11 @@ impl IntoVMError for wasmer_runtime::error::Error {
     fn into_vm_error(self) -> VMError {
         use wasmer_runtime::error::Error;
         match self {
-            Error::CompileError(err) => err.into_vm_error(),
+            Error::CompileError(err) => {
+                VMError::FunctionCallError(FunctionCallError::CompilationError(
+                    CompilationError::WasmerCompileError { msg: err.to_string() },
+                ))
+            }
             Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError {
                 msg: format!("{:.500}", Error::LinkError(err).to_string()),
             }),
@@ -51,23 +56,6 @@ impl IntoVMError for wasmer_runtime::error::CallError {
         match self {
             CallError::Resolve(err) => err.into_vm_error(),
             CallError::Runtime(err) => err.into_vm_error(),
-        }
-    }
-}
-
-impl IntoVMError for wasmer_runtime::error::CompileError {
-    fn into_vm_error(self) -> VMError {
-        match self {
-            wasmer_runtime::error::CompileError::ValidationError { .. } => {
-                VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::WasmerCompileError { msg: self.to_string() },
-                ))
-            }
-            wasmer_runtime::error::CompileError::InternalError { .. } => {
-                VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::WasmerCompileError { msg: self.to_string() },
-                ))
-            }
         }
     }
 }
@@ -103,27 +91,30 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 // Also can be thrown on unreachable instruction, which is quite unfortunate.
                 //
                 // See https://github.com/near/wasmer/blob/0.17.2/lib/runtime-core/src/fault.rs#L285
-                InvokeError::FailedWithNoError => VMError::FunctionCallError(
-                    // XXX: Initially, we treated this error case as
-                    // deterministic (so, we stored this error in our state,
-                    // etc.)
-                    //
-                    // Then, in
-                    // https://github.com/near/nearcore/pull/4181#discussion_r606267838
-                    // we reasoned that this error actually happens
-                    // non-deterministically, so it's better to panic in this
-                    // case.
-                    //
-                    // However, when rolling this out, we noticed that this
-                    // error happens deterministically for at least one
-                    // contract. So here we roll this back to a previous
-                    // behavior and emit some deterministic error, which won't
-                    // cause the node to panic.
-                    //
-                    // So far, we are unable to reproduce this deterministic
-                    // failure though.
-                    FunctionCallError::WasmTrap(WasmTrap::Unreachable),
-                ),
+                InvokeError::FailedWithNoError => {
+                    tracing::error!(target: "vm", "Got FailedWithNoError from wasmer0");
+                    VMError::FunctionCallError(
+                        // XXX: Initially, we treated this error case as
+                        // deterministic (so, we stored this error in our state,
+                        // etc.)
+                        //
+                        // Then, in
+                        // https://github.com/near/nearcore/pull/4181#discussion_r606267838
+                        // we reasoned that this error actually happens
+                        // non-deterministically, so it's better to panic in this
+                        // case.
+                        //
+                        // However, when rolling this out, we noticed that this
+                        // error happens deterministically for at least one
+                        // contract. So here we roll this back to a previous
+                        // behavior and emit some deterministic error, which won't
+                        // cause the node to panic.
+                        //
+                        // So far, we are unable to reproduce this deterministic
+                        // failure though.
+                        FunctionCallError::WasmTrap(WasmTrap::Unreachable),
+                    )
+                }
                 // Indicates that a trap occurred that is not known to Wasmer.
                 // As of 0.17.0, thrown only from Cranelift BE.
                 InvokeError::UnknownTrap { address, signal } => {
@@ -241,8 +232,8 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = match cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache)
-    {
+    let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache);
+    let module = match into_vm_result(module) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),
     };

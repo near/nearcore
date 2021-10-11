@@ -63,7 +63,7 @@ fn make_simple_contract_call_with_gas_vm(
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
 
@@ -100,7 +100,7 @@ fn make_cached_contract_call_vm(
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let code = ContractCode::new(code.to_vec(), None);

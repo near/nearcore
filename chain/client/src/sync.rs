@@ -20,14 +20,17 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, StateRoot,
+};
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
-use near_chain::chain::ApplyStatePartsRequest;
+use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
+use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -607,6 +610,9 @@ pub struct StateSync {
 
     /// Maps shard_id to result of applying downloaded state
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
+
+    /// Maps shard_id to result of splitting state for resharding
+    split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, Error>>,
 }
 
 impl StateSync {
@@ -619,6 +625,7 @@ impl StateSync {
             requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
             timeout: Duration::from_std(timeout).unwrap(),
             state_parts_apply_results: HashMap::new(),
+            split_state_roots: HashMap::new(),
         }
     }
 
@@ -661,6 +668,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
@@ -681,7 +689,7 @@ impl StateSync {
         };
 
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let split_states = runtime_adapter.will_shard_layout_change(&prev_hash)?;
+        let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
 
         for shard_id in tracking_shards {
             let mut download_timeout = false;
@@ -820,16 +828,43 @@ impl StateSync {
                     if split_states {
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
-                            status: ShardSyncStatus::StateSplit,
+                            status: ShardSyncStatus::StateSplitScheduling,
                         }
                     } else {
+                        *shard_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateSyncDone,
+                        };
                         this_done = true;
                     }
                 }
-                ShardSyncStatus::StateSplit => {
+                ShardSyncStatus::StateSplitScheduling => {
                     debug_assert!(split_states);
-                    chain.build_state_for_split_shards(&sync_hash, shard_id)?;
-                    debug!(target: "sync", "State sync split: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
+                    chain.build_state_for_split_shards_preprocessing(
+                        &sync_hash,
+                        shard_id,
+                        state_split_scheduler,
+                    )?;
+                    debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
+                    *shard_sync_download = ShardSyncDownload {
+                        downloads: vec![],
+                        status: ShardSyncStatus::StateSplitApplying,
+                    };
+                }
+                ShardSyncStatus::StateSplitApplying => {
+                    debug_assert!(split_states);
+                    let result = self.split_state_roots.remove(&shard_id);
+                    if let Some(state_roots) = result {
+                        chain
+                            .build_state_for_split_shards_postprocessing(&sync_hash, state_roots)?;
+                        *shard_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateSyncDone,
+                        };
+                        this_done = true;
+                    }
+                }
+                ShardSyncStatus::StateSyncDone => {
                     this_done = true;
                 }
             }
@@ -883,6 +918,14 @@ impl StateSync {
 
     pub fn set_apply_result(&mut self, shard_id: ShardId, apply_result: Result<(), Error>) {
         self.state_parts_apply_results.insert(shard_id, apply_result);
+    }
+
+    pub fn set_split_result(
+        &mut self,
+        shard_id: ShardId,
+        result: Result<HashMap<ShardUId, StateRoot>, Error>,
+    ) {
+        self.split_state_roots.insert(shard_id, result);
     }
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
@@ -1034,8 +1077,6 @@ impl StateSync {
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
-                    file!(),
-                    line!(),
                     self.network_adapter
                         .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
                         .then(move |result| {
@@ -1070,8 +1111,6 @@ impl StateSync {
 
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
-                        file!(),
-                        line!(),
                         self.network_adapter
                             .send(NetworkRequests::StateRequestPart {
                                 shard_id,
@@ -1105,6 +1144,7 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();
@@ -1132,6 +1172,7 @@ impl StateSync {
             tracking_shards,
             now,
             state_parts_task_scheduler,
+            state_split_scheduler,
         )?;
 
         if have_block && all_done {

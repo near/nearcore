@@ -169,16 +169,6 @@ impl From<AccountId> for Box<str> {
     }
 }
 
-#[cfg(feature = "paperclip")]
-const _: () = {
-    use paperclip::v2::{models::DataType, schema::TypedData};
-    impl TypedData for AccountId {
-        fn data_type() -> DataType {
-            DataType::String
-        }
-    }
-};
-
 #[cfg(test)]
 mod tests {
     use super::*;

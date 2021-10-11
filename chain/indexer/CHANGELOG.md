@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+* (mainnet only) Add additional handler to inject restored receipts to the block #47317863. See [PR 4248](https://github.com/near/nearcore/pull/4248) for reference
+
 ## 0.10.0
 
 * Add additional logs on Indexer Framework start

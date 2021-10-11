@@ -10,7 +10,10 @@ use cached::{Cached, SizedCache};
 use chrono::Utc;
 use log::{debug, error, info, warn};
 
-use near_chain::chain::{ApplyStatePartsRequest, TX_ROUTING_HEIGHT_HORIZON};
+use near_chain::chain::{
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
+    TX_ROUTING_HEIGHT_HORIZON,
+};
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
 use near_chain::{
@@ -33,7 +36,6 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkV2, ReedSolomonWrapper,
     ShardChunkHeader, ShardInfo,
 };
-use near_primitives::syncing::ReceiptResponse;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -56,9 +58,9 @@ const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 pub struct Client {
     /// Adversarial controls
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_produce_blocks: bool,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
 
     pub config: ClientConfig,
@@ -74,8 +76,9 @@ pub struct Client {
     /// Approvals for which we do not have the block yet
     pub pending_approvals: SizedCache<ApprovalInner, HashMap<AccountId, (Approval, ApprovalType)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
-    /// storing the current status of the state sync
-    pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>)>,
+    /// storing the current status of the state sync and blocks catch up
+    pub catchup_state_syncs:
+        HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncDownload>, BlocksCatchUpState)>,
     /// Keeps track of information needed to perform the initial Epoch Sync
     pub epoch_sync: EpochSync,
     /// Keeps track of syncing headers.
@@ -157,9 +160,9 @@ impl Client {
         );
 
         Ok(Self {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_produce_blocks: false,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
             config,
             sync_status,
@@ -243,7 +246,7 @@ impl Client {
 
     /// Check that this block height is not known yet.
     fn known_block_height(&self, next_height: BlockHeight, known_height: BlockHeight) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks {
                 return false;
@@ -259,7 +262,7 @@ impl Client {
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks_only_valid {
                 return account_id == next_block_proposer;
@@ -291,7 +294,7 @@ impl Client {
             return Ok(true);
         }
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks {
                 return Ok(false);
@@ -368,9 +371,9 @@ impl Client {
         let validator_pk = validator_stake.take_public_key();
         if validator_pk != validator_signer.public_key() {
             debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
-            #[cfg(not(feature = "adversarial"))]
+            #[cfg(not(feature = "test_features"))]
             return Ok(None);
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             if !self.adv_produce_blocks || self.adv_produce_blocks_only_valid {
                 return Ok(None);
             }
@@ -436,7 +439,7 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
+        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -559,7 +562,7 @@ impl Client {
         let transactions = self.prepare_transactions(shard_id, &chunk_extra, &prev_block_header)?;
         let num_filtered_transactions = transactions.len();
         let (tx_root, _) = merklize(&transactions);
-        let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
+        let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
             last_header.height_included(),
@@ -1103,7 +1106,8 @@ impl Client {
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
-                            block.chunks()[shard_id as usize].clone(),
+                            Chain::get_prev_chunk_header(&*self.runtime_adapter, &block, shard_id)
+                                .unwrap(),
                             block.header().height() + 1,
                             shard_id,
                         ) {
@@ -1575,6 +1579,8 @@ impl Client {
         &mut self,
         highest_height_peers: &Vec<FullPeerInfo>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
@@ -1584,7 +1590,7 @@ impl Client {
             let new_shard_sync = {
                 let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
                 let need_to_split_states =
-                    self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
+                    self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
                 if need_to_split_states {
                     // If the client already has the state for this epoch, skip the downloading phase
                     let new_shard_sync = state_sync_info
@@ -1602,7 +1608,7 @@ impl Client {
                                     shard_id,
                                     ShardSyncDownload {
                                         downloads: vec![],
-                                        status: ShardSyncStatus::StateSplit,
+                                        status: ShardSyncStatus::StateSplitScheduling,
                                     },
                                 ))
                             } else {
@@ -1618,9 +1624,14 @@ impl Client {
                 }
             };
             let state_sync_timeout = self.config.state_sync_timeout;
-            let (state_sync, new_shard_sync) =
+            let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
+            let (state_sync, new_shard_sync, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
-                    (StateSync::new(network_adapter1, state_sync_timeout), new_shard_sync)
+                    (
+                        StateSync::new(network_adapter1, state_sync_timeout),
+                        new_shard_sync,
+                        BlocksCatchUpState::new(sync_hash.clone(), epoch_id),
+                    )
                 });
 
             debug!(
@@ -1637,47 +1648,56 @@ impl Client {
                 highest_height_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
+                state_split_scheduler,
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {
                     assert!(!fetch_block);
                 }
                 StateSyncResult::Completed => {
-                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                    let challenges = Arc::new(RwLock::new(vec![]));
-
-                    self.chain.catchup_blocks(
+                    self.chain.catchup_blocks_step(
                         me,
                         &sync_hash,
-                        |accepted_block| {
-                            accepted_blocks.write().unwrap().push(accepted_block);
-                        },
-                        |missing_chunks| {
-                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
-                        },
-                        |challenge| challenges.write().unwrap().push(challenge),
+                        blocks_catch_up_state,
+                        block_catch_up_task_scheduler,
                     )?;
 
-                    self.send_challenges(challenges);
+                    if blocks_catch_up_state.is_finished() {
+                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                        let challenges = Arc::new(RwLock::new(vec![]));
 
-                    self.shards_mgr.request_chunks(
-                        blocks_missing_chunks
-                            .write()
-                            .unwrap()
-                            .drain(..)
-                            .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                        &self.chain.header_head()?,
-                        // It is ok to pass the latest protocol version here since we are likely
-                        // syncing old blocks, which means the protocol version will not change
-                        // the logic. Even in the worst case where we are syncing a recent block,
-                        // the only impact is the request will be sent after some delay.
-                        PROTOCOL_VERSION,
-                    );
+                        self.chain.finish_catchup_blocks(
+                            me,
+                            &sync_hash,
+                            |accepted_block| {
+                                accepted_blocks.write().unwrap().push(accepted_block);
+                            },
+                            |missing_chunks| {
+                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            },
+                            |challenge| challenges.write().unwrap().push(challenge),
+                            &blocks_catch_up_state.done_blocks,
+                        )?;
 
-                    let unwrapped_accepted_blocks =
-                        accepted_blocks.write().unwrap().drain(..).collect();
-                    return Ok(unwrapped_accepted_blocks);
+                        self.send_challenges(challenges);
+
+                        self.shards_mgr.request_chunks(
+                            blocks_missing_chunks
+                                .write()
+                                .unwrap()
+                                .drain(..)
+                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
+                            &self.chain.header_head()?,
+                            // It is ok to pass the latest protocol version here since we are likely
+                            // syncing old blocks, which means the protocol version will not change
+                            // the logic. Even in the worst case where we are syncing a recent block,
+                            // the only impact is the request will be sent after some delay.
+                            PROTOCOL_VERSION,
+                        );
+
+                        return Ok(accepted_blocks.write().unwrap().drain(..).collect());
+                    }
                 }
             }
         }

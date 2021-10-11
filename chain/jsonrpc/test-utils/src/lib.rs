@@ -1,4 +1,4 @@
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use actix::Actor;
 use actix::Addr;
 
@@ -6,9 +6,9 @@ use near_chain_configs::GenesisConfig;
 use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
-#[cfg(feature = "adversarial")]
-use near_network::test_utils::make_peer_manager;
 use near_network::test_utils::open_port;
+#[cfg(feature = "test_features")]
+use near_network::test_utils::{make_ibf_routing_pool, make_peer_manager};
 use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
@@ -43,16 +43,24 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     );
 
     let addr = format!("127.0.0.1:{}", open_port());
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
+    let ibf_routing_pool = make_ibf_routing_pool();
+    #[cfg(feature = "test_features")]
     let peer_manager_addr =
-        make_peer_manager("test2", open_port(), vec![("test1", open_port())], 10).0.start();
+        make_peer_manager("test2", open_port(), vec![("test1", open_port())], 10, ibf_routing_pool)
+            .0
+            .start();
+    #[cfg(feature = "test_features")]
+    let ibf_routing_pool = make_ibf_routing_pool();
     start_http(
         RpcConfig::new(&addr),
         TEST_GENESIS_CONFIG.clone(),
         client_addr.clone(),
         view_client_addr.clone(),
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         peer_manager_addr,
+        #[cfg(feature = "test_features")]
+        ibf_routing_pool,
     );
     (view_client_addr, addr)
 }
