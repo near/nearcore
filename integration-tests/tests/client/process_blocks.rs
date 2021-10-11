@@ -20,8 +20,8 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, Genesis};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{
-    create_chunk_on_height, create_chunk_on_height_for_shard, run_catchup, setup_client,
-    setup_mock, setup_mock_all_validators, TestEnv,
+    create_chunk_on_height, run_catchup, setup_client, setup_mock, setup_mock_all_validators,
+    TestEnv,
 };
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
@@ -3938,7 +3938,19 @@ mod contract_precompilation_tests {
         // Check that contract is not cached for client 1 because of late state sync.
         assert!(caches[1].get(&contract_key.0).unwrap().is_none());
     }
+}
 
+#[cfg(feature = "protocol_feature_block_header_v3")]
+mod validator_selection_tests {
+    use crate::process_blocks::*;
+    use near_chain::{ChainGenesis, ChainStore, Provenance, RuntimeAdapter};
+    use near_client::test_utils::create_chunk_on_height_for_shard;
+    use near_client::test_utils::TestEnv;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_network::test_utils::MockNetworkAdapter;
+    use near_network::NetworkClientResponses;
+    use near_primitives::transaction::SignedTransaction;
+    use near_store::Store;
     #[test]
     fn test_block_producers_with_sampling() {
         init_test_logger();
