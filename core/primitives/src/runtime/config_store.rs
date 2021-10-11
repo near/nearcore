@@ -19,6 +19,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
+    #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+    (120, include_config!("120.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -109,10 +111,20 @@ mod tests {
             "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
+            #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+            "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
         ];
-        for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
-            assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
-        }
+        let actual_hashes = CONFIGS
+            .iter()
+            .map(|(_protocol_version, config_bytes)| to_base(&hash(config_bytes)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            expected_hashes, actual_hashes,
+            "\n
+Config hashes changed. \n
+If you add new config version, add a missing hash to the end of `expected_hashes` array.
+"
+        )
     }
 
     #[test]

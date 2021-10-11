@@ -123,6 +123,9 @@ pub enum ProtocolFeature {
     RoutingExchangeAlgorithm,
     #[cfg(feature = "protocol_feature_simple_nightshade")]
     SimpleNightshade,
+    /// Lowers the cost of wasm instruction due to switch to wasmer2.
+    #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+    LowerRegularOpCost,
 }
 
 /// Current latest stable version of the protocol.
@@ -133,7 +136,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 120;
+pub const PROTOCOL_VERSION: ProtocolVersion = 121;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -165,6 +168,8 @@ impl ProtocolFeature {
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_simple_nightshade")]
             ProtocolFeature::SimpleNightshade => 120,
+            #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+            ProtocolFeature::LowerRegularOpCost => 121,
         }
     }
 }
