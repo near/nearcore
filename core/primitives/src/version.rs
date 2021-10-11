@@ -117,12 +117,15 @@ pub enum ProtocolFeature {
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
-    SimpleNightshade,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
+    /// Lowers the cost of wasm instruction due to switch to wasmer2.
+    #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+    LowerRegularOpCost,
 }
 
 /// Current latest stable version of the protocol.
@@ -133,7 +136,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 119;
+pub const PROTOCOL_VERSION: ProtocolVersion = 121;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -159,12 +162,14 @@ impl ProtocolFeature {
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-            #[cfg(feature = "protocol_feature_simple_nightshade")]
-            ProtocolFeature::SimpleNightshade => 114,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            ProtocolFeature::SimpleNightshade => 120,
+            #[cfg(feature = "protocol_feature_lower_regular_op_cost")]
+            ProtocolFeature::LowerRegularOpCost => 121,
         }
     }
 }
