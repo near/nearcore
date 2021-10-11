@@ -26,7 +26,7 @@ pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
 pub const MAX_ACTIONS: usize = 100;
 
-const GAS_1: u64 = 900_000_000_000_000;
+const GAS_1: u64 = 9_000_000_000_000;
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
@@ -312,6 +312,9 @@ pub struct Contract {
 
 #[derive(Clone)]
 pub enum Function {
+    // #################
+    // # Test contract #
+    // #################
     StorageUsage,
     BlockIndex,
     BlockTimestamp,
@@ -328,6 +331,10 @@ pub enum Function {
     UsedGas,
     WriteKeyValue,
     WriteBlockHeight,
+    // ########################
+    // # Contract for fuzzing #
+    // ########################
+    SumOfNumbers,
 }
 
 impl Scope {
@@ -344,27 +351,33 @@ impl Scope {
     }
 
     fn construct_available_contracts() -> Vec<Contract> {
-        vec![Contract {
-            code: near_test_contracts::rs_contract().to_vec(),
-            functions: vec![
-                Function::StorageUsage,
-                Function::BlockIndex,
-                Function::BlockTimestamp,
-                Function::PrepaidGas,
-                Function::RandomSeed,
-                Function::PredecessorAccountId,
-                Function::SignerAccountPk,
-                Function::SignerAccountId,
-                Function::CurrentAccountId,
-                Function::AccountBalance,
-                Function::AttachedDeposit,
-                Function::ValidatorTotalStake,
-                Function::ExtSha256,
-                Function::UsedGas,
-                Function::WriteKeyValue,
-                Function::WriteBlockHeight,
-            ],
-        }]
+        vec![
+            Contract {
+                code: near_test_contracts::rs_contract().to_vec(),
+                functions: vec![
+                    Function::StorageUsage,
+                    Function::BlockIndex,
+                    Function::BlockTimestamp,
+                    Function::PrepaidGas,
+                    Function::RandomSeed,
+                    Function::PredecessorAccountId,
+                    Function::SignerAccountPk,
+                    Function::SignerAccountId,
+                    Function::CurrentAccountId,
+                    Function::AccountBalance,
+                    Function::AttachedDeposit,
+                    Function::ValidatorTotalStake,
+                    Function::ExtSha256,
+                    Function::UsedGas,
+                    Function::WriteKeyValue,
+                    Function::WriteBlockHeight,
+                ],
+            },
+            Contract {
+                code: near_test_contracts::rs_contract().to_vec(),
+                functions: vec![Function::SumOfNumbers],
+            },
+        ]
     }
 
     pub fn inc_height(&mut self) {
@@ -441,6 +454,9 @@ impl Function {
         let mut res =
             FunctionCallAction { method_name: String::new(), args: vec![], gas: GAS_1, deposit: 0 };
         match self {
+            // #################
+            // # Test contract #
+            // #################
             Function::StorageUsage => {
                 res.method_name = "ext_storage_usage".to_string();
             }
@@ -501,6 +517,14 @@ impl Function {
             }
             Function::WriteBlockHeight => {
                 res.method_name = "write_block_height".to_string();
+            }
+            // ########################
+            // # Contract for fuzzing #
+            // ########################
+            Function::SumOfNumbers => {
+                let args = u.int_in_range::<u64>(1..=1_000)?.to_le_bytes();
+                res.method_name = "sum_of_numbers".to_string();
+                res.args = args.to_vec();
             }
         };
         Ok(res)
