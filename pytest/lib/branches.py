@@ -3,6 +3,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import typing
 
 import semver
 from configured_logger import logger
@@ -45,7 +46,20 @@ def latest_rc_branch():
     return semver.VersionInfo.parse(releases[0].title).finalize_version()
 
 
-def compile_binary(branch):
+class Executables(typing.NamedTuple):
+    root: pathlib.Path
+    neard: pathlib.Path
+    state_viewer: pathlib.Path
+
+    def node_config(self) -> typing.Dict[str, typing.Any]:
+        return {
+            'local': True,
+            'neard_root': self.root,
+            'binary_name': self.neard.name
+        }
+
+
+def _compile_binary(branch: str) -> Executables:
     """For given branch, compile binary.
 
     Stashes current changes, switches branch and then returns everything back.
@@ -55,28 +69,29 @@ def compile_binary(branch):
     stash_output = subprocess.check_output(['git', 'stash'])
     subprocess.check_output(['git', 'checkout', str(branch)])
     subprocess.check_output(['git', 'pull', 'origin', str(branch)])
-    compile_current(branch)
+    result = _compile_current(branch)
     subprocess.check_output(['git', 'checkout', prev_branch])
     if stash_output != b"No local changes to save\n":
         subprocess.check_output(['git', 'stash', 'pop'])
+    return result
 
 
 def escaped(branch):
     return branch.replace('/', '-')
 
 
-def compile_current(branch=None):
+def _compile_current(branch: str) -> Executables:
     """Compile current branch."""
-    if branch is None:
-        branch = current_branch()
     subprocess.check_call(['cargo', 'build', '-p', 'neard', '--bin', 'neard'])
     subprocess.check_call(['cargo', 'build', '-p', 'near-test-contracts'])
     subprocess.check_call(['cargo', 'build', '-p', 'state-viewer'])
     branch = escaped(branch)
-    os.rename('../target/debug/neard', '../target/debug/neard-%s' % branch)
-    os.rename('../target/debug/state-viewer',
-              '../target/debug/state-viewer-%s' % branch)
-    subprocess.check_call(['git', 'checkout', '../Cargo.lock'])
+    build_dir = pathlib.Path('../target/debug')
+    neard = build_dir / f'neard-{branch}'
+    state_viewer = build_dir / f'state-viewer-{branch}'
+    (build_dir / 'neard').rename(neard)
+    (build_dir / 'state-viewer').rename(state_viewer)
+    return Executables(build_dir, neard, state_viewer)
 
 
 def download_file_if_missing(filename: pathlib.Path, url: str) -> None:
@@ -119,28 +134,40 @@ def download_binary(uname, branch):
     outdir = pathlib.Path('../target/debug')
     basehref = ('https://s3-us-west-1.amazonaws.com/build.nearprotocol.com'
                 f'/nearcore/{uname}/{branch}/')
-    download_file_if_missing(outdir / f'neard-{branch}', basehref + 'neard')
-    download_file_if_missing(outdir / f'state-viewer-{branch}',
-                             basehref + 'state-viewer')
+    neard = outdir / f'neard-{branch}'
+    state_viewer = outdir / f'state-viewer-{branch}'
+    download_file_if_missing(neard, basehref + 'neard')
+    download_file_if_missing(state_viewer, basehref + 'state-viewer')
+    return Executables(outdir, neard, state_viewer)
 
 
-def prepare_ab_test(other_branch):
+class ABExecutables(typing.NamedTuple):
+    stable: Executables
+    current: Executables
+
+
+def prepare_ab_test(stable_branch):
     # Use NEAR_AB_BINARY_EXISTS to avoid rebuild / re-download when testing locally.
     #if not os.environ.get('NEAR_AB_BINARY_EXISTS'):
-    #    compile_current()
+    #    _compile_current(current_branch())
     #    uname = os.uname()[0]
-    #    if other_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
-    #        download_binary(uname, other_branch)
+    #    if stable_branch in ['master', 'beta', 'stable'] and uname in ['Linux', 'Darwin']:
+    #        download_binary(uname, stable_branch)
     #    else:
-    uname = os.uname()[0]
-    if not os.getenv('NAYDUCK'):
-        compile_current()
+    is_nayduck = bool(os.getenv('NAYDUCK'))
+
+    if is_nayduck:
+        # On NayDuck the file is fetched from a builder host so there’s no need
+        # to build it.
+        root = pathlib.Path('../target/debug/')
+        current = Executables(root, root / 'neard', root / 'state-viewer')
+    else:
+        current = _compile_current(current_branch())
+
     try:
-        download_binary(uname, other_branch)
+        stable = download_binary(os.uname()[0], stable_branch)
     except Exception:
-        if not os.getenv('NAYDUCK'):
-            compile_binary(str(other_branch))
-        else:
-            logger.critical('RC binary should be downloaded for NayDuck.')
-            sys.exit(1)
-    return '../target/debug/', [other_branch, escaped(current_branch())]
+        if is_nayduck:
+            sys.exit('RC binary should be downloaded for NayDuck.')
+        stable = _compile_binary(str(other_branch))
+    return ABExecutables(stable=stable, current=current)

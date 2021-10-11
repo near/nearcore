@@ -684,9 +684,16 @@ pub(crate) fn outcome_indexed_by_block_hash(
         let mut outcome_ids = vec![];
         for chunk_header in block.chunks().iter() {
             if chunk_header.height_included() == block.header().height() {
+                let shard_uid = sv
+                    .runtime_adapter
+                    .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
+                    .map_err(|err| StoreValidatorError::DBNotFound {
+                        func_name: String::from("get_shard_layout"),
+                        reason: err.to_string(),
+                    })?;
                 if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
                     ColChunkExtra,
-                    &get_block_shard_id(block.hash(), chunk_header.shard_id()),
+                    &get_block_shard_uid(block.hash(), &shard_uid),
                 ) {
                     outcome_ids.extend(unwrap_or_err_db!(
                         sv.store.get_ser::<Vec<CryptoHash>>(
