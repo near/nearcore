@@ -169,10 +169,10 @@ network_schema = [
                 ['Disconnect', ()],
                 ['Challenge', None],  # TODO
                 ['HandshakeV2', HandshakeV2],
-                ['EpochSyncRequest', None], # TODO
-                ['EpochSyncResponse', None], # TODO
-                ['EpochSyncFinalizationRequest', None], # TODO
-                ['EpochSyncFinalizationResponse', None], # TODO
+                ['EpochSyncRequest', None],  # TODO
+                ['EpochSyncResponse', None],  # TODO
+                ['EpochSyncFinalizationRequest', None],  # TODO
+                ['EpochSyncFinalizationResponse', None],  # TODO
                 ['RoutingTableSyncV2', RoutingTableSyncV2],
             ]
         }
@@ -502,16 +502,10 @@ network_schema = [
         }
     ],
     [
-        RoutingTableSyncV2,
-        {
+        RoutingTableSyncV2, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [
-                [
-                    'Version2',
-                    RoutingVersion2
-                ]
-            ]
+            'values': [['Version2', RoutingVersion2]]
         }
     ],
     [
@@ -525,7 +519,8 @@ network_schema = [
     ],
     [
         RoutingVersion2, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['known_edges', 'u64'],
                 ['seed', 'u64'],
@@ -536,8 +531,10 @@ network_schema = [
     ],
     [
         RoutingState, {
-            'kind': 'enum',
-            'field': 'enum',
+            'kind':
+                'enum',
+            'field':
+                'enum',
             'values': [
                 ['PartialSync', PartialSync],
                 ['RequestAllEdges', ()],
@@ -557,4 +554,3 @@ network_schema = [
         }
     ]
 ]
-

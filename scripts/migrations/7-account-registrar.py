@@ -34,14 +34,14 @@ near_access_key_records = []
 
 # Removing existing `registrar` account.
 for record in config['records']:
-    if ('Account' in record) and (
-            record['Account']['account_id'] == 'registrar'):
+    if ('Account' in record) and (record['Account']['account_id']
+                                  == 'registrar'):
         continue
-    if ('AccessKey' in record) and (
-            record['AccessKey']['account_id'] == 'registrar'):
+    if ('AccessKey' in record) and (record['AccessKey']['account_id']
+                                    == 'registrar'):
         continue
-    if ('AccessKey' in record) and (
-            record['AccessKey']['account_id'] == 'near'):
+    if ('AccessKey' in record) and (record['AccessKey']['account_id']
+                                    == 'near'):
         near_access_key_records.append(record['AccessKey'])
     records.append(record)
 

@@ -54,34 +54,25 @@ def send_some_tx(node):
 
 
 def main():
-    neard_root, (stable_branch,
-                 current_branch) = branches.prepare_ab_test("master")
+    executables = branches.prepare_ab_test('master')
     node_root = get_near_tempdir('db_migration', clean=True)
 
-    logging.info(f"The near root is {neard_root}...")
+    logging.info(f"The near root is {executables.stable.root}...")
     logging.info(f"The node root is {node_root}...")
 
-    init_command = [
-        "%sneard-%s" % (neard_root, stable_branch),
+    # Init local node
+    subprocess.call((
+        executables.stable.neard,
         "--home=%s" % node_root,
         "init",
         "--fast",
-    ]
-
-    # Init local node
-    subprocess.call(init_command)
+    ))
 
     # Run stable node for few blocks.
-    config = {
-        "local": True,
-        'neard_root': neard_root,
-        'binary_name': "neard-%s" % stable_branch
-    }
-
     logging.info("Starting the stable node...")
-
-    node = cluster.spin_up_node(config, neard_root, str(node_root), 0, None,
-                                None)
+    config = executables.stable.node_config()
+    node = cluster.spin_up_node(config, executables.stable.root, str(node_root),
+                                0, None, None)
 
     logging.info("Running the stable node...")
     wait_for_blocks_or_timeout(node, 20, 100)
@@ -95,9 +86,8 @@ def main():
         "Stable node has produced blocks... Stopping the stable node... ")
 
     # Run new node and verify it runs for a few more blocks.
-    config["binary_name"] = "neard-%s" % current_branch
-
     logging.info("Starting the current node...")
+    config = executables.current.node_config()
     node.binary_name = config['binary_name']
     node.start(node.node_key.pk, node.addr())
 
