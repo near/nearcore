@@ -19,6 +19,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (49, include_config!("49.json")),
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+    (120, include_config!("120.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -79,6 +81,8 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+    use crate::version::ProtocolFeature::LimitContractFunctionsNumber;
     use crate::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
@@ -109,6 +113,7 @@ mod tests {
             "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
+            "5pfviWyZugkUbFGd8usBBFRk27BkuwqHb8GN18s4fnwS",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
             assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
@@ -202,5 +207,15 @@ mod tests {
             base_cfg.wasm_config.ext_costs.ecrecover_base
                 > new_cfg.wasm_config.ext_costs.ecrecover_base
         );
+    }
+
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+    #[test]
+    fn test_set_max_functions_number() {
+        let store = RuntimeConfigStore::new(None);
+        let base_cfg = store.get_config(LimitContractFunctionsNumber.protocol_version() - 1);
+        let new_cfg = store.get_config(LimitContractFunctionsNumber.protocol_version());
+        assert!(base_cfg.wasm_config.limit_config.max_functions_number.is_none());
+        assert!(new_cfg.wasm_config.limit_config.max_functions_number.is_some());
     }
 }

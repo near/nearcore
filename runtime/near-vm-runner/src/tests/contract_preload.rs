@@ -19,7 +19,9 @@ use near_vm_errors::FunctionCallError::CompilationError;
 use near_vm_errors::PrepareError::TooManyFunctions;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use rand::distributions::Alphanumeric;
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
