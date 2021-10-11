@@ -1,8 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use tracing::{debug, info};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
@@ -19,7 +17,7 @@ use nearcore::NightshadeRuntime;
 fn inc_and_report_progress(cnt: &AtomicU64) {
     let prev = cnt.fetch_add(1, Ordering::Relaxed);
     if (prev + 1) % 10000 == 0 {
-        info!("Processed {} blocks", prev + 1);
+        println!("Processed {} blocks", prev + 1);
     }
 }
 
@@ -36,57 +34,50 @@ pub fn apply_chain_range(
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
 
-    info!(
+    println!(
         "Applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
     );
 
-    debug!("============================");
-    debug!("Printing results including outcomes of applying receipts");
+    println!("Printing results including outcomes of applying receipts");
 
-    let progress_bar = ProgressBar::new(end_height - start_height + 1);
-    progress_bar.set_style(
-        ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:80} {pos:>8}/{len:8}"),
-    );
     let processed_blocks_cnt = AtomicU64::new(0);
-    // For some reason I can't call `par_iter` directly on the range.
-    (start_height..=end_height).collect::<Vec<u64>>().par_iter().progress_with(progress_bar).for_each(|height| {
-        let height = *height;
+    (start_height..=end_height).into_par_iter().for_each(|height| {
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
-        let block_hash = if let Ok(block_hash) = chain_store.get_block_hash_by_height(height) {
-            block_hash
-        } else {
-            // Skipping block because it's not available in ChainStore.
-            inc_and_report_progress(&processed_blocks_cnt);
-            return;
+        let block_hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(block_hash) => block_hash,
+            Err(_) => {
+                // Skipping block because it's not available in ChainStore.
+                inc_and_report_progress(&processed_blocks_cnt);
+                return;
+            },
         };
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         let shard_uid =
             runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-        assert!(block.chunks().len() > 0);
+        assert!(block.chunks().len()>0);
         let mut existing_chunk_extra = None;
         let mut prev_chunk_extra = None;
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
-            info!(target:"state-viewer", "Skipping the genesis block #{}.", height);
+            println!("Skipping the genesis block #{}.", height);
             inc_and_report_progress(&processed_blocks_cnt);
             return;
         } else if block.chunks()[shard_id as usize].height_included() == height {
             let res_existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
-            assert!(res_existing_chunk_extra.is_ok(), "Can't get existing chunk extra for block {} at shard {:?}", block_hash, shard_uid);
+            assert!(res_existing_chunk_extra.is_ok(), "Can't get existing chunk extra for block #{}", height);
             existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
             let chunk = chain_store
                 .get_chunk(&block.chunks()[shard_id as usize].chunk_hash())
                 .unwrap()
                 .clone();
 
-            let prev_block = if let Ok(prev_block) =
-            chain_store.get_block(&block.header().prev_hash())
-            {
-                prev_block.clone()
-            } else {
-                info!(target:"state-viewer", "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
-                inc_and_report_progress(&processed_blocks_cnt);
-                return;
+            let prev_block = match chain_store.get_block(&block.header().prev_hash()) {
+                Ok(prev_block) => prev_block.clone(),
+                Err(_) => {
+                    println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                    inc_and_report_progress(&processed_blocks_cnt);
+                    return;
+                },
             };
 
             let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
@@ -108,11 +99,11 @@ pub fn apply_chain_range(
                     shard_id,
                 )
                     .unwrap();
+
             runtime_adapter
                 .apply_transactions(
                     shard_id,
                     chunk_inner.prev_state_root(),
-                    None,
                     height,
                     block.header().raw_timestamp(),
                     block.header().prev_hash(),
@@ -137,7 +128,6 @@ pub fn apply_chain_range(
                 .apply_transactions(
                     shard_id,
                     chunk_extra.state_root(),
-                    None,
                     block.header().height(),
                     block.header().raw_timestamp(),
                     block.header().prev_hash(),
@@ -156,7 +146,6 @@ pub fn apply_chain_range(
                 .unwrap()
         };
 
-        println!("outcomes: {:#?}", apply_result.outcomes);
         let (outcome_root, _) =
             ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
         let chunk_extra = ChunkExtra::new(
@@ -168,20 +157,21 @@ pub fn apply_chain_range(
             apply_result.total_balance_burnt,
         );
 
-        if let Some(existing_chunk_extra) = existing_chunk_extra {
-            println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-            assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-            debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-        } else {
-            assert!(prev_chunk_extra.is_some());
+        match existing_chunk_extra {
+            Some(existing_chunk_extra) => {
+                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+                assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+            },
+            None => {
+                assert!(prev_chunk_extra.is_some());
             assert!(apply_result.outcomes.is_empty());
-            debug!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
             println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
-        }
+            },
+        };
         inc_and_report_progress(&processed_blocks_cnt);
     });
 
-    info!(
+    println!(
         "No differences found after applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
     );
@@ -196,7 +186,6 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
-    use near_primitives::runtime::config_store::RuntimeConfigStore;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
     use near_store::test_utils::create_test_store;
@@ -214,16 +203,7 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
-        );
+        let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -241,8 +221,10 @@ mod test {
         env: &mut TestEnv,
         initial_height: BlockHeight,
         num_blocks: BlockHeightDelta,
+        block_without_chunks: Option<BlockHeight>,
     ) {
         let mut h = initial_height;
+        let mut blocks = vec![];
         for _ in 1..=num_blocks {
             let mut block = None;
             // `env.clients[0]` may not be the block producer at `h`,
@@ -251,7 +233,18 @@ mod test {
                 block = env.clients[0].produce_block(h).unwrap();
                 h += 1;
             }
-            env.process_block(0, block.unwrap(), Provenance::PRODUCED);
+            let mut block = block.unwrap();
+            if let Some(block_without_chunks) = block_without_chunks {
+                if block_without_chunks == h {
+                    assert!(!blocks.is_empty());
+                    testlib::process_blocks::set_no_chunk_in_block(
+                        &mut block,
+                        &blocks.last().unwrap(),
+                    )
+                }
+            }
+            blocks.push(block.clone());
+            env.process_block(0, block, Provenance::PRODUCED);
         }
     }
 
@@ -271,18 +264,31 @@ mod test {
         );
         env.clients[0].process_tx(tx, false, false);
 
-        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-            RuntimeConfigStore::test(),
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        apply_chain_range(store, &genesis, None, None, 0, runtime);
+    }
+
+    #[test]
+    fn test_apply_chain_range_no_chunks() {
+        let epoch_length = 4;
+        let (store, genesis, mut env) = setup(epoch_length);
+        let genesis_hash = *env.clients[0].chain.genesis().hash();
+        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let tx = SignedTransaction::stake(
+            1,
+            "test1".parse().unwrap(),
+            &signer,
+            TESTING_INIT_STAKE,
+            signer.public_key.clone(),
+            genesis_hash,
         );
+        env.clients[0].process_tx(tx, false, false);
+
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(4));
+
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         apply_chain_range(store, &genesis, None, None, 0, runtime);
     }
 }
