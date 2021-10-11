@@ -34,7 +34,7 @@ struct TestShardUpgradeEnv {
     initial_accounts: Vec<AccountId>,
     init_txs: Vec<SignedTransaction>,
     txs_by_height: HashMap<u64, Vec<SignedTransaction>>,
-    _epoch_length: u64,
+    epoch_length: u64,
     num_validators: usize,
     num_clients: usize,
 }
@@ -69,7 +69,7 @@ impl TestShardUpgradeEnv {
         Self {
             env,
             initial_accounts,
-            _epoch_length: epoch_length,
+            epoch_length,
             num_validators,
             num_clients,
             init_txs: vec![],
@@ -92,6 +92,7 @@ impl TestShardUpgradeEnv {
     /// also checks that all accounts in initial_accounts are intact
     fn step(&mut self) {
         let env = &mut self.env;
+        let mut rng = thread_rng();
         let head = env.clients[0].chain.head().unwrap();
         let height = head.height + 1;
 
@@ -131,9 +132,17 @@ impl TestShardUpgradeEnv {
             block_producer.clone(),
             SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
         );
+        // make sure that catchup is done before the end of each epoch, but when it is done is
+        // by chance. This simulates when catchup takes a long time to be done
+        let should_catchup = rng.gen_bool(0.2) || height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
-            env.process_block(j as usize, block.clone(), Provenance::NONE);
+            env.process_block_with_optional_catchup(
+                j as usize,
+                block.clone(),
+                Provenance::NONE,
+                should_catchup,
+            );
         }
 
         env.process_partial_encoded_chunks();
@@ -449,6 +458,7 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
             .collect()
         };
 
+    // add a bunch of transactions before the two epoch boundaries
     for height in vec![
         epoch_length - 2,
         epoch_length - 1,
