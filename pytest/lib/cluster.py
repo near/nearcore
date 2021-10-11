@@ -257,7 +257,7 @@ class LocalNode(BaseNode):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
-        self.near_root = near_root
+        self.near_root = str(near_root)
         self.node_dir = node_dir
         self.binary_name = binary_name or 'neard'
         self.cleaned = False

@@ -9,7 +9,6 @@ use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
@@ -111,16 +110,7 @@ pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
-        let runtime = NightshadeRuntime::new(
-            path,
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
         store_update.commit().unwrap();
@@ -223,16 +213,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
-        let runtime = NightshadeRuntime::new(
-            path,
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
         let shard_uid = ShardUId::default();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -293,16 +274,7 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let runtime = NightshadeRuntime::new(
-            path,
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), &near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];

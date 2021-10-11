@@ -29,7 +29,7 @@ impl VMKind {
             return VMKind::Wasmer2;
         }
 
-        if checked_feature!("protocol_feature_wasmer2", Wasmer2, protocol_version) {
+        if checked_feature!("stable", Wasmer2, protocol_version) {
             VMKind::Wasmer2
         } else {
             VMKind::Wasmer0

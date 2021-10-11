@@ -18,8 +18,7 @@ macro_rules! include_config {
 static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
-    (119, include_config!("119.json")),
+    (48, include_config!("48.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -80,8 +79,7 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
-    use crate::version::ProtocolFeature::LowerEcrecoverBaseCost;
+    use crate::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
 
@@ -157,11 +155,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_lower_data_receipt_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
                 > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
@@ -175,7 +172,6 @@ mod tests {
     // Check that for protocol version with lowered data receipt cost, runtime config passed to
     // config store is overridden.
     #[test]
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_override_runtime_config() {
         let store = RuntimeConfigStore::new(Some(&RuntimeConfig::free()));
         let config = store.get_config(0);
@@ -189,7 +185,7 @@ mod tests {
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
         );
 
-        let config = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
             config.as_ref(),
@@ -198,11 +194,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_lower_ecrecover_base_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.wasm_config.ext_costs.ecrecover_base
                 > new_cfg.wasm_config.ext_costs.ecrecover_base

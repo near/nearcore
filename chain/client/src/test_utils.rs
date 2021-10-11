@@ -1260,13 +1260,19 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    /// Process a given block in the client with index `id`.
-    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
-    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+    pub fn process_block_with_optional_catchup(
+        &mut self,
+        id: usize,
+        block: Block,
+        provenance: Provenance,
+        should_run_catchup: bool,
+    ) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
-        accepted_blocks.extend(more_accepted_blocks);
+        if should_run_catchup {
+            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
+            accepted_blocks.extend(more_accepted_blocks);
+        }
         for accepted_block in accepted_blocks {
             self.clients[id].on_block_accepted(
                 accepted_block.hash,
@@ -1274,6 +1280,12 @@ impl TestEnv {
                 accepted_block.provenance,
             );
         }
+    }
+
+    /// Process a given block in the client with index `id`.
+    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
+    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+        self.process_block_with_optional_catchup(id, block, provenance, true);
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1291,23 +1303,17 @@ impl TestEnv {
         let network_adapters = self.network_adapters.clone();
         for network_adapter in network_adapters {
             // process partial encoded chunks
-            loop {
-                if let Some(request) = network_adapter.pop() {
-                    match request {
-                        NetworkRequests::PartialEncodedChunkMessage {
-                            account_id,
-                            partial_encoded_chunk,
-                        } => {
-                            self.client(&account_id)
-                                .process_partial_encoded_chunk(MaybeValidated::NotValidated(
-                                    partial_encoded_chunk.into(),
-                                ))
-                                .unwrap();
-                        }
-                        _ => {}
-                    }
-                } else {
-                    break;
+            while let Some(request) = network_adapter.pop() {
+                if let NetworkRequests::PartialEncodedChunkMessage {
+                    account_id,
+                    partial_encoded_chunk,
+                } = request
+                {
+                    self.client(&account_id)
+                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                            partial_encoded_chunk.into(),
+                        ))
+                        .unwrap();
                 }
             }
         }
