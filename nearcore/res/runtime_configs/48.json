@@ -151,7 +151,7 @@
       "validator_total_stake_base": 911834726400
     },
     "grow_mem_cost": 1,
-    "regular_op_cost": 3856371,
+    "regular_op_cost": 2207874,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
       "max_gas_burnt_view": 200000000000000,
