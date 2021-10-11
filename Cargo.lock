@@ -3268,6 +3268,7 @@ dependencies = [
  "near-vm-logic",
  "parity-wasm",
  "pwasm-utils",
+ "rand 0.7.3",
  "serde",
  "threadpool",
  "tracing",
