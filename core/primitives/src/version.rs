@@ -117,23 +117,23 @@ pub enum ProtocolFeature {
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
-    SimpleNightshade,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
 }
 
 /// Current latest stable version of the protocol.
 /// Some features (e. g. FixStorageUsage) require that there is at least one epoch with exactly
 /// the corresponding version
 #[cfg(not(feature = "nightly_protocol"))]
-pub const PROTOCOL_VERSION: ProtocolVersion = 49;
+pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 119;
+pub const PROTOCOL_VERSION: ProtocolVersion = 120;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -142,30 +142,29 @@ impl ProtocolFeature {
             ProtocolFeature::LowerStorageCost => 42,
             ProtocolFeature::DeleteActionRestriction => 43,
             ProtocolFeature::FixApplyChunks => 44,
-            ProtocolFeature::ForwardChunkParts => 45,
-            ProtocolFeature::RectifyInflation => 45,
-            ProtocolFeature::AccessKeyNonceRange => 45,
-            ProtocolFeature::AccountVersions => 46,
-            ProtocolFeature::TransactionSizeLimit => 46,
-            ProtocolFeature::FixStorageUsage => 46,
-            ProtocolFeature::CapMaxGasPrice => 46,
-            ProtocolFeature::CountRefundReceiptsInGasLimit => 46,
-            ProtocolFeature::MathExtension => 46,
+            ProtocolFeature::ForwardChunkParts
+            | ProtocolFeature::RectifyInflation
+            | ProtocolFeature::AccessKeyNonceRange => 45,
+            ProtocolFeature::AccountVersions
+            | ProtocolFeature::TransactionSizeLimit
+            | ProtocolFeature::FixStorageUsage
+            | ProtocolFeature::CapMaxGasPrice
+            | ProtocolFeature::CountRefundReceiptsInGasLimit
+            | ProtocolFeature::MathExtension => 46,
             ProtocolFeature::RestoreReceiptsAfterFix => 47,
-            ProtocolFeature::Wasmer2 => 48,
-            ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost => 49,
+            ProtocolFeature::Wasmer2 | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost => 48,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-            #[cfg(feature = "protocol_feature_simple_nightshade")]
-            ProtocolFeature::SimpleNightshade => 114,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            ProtocolFeature::SimpleNightshade => 120,
         }
     }
 }

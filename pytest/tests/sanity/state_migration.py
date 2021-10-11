@@ -24,9 +24,7 @@ from utils import wait_for_blocks_or_timeout, get_near_tempdir
 
 def main():
     node_root = get_near_tempdir('state_migration', clean=True)
-
-    near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test("beta")
+    executables = branches.prepare_ab_test('beta')
 
     # Run stable node for few blocks.
     subprocess.call([
