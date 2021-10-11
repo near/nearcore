@@ -164,8 +164,8 @@ pub fn apply_chain_range(
             },
             None => {
                 assert!(prev_chunk_extra.is_some());
-            assert!(apply_result.outcomes.is_empty());
-            println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+                assert!(apply_result.outcomes.is_empty());
+                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
             },
         };
         inc_and_report_progress(&processed_blocks_cnt);

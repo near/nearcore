@@ -34,6 +34,7 @@ use nearcore::{get_default_home, get_store_path, load_config, NearConfig, Nights
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
 
+mod apply_chain_range;
 mod state_dump;
 
 #[allow(unused)]
