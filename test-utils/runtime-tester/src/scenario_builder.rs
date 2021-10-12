@@ -69,7 +69,7 @@ impl ScenarioBuilder {
     }
 
     /// Changes max_total_prepaid_gas
-    pub fn max_total_prepaid_gas(mut self, max_total_prepaid_gas: Gas) {
+    pub fn max_total_prepaid_gas(mut self, max_total_prepaid_gas: Gas) -> Self {
         self.scenario.runtime_config.max_total_prepaid_gas = max_total_prepaid_gas;
         self
     }
