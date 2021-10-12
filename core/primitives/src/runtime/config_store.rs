@@ -20,7 +20,7 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    (120, include_config!("120.json")),
+    (123, include_config!("123.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -112,12 +112,20 @@ mod tests {
         let expected_hashes = vec![
             "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
-            "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
+            "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
             "2NGvpASXyKxPcqJDsJNgi9U4qiRt7Bww5Q4GzLjcGT6m",
         ];
-        for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
-            assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
-        }
+        let actual_hashes = CONFIGS
+            .iter()
+            .map(|(_protocol_version, config_bytes)| to_base(&hash(config_bytes)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            expected_hashes, actual_hashes,
+            "\n
+Config hashes changed. \n
+If you add new config version, add a missing hash to the end of `expected_hashes` array.
+"
+        )
     }
 
     #[test]
