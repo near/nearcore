@@ -1,4 +1,4 @@
-use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
+use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     transaction::Action,
@@ -47,11 +47,17 @@ impl ScenarioBuilder {
     /// Default `use_in_memory_store` -- true.
     pub fn new() -> Self {
         let network_config = NetworkConfig { seeds: (0..4).map(|x| id_to_seed(x)).collect() };
+        let runtime_config = RuntimeConfig { max_total_prepaid_gas: 300 * 10u64.pow(12) };
 
         ScenarioBuilder {
             height: 1,
             nonce: 1,
-            scenario: Scenario { network_config, blocks: vec![], use_in_memory_store: true },
+            scenario: Scenario {
+                network_config,
+                runtime_config,
+                blocks: vec![],
+                use_in_memory_store: true,
+            },
         }
     }
 

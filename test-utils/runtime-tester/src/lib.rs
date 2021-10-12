@@ -8,7 +8,7 @@ pub mod fuzzing;
 pub mod run_test;
 pub mod scenario_builder;
 
-pub use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
+pub use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 pub use crate::scenario_builder::ScenarioBuilder;
 
 #[test]

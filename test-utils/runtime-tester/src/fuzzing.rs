@@ -1,4 +1,4 @@
-use crate::run_test::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
+use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission},
@@ -26,7 +26,7 @@ pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
 pub const MAX_ACTIONS: usize = 100;
 
-const GAS_1: u64 = 9_000_000_000_000;
+const GAS_1: u64 = 900_000_000_000_000;
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
@@ -37,13 +37,14 @@ impl Arbitrary<'_> for Scenario {
         let mut scope = Scope::from_seeds(&seeds);
 
         let network_config = NetworkConfig { seeds };
+        let runtime_config = RuntimeConfig { max_total_prepaid_gas: GAS_1 * 100 };
 
         let mut blocks = vec![];
 
         while blocks.len() < MAX_BLOCKS && u.len() > BlockConfig::size_hint(0).0 {
             blocks.push(BlockConfig::arbitrary(u, &mut scope)?);
         }
-        Ok(Scenario { network_config, blocks, use_in_memory_store: true })
+        Ok(Scenario { network_config, runtime_config, blocks, use_in_memory_store: true })
     }
 
     fn size_hint(_depth: usize) -> (usize, Option<usize>) {
