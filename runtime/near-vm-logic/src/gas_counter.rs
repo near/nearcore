@@ -24,15 +24,35 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
 
 type Result<T> = ::std::result::Result<T, VMLogicError>;
 
+/// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FastGasCounter {
+    /// The following three fields must be put next to another to make sure
+    /// generated gas counting code can use and adjust them.
+    /// We will share counter to ensure we never miss synchronization.
+    /// This could change and in such a case synchronization required between compiled WASM code
+    /// and the host code.
+
+    /// The amount of gas that was irreversibly used for contract execution.
+    burnt_gas: u64,
+    /// Hard gas limit for execution
+    gas_limit: u64,
+    /// Single WASM opcode cost
+    opcode_cost: u64,
+}
+
 /// Gas counter (a part of VMlogic)
 pub struct GasCounter {
-    /// The amount of gas that was irreversibly used for contract execution.
-    burnt_gas: Gas,
-    /// `burnt_gas` + gas that was attached to the promises.
-    used_gas: Gas,
-    /// Gas limit for execution
+    /// Shared gas counter data.
+    fast_counter: FastGasCounter,
+    /// Gas that was attached to the promises.
+    promises_gas: Gas,
+    /// Hard gas limit for execution
     max_gas_burnt: Gas,
+    /// Amount of prepaid gas, we can never burn more than prepaid amount
     prepaid_gas: Gas,
+    /// If this is a view-only call.
     is_view: bool,
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
@@ -49,14 +69,20 @@ impl GasCounter {
     pub fn new(
         ext_costs_config: ExtCostsConfig,
         max_gas_burnt: Gas,
+        opcode_cost: u32,
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
+        use std::cmp::min;
         Self {
             ext_costs_config,
-            burnt_gas: 0,
-            used_gas: 0,
-            max_gas_burnt,
+            fast_counter: FastGasCounter {
+                burnt_gas: 0,
+                gas_limit: min(max_gas_burnt, prepaid_gas),
+                opcode_cost: Gas::from(opcode_cost),
+            },
+            max_gas_burnt: max_gas_burnt,
+            promises_gas: 0,
             prepaid_gas,
             is_view,
             profile: Default::default(),
@@ -64,31 +90,71 @@ impl GasCounter {
     }
 
     fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
+        use std::cmp::min;
         assert!(burn_gas <= use_gas);
+        let promise_gas = use_gas - burn_gas;
+        let new_promises_gas =
+            self.promises_gas.checked_add(promise_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas =
-            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
+            self.fast_counter.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        let new_used_gas =
+            new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
         {
-            self.burnt_gas = new_burnt_gas;
-            self.used_gas = new_used_gas;
+            if promise_gas != 0 {
+                self.fast_counter.gas_limit =
+                    min(self.max_gas_burnt, self.prepaid_gas - new_promises_gas);
+            }
+            self.fast_counter.burnt_gas = new_burnt_gas;
+            self.promises_gas = new_promises_gas;
             Ok(())
         } else {
-            use std::cmp::min;
-            let res = if new_burnt_gas > self.max_gas_burnt {
+            // if max_gas_burnt == prepaid_gas we must use GasExceeded error.
+            if new_burnt_gas > self.max_gas_burnt && self.max_gas_burnt != self.prepaid_gas {
+                self.fast_counter.burnt_gas = self.max_gas_burnt;
+                self.promises_gas = 0;
                 Err(HostError::GasLimitExceeded.into())
-            } else if new_used_gas > self.prepaid_gas {
-                Err(HostError::GasExceeded.into())
             } else {
-                unreachable!()
-            };
-
-            let max_burnt_gas = min(self.max_gas_burnt, self.prepaid_gas);
-            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
-            self.used_gas = min(new_used_gas, self.prepaid_gas);
-
-            res
+                self.fast_counter.burnt_gas = min(new_burnt_gas, self.prepaid_gas);
+                // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
+                // no promises will be kept, but that would mean protocol change.
+                // TODO: consider making this change!
+                assert!(self.prepaid_gas >= self.fast_counter.burnt_gas);
+                self.promises_gas = self.prepaid_gas - self.fast_counter.burnt_gas;
+                Err(HostError::GasExceeded.into())
+            }
         }
+    }
+
+    // Optimized version of above function for cases where no promises involved.
+    pub fn burn_gas(&mut self, value: Gas) -> Result<()> {
+        let new_burnt_gas =
+            self.fast_counter.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
+        if new_burnt_gas <= self.fast_counter.gas_limit {
+            self.fast_counter.burnt_gas = new_burnt_gas;
+            Ok(())
+        } else {
+            // if max_gas_burnt == prepaid_gas we must use GasExceeded error.
+            if new_burnt_gas > self.max_gas_burnt && self.max_gas_burnt != self.prepaid_gas {
+                self.fast_counter.burnt_gas = self.max_gas_burnt;
+                self.promises_gas = 0;
+                Err(HostError::GasLimitExceeded.into())
+            } else {
+                use std::cmp::min;
+                // Now we limit burnt gas with prepaid amount.
+                self.fast_counter.burnt_gas = min(new_burnt_gas, self.prepaid_gas);
+                // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
+                // no promises will be kept.
+                // TODO: consider making this change and fix tests/protocol!
+                self.promises_gas = self.prepaid_gas - self.fast_counter.burnt_gas;
+                Err(HostError::GasExceeded.into())
+            }
+        }
+    }
+
+    pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
+        let value = Gas::from(opcodes) * self.fast_counter.opcode_cost;
+        self.burn_gas(value)
     }
 
     #[inline]
@@ -106,10 +172,6 @@ impl GasCounter {
         self.profile.add_action_cost(action, value)
     }
 
-    pub fn pay_wasm_gas(&mut self, value: u64) -> Result<()> {
-        self.deduct_gas(value, value)
-    }
-
     /// A helper function to pay a multiple of a cost.
     pub fn pay_per(&mut self, cost: ExtCosts, num: u64) -> Result<()> {
         let use_gas = num
@@ -118,7 +180,7 @@ impl GasCounter {
 
         self.inc_ext_costs_counter(cost, num);
         self.update_profile_host(cost, use_gas);
-        self.deduct_gas(use_gas, use_gas)
+        self.burn_gas(use_gas)
     }
 
     /// A helper function to pay base cost gas.
@@ -126,7 +188,7 @@ impl GasCounter {
         let base_fee = cost.value(&self.ext_costs_config);
         self.inc_ext_costs_counter(cost, 1);
         self.update_profile_host(cost, base_fee);
-        self.deduct_gas(base_fee, base_fee)
+        self.burn_gas(base_fee)
     }
 
     /// A helper function to pay per byte gas fee for batching an action.
@@ -191,10 +253,10 @@ impl GasCounter {
     }
 
     pub fn burnt_gas(&self) -> Gas {
-        self.burnt_gas
+        self.fast_counter.burnt_gas
     }
     pub fn used_gas(&self) -> Gas {
-        self.used_gas
+        self.promises_gas + self.fast_counter.burnt_gas
     }
 
     pub fn profile_data(&self) -> ProfileData {
@@ -209,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 10, false);
+        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 1, 10, false);
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -218,7 +280,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_prepaid_gas_min() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 10, false);
+        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 1, 10, false);
         counter.deduct_gas(10, 5).unwrap();
     }
 }

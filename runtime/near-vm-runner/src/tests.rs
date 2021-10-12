@@ -63,7 +63,8 @@ fn make_simple_contract_call_with_gas_vm(
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let config = VMConfig::default();
+    let mut config = VMConfig::default();
+    config.limit_config.max_gas_burnt = prepaid_gas;
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
