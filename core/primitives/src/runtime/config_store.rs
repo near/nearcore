@@ -113,7 +113,7 @@ mod tests {
             "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
-            "5pfviWyZugkUbFGd8usBBFRk27BkuwqHb8GN18s4fnwS",
+            "2NGvpASXyKxPcqJDsJNgi9U4qiRt7Bww5Q4GzLjcGT6m",
         ];
         for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
             assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
