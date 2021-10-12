@@ -23,7 +23,7 @@ pub struct ScenarioResult<T, E> {
     /// If scenario was run with on-disk storage (i.e. `use_in_memory_store` was
     /// `false`, the home directory of the node.
     pub homedir: Option<tempfile::TempDir>,
-    pub env: Option<TestEnv>,
+    pub env: TestEnv,
 }
 
 impl Scenario {
@@ -40,19 +40,8 @@ impl Scenario {
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let tempdir = match tempfile::tempdir() {
-                Err(err) => {
-                    return ScenarioResult {
-                        result: Err(Error::Other(format!(
-                            "failed to create temporary directory: {}",
-                            err
-                        ))),
-                        homedir: None,
-                        env: None,
-                    }
-                }
-                Ok(tempdir) => tempdir,
-            };
+            let tempdir = tempfile::tempdir()
+                .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
             let store = create_store(&nearcore::get_store_path(tempdir.path()));
             (Some(tempdir), store)
         };
@@ -68,7 +57,7 @@ impl Scenario {
             .build();
 
         let result = self.process_blocks(&mut env);
-        ScenarioResult { result: result, homedir: tempdir, env: Some(env) }
+        ScenarioResult { result: result, homedir: tempdir, env: env }
     }
 
     fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
