@@ -1814,7 +1814,8 @@ mod test {
                 vec![],
                 vec![],
                 &vec![],
-                merklize(&runtime_adapter.build_receipts_hashes(&vec![], &EpochId::default())).0,
+                merklize(&runtime_adapter.build_receipts_hashes(&[], &EpochId::default()).unwrap())
+                    .0,
                 CryptoHash::default(),
                 &signer,
                 &mut rs,
