@@ -26,12 +26,13 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Gas counter (a part of VMlogic)
 pub struct GasCounter {
-    /// The amount of gas that was irreversibly used for contract execution.
-    burnt_gas: Gas,
-    /// `burnt_gas` + gas that was attached to the promises.
+    /// Total amount of used gas.
+    /// The amount of gas that was irreversibly used for contract execution is
+    /// used_gas - promises_gas
     used_gas: Gas,
-    /// Gas limit for execution
-    max_gas_burnt: Gas,
+    /// Gas that was attached to the promises.
+    promises_gas: Gas,
+    /// Gas limit for execution, used_gas must be always less than this threshold.
     prepaid_gas: Gas,
     is_view: bool,
     ext_costs_config: ExtCostsConfig,
@@ -48,15 +49,14 @@ impl fmt::Debug for GasCounter {
 impl GasCounter {
     pub fn new(
         ext_costs_config: ExtCostsConfig,
-        max_gas_burnt: Gas,
+        _max_gas_burnt: Gas,
         prepaid_gas: Gas,
         is_view: bool,
     ) -> Self {
         Self {
             ext_costs_config,
-            burnt_gas: 0,
             used_gas: 0,
-            max_gas_burnt,
+            promises_gas: 0,
             prepaid_gas,
             is_view,
             profile: Default::default(),
@@ -65,26 +65,20 @@ impl GasCounter {
 
     fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
         assert!(burn_gas <= use_gas);
-        let new_burnt_gas =
-            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        self.promises_gas.checked_add(use_gas - burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
+        if self.is_view || new_used_gas <= self.prepaid_gas
         {
-            self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
             Ok(())
         } else {
             use std::cmp::min;
-            let res = if new_burnt_gas > self.max_gas_burnt {
-                Err(HostError::GasLimitExceeded.into())
-            } else if new_used_gas > self.prepaid_gas {
+            let res = if new_used_gas > self.prepaid_gas {
                 Err(HostError::GasExceeded.into())
             } else {
                 unreachable!()
             };
 
-            let max_burnt_gas = min(self.max_gas_burnt, self.prepaid_gas);
-            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
             self.used_gas = min(new_used_gas, self.prepaid_gas);
 
             res
@@ -191,7 +185,7 @@ impl GasCounter {
     }
 
     pub fn burnt_gas(&self) -> Gas {
-        self.burnt_gas
+        self.used_gas - self.promises_gas
     }
     pub fn used_gas(&self) -> Gas {
         self.used_gas
