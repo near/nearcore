@@ -3099,24 +3099,6 @@ fn test_block_ordinal() {
     assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
 }
 
-fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
-    let chunk_headers = vec![prev_block.chunks()[0].clone()];
-    block.set_chunks(chunk_headers.clone());
-    block.mut_header().get_mut().inner_rest.chunk_headers_root =
-        Block::compute_chunk_headers_root(&chunk_headers).0;
-    block.mut_header().get_mut().inner_rest.chunk_tx_root =
-        Block::compute_chunk_tx_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_receipts_root =
-        Block::compute_chunk_receipts_root(&chunk_headers);
-    block.mut_header().get_mut().inner_lite.prev_state_root =
-        Block::compute_state_root(&chunk_headers);
-    block.mut_header().get_mut().inner_rest.chunk_mask = vec![false];
-    block.mut_header().get_mut().inner_rest.gas_price = prev_block.header().gas_price();
-    let validator_signer =
-        InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    block.mut_header().resign(&validator_signer);
-}
-
 #[test]
 fn test_congestion_receipt_execution() {
     let (mut env, tx_hashes) = prepare_env_with_congestion(PROTOCOL_VERSION, None, 3);
@@ -3142,7 +3124,7 @@ fn test_congestion_receipt_execution() {
             .unwrap();
     assert!(delayed_indices.next_available_index > 0);
     let mut block = env.clients[0].produce_block(height + 1).unwrap().unwrap();
-    set_no_chunk_in_block(&mut block, &prev_block);
+    testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
     env.process_block(0, block.clone(), Provenance::NONE);
 
     // let all receipts finish
@@ -3400,7 +3382,7 @@ mod protocol_feature_restore_receipts_after_fix_tests {
             if low_height_with_no_chunk <= height && height < high_height_with_no_chunk {
                 let prev_block =
                     env.clients[0].chain.get_block_by_height(height - 1).unwrap().clone();
-                set_no_chunk_in_block(&mut block, &prev_block);
+                testlib::process_blocks::set_no_chunk_in_block(&mut block, &prev_block);
             }
             set_block_protocol_version(
                 &mut block,
