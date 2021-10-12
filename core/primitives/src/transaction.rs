@@ -381,6 +381,15 @@ impl ExecutionOutcome {
         }
         result
     }
+
+    pub fn equal_except_metadata(&self, other: &ExecutionOutcome) -> bool {
+        self.logs == other.logs
+            && self.receipt_ids == other.receipt_ids
+            && self.gas_burnt == other.gas_burnt
+            && self.tokens_burnt == other.tokens_burnt
+            && self.executor_id == other.executor_id
+            && self.status == other.status
+    }
 }
 
 impl fmt::Debug for ExecutionOutcome {

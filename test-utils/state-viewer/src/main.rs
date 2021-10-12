@@ -427,7 +427,8 @@ fn apply_chain_range(
                     )
                     .unwrap()
                     .unwrap();
-                if old_outcomes[0].outcome_with_id != outcome {
+                if !old_outcomes[0].outcome_with_id.outcome.equal_except_metadata(&outcome.outcome)
+                {
                     println!("Difference in outcomes:");
                     println!("old outcome: {:?}", old_outcomes[0].outcome_with_id);
                     println!("new outcome: {:?}", outcome);
