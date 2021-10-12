@@ -2,7 +2,7 @@ use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, Trans
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     transaction::Action,
-    types::{AccountId, BlockHeight, Nonce},
+    types::{AccountId, BlockHeight, Gas, Nonce},
 };
 
 use std::str::FromStr;
@@ -65,6 +65,12 @@ impl ScenarioBuilder {
     pub fn number_of_accounts(mut self, num_accounts: usize) -> Self {
         self.scenario.network_config =
             NetworkConfig { seeds: (0..num_accounts).map(|x| id_to_seed(x)).collect() };
+        self
+    }
+
+    /// Changes max_total_prepaid_gas
+    pub fn max_total_prepaid_gas(mut self, max_total_prepaid_gas: Gas) {
+        self.scenario.runtime_config.max_total_prepaid_gas = max_total_prepaid_gas;
         self
     }
 
