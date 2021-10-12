@@ -24,7 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::ExecutionOutcomeWithId;
+use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -421,15 +421,15 @@ fn apply_chain_range(
             receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
             if fail_on_difference {
                 let old_outcomes = store
-                    .get_ser::<Vec<ExecutionOutcomeWithId>>(
+                    .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
                         DBCol::ColTransactionResult,
                         outcome.id.as_ref(),
                     )
                     .unwrap()
                     .unwrap();
-                if old_outcomes[0] != outcome {
+                if old_outcomes[0].outcome_with_id != outcome {
                     println!("Difference in outcomes:");
-                    println!("old outcome: {:?}", old_outcomes[0]);
+                    println!("old outcome: {:?}", old_outcomes[0].outcome_with_id);
                     println!("new outcome: {:?}", outcome);
                     std::process::exit(1);
                 } else {
