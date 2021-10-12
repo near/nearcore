@@ -286,7 +286,7 @@ mod test {
         );
         env.clients[0].process_tx(tx, false, false);
 
-        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(4));
+        safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         apply_chain_range(store, &genesis, None, None, 0, runtime);
