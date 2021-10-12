@@ -11,6 +11,9 @@ all: release
 docker-nearcore:
 	docker build -t nearcore -f Dockerfile --progress=plain .
 
+docker-sandbox:
+	docker build -t nearcore-sandbox -f Dockerfile.sandbox --progress=plain .
+
 docker-nearcore-nightly:
 	docker build -t nearcore-nightly -f Dockerfile.nightly --progress=plain .
 
