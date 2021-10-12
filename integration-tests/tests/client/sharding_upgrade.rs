@@ -292,6 +292,7 @@ fn setup_genesis(
 }
 
 // test some shard layout upgrade with some simple transactions to create accounts
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_shard_layout_upgrade_simple() {
     init_test_logger();
@@ -409,6 +410,7 @@ fn gen_cross_contract_transaction(
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls() {
     init_test_logger();
