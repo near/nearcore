@@ -24,11 +24,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::ExecutionOutcomeWithId;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_store::test_utils::create_test_store;
-use near_store::{create_store, Store, TrieIterator};
+use near_store::{create_store, DBCol, Store, TrieIterator};
 use nearcore::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use state_dump::state_dump;
@@ -266,12 +267,13 @@ fn apply_chain_range(
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
     verbose: bool,
+    fail_on_difference: bool,
     progress: u64,
 ) {
     let mut chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height);
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(NightshadeRuntime::with_config(
         &home_dir,
-        store,
+        store.clone(),
         near_config,
         None,
         near_config.client_config.max_gas_burnt_view,
@@ -417,6 +419,21 @@ fn apply_chain_range(
         for outcome in apply_result.outcomes {
             receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
             receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
+            if fail_on_difference {
+                let old_outcomes = store
+                    .get_ser::<Vec<ExecutionOutcomeWithId>>(
+                        DBCol::ColTransactionResult,
+                        outcome.id.as_ref(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                if old_outcomes[0] != outcome {
+                    println!("Difference in outcomes:");
+                    println!("old outcome: {:?}", old_outcomes[0]);
+                    println!("new outcome: {:?}", outcome);
+                    std::process::exit(1);
+                }
+            }
         }
         applied_blocks += 1;
         if progress > 0 && 0 == applied_blocks % progress {
@@ -918,6 +935,8 @@ fn main() {
                 args.value_of("verbose").map(|s| s.parse::<bool>().unwrap()).unwrap_or_default();
             let progress =
                 args.value_of("progress").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+            let fail_on_difference =
+                args.value_of("compare").map(|s| s.parse::<bool>().unwrap()).unwrap_or_default();
             apply_chain_range(
                 store,
                 home_dir,
@@ -926,6 +945,7 @@ fn main() {
                 end_index,
                 shard_id,
                 verbose,
+                fail_on_difference,
                 progress,
             );
         }
