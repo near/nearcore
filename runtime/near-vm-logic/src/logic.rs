@@ -1,6 +1,6 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
-use crate::gas_counter::GasCounter;
+use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
@@ -121,6 +121,7 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
+            config.regular_op_cost,
             context.prepaid_gas,
             context.is_view(),
         );
@@ -1053,9 +1054,8 @@ impl<'a> VMLogic<'a> {
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        let value = Gas::from(gas_amount) * Gas::from(self.config.regular_op_cost);
-        self.gas_counter.pay_wasm_gas(value)
+    pub fn gas(&mut self, opcodes: u32) -> Result<()> {
+        self.gas_counter.pay_wasm_gas(opcodes)
     }
 
     // ################
@@ -2514,6 +2514,11 @@ impl<'a> VMLogic<'a> {
     pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)
+    }
+
+    /// Gets pointer to the fast gas counter.
+    pub fn gas_counter_pointer(&mut self) -> *mut FastGasCounter {
+        self.gas_counter.gas_counter_raw_ptr()
     }
 }
 
