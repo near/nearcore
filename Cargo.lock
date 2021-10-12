@@ -4849,7 +4849,9 @@ dependencies = [
  "near-store",
  "nearcore",
  "node-runtime",
+ "rayon",
  "serde_json",
+ "testlib",
  "tracing",
 ]
 
