@@ -432,6 +432,11 @@ fn apply_chain_range(
                     println!("old outcome: {:?}", old_outcomes[0]);
                     println!("new outcome: {:?}", outcome);
                     std::process::exit(1);
+                } else {
+                    info!(target: "state-viewer",
+                        "Outcome {} is same",
+                        outcome.id
+                    );
                 }
             }
         }
@@ -760,6 +765,12 @@ fn main() {
                         .long("progress")
                         .help("Print stats every that many blocks")
                         .default_value("0")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("compare")
+                        .long("compare")
+                        .help("Whether to compare with execution outcome in database and exit on first difference")
                         .takes_value(true),
                 )
                 .help("apply blocks at a range of heights for a single shard"),
