@@ -128,7 +128,7 @@ impl ContractCaller {
             self.pool.execute({
                 let tx = tx.clone();
                 let vm_config = self.vm_config.clone();
-                let protocol_version = self.protocol_version.clone();
+                let protocol_version = self.protocol_version;
                 let vm_data_shared = self.vm_data_shared.clone();
                 let vm_kind = self.vm_kind.clone();
                 move || {
