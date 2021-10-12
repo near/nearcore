@@ -73,15 +73,18 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
     #[cfg(feature = "protocol_feature_simple_nightshade")]
-    return Some(ShardLayout::v1(
-        vec![],
-        vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
-            .into_iter()
-            .map(|s| s.parse().unwrap())
-            .collect(),
-        Some(vec![vec![0, 1, 2, 3]]),
-        1,
-    ));
+    {
+        info!("load simple nightshade shard layout from genesis config");
+        return Some(ShardLayout::v1(
+            vec![],
+            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        ));
+    }
     #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
     None
 }
@@ -226,7 +229,7 @@ impl From<&GenesisConfig> for AllEpochConfig {
         let initial_epoch_config = EpochConfig::from(genesis_config);
         let shard_config =
             if let Some(shard_layout) = &genesis_config.simple_nightshade_shard_layout {
-                info!("setting epoch config simple nightshade");
+                info!(target: "genesis", "setting epoch config simple nightshade");
                 let num_shards = shard_layout.num_shards() as usize;
                 Some(ShardConfig {
                     num_block_producer_seats_per_shard: vec![
@@ -240,6 +243,7 @@ impl From<&GenesisConfig> for AllEpochConfig {
                     shard_layout: shard_layout.clone(),
                 })
             } else {
+                info!(target: "genesis", "no simple nightshade");
                 None
             };
         let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
