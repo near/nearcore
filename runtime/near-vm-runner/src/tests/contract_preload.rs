@@ -290,7 +290,7 @@ pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
 
     let context = default_vm_context();
     let mut vm_config = VMConfig::default();
-    vm_config.limit_config.max_functions_number = Some(FUNCTIONS_NUMBER);
+    vm_config.limit_config.max_functions_number_per_contract = Some(FUNCTIONS_NUMBER);
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];

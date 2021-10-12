@@ -215,7 +215,7 @@ mod tests {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LimitContractFunctionsNumber.protocol_version() - 1);
         let new_cfg = store.get_config(LimitContractFunctionsNumber.protocol_version());
-        assert!(base_cfg.wasm_config.limit_config.max_functions_number.is_none());
-        assert!(new_cfg.wasm_config.limit_config.max_functions_number.is_some());
+        assert!(base_cfg.wasm_config.limit_config.max_functions_number_per_contract.is_none());
+        assert!(new_cfg.wasm_config.limit_config.max_functions_number_per_contract.is_some());
     }
 }
