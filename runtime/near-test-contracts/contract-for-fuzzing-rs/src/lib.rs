@@ -244,3 +244,114 @@ pub unsafe fn sum_of_numbers() {
         );
     }
 }
+
+// Function that does not do anything at all.
+#[no_mangle]
+pub fn noop() {}
+
+// Produces 1000 10b data receipts.
+#[no_mangle]
+pub unsafe fn data_receipt_10b_1000() {
+    let buf = [0u8; 1000];
+    current_account_id(0);
+    let buf_len = register_len(0);
+    read_register(0, buf.as_ptr() as _);
+
+    let method_name = b"data_producer_10b";
+    let args = b"";
+    let mut ids = [0u64; 1000];
+    let amount = 0u128;
+    let gas = prepaid_gas();
+    for i in 0..1000 {
+        ids[i] = promise_create(
+            buf_len,
+            buf.as_ptr() as _,
+            method_name.len() as _,
+            method_name.as_ptr() as _,
+            args.len() as _,
+            args.as_ptr() as _,
+            &amount as *const u128 as *const u64 as u64,
+            gas / 2000,
+        );
+    }
+    let id = promise_and(ids.as_ptr() as _, ids.len() as _);
+    let method_name = b"noop";
+    promise_then(
+        id,
+        buf_len,
+        buf.as_ptr() as _,
+        method_name.len() as _,
+        method_name.as_ptr() as _,
+        args.len() as _,
+        args.as_ptr() as _,
+        &amount as *const u128 as *const u64 as u64,
+        gas / 3,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn data_receipt_base_10b_1000() {
+    let buf = [0u8; 1000];
+    current_account_id(0);
+    let buf_len = register_len(0);
+    read_register(0, buf.as_ptr() as _);
+
+    let method_name = b"data_producer_10b";
+    let args = b"";
+    let mut ids = [0u64; 1000];
+    let amount = 0u128;
+    let gas = prepaid_gas();
+    for i in 0..1000 {
+        ids[i] = promise_create(
+            buf_len,
+            buf.as_ptr() as _,
+            method_name.len() as _,
+            method_name.as_ptr() as _,
+            args.len() as _,
+            args.as_ptr() as _,
+            &amount as *const u128 as *const u64 as u64,
+            gas / 2000,
+        );
+    }
+    let _id = promise_and(ids.as_ptr() as _, ids.len() as _);
+}
+
+// Produces 1000 10kib data receipts.
+#[no_mangle]
+pub unsafe fn data_receipt_100kib_1000() {
+    let buf = [0u8; 1000];
+    current_account_id(0);
+    let buf_len = register_len(0);
+    read_register(0, buf.as_ptr() as _);
+
+    let method_name = b"data_producer_100kib";
+    let args = b"";
+    let mut ids = [0u64; 1000];
+    let amount = 0u128;
+    let gas = prepaid_gas();
+    for i in 0..1000 {
+        ids[i] = promise_create(
+            buf_len,
+            buf.as_ptr() as _,
+            method_name.len() as _,
+            method_name.as_ptr() as _,
+            args.len() as _,
+            args.as_ptr() as _,
+            &amount as *const u128 as *const u64 as u64,
+            gas / 2000,
+        );
+    }
+    let id = promise_and(ids.as_ptr() as _, ids.len() as _);
+    let method_name = b"noop";
+    promise_then(
+        id,
+        buf_len,
+        buf.as_ptr() as _,
+        method_name.len() as _,
+        method_name.as_ptr() as _,
+        args.len() as _,
+        args.as_ptr() as _,
+        &amount as *const u128 as *const u64 as u64,
+        gas / 3,
+    );
+}
