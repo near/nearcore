@@ -88,6 +88,9 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::StorageWriteKeyByte, storage_write_key_byte),
     (Cost::StorageWriteValueByte, storage_write_value_byte),
     (Cost::StorageWriteEvictedByte, storage_write_evicted_byte),
+    (Cost::StorageRemoveBase, storage_remove_base),
+    (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
+    (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -755,6 +758,34 @@ fn storage_write_evicted_byte(ctx: &mut Ctx) -> GasCost {
     )
 }
 
+fn storage_remove_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10b_key_10b_value_1k",
+        "storage_remove_10b_key_10b_value_1k",
+        ExtCosts::storage_remove_base,
+        1000,
+    )
+}
+fn storage_remove_key_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10kib_key_10b_value_1k",
+        "storage_remove_10kib_key_10b_value_1k",
+        ExtCosts::storage_remove_key_byte,
+        10 * 1024 * 1000,
+    )
+}
+fn storage_remove_ret_value_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10b_key_10kib_value_1k",
+        "storage_remove_10b_key_10kib_value_1k",
+        ExtCosts::storage_remove_ret_value_byte,
+        10 * 1024 * 1000,
+    )
+}
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -919,10 +950,9 @@ fn smoke() {
         .unwrap();
 
     let metrics = [
-        "StorageWriteBase",
-        "StorageWriteKeyByte",
-        "StorageWriteValueByte",
-        "StorageWriteEvictedByte",
+        "StorageRemoveBase",
+        "StorageRemoveKeyByte",
+        "StorageRemoveRetValueByte",
     ];
     let config = Config {
         warmup_iters_per_block: 1,
