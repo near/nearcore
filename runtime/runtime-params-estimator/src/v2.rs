@@ -81,6 +81,9 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::AltBn128PairingCheckByte, alt_bn128_pairing_check_byte),
     (Cost::StorageHasKeyBase, storage_has_key_base),
     (Cost::StorageHasKeyByte, storage_has_key_byte),
+    (Cost::StorageReadBase, storage_read_base),
+    (Cost::StorageReadKeyByte, storage_read_key_byte),
+    (Cost::StorageReadValueByte, storage_read_value_byte),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -691,6 +694,34 @@ fn storage_has_key_byte(ctx: &mut Ctx) -> GasCost {
     )
 }
 
+fn storage_read_base(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10b_key_10b_value_1k",
+        "storage_read_10b_key_10b_value_1k",
+        ExtCosts::storage_read_base,
+        1000,
+    )
+}
+fn storage_read_key_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10kib_key_10b_value_1k",
+        "storage_read_10kib_key_10b_value_1k",
+        ExtCosts::storage_read_key_byte,
+        10 * 1024 * 1000,
+    )
+}
+fn storage_read_value_byte(ctx: &mut Ctx) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "storage_write_10b_key_10kib_value_1k",
+        "storage_read_10b_key_10kib_value_1k",
+        ExtCosts::storage_read_value_byte,
+        10 * 1024 * 1000,
+    )
+}
+
 // Helpers
 
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
@@ -817,16 +848,50 @@ fn fn_cost_with_setup(
 
 #[test]
 fn smoke() {
-    use crate::testbed_runners::GasMetric;
-    use nearcore::get_default_home;
+    use genesis_populate::GenesisBuilder;
+    use near_store::create_store;
+    use nearcore::{get_store_path, load_config};
+    use std::sync::Arc;
 
-    let metrics = ["StorageHasKeyBase", "StorageHasKeyByte"];
+    use crate::testbed_runners::GasMetric;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    let state_dump_path = temp_dir.path().to_path_buf();
+    nearcore::init_configs(
+        &state_dump_path,
+        None,
+        Some("test.near".parse().unwrap()),
+        Some("alice.near"),
+        1,
+        true,
+        None,
+        false,
+        None,
+        false,
+        None,
+        None,
+        None,
+    );
+
+    let near_config = load_config(&state_dump_path);
+    let store = create_store(&get_store_path(&state_dump_path));
+    GenesisBuilder::from_config_and_store(&state_dump_path, Arc::new(near_config.genesis), store)
+        .add_additional_accounts(5_000)
+        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .print_progress()
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
+
+    let metrics = ["StorageReadBase", "StorageReadKeyByte", "StorageReadValueByte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
-        active_accounts: 20000,
+        active_accounts: 5_000,
         block_sizes: vec![100],
-        state_dump_path: get_default_home().into(),
+        state_dump_path,
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
         metrics_to_measure: Some(metrics.iter().map(|it| it.to_string()).collect::<Vec<_>>())
