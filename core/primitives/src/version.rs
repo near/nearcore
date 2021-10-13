@@ -134,7 +134,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 121;
+pub const PROTOCOL_VERSION: ProtocolVersion = 122;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -168,7 +168,7 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
             #[cfg(feature = "protocol_feature_simple_nightshade")]
-            ProtocolFeature::SimpleNightshade => 120,
+            ProtocolFeature::SimpleNightshade => 122,
         }
     }
 }
