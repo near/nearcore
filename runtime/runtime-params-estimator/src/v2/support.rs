@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
-use std::{fmt, iter, ops};
+use std::{fmt, ops};
 
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
@@ -52,7 +52,6 @@ impl<'c> Ctx<'c> {
         let inner = RuntimeTestbed::from_state_dump(&self.config.state_dump_path);
         TestBed {
             config: &self.config,
-            block_size: 100,
             inner,
             transaction_builder: TransactionBuilder {
                 accounts: (0..self.config.active_accounts).map(get_account_id).collect(),
@@ -85,7 +84,6 @@ impl<'c> Ctx<'c> {
         let inner = RuntimeTestbed::from_state_dump(proto.state_dump.path());
         TestBed {
             config: &self.config,
-            block_size: 100,
             inner,
             transaction_builder: TransactionBuilder {
                 accounts: proto.accounts.clone(),
@@ -104,18 +102,32 @@ impl<'c> Ctx<'c> {
     }
 }
 
-fn deploy_contracts(tb: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
+fn deploy_contracts(test_bed: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
     let mut accounts_with_code = Vec::new();
     for _ in 0..3 {
-        tb.transaction_cost(&mut |mut tb| {
-            let sender = tb.random_unused_account();
-            let receiver = sender.clone();
+        let block_size = 100;
+        let n_blocks = test_bed.config.warmup_iters_per_block + test_bed.config.iter_per_block;
+        let blocks = {
+            let mut blocks = Vec::with_capacity(n_blocks);
+            for _ in 0..n_blocks {
+                let mut block = Vec::with_capacity(block_size);
+                for _ in 0..block_size {
+                    let tb = test_bed.transaction_builder();
+                    let sender = tb.random_unused_account();
+                    let receiver = sender.clone();
 
-            accounts_with_code.push(sender.clone());
+                    accounts_with_code.push(sender.clone());
 
-            let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
-            tb.transaction_from_actions(sender, receiver, actions)
-        });
+                    let actions =
+                        vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
+                    let tx = tb.transaction_from_actions(sender, receiver, actions);
+                    block.push(tx);
+                }
+                blocks.push(block);
+            }
+            blocks
+        };
+        test_bed.measure_blocks(blocks);
     }
     accounts_with_code
 }
@@ -124,73 +136,14 @@ fn deploy_contracts(tb: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
 ///
 /// We use it to time processing a bunch of blocks.
 pub(crate) struct TestBed<'c> {
-    config: &'c Config,
-    block_size: usize,
+    pub(crate) config: &'c Config,
     inner: RuntimeTestbed,
     transaction_builder: TransactionBuilder,
 }
 
 impl<'c> TestBed<'c> {
-    pub(crate) fn block_size(mut self, block_size: usize) -> TestBed<'c> {
-        self.block_size = block_size;
-        self
-    }
-
-    pub(crate) fn transaction_cost<'a>(
-        &'a mut self,
-        make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-    ) -> GasCost {
-        self.transaction_cost_ext(make_transaction).0
-    }
-
-    pub(crate) fn transaction_cost_ext<'a>(
-        &'a mut self,
-        make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-    ) -> (GasCost, HashMap<ExtCosts, u64>) {
-        let block_size = self.block_size;
-        let total_iters = self.config.warmup_iters_per_block + self.config.iter_per_block;
-        let blocks = self.make_blocks(block_size, total_iters, make_transaction);
-
-        let measurements = self.measure_blocks(blocks);
-
-        let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-        let mut total = GasCost { value: 0.into(), metric: self.config.metric };
-        let mut n = 0;
-        for (gas_cost, ext_cost) in
-            measurements.into_iter().skip(self.config.warmup_iters_per_block)
-        {
-            total += gas_cost;
-            n += self.block_size as u64;
-            for (c, v) in ext_cost {
-                *total_ext_costs.entry(c).or_default() += v;
-            }
-        }
-
-        for v in total_ext_costs.values_mut() {
-            *v /= n;
-        }
-
-        let gas_cost = total / n;
-        (gas_cost, total_ext_costs)
-    }
-
     pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
         &mut self.transaction_builder
-    }
-
-    fn make_blocks<'a>(
-        &'a mut self,
-        block_size: usize,
-        n_blocks: usize,
-        make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-    ) -> Vec<Vec<SignedTransaction>> {
-        iter::repeat_with(|| {
-            iter::repeat_with(|| make_transaction(&mut self.transaction_builder))
-                .take(block_size)
-                .collect::<Vec<_>>()
-        })
-        .take(n_blocks)
-        .collect::<Vec<_>>()
     }
 
     pub(crate) fn measure_blocks<'a>(
