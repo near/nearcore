@@ -2675,6 +2675,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smart-default",
+ "tracing",
 ]
 
 [[package]]
@@ -4849,7 +4850,9 @@ dependencies = [
  "near-store",
  "nearcore",
  "node-runtime",
+ "rayon",
  "serde_json",
+ "testlib",
  "tracing",
 ]
 
