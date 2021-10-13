@@ -167,8 +167,6 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
-            #[cfg(feature = "protocol_feature_simple_nightshade")]
-            ProtocolFeature::SimpleNightshade => 122,
         }
     }
 }
