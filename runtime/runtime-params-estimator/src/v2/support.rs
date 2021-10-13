@@ -54,9 +54,11 @@ impl<'c> Ctx<'c> {
             config: &self.config,
             block_size: 100,
             inner,
-            accounts: (0..self.config.active_accounts).map(get_account_id).collect(),
-            nonces: HashMap::new(),
-            used_accounts: HashSet::new(),
+            transaction_builder: TransactionBuilder {
+                accounts: (0..self.config.active_accounts).map(get_account_id).collect(),
+                nonces: HashMap::new(),
+                used_accounts: HashSet::new(),
+            },
         }
     }
 
@@ -75,7 +77,7 @@ impl<'c> Ctx<'c> {
             self.contracts_testbed = Some(ContractTestbedProto {
                 accounts,
                 state_dump: tb.inner.workdir,
-                nonces: tb.nonces,
+                nonces: tb.transaction_builder.nonces,
             });
         }
         let proto = self.contracts_testbed.as_ref().unwrap();
@@ -85,9 +87,11 @@ impl<'c> Ctx<'c> {
             config: &self.config,
             block_size: 100,
             inner,
-            accounts: proto.accounts.clone(),
-            nonces: proto.nonces.clone(),
-            used_accounts: HashSet::new(),
+            transaction_builder: TransactionBuilder {
+                accounts: proto.accounts.clone(),
+                nonces: proto.nonces.clone(),
+                used_accounts: HashSet::new(),
+            },
         }
     }
 
@@ -123,9 +127,7 @@ pub(crate) struct TestBed<'c> {
     config: &'c Config,
     block_size: usize,
     inner: RuntimeTestbed,
-    accounts: Vec<AccountId>,
-    nonces: HashMap<AccountId, u64>,
-    used_accounts: HashSet<AccountId>,
+    transaction_builder: TransactionBuilder,
 }
 
 impl<'c> TestBed<'c> {
@@ -136,14 +138,14 @@ impl<'c> TestBed<'c> {
 
     pub(crate) fn average_transaction_cost<'a>(
         &'a mut self,
-        make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
+        make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     ) -> GasCost {
         self.average_transaction_cost_with_ext(make_transaction).0
     }
 
     pub(crate) fn average_transaction_cost_with_ext<'a>(
         &'a mut self,
-        make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
+        make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     ) -> (GasCost, HashMap<ExtCosts, u64>) {
         let block_size = self.block_size;
         let total_iters = self.config.warmup_iters_per_block + self.config.iter_per_block;
@@ -172,23 +174,20 @@ impl<'c> TestBed<'c> {
         (gas_cost, total_ext_costs)
     }
 
-    pub(crate) fn transaction_builder<'a>(&'a mut self) -> TransactionBuilder<'a, 'c> {
-        TransactionBuilder { testbed: self }
+    pub(crate) fn transaction_builder(&mut self) -> &mut TransactionBuilder {
+        &mut self.transaction_builder
     }
 
     fn make_blocks<'a>(
         &'a mut self,
         block_size: usize,
         n_blocks: usize,
-        make_transaction: &'a mut dyn FnMut(TransactionBuilder<'_, '_>) -> SignedTransaction,
+        make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     ) -> Vec<Vec<SignedTransaction>> {
         iter::repeat_with(|| {
-            iter::repeat_with(|| {
-                let tb = TransactionBuilder { testbed: self };
-                make_transaction(tb)
-            })
-            .take(block_size)
-            .collect::<Vec<_>>()
+            iter::repeat_with(|| make_transaction(&mut self.transaction_builder))
+                .take(block_size)
+                .collect::<Vec<_>>()
         })
         .take(n_blocks)
         .collect::<Vec<_>>()
@@ -222,31 +221,24 @@ impl<'c> TestBed<'c> {
 
         res
     }
-
-    fn nonce(&mut self, account_id: &AccountId) -> u64 {
-        let nonce = self.nonces.entry(account_id.clone()).or_default();
-        *nonce += 1;
-        *nonce
-    }
 }
 
 /// A helper to create transaction for processing by a `TestBed`.
-///
-/// Physically, this *is* a `TestBed`, just with a restricted interface
-/// specifically for creating a transaction struct.
-pub(crate) struct TransactionBuilder<'a, 'c> {
-    testbed: &'a mut TestBed<'c>,
+pub(crate) struct TransactionBuilder {
+    accounts: Vec<AccountId>,
+    nonces: HashMap<AccountId, u64>,
+    used_accounts: HashSet<AccountId>,
 }
 
-impl<'a, 'c> TransactionBuilder<'a, 'c> {
+impl TransactionBuilder {
     pub(crate) fn transaction_from_actions(
-        self,
+        &mut self,
         sender: AccountId,
         receiver: AccountId,
         actions: Vec<Action>,
     ) -> SignedTransaction {
         let signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_ref());
-        let nonce = self.testbed.nonce(&sender);
+        let nonce = self.nonce(&sender);
 
         SignedTransaction::from_actions(
             nonce as u64,
@@ -259,7 +251,7 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
     }
 
     pub(crate) fn transaction_from_function_call(
-        self,
+        &mut self,
         sender: AccountId,
         method: &str,
         args: Vec<u8>,
@@ -282,13 +274,13 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
         get_account_id(account_index)
     }
     pub(crate) fn random_account(&mut self) -> AccountId {
-        let account_index = self.rng().gen_range(0, self.testbed.accounts.len());
-        self.testbed.accounts[account_index].clone()
+        let account_index = self.rng().gen_range(0, self.accounts.len());
+        self.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
         loop {
             let account = self.random_account();
-            if self.testbed.used_accounts.insert(account.clone()) {
+            if self.used_accounts.insert(account.clone()) {
                 return account;
             }
         }
@@ -301,6 +293,11 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
                 return (first, second);
             }
         }
+    }
+    fn nonce(&mut self, account_id: &AccountId) -> u64 {
+        let nonce = self.nonces.entry(account_id.clone()).or_default();
+        *nonce += 1;
+        *nonce
     }
 }
 

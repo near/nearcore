@@ -129,7 +129,7 @@ fn action_receipt_creation(ctx: &mut Ctx) -> GasCost {
 
     let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let (sender, receiver) = tb.random_account_pair();
 
         tb.transaction_from_actions(sender, receiver, vec![])
@@ -147,7 +147,7 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
 
     let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_account();
         let receiver = sender.clone();
 
@@ -163,7 +163,7 @@ fn action_transfer(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let (sender, receiver) = tb.random_account_pair();
 
             let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
@@ -181,7 +181,7 @@ fn action_create_account(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_account();
             let new_account =
                 AccountId::try_from(format!("{}_{}", sender, tb.rng().gen::<u64>())).unwrap();
@@ -204,7 +204,7 @@ fn action_delete_account(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
             let beneficiary_id = tb.random_unused_account();
@@ -224,7 +224,7 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
 
             add_key_transaction(tb, sender, AccessKeyPermission::FullAccess)
@@ -245,7 +245,7 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver_id = tb.account(0).to_string();
 
@@ -271,7 +271,7 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
         let mut testbed = ctx.test_bed();
 
         let many_methods: Vec<_> = (0..1000).map(|i| format!("a123456{:03}", i)).collect();
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver_id = tb.account(0).to_string();
 
@@ -294,7 +294,7 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 fn add_key_transaction(
-    tb: TransactionBuilder<'_, '_>,
+    tb: &mut TransactionBuilder,
     sender: AccountId,
     permission: AccessKeyPermission,
 ) -> SignedTransaction {
@@ -314,7 +314,7 @@ fn action_delete_key(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
@@ -335,7 +335,7 @@ fn action_stake(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
@@ -397,7 +397,7 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let mut testbed = ctx.test_bed_with_contracts();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", vec![0; 1024 * 1024])
         };
@@ -791,7 +791,7 @@ fn storage_remove_ret_value_byte(ctx: &mut Ctx) -> GasCost {
 fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
     let mut testbed = ctx.test_bed();
 
-    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         let receiver = sender.clone();
 
@@ -809,7 +809,7 @@ fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
     let cost = {
         let mut testbed = ctx.test_bed_with_contracts();
 
-        let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", Vec::new())
         };
@@ -832,7 +832,7 @@ fn fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> GasCo
 fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
     let mut testbed = ctx.test_bed_with_contracts().block_size(2);
 
-    let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
@@ -859,7 +859,7 @@ fn fn_cost_with_setup(
             let mut setup_block = Vec::new();
             let mut block = Vec::new();
             for _ in 0..block_size {
-                let mut tb = testbed.transaction_builder();
+                let tb = testbed.transaction_builder();
                 let sender = tb.random_unused_account();
                 let setup_tx = tb.transaction_from_function_call(sender.clone(), setup, Vec::new());
                 let tx = testbed.transaction_builder().transaction_from_function_call(
@@ -949,11 +949,7 @@ fn smoke() {
         .dump_state()
         .unwrap();
 
-    let metrics = [
-        "StorageRemoveBase",
-        "StorageRemoveKeyByte",
-        "StorageRemoveRetValueByte",
-    ];
+    let metrics = ["StorageRemoveBase", "StorageRemoveKeyByte", "StorageRemoveRetValueByte"];
     let config = Config {
         warmup_iters_per_block: 1,
         iter_per_block: 2,
