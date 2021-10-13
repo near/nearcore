@@ -1,8 +1,4 @@
-"""Spins up a two-node cluster and then simply spins it down.
-
-This is just a sanity check that the neard binary isn’t borked too much.
-See <https://github.com/near/nearcore/issues/4993>.
-"""
+"""Spins up a two-node cluster and wait for a few blocks to be produced."""
 
 import sys
 import time
@@ -14,7 +10,11 @@ from configured_logger import logger
 
 
 def test_sanity_spin_up():
-    """Spins up a two-node cluster and then just spins it down."""
+    """Spins up a two-node cluster and wait for a few blocks to be produced.
+
+    This is just a sanity check that the neard binary isn’t borked too much.
+    See <https://github.com/near/nearcore/issues/4993>.
+    """
     nodes = cluster.start_cluster(2, 0, 1, None, [], {})
     started = time.time()
     while True:
