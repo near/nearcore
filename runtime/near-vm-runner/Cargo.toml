@@ -52,7 +52,7 @@ base64 = "0.13"
 
 [features]
 # all vms enabled for now
-default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm"]
+default = ["wasmer0_vm", "wasmtime_vm", "wasmer2_vm", "stable"]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
 wasmtime_vm = [ "wasmtime", "anyhow"]
 wasmer2_vm = [ "wasmer", "wasmer-types", "wasmer-compiler-singlepass",  "wasmer-engine-universal", ]
@@ -72,6 +72,8 @@ protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128"
 ]
+
+stable = []
 
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
