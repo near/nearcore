@@ -31,7 +31,7 @@ steps:
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
 
       RUSTFLAGS='-D warnings' cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
-      ( cd pytest && python3 tests/sanity/spin_up_cluster.py )
+      ( cd pytest && python3 -m pip install --user -r requirements.txt && python3 tests/sanity/spin_up_cluster.py )
       # Note: We’re not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
       # by other steps in the CI, e.g. upgradable.
