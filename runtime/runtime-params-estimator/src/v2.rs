@@ -134,7 +134,7 @@ fn action_receipt_creation(ctx: &mut Ctx) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let cost = testbed.average_transaction_cost(&mut make_transaction);
+    let cost = testbed.transaction_cost(&mut make_transaction);
 
     ctx.cached.action_receipt_creation = Some(cost.clone());
     cost
@@ -153,7 +153,7 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
 
         tb.transaction_from_actions(sender, receiver, vec![])
     };
-    let cost = testbed.average_transaction_cost(&mut make_transaction);
+    let cost = testbed.transaction_cost(&mut make_transaction);
 
     ctx.cached.action_sir_receipt_creation = Some(cost.clone());
     cost
@@ -169,7 +169,7 @@ fn action_transfer(ctx: &mut Ctx) -> GasCost {
             let actions = vec![Action::Transfer(TransferAction { deposit: 1 })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_receipt_creation(ctx);
@@ -192,7 +192,7 @@ fn action_create_account(ctx: &mut Ctx) -> GasCost {
             ];
             tb.transaction_from_actions(sender, new_account, actions)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_receipt_creation(ctx);
@@ -212,7 +212,7 @@ fn action_delete_account(ctx: &mut Ctx) -> GasCost {
             let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -229,7 +229,7 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
 
             add_key_transaction(tb, sender, AccessKeyPermission::FullAccess)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -256,7 +256,7 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
             });
             add_key_transaction(tb, sender, permission)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -282,7 +282,7 @@ fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
             });
             add_key_transaction(tb, sender, permission)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_add_function_access_key_base(ctx);
@@ -323,7 +323,7 @@ fn action_delete_key(ctx: &mut Ctx) -> GasCost {
             })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -345,7 +345,7 @@ fn action_stake(ctx: &mut Ctx) -> GasCost {
             })];
             tb.transaction_from_actions(sender, receiver, actions)
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = action_sir_receipt_creation(ctx);
@@ -401,7 +401,7 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", vec![0; 1024 * 1024])
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     let base_cost = noop_host_function_call_cost(ctx);
@@ -798,7 +798,7 @@ fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
         let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
         tb.transaction_from_actions(sender, receiver, actions)
     };
-    testbed.average_transaction_cost(&mut make_transaction)
+    testbed.transaction_cost(&mut make_transaction)
 }
 
 fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
@@ -813,7 +813,7 @@ fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
             let sender = tb.random_unused_account();
             tb.transaction_from_function_call(sender, "noop", Vec::new())
         };
-        testbed.average_transaction_cost(&mut make_transaction)
+        testbed.transaction_cost(&mut make_transaction)
     };
 
     ctx.cached.noop_host_function_call_cost = Some(cost.clone());
@@ -836,7 +836,7 @@ fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
-    let (gas_cost, ext_costs) = testbed.average_transaction_cost_with_ext(&mut make_transaction);
+    let (gas_cost, ext_costs) = testbed.transaction_cost_ext(&mut make_transaction);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
 }

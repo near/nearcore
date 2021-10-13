@@ -107,7 +107,7 @@ impl<'c> Ctx<'c> {
 fn deploy_contracts(tb: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
     let mut accounts_with_code = Vec::new();
     for _ in 0..3 {
-        tb.average_transaction_cost(&mut |mut tb| {
+        tb.transaction_cost(&mut |mut tb| {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
@@ -136,14 +136,14 @@ impl<'c> TestBed<'c> {
         self
     }
 
-    pub(crate) fn average_transaction_cost<'a>(
+    pub(crate) fn transaction_cost<'a>(
         &'a mut self,
         make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     ) -> GasCost {
-        self.average_transaction_cost_with_ext(make_transaction).0
+        self.transaction_cost_ext(make_transaction).0
     }
 
-    pub(crate) fn average_transaction_cost_with_ext<'a>(
+    pub(crate) fn transaction_cost_ext<'a>(
         &'a mut self,
         make_transaction: &'a mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
     ) -> (GasCost, HashMap<ExtCosts, u64>) {
