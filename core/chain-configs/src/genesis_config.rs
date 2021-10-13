@@ -169,9 +169,6 @@ pub struct GenesisConfig {
     #[default(ShardLayout::default())]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
-    // Skip serializing if the field is null, this is to avoid setting this field to null
-    // when state dump
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
