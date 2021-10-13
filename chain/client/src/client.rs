@@ -1450,9 +1450,6 @@ impl Client {
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let shard_id = self
-            .runtime_adapter
-            .account_id_to_shard_id(&tx.transaction.signer_id, &head.epoch_id)?;
         let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
@@ -1480,6 +1477,8 @@ impl Client {
             return Ok(NetworkClientResponses::InvalidTx(err));
         }
 
+        let shard_id =
+            self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id, &epoch_id)?;
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
