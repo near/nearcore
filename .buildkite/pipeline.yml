@@ -72,6 +72,8 @@ steps:
       cd pytest
       pip3 install --user -r requirements.txt
       python3 tests/sanity/upgradable.py
+      cargo build -pneard --bin neard -j16 --features nightly_protocol,nightly_protocol_features
+      python3 tests/sanity/spin_up_cluster.py
     branches: "!master"
     timeout: 30
     agents:
