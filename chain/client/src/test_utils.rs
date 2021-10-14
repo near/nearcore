@@ -1266,7 +1266,7 @@ impl TestEnv {
         block: Block,
         provenance: Provenance,
         should_run_catchup: bool,
-        produce_chunk: bool,
+        should_produce_chunk: bool,
     ) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
@@ -1279,7 +1279,7 @@ impl TestEnv {
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
-                produce_chunk,
+                !should_produce_chunk,
             );
         }
     }

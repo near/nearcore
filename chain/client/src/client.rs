@@ -960,7 +960,7 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
-        self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, true);
+        self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
     }
 
     /// Gets called when block got accepted.
@@ -972,7 +972,7 @@ impl Client {
         block_hash: CryptoHash,
         status: BlockStatus,
         provenance: Provenance,
-        produce_chunk: bool,
+        skip_produce_chunk: bool,
     ) {
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block.clone(),
@@ -1105,7 +1105,10 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC && !self.sync_status.is_syncing() && produce_chunk {
+            if provenance != Provenance::SYNC
+                && !self.sync_status.is_syncing()
+                && !skip_produce_chunk
+            {
                 // Produce new chunks
                 let epoch_id = self
                     .runtime_adapter
@@ -1161,7 +1164,7 @@ impl Client {
                         accepted_block.hash,
                         accepted_block.status,
                         accepted_block.provenance,
-                        produce_chunk,
+                        skip_produce_chunk,
                     );
                 }
             }

@@ -314,9 +314,6 @@ fn setup_genesis(
 // test some shard layout upgrade with some simple transactions to create accounts
 #[test]
 fn test_shard_layout_upgrade_simple() {
-    if cfg!(feature = "protocol_feature_block_header_v3") {
-        return;
-    }
     init_test_logger();
 
     let mut rng = thread_rng();
