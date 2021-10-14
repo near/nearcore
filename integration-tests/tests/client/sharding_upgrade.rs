@@ -15,8 +15,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::ProtocolVersion;
 use near_primitives::version::ProtocolFeature;
-use near_primitives::views::ExecutionStatusView;
 use near_primitives::views::QueryRequest;
+use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use nearcore::config::GenesisExt;
 use nearcore::NEAR_BASE;
@@ -28,6 +28,8 @@ use std::collections::{HashMap, HashSet};
 
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
+
+const P_CATCHUP: f64 = 0.2;
 
 struct TestShardUpgradeEnv {
     env: TestEnv,
@@ -90,7 +92,7 @@ impl TestShardUpgradeEnv {
 
     /// produces and processes the next block
     /// also checks that all accounts in initial_accounts are intact
-    fn step(&mut self) {
+    fn step(&mut self, p_drop_chunk: f64) {
         let env = &mut self.env;
         let mut rng = thread_rng();
         let head = env.clients[0].chain.head().unwrap();
@@ -134,14 +136,16 @@ impl TestShardUpgradeEnv {
         );
         // make sure that catchup is done before the end of each epoch, but when it is done is
         // by chance. This simulates when catchup takes a long time to be done
-        let should_catchup = rng.gen_bool(0.2) || height % self.epoch_length == 0;
+        let should_catchup = rng.gen_bool(P_CATCHUP) || height % self.epoch_length == 0;
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
-            env.process_block_with_optional_catchup(
+            let produce_chunks = !rng.gen_bool(p_drop_chunk);
+            env.process_block_with_options(
                 j as usize,
                 block.clone(),
                 Provenance::NONE,
                 should_catchup,
+                produce_chunks,
             );
         }
 
@@ -154,7 +158,7 @@ impl TestShardUpgradeEnv {
     }
 
     /// check that all accounts in `accounts` exist in the current state
-    fn check_accounts(&mut self, accounts: &[AccountId]) {
+    fn check_accounts(&mut self, accounts: Vec<&AccountId>) {
         let head = self.env.clients[0].chain.head().unwrap();
         let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         for account_id in accounts {
@@ -164,7 +168,9 @@ impl TestShardUpgradeEnv {
 
     /// This functions checks that the outcomes of all transactions and associated receipts
     /// have successful status
-    fn check_tx_outcomes(&mut self) {
+    /// If `allow_not_started` is true, allow transactions status to be NotStarted
+    /// Return successful transaction hashes
+    fn check_tx_outcomes(&mut self, allow_not_started: bool) -> Vec<CryptoHash> {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
@@ -176,6 +182,7 @@ impl TestShardUpgradeEnv {
         let mut txs: Vec<_> = self.txs_by_height.values().flatten().collect();
         txs.extend(&self.init_txs);
 
+        let mut successful_txs = Vec::new();
         for tx in txs {
             let id = &tx.get_hash();
             let account_id = &tx.transaction.signer_id;
@@ -195,11 +202,24 @@ impl TestShardUpgradeEnv {
                         .get_final_transaction_result_with_receipt(execution_outcome)
                         .unwrap();
 
-                    assert!(
-                        execution_outcome.final_outcome.status.clone().as_success().is_some(),
-                        "{:?}",
-                        execution_outcome
-                    );
+                    if allow_not_started {
+                        assert_matches!(
+                            execution_outcome.final_outcome.status.clone(),
+                            FinalExecutionStatus::NotStarted
+                                | FinalExecutionStatus::SuccessValue(_),
+                            "{:?}",
+                            execution_outcome
+                        );
+                        successful_txs.push(tx.get_hash());
+                    } else {
+                        assert_matches!(
+                            execution_outcome.final_outcome.status.clone(),
+                            FinalExecutionStatus::SuccessValue(_),
+                            "{:?}",
+                            execution_outcome
+                        );
+                        successful_txs.push(tx.get_hash());
+                    }
                     for outcome in execution_outcome.final_outcome.receipts_outcome {
                         assert_matches!(
                             outcome.outcome.status,
@@ -209,6 +229,7 @@ impl TestShardUpgradeEnv {
                 }
             }
         }
+        successful_txs
     }
 }
 
@@ -270,9 +291,8 @@ fn setup_genesis(
     gas_limit: Option<u64>,
 ) -> Genesis {
     let mut genesis = Genesis::test(initial_accounts, num_validators);
-    // Set kickout threshold to 50 because chunks in the first block won't be produced (a known issue)
-    // We don't want the validators get kicked out because of that
-    genesis.config.chunk_producer_kickout_threshold = 50;
+    // No kickout, since we are going to test missing chunks
+    genesis.config.chunk_producer_kickout_threshold = 0;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1;
     let simple_nightshade_shard_layout = ShardLayout::v1(
@@ -339,11 +359,11 @@ fn test_shard_layout_upgrade_simple() {
     test_env.set_tx_at_height(2 * epoch_length - 1, generate_create_accounts_txs(100));
 
     for _ in 1..3 * epoch_length + 1 {
-        test_env.step();
+        test_env.step(0.);
     }
 
-    test_env.check_accounts(&all_accounts.into_iter().collect::<Vec<_>>());
-    test_env.check_tx_outcomes();
+    test_env.check_accounts(all_accounts.iter().collect::<Vec<_>>());
+    test_env.check_tx_outcomes(false);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -407,14 +427,10 @@ fn gen_cross_contract_transaction(
     )
 }
 
-// Test cross contract calls
-// This test case tests postponed receipts and delayed receipts
-#[test]
-fn test_shard_layout_upgrade_cross_contract_calls() {
-    init_test_logger();
-
-    // setup
-    let epoch_length = 5;
+/// Return test_env and a map from tx hash to the new account that will be added by this transaction
+fn setup_test_env_with_cross_contract_txs(
+    epoch_length: u64,
+) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
     let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
 
     let genesis_hash = test_env.env.clients[0].chain.genesis_block().hash().clone();
@@ -444,6 +460,7 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
     let mut nonce = 100;
     let mut rng = thread_rng();
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let mut new_accounts = HashMap::new();
     let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
         &mut |min_size: usize, max_size: usize| -> Vec<SignedTransaction> {
             let size = rng.gen_range(min_size, max_size + 1);
@@ -451,7 +468,9 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
                 let account_id = gen_account(&mut rng, b"abcdefghijkmn");
                 if all_accounts.insert(account_id.clone()) {
                     nonce += 1;
-                    return gen_cross_contract_transaction(&account_id, nonce, &genesis_hash);
+                    let tx = gen_cross_contract_transaction(&account_id, nonce, &genesis_hash);
+                    new_accounts.insert(tx.get_hash(), account_id.clone());
+                    return tx;
                 }
             })
             .take(size)
@@ -470,8 +489,22 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
         test_env.set_tx_at_height(height, generate_txs(5, 8));
     }
 
+    (test_env, new_accounts)
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls() {
+    init_test_logger();
+
+    // setup
+    let epoch_length = 5;
+
+    let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
+
     for i in 1..4 * epoch_length {
-        test_env.step();
+        test_env.step(0.);
         if i == epoch_length || i == 2 * epoch_length {
             // check that there are delayed receipts
             let client = &mut test_env.env.clients[0];
@@ -490,6 +523,47 @@ fn test_shard_layout_upgrade_cross_contract_calls() {
         }
     }
 
-    test_env.check_tx_outcomes();
-    test_env.check_accounts(&all_accounts.into_iter().collect::<Vec<_>>());
+    test_env.check_tx_outcomes(false);
+    test_env.check_accounts(new_accounts.values().collect::<Vec<_>>());
+}
+
+// Test cross contract calls
+// This test case tests when there are missing chunks in the produced blocks
+// This is to test that all the chunk management logic in sharding split is correct
+fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
+    init_test_logger();
+
+    // setup
+    let epoch_length = 5;
+    let (mut test_env, new_accounts) = setup_test_env_with_cross_contract_txs(epoch_length);
+
+    // randomly dropping chunks at the first few epochs when sharding splits happens
+    // make sure initial txs (deploy smart contracts) are processed succesfully
+    for _ in 1..3 {
+        test_env.step(0.);
+    }
+
+    for _ in 3..3 * epoch_length {
+        test_env.step(p_missing);
+    }
+
+    // make sure all included transactions finished processing
+    for _ in 3 * epoch_length..5 * epoch_length {
+        test_env.step(0.);
+    }
+
+    let successful_txs = test_env.check_tx_outcomes(true);
+    let new_accounts: Vec<_> =
+        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(&tx_hash)).collect();
+    test_env.check_accounts(new_accounts);
+}
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_high_missing_prob() {
+    test_shard_layout_upgrade_missing_chunks(0.1);
+}
+
+#[test]
+fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob() {
+    test_shard_layout_upgrade_missing_chunks(0.5);
 }
