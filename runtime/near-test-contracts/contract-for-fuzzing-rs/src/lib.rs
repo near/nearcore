@@ -249,20 +249,35 @@ pub unsafe fn sum_of_numbers() {
 #[no_mangle]
 pub fn noop() {}
 
-// Produces 1000 10b data receipts.
 #[no_mangle]
-pub unsafe fn data_receipt_10b_1000() {
+pub unsafe fn data_producer() {
+    input(0);
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    let size = u64::from_le_bytes(data);
+
+    let data = vec![0u8; size as usize];
+    value_return(data.len() as _, data.as_ptr() as _);
+}
+
+#[no_mangle]
+pub unsafe fn data_receipt_10() {
+    input(0);
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    let size = u64::from_le_bytes(data);
+
     let buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
     read_register(0, buf.as_ptr() as _);
 
-    let method_name = b"data_producer_10b";
-    let args = b"";
-    let mut ids = [0u64; 1000];
+    let method_name = b"data_producer";
+    let args = size.to_le_bytes();
+    let mut ids = [0u64; 10];
     let amount = 0u128;
     let gas = prepaid_gas();
-    for i in 0..1000 {
+    for i in 0..10{
         ids[i] = promise_create(
             buf_len,
             buf.as_ptr() as _,
@@ -271,78 +286,12 @@ pub unsafe fn data_receipt_10b_1000() {
             args.len() as _,
             args.as_ptr() as _,
             &amount as *const u128 as *const u64 as u64,
-            gas / 2000,
+            gas / 20,
         );
     }
     let id = promise_and(ids.as_ptr() as _, ids.len() as _);
     let method_name = b"noop";
-    promise_then(
-        id,
-        buf_len,
-        buf.as_ptr() as _,
-        method_name.len() as _,
-        method_name.as_ptr() as _,
-        args.len() as _,
-        args.as_ptr() as _,
-        &amount as *const u128 as *const u64 as u64,
-        gas / 3,
-    );
-}
-
-#[no_mangle]
-pub unsafe fn data_receipt_base_10b_1000() {
-    let buf = [0u8; 1000];
-    current_account_id(0);
-    let buf_len = register_len(0);
-    read_register(0, buf.as_ptr() as _);
-
-    let method_name = b"data_producer_10b";
     let args = b"";
-    let mut ids = [0u64; 1000];
-    let amount = 0u128;
-    let gas = prepaid_gas();
-    for i in 0..1000 {
-        ids[i] = promise_create(
-            buf_len,
-            buf.as_ptr() as _,
-            method_name.len() as _,
-            method_name.as_ptr() as _,
-            args.len() as _,
-            args.as_ptr() as _,
-            &amount as *const u128 as *const u64 as u64,
-            gas / 2000,
-        );
-    }
-    let _id = promise_and(ids.as_ptr() as _, ids.len() as _);
-}
-
-// Produces 1000 10kib data receipts.
-#[no_mangle]
-pub unsafe fn data_receipt_100kib_1000() {
-    let buf = [0u8; 1000];
-    current_account_id(0);
-    let buf_len = register_len(0);
-    read_register(0, buf.as_ptr() as _);
-
-    let method_name = b"data_producer_100kib";
-    let args = b"";
-    let mut ids = [0u64; 1000];
-    let amount = 0u128;
-    let gas = prepaid_gas();
-    for i in 0..1000 {
-        ids[i] = promise_create(
-            buf_len,
-            buf.as_ptr() as _,
-            method_name.len() as _,
-            method_name.as_ptr() as _,
-            args.len() as _,
-            args.as_ptr() as _,
-            &amount as *const u128 as *const u64 as u64,
-            gas / 2000,
-        );
-    }
-    let id = promise_and(ids.as_ptr() as _, ids.len() as _);
-    let method_name = b"noop";
     promise_then(
         id,
         buf_len,

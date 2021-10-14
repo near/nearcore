@@ -336,8 +336,7 @@ pub enum Function {
     // # Contract for fuzzing #
     // ########################
     SumOfNumbers,
-    DataReceipt10b,
-    DataReceipt100kib,
+    DataReceipt10,
 }
 
 impl Scope {
@@ -377,11 +376,10 @@ impl Scope {
                 ],
             },
             Contract {
-                code: near_test_contracts::rs_contract().to_vec(),
+                code: near_test_contracts::fuzzing_contract().to_vec(),
                 functions: vec![
                     Function::SumOfNumbers,
-                    Function::DataReceipt10b,
-                    Function::DataReceipt100kib,
+                    Function::DataReceipt10,
                 ],
             },
         ]
@@ -533,11 +531,10 @@ impl Function {
                 res.method_name = "sum_of_numbers".to_string();
                 res.args = args.to_vec();
             }
-            Function::DataReceipt10b => {
-                res.method_name = "data_receipt_10b_1000".to_string();
-            }
-            Function::DataReceipt100kib => {
-                res.method_name = "data_receipt_100kib_1000".to_string();
+            Function::DataReceipt10 => {
+                let args = (*u.choose(&[10, 100, 1000, 10000, 100000])? as u64).to_le_bytes();
+                res.method_name = "data_receipt_10".to_string();
+                res.args = args.to_vec();
             }
         };
         Ok(res)
