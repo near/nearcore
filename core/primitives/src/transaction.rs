@@ -383,22 +383,21 @@ impl ExecutionOutcome {
     }
 
     pub fn equal_except_metadata(&self, other: &ExecutionOutcome) -> bool {
-        (|ExecutionOutcome {
-              logs,
-              receipt_ids,
-              gas_burnt,
-              tokens_burnt,
-              executor_id,
-              status,
-              metadata: _,
-          }: &ExecutionOutcome| {
-            (logs == &other.logs)
-                && (receipt_ids == &other.receipt_ids)
-                && (gas_burnt == &other.gas_burnt)
-                && (tokens_burnt == &other.tokens_burnt)
-                && (executor_id == &other.executor_id)
-                && (status == &other.status)
-        })(self)
+        let ExecutionOutcome {
+            logs,
+            receipt_ids,
+            gas_burnt,
+            tokens_burnt,
+            executor_id,
+            status,
+            metadata: _,
+        } = self;
+        (logs == &other.logs)
+            && (receipt_ids == &other.receipt_ids)
+            && (gas_burnt == &other.gas_burnt)
+            && (tokens_burnt == &other.tokens_burnt)
+            && (executor_id == &other.executor_id)
+            && (status == &other.status)
     }
 }
 
