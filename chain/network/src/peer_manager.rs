@@ -87,7 +87,7 @@ const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOVED: Duration = Duration::from_millis(50);
+const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_secs(1);
 
@@ -292,7 +292,7 @@ impl PeerManagerActor {
                 }
             }
             new_edges.push(edge);
-            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOVED {
+            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
                 break;
             }
         }
@@ -1307,6 +1307,7 @@ impl PeerManagerActor {
 
     // Ping pong useful functions.
 
+    // for unit tests
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
@@ -1692,6 +1693,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            // For unit tests
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -1799,10 +1801,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
+            // For unit tests
             NetworkRequests::PingTo(nonce, target) => {
                 self.send_ping(ctx, nonce, target);
                 NetworkResponses::NoResponse
             }
+            // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table.fetch_ping_pong();
                 NetworkResponses::PingPongInfo { pings, pongs }
@@ -1860,6 +1864,9 @@ impl Handler<SetAdvOptions> for PeerManagerActor {
         }
         if let Some(disable_edge_pruning) = msg.disable_edge_pruning {
             self.adv_disable_edge_pruning = disable_edge_pruning;
+        }
+        if let Some(set_max_peers) = msg.set_max_peers {
+            self.config.max_num_peers = set_max_peers as u32;
         }
         SetAdvOptionsResult {}
     }
