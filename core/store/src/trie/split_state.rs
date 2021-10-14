@@ -634,8 +634,11 @@ mod tests {
                 .get_view_trie_for_shard(ShardUId::default())
                 .get_trie_items_for_part(0, 1, &state_root)
                 .unwrap();
-            let split_state_roots: HashMap<_, _> =
-                shards.iter().map(|shard_uid| (shard_uid.clone(), CryptoHash::default())).collect();
+            let split_state_roots: HashMap<_, _> = (0..num_shards)
+                .map(|shard_id| {
+                    (ShardUId { version: 1, shard_id: shard_id as u32 }, CryptoHash::default())
+                })
+                .collect();
             let (store_update, split_state_roots) = tries
                 .add_values_to_split_states(
                     &split_state_roots,
