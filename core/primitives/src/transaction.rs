@@ -290,8 +290,8 @@ impl Default for ExecutionStatus {
 }
 
 /// ExecutionOutcome for proof. Excludes logs and metadata
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
-struct PartialExecutionOutcome {
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Debug)]
+pub struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
     pub tokens_burnt: Balance,
@@ -312,7 +312,7 @@ impl From<&ExecutionOutcome> for PartialExecutionOutcome {
 }
 
 /// ExecutionStatus for proof. Excludes failure debug info.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Debug)]
 pub enum PartialExecutionStatus {
     Unknown,
     Failure,

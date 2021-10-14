@@ -24,7 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, PartialExecutionOutcome};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -420,18 +420,22 @@ fn apply_chain_range(
             receipts_gas_burnt_stats.add_u64(outcome.outcome.gas_burnt);
             receipts_tokens_burnt_stats.add_u128(outcome.outcome.tokens_burnt);
             if fail_on_difference {
-                let old_outcomes = store
+                let old_outcome = store
                     .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
                         DBCol::ColTransactionResult,
                         outcome.id.as_ref(),
                     )
                     .unwrap()
-                    .unwrap();
-                if !old_outcomes[0].outcome_with_id.outcome.equal_except_metadata(&outcome.outcome)
-                {
-                    println!("Difference in outcomes:");
-                    println!("old outcome: {:?}", old_outcomes[0].outcome_with_id);
-                    println!("new outcome: {:?}", outcome);
+                    .unwrap()[0]
+                    .outcome_with_id
+                    .outcome
+                    .clone();
+                let old_partial_outcome: PartialExecutionOutcome = (&old_outcome).into();
+                let new_partial_outcome: PartialExecutionOutcome = (&outcome.outcome).into();
+                if old_partial_outcome != new_partial_outcome {
+                    println!("Difference in parial outcome {}:", outcome.id);
+                    println!("old partial outcome: {:?}", old_partial_outcome);
+                    println!("new partial outcome: {:?}", new_partial_outcome);
                     std::process::exit(1);
                 } else {
                     info!(target: "state-viewer",
