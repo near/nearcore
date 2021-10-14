@@ -3570,6 +3570,7 @@ impl<'a> ChainUpdate<'a> {
                     shard_id,
                     apply_result.outgoing_receipts,
                 );
+                debug!(target:"chain", "save outcomes for block {:?} shard {}: {:?}", block_hash, shard_id, apply_result.outcomes);
                 // Save receipt and transaction results.
                 self.chain_store_update.save_outcomes_with_proofs(
                     &block_hash,
