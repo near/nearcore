@@ -1,6 +1,7 @@
 use anyhow::Context;
 use clap::Clap;
 use genesis_populate::GenesisBuilder;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
 use near_vm_runner::VMKind;
 use nearcore::{get_store_path, load_config};
@@ -43,8 +44,8 @@ struct CliArgs {
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer2", "wasmtime"])]
-    vm_kind: String,
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
+    vm_kind: Option<String>,
     /// Only test contract compilation costs.
     #[clap(long)]
     compile_only: bool,
@@ -57,6 +58,9 @@ struct CliArgs {
     /// Build and run the estimator inside a docker container via QEMU.
     #[clap(long)]
     docker: bool,
+    /// Spawn a bash shell inside a docker container for debugging purposes.
+    #[clap(long)]
+    docker_shell: bool,
     /// If docker is also set, run estimator in the fully production setting to get usable cost
     /// table. See runtime-params-estimator/emu-cost/README.md for more details.
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
@@ -124,7 +128,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if cli_args.docker {
-        return main_docker(&state_dump_path, cli_args.full);
+        return main_docker(&state_dump_path, cli_args.full, cli_args.docker_shell);
     }
 
     if let Some(path) = cli_args.costs_file {
@@ -157,11 +161,12 @@ fn main() -> anyhow::Result<()> {
         "time" => GasMetric::Time,
         other => unreachable!("Unknown metric {}", other),
     };
-    let vm_kind = match cli_args.vm_kind.as_str() {
-        "wasmer" => VMKind::Wasmer0,
-        "wasmer2" => VMKind::Wasmer2,
-        "wasmtime" => VMKind::Wasmtime,
-        other => unreachable!("Unknown vm_kind {}", other),
+    let vm_kind = match cli_args.vm_kind.as_deref() {
+        Some("wasmer") => VMKind::Wasmer0,
+        Some("wasmer2") => VMKind::Wasmer2,
+        Some("wasmtime") => VMKind::Wasmtime,
+        None => VMKind::for_protocol_version(PROTOCOL_VERSION),
+        Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
     let metrics_to_measure =
         cli_args.metrics_to_measure.map(|it| it.split(',').map(str::to_string).collect());
@@ -198,7 +203,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main_docker(state_dump_path: &Path, full: bool) -> anyhow::Result<()> {
+fn main_docker(state_dump_path: &Path, full: bool, debug_shell: bool) -> anyhow::Result<()> {
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
@@ -273,7 +278,13 @@ cargo build --manifest-path /host/nearcore/Cargo.toml \
         cmd.args(&["--env", "CARGO_PROFILE_RELEASE_LTO=fat"])
             .args(&["--env", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1"]);
     }
-    cmd.arg("rust-emu").args(&["/usr/bin/env", "bash", "-c", &init]);
+    cmd.arg("rust-emu");
+
+    if debug_shell {
+        cmd.args(&["/usr/bin/env", "bash"]);
+    } else {
+        cmd.args(&["/usr/bin/env", "bash", "-c", &init]);
+    }
 
     cmd.status()?;
     Ok(())

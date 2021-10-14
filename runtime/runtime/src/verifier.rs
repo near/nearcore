@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_valid() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_signature() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
 
         assert_eq!(
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_bad_action() {
-        let mut config = RuntimeConfig::default();
+        let mut config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -660,7 +660,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_bad_signer() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -690,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_bad_nonce() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_balance_overflow() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_not_enough_allowance() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -869,7 +869,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_actions_for_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -963,7 +963,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_receiver_for_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -1011,7 +1011,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_method_name_for_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -1056,7 +1056,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_deposit_with_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -1114,7 +1114,7 @@ mod tests {
         );
         let transaction_size = transaction.get_size();
 
-        let mut config = RuntimeConfig::default();
+        let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
         config.wasm_config.limit_config.max_transaction_size = transaction_size - 1;
 

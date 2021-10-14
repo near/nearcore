@@ -11,7 +11,8 @@ use chrono::Utc;
 use log::{debug, error, info, warn};
 
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, TX_ROUTING_HEIGHT_HORIZON,
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
+    TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
@@ -57,9 +58,9 @@ const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 pub struct Client {
     /// Adversarial controls
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_produce_blocks: bool,
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv_produce_blocks_only_valid: bool,
 
     pub config: ClientConfig,
@@ -159,9 +160,9 @@ impl Client {
         );
 
         Ok(Self {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_produce_blocks: false,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv_produce_blocks_only_valid: false,
             config,
             sync_status,
@@ -245,7 +246,7 @@ impl Client {
 
     /// Check that this block height is not known yet.
     fn known_block_height(&self, next_height: BlockHeight, known_height: BlockHeight) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks {
                 return false;
@@ -261,7 +262,7 @@ impl Client {
         account_id: &AccountId,
         next_block_proposer: &AccountId,
     ) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks_only_valid {
                 return account_id == next_block_proposer;
@@ -293,7 +294,7 @@ impl Client {
             return Ok(true);
         }
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv_produce_blocks {
                 return Ok(false);
@@ -370,17 +371,18 @@ impl Client {
         let validator_pk = validator_stake.take_public_key();
         if validator_pk != validator_signer.public_key() {
             debug!(target: "client", "Local validator key {} does not match expected validator key {}, skipping block production", validator_signer.public_key(), validator_pk);
-            #[cfg(not(feature = "adversarial"))]
+            #[cfg(not(feature = "test_features"))]
             return Ok(None);
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             if !self.adv_produce_blocks || self.adv_produce_blocks_only_valid {
                 return Ok(None);
             }
         }
 
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.height(), format_hash(head.last_block_hash));
-
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(), 
+               next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
+
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
@@ -438,7 +440,7 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?.clone();
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks: Vec<_> = prev_block.chunks().iter().cloned().collect();
+        let mut chunks = Chain::get_prev_chunk_headers(&*self.runtime_adapter, prev_block)?;
 
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
@@ -958,6 +960,21 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
+        self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
+    }
+
+    /// Gets called when block got accepted.
+    /// Only produce chunk if `skip_produce_chunk` is false
+    /// Note that this function should only be directly called from tests, production code
+    /// should always use `on_block_accepted`
+    /// `skip_produce_chunk` is set to true to simulate when there are missing chunks in a block
+    pub fn on_block_accepted_with_optional_chunk_produce(
+        &mut self,
+        block_hash: CryptoHash,
+        status: BlockStatus,
+        provenance: Provenance,
+        skip_produce_chunk: bool,
+    ) {
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block.clone(),
             Err(err) => {
@@ -1089,7 +1106,10 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC && !self.sync_status.is_syncing() {
+            if provenance != Provenance::SYNC
+                && !self.sync_status.is_syncing()
+                && !skip_produce_chunk
+            {
                 // Produce new chunks
                 let epoch_id = self
                     .runtime_adapter
@@ -1105,7 +1125,8 @@ impl Client {
                         match self.produce_chunk(
                             *block.hash(),
                             &epoch_id,
-                            block.chunks()[shard_id as usize].clone(),
+                            Chain::get_prev_chunk_header(&*self.runtime_adapter, &block, shard_id)
+                                .unwrap(),
                             block.header().height() + 1,
                             shard_id,
                         ) {
@@ -1140,10 +1161,11 @@ impl Client {
                 // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
                 // for which we track shards will be unblocked here.
                 for accepted_block in accepted_blocks {
-                    self.on_block_accepted(
+                    self.on_block_accepted_with_optional_chunk_produce(
                         accepted_block.hash,
                         accepted_block.status,
                         accepted_block.provenance,
+                        skip_produce_chunk,
                     );
                 }
             }
@@ -1448,9 +1470,6 @@ impl Client {
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let shard_id = self
-            .runtime_adapter
-            .account_id_to_shard_id(&tx.transaction.signer_id, &head.epoch_id)?;
         let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
@@ -1478,6 +1497,8 @@ impl Client {
             return Ok(NetworkClientResponses::InvalidTx(err));
         }
 
+        let shard_id =
+            self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id, &epoch_id)?;
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {
@@ -1578,6 +1599,7 @@ impl Client {
         highest_height_peers: &Vec<FullPeerInfo>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<Vec<AcceptedBlock>, Error> {
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
@@ -1587,7 +1609,7 @@ impl Client {
             let new_shard_sync = {
                 let prev_hash = self.chain.get_block(&sync_hash)?.header().prev_hash().clone();
                 let need_to_split_states =
-                    self.runtime_adapter.will_shard_layout_change(&prev_hash)?;
+                    self.runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
                 if need_to_split_states {
                     // If the client already has the state for this epoch, skip the downloading phase
                     let new_shard_sync = state_sync_info
@@ -1605,7 +1627,7 @@ impl Client {
                                     shard_id,
                                     ShardSyncDownload {
                                         downloads: vec![],
-                                        status: ShardSyncStatus::StateSplit,
+                                        status: ShardSyncStatus::StateSplitScheduling,
                                     },
                                 ))
                             } else {
@@ -1645,6 +1667,7 @@ impl Client {
                 highest_height_peers,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
                 state_parts_task_scheduler,
+                state_split_scheduler,
             )? {
                 StateSyncResult::Unchanged => {}
                 StateSyncResult::Changed(fetch_block) => {

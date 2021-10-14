@@ -56,7 +56,7 @@ pub struct VMContext {
     pub random_seed: Vec<u8>,
     /// If Some, it means that execution is made in a view mode and defines its configuration.
     /// View mode means that only read-only operations are allowed.
-    /// See https://nomicon.io/Proposals/0018-view-change-method.html for more details.
+    /// See <https://nomicon.io/Proposals/0018-view-change-method.html> for more details.
     pub view_config: Option<ViewConfig>,
     /// How many `DataReceipt`'s should receive this execution result. This should be empty if
     /// this function call is a part of a batch and it is not the last action.

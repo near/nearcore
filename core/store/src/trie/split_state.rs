@@ -329,7 +329,7 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_accounts, gen_changes, gen_receipts, test_populate_trie,
+        create_tries, gen_changes, gen_receipts, gen_unique_accounts, test_populate_trie,
     };
     use crate::{get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
@@ -599,7 +599,7 @@ mod tests {
     fn test_split_and_update_state_impl(rng: &mut impl Rng) {
         let tries = create_tries();
         // add accounts and receipts to state
-        let mut account_ids = gen_accounts(rng, 100);
+        let mut account_ids = gen_unique_accounts(rng, 100);
         let mut trie_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
         for account_id in account_ids.iter() {
             set_account(
@@ -676,7 +676,7 @@ mod tests {
         // update the original shard
         for _ in 0..10 {
             // add accounts
-            let new_accounts = gen_accounts(rng, 10);
+            let new_accounts = gen_unique_accounts(rng, 10);
             let mut trie_update = tries.new_trie_update(ShardUId::default(), state_root);
             for account_id in new_accounts.iter() {
                 set_account(

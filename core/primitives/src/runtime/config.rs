@@ -8,10 +8,9 @@ use crate::types::{AccountId, Balance};
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(default)]
 pub struct RuntimeConfig {
-    /// Amount of yN per byte required to have on the account.
-    /// See https://nomicon.io/Economics/README.html#state-stake for details.
+    /// Amount of yN per byte required to have on the account.  See
+    /// <https://nomicon.io/Economics/README.html#state-stake> for details.
     #[serde(with = "u128_dec_format")]
     pub storage_amount_per_byte: Balance,
     /// Costs of different actions that need to be performed when sending and processing transaction
@@ -23,19 +22,17 @@ pub struct RuntimeConfig {
     pub account_creation_config: AccountCreationConfig,
 }
 
-impl Default for RuntimeConfig {
-    fn default() -> Self {
+impl RuntimeConfig {
+    pub fn test() -> Self {
         RuntimeConfig {
             // See https://nomicon.io/Economics/README.html#general-variables for how it was calculated.
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
-            transaction_costs: RuntimeFeesConfig::default(),
+            transaction_costs: RuntimeFeesConfig::test(),
             wasm_config: VMConfig::default(),
             account_creation_config: AccountCreationConfig::default(),
         }
     }
-}
 
-impl RuntimeConfig {
     pub fn free() -> Self {
         Self {
             storage_amount_per_byte: 0,

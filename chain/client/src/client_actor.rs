@@ -17,17 +17,17 @@ use log::{debug, error, info, trace, warn};
 use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_chain::StoreValidator;
 use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, ChainStoreAccess,
     Provenance, RuntimeAdapter,
 };
 use near_chain_configs::ClientConfig;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{NetworkInfo, ReasonForBan};
 #[cfg(feature = "sandbox")]
@@ -45,20 +45,20 @@ use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::ValidatorInfo;
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use near_store::ColBlock;
 use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::{InfoHelper, ValidatorInfoHelper};
 use crate::sync::{highest_height_peer, StateSync, StateSyncResult};
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::AdversarialControls;
 use crate::StatusResponse;
 use actix::dev::SendError;
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse,
+    BlockCatchUpResponse, StateSplitRequest, StateSplitResponse,
 };
 use near_client_primitives::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
@@ -78,7 +78,7 @@ const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
@@ -100,6 +100,7 @@ pub struct ClientActor {
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
+    state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
     state_parts_client_arbiter: Arbiter,
 }
 
@@ -134,7 +135,7 @@ impl ClientActor {
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
         ctx: &Context<ClientActor>,
-        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+        #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         let state_parts_arbiter = Arbiter::new();
         let self_addr = ctx.address();
@@ -162,7 +163,7 @@ impl ClientActor {
 
         let now = Utc::now();
         Ok(ClientActor {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
             client,
             network_adapter,
@@ -188,6 +189,9 @@ impl ClientActor {
                 sync_jobs_actor_addr.clone(),
             ),
             block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
+                sync_jobs_actor_addr.clone(),
+            ),
+            state_split_scheduler: create_sync_job_scheduler::<StateSplitRequest>(
                 sync_jobs_actor_addr,
             ),
             state_parts_client_arbiter: state_parts_arbiter,
@@ -249,7 +253,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
         self.check_triggers(ctx);
 
         match msg {
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             NetworkClientMessages::Adversarial(adversarial_msg) => {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
@@ -818,7 +822,7 @@ impl ClientActor {
     fn schedule_triggers(&mut self, ctx: &mut Context<Self>) {
         let wait = self.check_triggers(ctx);
 
-        near_performance_metrics::actix::run_later(ctx, file!(), line!(), wait, move |act, ctx| {
+        near_performance_metrics::actix::run_later(ctx, wait, move |act, ctx| {
             act.schedule_triggers(ctx);
         });
     }
@@ -1185,7 +1189,7 @@ impl ClientActor {
     }
 
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             if self.adv.read().unwrap().adv_disable_header_sync {
                 return false;
@@ -1203,8 +1207,6 @@ impl ClientActor {
         {
             near_performance_metrics::actix::run_later(
                 ctx,
-                file!(),
-                line!(),
                 self.client.config.sync_step_period,
                 move |act, ctx| {
                     act.start_sync(ctx);
@@ -1259,6 +1261,7 @@ impl ClientActor {
             &self.network_info.highest_height_peers,
             &self.state_parts_task_scheduler,
             &self.block_catch_up_scheduler,
+            &self.state_split_scheduler,
         ) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
@@ -1270,8 +1273,6 @@ impl ClientActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.client.config.catchup_step_period,
             move |act, ctx| {
                 act.catchup(ctx);
@@ -1313,8 +1314,6 @@ impl ClientActor {
 
                 near_performance_metrics::actix::run_later(
                     ctx,
-                    file!(),
-                    line!(),
                     self.client.config.sync_step_period, move |act, ctx| {
                         act.sync(ctx);
                     }
@@ -1412,6 +1411,7 @@ impl ClientActor {
                     &self.network_info.highest_height_peers,
                     shards_to_sync,
                     &self.state_parts_task_scheduler,
+                    &self.state_split_scheduler,
                 )) {
                     StateSyncResult::Unchanged => (),
                     StateSyncResult::Changed(fetch_block) => {
@@ -1478,23 +1478,15 @@ impl ClientActor {
             }
         }
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            wait_period,
-            move |act, ctx| {
-                act.sync(ctx);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, wait_period, move |act, ctx| {
+            act.sync(ctx);
+        });
     }
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.client.config.log_summary_period,
             move |act, ctx| {
                 #[cfg(feature = "delay_detector")]
@@ -1646,6 +1638,37 @@ impl Handler<BlockCatchUpResponse> for ClientActor {
     }
 }
 
+impl Handler<StateSplitRequest> for SyncJobsActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StateSplitRequest, _: &mut Self::Context) -> Self::Result {
+        let results = self.runtime.build_state_for_split_shards(
+            msg.shard_uid,
+            &msg.state_root,
+            &msg.next_epoch_shard_layout,
+        );
+
+        self.client_addr.do_send(StateSplitResponse {
+            sync_hash: msg.sync_hash,
+            shard_id: msg.shard_id,
+            new_state_roots: results,
+        });
+    }
+}
+
+impl Handler<StateSplitResponse> for ClientActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: StateSplitResponse, _: &mut Self::Context) -> Self::Result {
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            // We are doing catchup
+            sync.set_split_result(msg.shard_id, msg.new_state_roots);
+        } else {
+            self.client.state_sync.set_split_result(msg.shard_id, msg.new_state_roots);
+        }
+    }
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     client_config: ClientConfig,
@@ -1655,7 +1678,7 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
-    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
+    #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, ArbiterHandle) {
     let client_arbiter_handle = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
@@ -1669,7 +1692,7 @@ pub fn start_client(
             telemetry_actor,
             true,
             ctx,
-            #[cfg(feature = "adversarial")]
+            #[cfg(feature = "test_features")]
             adv,
         )
         .unwrap()

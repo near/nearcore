@@ -22,26 +22,20 @@ from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_pay
 def main():
     node_root = get_near_tempdir('backward', clean=True)
     branch = branches.latest_rc_branch()
-    neard_root, (stable_branch,
-                 current_branch) = branches.prepare_ab_test(branch)
+    executables = branches.prepare_ab_test(branch)
 
     # Setup local network.
-    subprocess.call([
-        "%sneard-%s" % (neard_root, stable_branch),
+    subprocess.check_call([
+        executables.stable.neard,
         "--home=%s" % node_root, "testnet", "--v", "2", "--prefix", "test"
     ])
 
     # Run both binaries at the same time.
-    config = {
-        "local": True,
-        'neard_root': neard_root,
-        'binary_name': "neard-%s" % stable_branch
-    }
-    stable_node = cluster.spin_up_node(config, neard_root,
+    config = executables.stable.node_config()
+    stable_node = cluster.spin_up_node(config, executables.stable.root,
                                        str(node_root / 'test0'), 0, None, None)
-    if not os.getenv('NAYDUCK'):
-        config["binary_name"] = "neard-%s" % current_branch
-    current_node = cluster.spin_up_node(config, neard_root,
+    config = executables.current.node_config()
+    current_node = cluster.spin_up_node(config, executables.current.root,
                                         str(node_root / 'test1'), 1,
                                         stable_node.node_key.pk,
                                         stable_node.addr())

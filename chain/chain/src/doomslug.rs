@@ -310,7 +310,7 @@ impl Doomslug {
         }
     }
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn adv_disable(&mut self) {
         self.threshold_mode = DoomslugThresholdMode::NoApprovals
     }

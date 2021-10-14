@@ -1,7 +1,8 @@
 [package]
 name = "near-indexer"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
 edition = "2018"
 
 [dependencies]

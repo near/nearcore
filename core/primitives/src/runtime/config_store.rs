@@ -18,8 +18,7 @@ macro_rules! include_config {
 static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (0, include_config!("29.json")),
     (42, include_config!("42.json")),
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
-    (119, include_config!("119.json")),
+    (48, include_config!("48.json")),
 ];
 
 /// Stores runtime config for each protocol version where it was updated.
@@ -56,9 +55,7 @@ impl RuntimeConfigStore {
 
     /// Constructs test store.
     pub fn test() -> Self {
-        Self {
-            store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::default()))].iter().cloned()),
-        }
+        Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::test()))].iter().cloned()) }
     }
 
     /// Constructs store with a single config with zero costs.
@@ -82,8 +79,7 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
-    use crate::version::ProtocolFeature::LowerEcrecoverBaseCost;
+    use crate::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
 
@@ -112,11 +108,19 @@ mod tests {
         let expected_hashes = vec![
             "3VBfW1GkXwKNiThPhrtjm2qGupYv5oEEZWapduXkd2gY",
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
-            "8fw221ichmXpuyMmWWhQTH5HfzJ8W8X8Fz1JXhpKQweu",
+            "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
         ];
-        for (i, (_, config_bytes)) in CONFIGS.iter().enumerate() {
-            assert_eq!(to_base(&hash(config_bytes)), expected_hashes[i]);
-        }
+        let actual_hashes = CONFIGS
+            .iter()
+            .map(|(_protocol_version, config_bytes)| to_base(&hash(config_bytes)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            expected_hashes, actual_hashes,
+            "\n
+Config hashes changed. \n
+If you add new config version, add a missing hash to the end of `expected_hashes` array.
+"
+        )
     }
 
     #[test]
@@ -159,11 +163,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_lower_data_receipt_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
                 > new_cfg.transaction_costs.data_receipt_creation_config.base_cost.send_sir
@@ -177,7 +180,6 @@ mod tests {
     // Check that for protocol version with lowered data receipt cost, runtime config passed to
     // config store is overridden.
     #[test]
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_override_runtime_config() {
         let store = RuntimeConfigStore::new(Some(&RuntimeConfig::free()));
         let config = store.get_config(0);
@@ -191,7 +193,7 @@ mod tests {
             &serde_json::from_slice::<RuntimeConfig>(CONFIGS[1].1).unwrap()
         );
 
-        let config = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let config = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert_eq!(config.account_creation_config.min_allowed_top_level_account_length, 32);
         assert_eq!(
             config.as_ref(),
@@ -200,11 +202,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_lower_ecrecover_base_cost")]
     fn test_lower_ecrecover_base_cost() {
         let store = RuntimeConfigStore::new(None);
         let base_cfg = store.get_config(LowerStorageCost.protocol_version());
-        let new_cfg = store.get_config(LowerEcrecoverBaseCost.protocol_version());
+        let new_cfg = store.get_config(LowerDataReceiptAndEcrecoverBaseCost.protocol_version());
         assert!(
             base_cfg.wasm_config.ext_costs.ecrecover_base
                 > new_cfg.wasm_config.ext_costs.ecrecover_base

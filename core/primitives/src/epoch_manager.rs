@@ -90,11 +90,7 @@ impl AllEpochConfig {
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
-        if checked_feature!(
-            "protocol_feature_simple_nightshade",
-            SimpleNightshade,
-            protocol_version
-        ) {
+        if checked_feature!("stable", SimpleNightshade, protocol_version) {
             &self.simple_nightshade_epoch_config
         } else {
             &self.genesis_epoch_config
@@ -102,8 +98,8 @@ impl AllEpochConfig {
     }
 }
 
-/// Additional configuration parameters for the new validator selection algorithm.
-/// See https://github.com/near/NEPs/pull/167 for details
+/// Additional configuration parameters for the new validator selection
+/// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
 #[derive(Debug, Clone, SmartDefault, PartialEq, Eq)]
 pub struct ValidatorSelectionConfig {
     #[default(300)]

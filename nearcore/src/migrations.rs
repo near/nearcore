@@ -9,7 +9,6 @@ use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
@@ -68,7 +67,6 @@ fn apply_block_at_height(
         .apply_transactions(
             shard_id,
             &chunk_header.prev_state_root(),
-            None,
             block_height,
             block.header().raw_timestamp(),
             block.header().prev_hash(),
@@ -112,16 +110,7 @@ pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
-        let runtime = NightshadeRuntime::new(
-            path,
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
         store_update.commit().unwrap();
@@ -224,16 +213,7 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
-        let runtime = NightshadeRuntime::new(
-            path,
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
         let shard_uid = ShardUId::default();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
@@ -252,7 +232,6 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
                         .apply_transactions(
                             shard_id,
                             new_extra.state_root(),
-                            None,
                             block.header().height(),
                             block.header().raw_timestamp(),
                             block.header().prev_hash(),
@@ -288,22 +267,14 @@ pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
     set_store_version(&store, 20);
 }
 
-/// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
+/// This is a one time patch to fix an existing issue in mainnet database
+/// (<https://github.com/near/near-indexer-for-explorer/issues/110>)
 pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let runtime = NightshadeRuntime::new(
-            path,
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-            RuntimeConfigStore::new(Some(&near_config.genesis.config.runtime_config)),
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), &near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];
@@ -330,7 +301,6 @@ pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
                     .apply_transactions(
                         shard_id,
                         &chunk_header.prev_state_root(),
-                        None,
                         block.header().height(),
                         block.header().raw_timestamp(),
                         block.header().prev_hash(),
@@ -371,7 +341,8 @@ lazy_static_include::lazy_static_include_bytes! {
     MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
 
-/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
+/// Put receipts restored in scope of issue
+/// <https://github.com/near/nearcore/pull/4248> to storage.
 pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
