@@ -151,8 +151,8 @@ class BaseNode(object):
 
         return list(reversed(heights))
 
-    def get_validators(self):
-        return self.json_rpc('validators', [None])
+    def get_validators(self, timeout=15):
+        return self.json_rpc('validators', [None], timeout=timeout)
 
     def get_account(self, acc, finality='optimistic'):
         return self.json_rpc('query', {
