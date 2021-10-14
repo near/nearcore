@@ -14,7 +14,7 @@ TODO: Fill out documentation for all available commands
 Basic example:
 ```
 make release
-./target/release/state-viewer --home ~/.near/ apply_range --shard_id=0 --verbose=false --start_index=42376889 --end_index=423770101 --progress=100
+./target/release/state-viewer --home ~/.near/ apply_range --shard_id=0 --start_index=42376889 --end_index=423770101
 ```
 
 This command will:
@@ -22,13 +22,17 @@ This command will:
 * open the blockchain state at the location provided by `--home`
 * for each block with height between `--start_index` and `--end_index`
   * Run `apply_transactions` function
-  * Print individual outcomes if `--verbose` is provided
-  * If `--progress` is provided, the tool will print the current statistics to stdout every `--progress` blocks.
 * Compute statistics of the gas used and balance burnt for each block and for each receipt within the block
 
 If you want to re-apply all the blocks in the available blockchain then omit both the `--start_index` and `--end_index`
 flags. Omitting `--start_index` makes `state-viewer` use blockchain state starting from the genesis. Omitting
 `--end_index` makes `state-viewer` use all blocks up to the latest block available in the blockchain.
+
+Enable debug output to print extra details such as individual outcomes:
+
+```
+./target/release/state-viewer ...
+```
 
 #### Running for the whole `mainnet` history
 

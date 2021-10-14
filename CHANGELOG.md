@@ -3,8 +3,10 @@
 ## [unreleased]
 
 ### Protocol Changes
-* Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. 
-* Lower data receipt cost and base cost of `ecrecover` host function
+* Upgrade from Wasmer 0 to Wasmer 2, bringing better performance and reliability. [#4934](https://github.com/near/nearcore/pull/4934)
+* Lower regular_op_cost (execution of a single WASM instruction) from 3_856_371 to 2_207_874. [#4979](https://github.com/near/nearcore/pull/4979)
+* Lower data receipt cost and base cost of `ecrecover` host function.
+* Upgrade from one shard to four shards (Simple Nightshade Phase 0)
 
 ## `1.21.0` [09-06-2021]
 
@@ -35,4 +37,3 @@
 * Compile contracts after state sync. [#4344](https://github.com/near/nearcore/pull/4344)
 * Introduce `max_gas_burnt_view` config for rpc. [#4381](https://github.com/near/nearcore/pull/4381)
 * Fix wasmer 0.17 memory leak [#4411](https://github.com/near/nearcore/pull/4411)
-

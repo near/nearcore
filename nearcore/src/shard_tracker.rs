@@ -153,13 +153,9 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
 
     use crate::shard_tracker::TrackedConfig;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use crate::shard_tracker::POISONED_LOCK_ERR;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_epoch_manager::test_utils::hash_range;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::utils::get_num_seats_per_shard;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Rational;
@@ -311,7 +307,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     fn test_track_shards_shard_layout_change() {
         let simple_nightshade_version = SimpleNightshade.protocol_version();
         let shard_layout = ShardLayout::v1(

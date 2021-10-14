@@ -379,9 +379,10 @@ impl Client {
             }
         }
 
-        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}", validator_signer.validator_id(), next_height, prev.height(), format_hash(head.last_block_hash));
-
         let new_chunks = self.shards_mgr.prepare_chunks(&prev_hash);
+        debug!(target: "client", "{:?} Producing block at height {}, parent {} @ {}, {} new chunks", validator_signer.validator_id(), 
+               next_height, prev.height(), format_hash(head.last_block_hash), new_chunks.len());
+
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
             debug!(target: "client", "Empty blocks, skipping block production");
@@ -959,6 +960,21 @@ impl Client {
         status: BlockStatus,
         provenance: Provenance,
     ) {
+        self.on_block_accepted_with_optional_chunk_produce(block_hash, status, provenance, false);
+    }
+
+    /// Gets called when block got accepted.
+    /// Only produce chunk if `skip_produce_chunk` is false
+    /// Note that this function should only be directly called from tests, production code
+    /// should always use `on_block_accepted`
+    /// `skip_produce_chunk` is set to true to simulate when there are missing chunks in a block
+    pub fn on_block_accepted_with_optional_chunk_produce(
+        &mut self,
+        block_hash: CryptoHash,
+        status: BlockStatus,
+        provenance: Provenance,
+        skip_produce_chunk: bool,
+    ) {
         let block = match self.chain.get_block(&block_hash) {
             Ok(block) => block.clone(),
             Err(err) => {
@@ -1090,7 +1106,10 @@ impl Client {
                 }
             };
 
-            if provenance != Provenance::SYNC && !self.sync_status.is_syncing() {
+            if provenance != Provenance::SYNC
+                && !self.sync_status.is_syncing()
+                && !skip_produce_chunk
+            {
                 // Produce new chunks
                 let epoch_id = self
                     .runtime_adapter
@@ -1142,10 +1161,11 @@ impl Client {
                 // Any block that is in the blocks_with_missing_chunks which doesn't have any chunks
                 // for which we track shards will be unblocked here.
                 for accepted_block in accepted_blocks {
-                    self.on_block_accepted(
+                    self.on_block_accepted_with_optional_chunk_produce(
                         accepted_block.hash,
                         accepted_block.status,
                         accepted_block.provenance,
+                        skip_produce_chunk,
                     );
                 }
             }
@@ -1450,9 +1470,6 @@ impl Client {
     ) -> Result<NetworkClientResponses, Error> {
         let head = self.chain.head()?;
         let me = self.validator_signer.as_ref().map(|vs| vs.validator_id());
-        let shard_id = self
-            .runtime_adapter
-            .account_id_to_shard_id(&tx.transaction.signer_id, &head.epoch_id)?;
         let cur_block_header = self.chain.head_header()?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
@@ -1480,6 +1497,8 @@ impl Client {
             return Ok(NetworkClientResponses::InvalidTx(err));
         }
 
+        let shard_id =
+            self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id, &epoch_id)?;
         if self.runtime_adapter.cares_about_shard(me, &head.last_block_hash, shard_id, true)
             || self.runtime_adapter.will_care_about_shard(me, &head.last_block_hash, shard_id, true)
         {

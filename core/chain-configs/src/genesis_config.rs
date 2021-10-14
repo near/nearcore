@@ -16,11 +16,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
+use tracing::info;
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -71,7 +73,6 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     return Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
@@ -81,8 +82,6 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
         Some(vec![vec![0, 1, 2, 3]]),
         1,
     ));
-    #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
-    None
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -172,12 +171,6 @@ pub struct GenesisConfig {
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
-    // For now we are skipping serialization/deserialization of the following
-    // fields. They are only needed with protocol_feature_chunk_only_producers,
-    // however the #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    // attribute seems to not work with the serde default attribute, so I cannot
-    // ignore them in that way. When the feature is stabilized then the serde skip
-    // should be removed.
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
@@ -226,8 +219,13 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let shard_config =
-            if let Some(shard_layout) = &genesis_config.simple_nightshade_shard_layout {
+        let shard_config = if let Some(shard_layout) =
+            &genesis_config.simple_nightshade_shard_layout
+        {
+            if genesis_config.protocol_version
+                < ProtocolFeature::SimpleNightshade.protocol_version()
+            {
+                info!(target: "genesis", "setting epoch config simple nightshade");
                 let num_shards = shard_layout.num_shards() as usize;
                 Some(ShardConfig {
                     num_block_producer_seats_per_shard: vec![
@@ -235,16 +233,21 @@ impl From<&GenesisConfig> for AllEpochConfig {
                         num_shards
                     ],
                     avg_hidden_validator_seats_per_shard: vec![
-                        genesis_config.avg_hidden_validator_seats_per_shard[0];
-                        num_shards
-                    ],
+                            genesis_config.avg_hidden_validator_seats_per_shard[0];
+                            num_shards
+                        ],
                     shard_layout: shard_layout.clone(),
                 })
             } else {
+                info!(target: "genesis", "no simple nightshade");
                 None
-            };
+            }
+        } else {
+            info!(target: "genesis", "no simple nightshade");
+            None
+        };
         let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
-        debug_assert_eq!(
+        assert_eq!(
             initial_epoch_config,
             epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
         );

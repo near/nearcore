@@ -90,11 +90,7 @@ impl AllEpochConfig {
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
-        if checked_feature!(
-            "protocol_feature_simple_nightshade",
-            SimpleNightshade,
-            protocol_version
-        ) {
+        if checked_feature!("stable", SimpleNightshade, protocol_version) {
             &self.simple_nightshade_epoch_config
         } else {
             &self.genesis_epoch_config
