@@ -1123,7 +1123,15 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                 }
                 Err(err) => {
                     error!(target: "view_client", "Cannot retrieve chain head: {}", err);
-                    NetworkViewClientResponses::NoResponse
+                    NetworkViewClientResponses::ChainInfo {
+                        genesis_id: GenesisId {
+                            chain_id: self.config.chain_id.clone(),
+                            hash: *self.chain.genesis().hash(),
+                        },
+                        height: self.chain.genesis().height(),
+                        tracked_shards: self.config.tracked_shards.clone(),
+                        archival: self.config.archive,
+                    }
                 }
             },
             NetworkViewClientMessages::StateRequestHeader { shard_id, sync_hash } => {
