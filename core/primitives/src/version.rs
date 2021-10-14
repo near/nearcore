@@ -110,15 +110,16 @@ pub enum ProtocolFeature {
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
     Wasmer2,
+    SimpleNightshade,
     LowerDataReceiptAndEcrecoverBaseCost,
+    /// Lowers the cost of wasm instruction due to switch to wasmer2.
+    LowerRegularOpCost,
 
     // nightly features
     #[cfg(feature = "protocol_feature_block_header_v3")]
     BlockHeaderV3,
     #[cfg(feature = "protocol_feature_alt_bn128")]
     AltBn128,
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
-    SimpleNightshade,
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -133,7 +134,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 119;
+pub const PROTOCOL_VERSION: ProtocolVersion = 122;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -152,15 +153,16 @@ impl ProtocolFeature {
             | ProtocolFeature::CountRefundReceiptsInGasLimit
             | ProtocolFeature::MathExtension => 46,
             ProtocolFeature::RestoreReceiptsAfterFix => 47,
-            ProtocolFeature::Wasmer2 | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost => 48,
+            ProtocolFeature::Wasmer2
+            | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
+            | ProtocolFeature::LowerRegularOpCost
+            | ProtocolFeature::SimpleNightshade => 48,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
             ProtocolFeature::AltBn128 => 105,
             #[cfg(feature = "protocol_feature_block_header_v3")]
             ProtocolFeature::BlockHeaderV3 => 109,
-            #[cfg(feature = "protocol_feature_simple_nightshade")]
-            ProtocolFeature::SimpleNightshade => 114,
             #[cfg(feature = "protocol_feature_chunk_only_producers")]
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]

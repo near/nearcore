@@ -8,6 +8,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
+use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
 use near_store::create_store;
@@ -22,6 +23,7 @@ pub struct ScenarioResult<T, E> {
     /// If scenario was run with on-disk storage (i.e. `use_in_memory_store` was
     /// `false`, the home directory of the node.
     pub homedir: Option<tempfile::TempDir>,
+    pub env: TestEnv,
 }
 
 impl Scenario {
@@ -38,23 +40,13 @@ impl Scenario {
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let tempdir = match tempfile::tempdir() {
-                Err(err) => {
-                    return ScenarioResult {
-                        result: Err(Error::Other(format!(
-                            "failed to create temporary directory: {}",
-                            err
-                        ))),
-                        homedir: None,
-                    }
-                }
-                Ok(tempdir) => tempdir,
-            };
+            let tempdir = tempfile::tempdir()
+                .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
             let store = create_store(&nearcore::get_store_path(tempdir.path()));
             (Some(tempdir), store)
         };
 
-        let env = TestEnv::builder(ChainGenesis::from(&genesis))
+        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
             .clients(clients.clone())
             .validators(clients)
             .runtime_adapters(vec![Arc::new(NightshadeRuntime::test(
@@ -64,11 +56,11 @@ impl Scenario {
             ))])
             .build();
 
-        let result = self.process_blocks(env);
-        ScenarioResult { result: result, homedir: tempdir }
+        let result = self.process_blocks(&mut env);
+        ScenarioResult { result: result, homedir: tempdir, env: env }
     }
 
-    fn process_blocks(&self, mut env: TestEnv) -> Result<RuntimeStats, Error> {
+    fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
         let mut runtime_stats = RuntimeStats::default();
@@ -77,7 +69,9 @@ impl Scenario {
             let mut block_stats = BlockStats::at_height(block.height);
 
             for tx in &block.transactions {
-                env.clients[0].process_tx(tx.to_signed_transaction(&last_block), false, false);
+                let signed_tx = tx.to_signed_transaction(&last_block);
+                block_stats.tx_hashes.push(signed_tx.get_hash());
+                env.clients[0].process_tx(signed_tx, false, false);
             }
 
             let start_time = Instant::now();
@@ -132,6 +126,7 @@ pub struct RuntimeStats {
 pub struct BlockStats {
     pub height: u64,
     pub block_production_time: Duration,
+    pub tx_hashes: Vec<CryptoHash>,
 }
 
 impl std::fmt::Debug for Scenario {
@@ -161,7 +156,7 @@ impl TransactionConfig {
 
 impl BlockStats {
     fn at_height(height: BlockHeight) -> Self {
-        Self { height, block_production_time: Duration::default() }
+        Self { height, block_production_time: Duration::default(), tx_hashes: vec![] }
     }
 }
 
