@@ -290,8 +290,8 @@ impl Default for ExecutionStatus {
 }
 
 /// ExecutionOutcome for proof. Excludes logs and metadata
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Debug)]
-pub struct PartialExecutionOutcome {
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
+struct PartialExecutionOutcome {
     pub receipt_ids: Vec<CryptoHash>,
     pub gas_burnt: Gas,
     pub tokens_burnt: Balance,
@@ -312,7 +312,7 @@ impl From<&ExecutionOutcome> for PartialExecutionOutcome {
 }
 
 /// ExecutionStatus for proof. Excludes failure debug info.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone)]
 pub enum PartialExecutionStatus {
     Unknown,
     Failure,
@@ -380,24 +380,6 @@ impl ExecutionOutcome {
             result.push(hash(log.as_bytes()));
         }
         result
-    }
-
-    pub fn equal_except_metadata(&self, other: &ExecutionOutcome) -> bool {
-        let ExecutionOutcome {
-            logs,
-            receipt_ids,
-            gas_burnt,
-            tokens_burnt,
-            executor_id,
-            status,
-            metadata: _,
-        } = self;
-        (logs == &other.logs)
-            && (receipt_ids == &other.receipt_ids)
-            && (gas_burnt == &other.gas_burnt)
-            && (tokens_burnt == &other.tokens_burnt)
-            && (executor_id == &other.executor_id)
-            && (status == &other.status)
     }
 }
 
