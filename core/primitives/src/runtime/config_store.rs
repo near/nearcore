@@ -81,8 +81,6 @@ impl RuntimeConfigStore {
 mod tests {
     use super::*;
     use crate::serialize::to_base;
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    use crate::version::ProtocolFeature::LimitContractFunctionsNumber;
     use crate::version::ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost;
     use crate::version::ProtocolFeature::LowerStorageCost;
     use near_primitives_core::hash::hash;
