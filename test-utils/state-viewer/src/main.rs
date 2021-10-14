@@ -742,7 +742,6 @@ fn main() {
                     Arg::with_name("verbose")
                         .long("verbose")
                         .help("Whether to print individual outcomes")
-                        .takes_value(true),
                 )
                 .arg(
                     Arg::with_name("start_index")
@@ -776,7 +775,6 @@ fn main() {
                     Arg::with_name("compare")
                         .long("compare")
                         .help("Whether to compare with execution outcome in database and exit on first difference")
-                        .takes_value(true),
                 )
                 .help("apply blocks at a range of heights for a single shard"),
         )
