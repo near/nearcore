@@ -964,9 +964,10 @@ impl Client {
     }
 
     /// Gets called when block got accepted.
-    /// Only produce chunk if `produce_chunk` is true
-    /// Note that this function should only be called from tests.
-    /// `produce_chunk` is set to false to simulate when there are missing chunks in a block
+    /// Only produce chunk if `skip_produce_chunk` is false
+    /// Note that this function should only be directly called from tests, production code
+    /// should always use `on_block_accepted`
+    /// `skip_produce_chunk` is set to true to simulate when there are missing chunks in a block
     pub fn on_block_accepted_with_optional_chunk_produce(
         &mut self,
         block_hash: CryptoHash,
