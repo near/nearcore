@@ -36,15 +36,6 @@ def measure_tps_bps(nodes, tx_filename):
     return result
 
 
-def check_tps(measurement, expected_in, expected_out=None, tolarance=0.05):
-    if expected_out is None:
-        expected_out = expected_in
-    within_tolarance = lambda x, y: (abs(x - y) / y) <= tolarance
-    return within_tolarance(measurement['in_tps'],
-                            expected_in) and within_tolarance(
-                                measurement['out_tps'], expected_out)
-
-
 def check_memory_usage(node):
     metrics = mocknet.get_metrics(node)
     mem_usage = metrics.memory_usage / 1e6
@@ -52,17 +43,9 @@ def check_memory_usage(node):
     return mem_usage < 4500
 
 
-def check_slow_blocks(initial_metrics, final_metrics):
-    delta = Metrics.diff(final_metrics, initial_metrics)
-    slow_process_blocks = delta.block_processing_time[
-        'le +Inf'] - delta.block_processing_time['le 1']
-    logger.info(
-        f'Number of blocks processing for more than 1s: {slow_process_blocks}')
-    return slow_process_blocks == 0
-
-
 if __name__ == '__main__':
     logger.info('Starting Load test.')
+
     chain_id = None
     for arg in sys.argv:
         if '--chain_id' in arg:
@@ -73,7 +56,7 @@ if __name__ == '__main__':
     pattern = None
     for arg in sys.argv:
         if '--pattern' in arg:
-            assert not pattern 
+            assert not pattern
             pattern = arg.split('=')[1]
     assert pattern, 'Please add an argument --pattern=mocknet2 or similar'
 
@@ -109,14 +92,20 @@ if __name__ == '__main__':
 
     if '--skip_setup' not in sys.argv:
         logger.info('Setting remote python environments')
-        mocknet.setup_python_environments(all_nodes, 'add_and_delete_state.wasm')
+        mocknet.setup_python_environments(all_nodes,
+                                          'add_and_delete_state.wasm')
         logger.info('Setting remote python environments -- done')
 
     if '--skip_restart' not in sys.argv:
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
-        mocknet.create_and_upload_genesis(validator_nodes, genesis_template_filename=None, rpc_nodes=rpc_nodes, chain_id=chain_id, update_genesis_on_machine=True, epoch_length=epoch_length)
+        mocknet.create_and_upload_genesis(validator_nodes,
+                                          genesis_template_filename=None,
+                                          rpc_nodes=rpc_nodes,
+                                          chain_id=chain_id,
+                                          update_genesis_on_machine=True,
+                                          epoch_length=epoch_length)
         mocknet.start_nodes(all_nodes)
         time.sleep(60)
 
@@ -128,28 +117,11 @@ if __name__ == '__main__':
     logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
     test_passed = True
 
-    #logger.info('Performing baseline block time measurement')
-    # We do not include tps here because there are no transactions on mocknet normally.
-    #if '--skip_initial_sleep' not in sys.argv:
-    #    time.sleep(120)
-    #baseline_measurement = mocknet.chain_measure_bps_and_tps(
-    #    archival_node=archival_node,
-    #    start_time=None,
-    #    end_time=None,
-    #    duration=120)
-    #baseline_measurement['in_tps'] = 0.0
-    ## quit test early if the baseline is poor.
-    #assert baseline_measurement['bps'] > 1.0
-    #logger.info(f'{baseline_measurement}')
-    #logger.info('Baseline block time measurement complete')
-
     if '--skip_load' not in sys.argv:
         logger.info('Starting transaction spamming scripts.')
         mocknet.start_load_test_helpers(validator_nodes,
-                                        'load_test_spoon_helper.py',
-                                        rpc_nodes,
-                                        num_nodes,
-                                        max_tps)
+                                        'load_test_spoon_helper.py', rpc_nodes,
+                                        num_nodes, max_tps)
 
         initial_metrics = mocknet.get_metrics(archival_node)
         logger.info(
@@ -162,16 +134,16 @@ if __name__ == '__main__':
         time.sleep(load_test_spoon_helper.TEST_TIMEOUT)
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
-        all_tx_measurement = measure_tps_bps(validator_nodes, f'{mocknet.TX_OUT_FILE}.0')
+        all_tx_measurement = measure_tps_bps(validator_nodes,
+                                             f'{mocknet.TX_OUT_FILE}.0')
         test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
         test_passed = check_memory_usage(validator_nodes[0]) and test_passed
-        #test_passed = check_slow_blocks(initial_metrics, final_metrics) and test_passed
 
     time.sleep(5)
 
     final_validator_accounts = mocknet.list_validators(validator_nodes[0])
     logger.info(f'final_validator_accounts: {final_validator_accounts}')
-    #assert initial_validator_accounts == final_validator_accounts
+    assert initial_validator_accounts == final_validator_accounts
 
     assert test_passed
 

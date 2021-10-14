@@ -29,11 +29,18 @@ if __name__ == '__main__':
     assert genesis_filename_in
     assert genesis_filename_out
     assert chain_id
-    assert validator_node_names is not None and len(validator_node_names) > 0 and validator_node_names[0]
+    assert validator_node_names is not None and len(
+        validator_node_names) > 0 and validator_node_names[0]
     assert done_filename
     assert epoch_length
 
-    mocknet.create_genesis_file(validator_node_names, genesis_filename_in, genesis_filename_out, rpc_node_names, chain_id, append=True, epoch_length=epoch_length)
+    mocknet.create_genesis_file(validator_node_names,
+                                genesis_filename_in,
+                                genesis_filename_out,
+                                rpc_node_names,
+                                chain_id,
+                                append=True,
+                                epoch_length=epoch_length)
 
     with open(done_filename, 'w') as f:
         f.write('DONE')

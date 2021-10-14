@@ -151,8 +151,8 @@ class BaseNode(object):
 
         return list(reversed(heights))
 
-    def get_validators(self, timeout=15):
-        return self.json_rpc('validators', [None], timeout=timeout)
+    def get_validators(self):
+        return self.json_rpc('validators', [None])
 
     def get_account(self, acc, finality='optimistic'):
         return self.json_rpc('query', {
@@ -257,7 +257,7 @@ class LocalNode(BaseNode):
         super(LocalNode, self).__init__()
         self.port = port
         self.rpc_port = rpc_port
-        self.near_root = near_root
+        self.near_root = str(near_root)
         self.node_dir = node_dir
         self.binary_name = binary_name or 'neard'
         self.cleaned = False

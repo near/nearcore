@@ -100,7 +100,9 @@ def random_transaction(account, i, node_account_id, max_tps_per_node):
 
 def send_random_transactions(node_account_id, test_accounts, max_tps_per_node):
     pmap(
-        lambda account_and_index: random_transaction(account_and_index[0], account_and_index[1], node_account_id, max_tps_per_node), test_accounts)
+        lambda account_and_index: random_transaction(account_and_index[
+            0], account_and_index[1], node_account_id, max_tps_per_node),
+        test_accounts)
 
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
@@ -159,7 +161,8 @@ def get_test_accounts_from_args():
 
 if __name__ == '__main__':
     logger.info(sys.argv)
-    (node_account_id, test_accounts, max_tps_per_node) = get_test_accounts_from_args()
+    (node_account_id, test_accounts,
+     max_tps_per_node) = get_test_accounts_from_args()
 
     start_time = time.time()
 
