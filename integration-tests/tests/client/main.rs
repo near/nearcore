@@ -5,6 +5,4 @@ mod process_blocks;
 mod runtimes;
 #[cfg(feature = "sandbox")]
 mod sandbox;
-#[cfg(feature = "protocol_feature_simple_nightshade")]
-#[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
-mod sharding_upgrade;
+//mod sharding_upgrade;
