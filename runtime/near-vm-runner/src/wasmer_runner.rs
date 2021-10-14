@@ -232,12 +232,7 @@ pub fn run_wasmer<'a>(
     }
 
     // TODO: consider using get_module() here, once we'll go via deployment path.
-    let module = cache::wasmer0_cache::compile_module_cached_wasmer0(
-        code,
-        wasm_config,
-        cache,
-        current_protocol_version,
-    );
+    let module = cache::wasmer0_cache::compile_module_cached_wasmer0(code, wasm_config, cache);
     let module = match into_vm_result(module) {
         Ok(x) => x,
         Err(err) => return (None, Some(err)),

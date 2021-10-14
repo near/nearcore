@@ -217,14 +217,4 @@ If you add new config version, add a missing hash to the end of `expected_hashes
                 > new_cfg.wasm_config.ext_costs.ecrecover_base
         );
     }
-
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    #[test]
-    fn test_set_max_functions_number() {
-        let store = RuntimeConfigStore::new(None);
-        let base_cfg = store.get_config(LimitContractFunctionsNumber.protocol_version() - 1);
-        let new_cfg = store.get_config(LimitContractFunctionsNumber.protocol_version());
-        assert!(base_cfg.wasm_config.limit_config.max_functions_number_per_contract.is_none());
-        assert!(new_cfg.wasm_config.limit_config.max_functions_number_per_contract.is_some());
-    }
 }

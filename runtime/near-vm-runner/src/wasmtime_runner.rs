@@ -161,11 +161,10 @@ pub mod wasmtime_runner {
             wasm_config.limit_config.max_memory_pages,
         )
         .unwrap();
-        let prepared_code =
-            match prepare::prepare_contract(code.code(), wasm_config, current_protocol_version) {
-                Ok(code) => code,
-                Err(err) => return (None, Some(VMError::from(err))),
-            };
+        let prepared_code = match prepare::prepare_contract(code.code(), wasm_config) {
+            Ok(code) => code,
+            Err(err) => return (None, Some(VMError::from(err))),
+        };
         let module = match Module::new(&engine, prepared_code) {
             Ok(module) => module,
             Err(err) => return (None, Some(err.into_vm_error())),
