@@ -1648,7 +1648,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let new_shards = next_epoch_shard_layout
             .get_split_shards(shard_id)
             .ok_or(ErrorKind::InvalidShardId(shard_id))?;
-        self.tries.add_new_shards(&new_shards);
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
         let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
