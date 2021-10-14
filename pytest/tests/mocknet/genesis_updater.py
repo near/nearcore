@@ -21,9 +21,10 @@ if __name__ == '__main__':
     genesis_filename_out = sys.argv[2]
     chain_id = sys.argv[3]
     validator_node_names = sys.argv[4].split(',')
-    rpc_node_names = sys.argv[5].split(',')
-    if rpc_node_names and len(rpc_node_names) == 1 and not rpc_node_names[0]:
-        rpc_node_names = None
+    rpc_node_names = None
+    if sys.argv[5]:
+        rpc_node_names = sys.argv[5].split(',')
+
     done_filename = sys.argv[6]
     epoch_length = int(sys.argv[7])
     assert genesis_filename_in
