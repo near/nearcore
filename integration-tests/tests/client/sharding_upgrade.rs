@@ -294,6 +294,9 @@ fn setup_genesis(
 // test some shard layout upgrade with some simple transactions to create accounts
 #[test]
 fn test_shard_layout_upgrade_simple() {
+    if cfg!(feature = "protocol_feature_block_header_v3") {
+        return;
+    }
     init_test_logger();
 
     let mut rng = thread_rng();
@@ -411,6 +414,9 @@ fn gen_cross_contract_transaction(
 // This test case tests postponed receipts and delayed receipts
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls() {
+    if cfg!(feature = "protocol_feature_block_header_v3") {
+        return;
+    }
     init_test_logger();
 
     // setup
