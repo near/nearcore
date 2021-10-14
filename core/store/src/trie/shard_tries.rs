@@ -58,10 +58,11 @@ impl ShardTries {
 
     fn get_trie_for_shard_internal(&self, shard_uid: ShardUId, is_view: bool) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
-        let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
-        let cache = caches.entry(shard_uid.clone()).or_insert_with(|| TrieCache::new());
-        let store =
-            Box::new(TrieCachingStorage::new(self.0.store.clone(), cache.clone(), shard_uid));
+        let cache = {
+            let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
+            caches.entry(shard_uid).or_insert_with(TrieCache::new).clone()
+        };
+        let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
         Trie::new(store, shard_uid)
     }
 
