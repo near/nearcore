@@ -568,15 +568,6 @@ impl Client {
             shard_id,
             last_header.height_included(),
         )?;
-        debug!(
-            target: "client",
-            "Producing chunk at height {} for shard {}, I'm {}. transactions: {:?}, receipts: {:?}",
-            next_height,
-            shard_id,
-            validator_signer.validator_id(),
-            transactions,
-            outgoing_receipts,
-        );
 
         // Receipts proofs root is calculating here
         //
