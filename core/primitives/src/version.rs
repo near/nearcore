@@ -110,7 +110,6 @@ pub enum ProtocolFeature {
     /// Although wasmer2 is faster, we don't change fees with this protocol
     /// version -- we can safely do that in a separate step.
     Wasmer2,
-    SimpleNightshade,
     LowerDataReceiptAndEcrecoverBaseCost,
     /// Lowers the cost of wasm instruction due to switch to wasmer2.
     LowerRegularOpCost,
@@ -124,6 +123,8 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    #[cfg(feature = "protocol_feature_simple_nightshade")]
+    SimpleNightshade,
 }
 
 /// Current latest stable version of the protocol.
@@ -155,8 +156,7 @@ impl ProtocolFeature {
             ProtocolFeature::RestoreReceiptsAfterFix => 47,
             ProtocolFeature::Wasmer2
             | ProtocolFeature::LowerDataReceiptAndEcrecoverBaseCost
-            | ProtocolFeature::LowerRegularOpCost
-            | ProtocolFeature::SimpleNightshade => 48,
+            | ProtocolFeature::LowerRegularOpCost => 48,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -167,6 +167,8 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_simple_nightshade")]
+            ProtocolFeature::SimpleNightshade => 122,
         }
     }
 }
