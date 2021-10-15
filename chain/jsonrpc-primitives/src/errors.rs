@@ -192,7 +192,7 @@ impl From<actix::MailboxError> for ServerError {
 
 impl From<ServerError> for RpcError {
     fn from(e: ServerError) -> RpcError {
-        let error_data = match to_value(e) {
+        let error_data = match to_value(&e) {
             Ok(value) => value,
             Err(_err) => {
                 return RpcError::new_internal_error(
@@ -201,6 +201,11 @@ impl From<ServerError> for RpcError {
                 )
             }
         };
-        RpcError::new_handler_error(Some(error_data.clone()), error_data)
+        match e {
+            ServerError::TxExecutionError(_) => {
+                RpcError::new_handler_error(Some(error_data.clone()), error_data)
+            }
+            _ => RpcError::new_internal_error(Some(error_data.clone()), e.to_string()),
+        }
     }
 }
