@@ -2,7 +2,7 @@
 extern crate lazy_static;
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::pin::Pin;
@@ -128,7 +128,8 @@ impl Store {
     }
 
     pub fn load_from_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
-        let mut file = File::open(filename)?;
+        let file = File::open(filename)?;
+        let mut file = BufReader::new(file);
         let mut transaction = self.storage.transaction();
         loop {
             let key_len = match file.read_u32::<LittleEndian>() {
