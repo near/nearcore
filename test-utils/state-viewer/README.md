@@ -31,7 +31,7 @@ flags. Omitting `--start_index` makes `state-viewer` use blockchain state starti
 
 Enable debug output to print extra details such as individual outcomes:
 
-```
+```bash
 ./target/release/state-viewer ...
 ```
 
