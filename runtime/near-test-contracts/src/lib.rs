@@ -1,3 +1,7 @@
+#![doc = include_str!("../README.md")]
+
+use std::path::Path;
+
 use once_cell::sync::OnceCell;
 use std::fmt::Write;
 use std::path::Path;
