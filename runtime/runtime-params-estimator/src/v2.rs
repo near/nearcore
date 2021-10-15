@@ -48,7 +48,6 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionFunctionCallPerByte, action_function_call_per_byte),
     (Cost::ActionFunctionCallBaseV2, action_function_call_base_v2),
     (Cost::ActionFunctionCallPerByteV2, action_function_call_per_byte_v2),
-    //
     (Cost::HostFunctionCall, host_function_call),
     (Cost::WasmInstruction, wasm_instruction),
     (Cost::DataReceiptCreationBase, data_receipt_creation_base),
@@ -373,7 +372,6 @@ fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
     ctx.cached.action_deploy_contract_base = Some(cost.clone());
     cost
 }
-
 fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
         let code = ctx.read_resource(if cfg!(feature = "nightly_protocol_features") {
@@ -389,6 +387,18 @@ fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
     let bytes_per_transaction = 1024 * 1024;
 
     (total_cost - base_cost) / bytes_per_transaction
+}
+fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
+    let test_bed = ctx.test_bed();
+
+    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+        let sender = tb.random_unused_account();
+        let receiver = sender.clone();
+
+        let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
+        tb.transaction_from_actions(sender, receiver, actions)
+    };
+    transaction_cost(test_bed, &mut make_transaction)
 }
 
 fn action_function_call_base(ctx: &mut Ctx) -> GasCost {
@@ -792,17 +802,55 @@ fn storage_remove_ret_value_byte(ctx: &mut Ctx) -> GasCost {
 
 // Helpers
 
-fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
-    let test_bed = ctx.test_bed();
+fn transaction_cost(
+    test_bed: TestBed,
+    make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
+) -> GasCost {
+    let block_size = 100;
+    let (gas_cost, _ext_costs) = transaction_cost_ext(test_bed, block_size, make_transaction);
+    gas_cost
+}
 
-    let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-        let sender = tb.random_unused_account();
-        let receiver = sender.clone();
-
-        let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
-        tb.transaction_from_actions(sender, receiver, actions)
+fn transaction_cost_ext(
+    mut test_bed: TestBed,
+    block_size: usize,
+    make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
+) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let blocks = {
+        let n_blocks = test_bed.config.warmup_iters_per_block + test_bed.config.iter_per_block;
+        let mut blocks = Vec::with_capacity(n_blocks);
+        for _ in 0..n_blocks {
+            let mut block = Vec::with_capacity(block_size);
+            for _ in 0..block_size {
+                let tx = make_transaction(test_bed.transaction_builder());
+                block.push(tx)
+            }
+            blocks.push(block)
+        }
+        blocks
     };
-    transaction_cost(test_bed, &mut make_transaction)
+
+    let measurements = test_bed.measure_blocks(blocks);
+    let measurements =
+        measurements.into_iter().skip(test_bed.config.warmup_iters_per_block).collect::<Vec<_>>();
+
+    let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
+    let mut total = GasCost { value: 0.into(), metric: test_bed.config.metric };
+    let mut n = 0;
+    for (gas_cost, ext_cost) in measurements {
+        total += gas_cost;
+        n += block_size as u64;
+        for (c, v) in ext_cost {
+            *total_ext_costs.entry(c).or_default() += v;
+        }
+    }
+
+    for v in total_ext_costs.values_mut() {
+        *v /= n;
+    }
+
+    let gas_cost = total / n;
+    (gas_cost, total_ext_costs)
 }
 
 fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
@@ -913,57 +961,6 @@ fn fn_cost_with_setup(
     let base_cost = noop_host_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
-}
-
-fn transaction_cost(
-    test_bed: TestBed,
-    make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-) -> GasCost {
-    let block_size = 100;
-    let (gas_cost, _ext_costs) = transaction_cost_ext(test_bed, block_size, make_transaction);
-    gas_cost
-}
-
-fn transaction_cost_ext(
-    mut test_bed: TestBed,
-    block_size: usize,
-    make_transaction: &mut dyn FnMut(&mut TransactionBuilder) -> SignedTransaction,
-) -> (GasCost, HashMap<ExtCosts, u64>) {
-    let blocks = {
-        let n_blocks = test_bed.config.warmup_iters_per_block + test_bed.config.iter_per_block;
-        let mut blocks = Vec::with_capacity(n_blocks);
-        for _ in 0..n_blocks {
-            let mut block = Vec::with_capacity(block_size);
-            for _ in 0..block_size {
-                let tx = make_transaction(test_bed.transaction_builder());
-                block.push(tx)
-            }
-            blocks.push(block)
-        }
-        blocks
-    };
-
-    let measurements = test_bed.measure_blocks(blocks);
-    let measurements =
-        measurements.into_iter().skip(test_bed.config.warmup_iters_per_block).collect::<Vec<_>>();
-
-    let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost { value: 0.into(), metric: test_bed.config.metric };
-    let mut n = 0;
-    for (gas_cost, ext_cost) in measurements {
-        total += gas_cost;
-        n += block_size as u64;
-        for (c, v) in ext_cost {
-            *total_ext_costs.entry(c).or_default() += v;
-        }
-    }
-
-    for v in total_ext_costs.values_mut() {
-        *v /= n;
-    }
-
-    let gas_cost = total / n;
-    (gas_cost, total_ext_costs)
 }
 
 #[test]
