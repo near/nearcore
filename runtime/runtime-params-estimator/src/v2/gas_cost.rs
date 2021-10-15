@@ -50,6 +50,14 @@ impl ops::Sub for GasCost {
     }
 }
 
+impl ops::Mul<u64> for GasCost {
+    type Output = GasCost;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        GasCost { value: self.value * rhs, metric: self.metric }
+    }
+}
+
 impl ops::Div<u64> for GasCost {
     type Output = GasCost;
 

@@ -94,6 +94,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::StorageRemoveBase, storage_remove_base),
     (Cost::StorageRemoveKeyByte, storage_remove_key_byte),
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
+    (Cost::TouchingTrieNode, touching_trie_node),
 ];
 
 pub fn run(config: Config) -> CostTable {
@@ -716,13 +717,20 @@ fn storage_has_key_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 fn storage_read_base(ctx: &mut Ctx) -> GasCost {
-    fn_cost_with_setup(
+    if let Some(cost) = ctx.cached.storage_read_base.clone() {
+        return cost;
+    }
+
+    let cost  = fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10b_value_1k",
         "storage_read_10b_key_10b_value_1k",
         ExtCosts::storage_read_base,
         1000,
-    )
+    );
+
+    ctx.cached.storage_read_base = Some(cost.clone());
+    cost
 }
 fn storage_read_key_byte(ctx: &mut Ctx) -> GasCost {
     fn_cost_with_setup(
@@ -798,6 +806,12 @@ fn storage_remove_ret_value_byte(ctx: &mut Ctx) -> GasCost {
         ExtCosts::storage_remove_ret_value_byte,
         10 * 1024 * 1000,
     )
+}
+
+fn touching_trie_node(ctx: &mut Ctx) -> GasCost {
+    // TODO: Actually compute it once our storage is complete.
+    // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
+    storage_read_base(ctx) * 2 / 7
 }
 
 // Helpers
