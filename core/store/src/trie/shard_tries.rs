@@ -48,17 +48,6 @@ impl ShardTries {
         Arc::ptr_eq(&self.0, &other.0)
     }
 
-    // add new shards to ShardTries, only used when shard layout changes and we are building
-    // states for new shards
-    pub fn add_new_shards(&self, shards: &[ShardUId]) {
-        let add_empty_caches = |old_caches: &RwLock<HashMap<ShardUId, TrieCache>>| {
-            let mut caches = old_caches.write().expect(POISONED_LOCK_ERR);
-            caches.extend(shards.iter().map(|shard| (*shard, TrieCache::new())));
-        };
-        add_empty_caches(&self.0.caches);
-        add_empty_caches(&self.0.view_caches);
-    }
-
     pub fn new_trie_update(&self, shard_uid: ShardUId, state_root: CryptoHash) -> TrieUpdate {
         TrieUpdate::new(Rc::new(self.get_trie_for_shard(shard_uid)), state_root)
     }
@@ -69,15 +58,11 @@ impl ShardTries {
 
     fn get_trie_for_shard_internal(&self, shard_uid: ShardUId, is_view: bool) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
-        let caches = caches_to_use.read().expect(POISONED_LOCK_ERR);
-        let store = Box::new(TrieCachingStorage::new(
-            self.0.store.clone(),
-            caches
-                .get(&shard_uid)
-                .unwrap_or_else(|| panic!("cache for shard {:?} must exist", shard_uid))
-                .clone(),
-            shard_uid,
-        ));
+        let cache = {
+            let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
+            caches.entry(shard_uid).or_insert_with(TrieCache::new).clone()
+        };
+        let store = Box::new(TrieCachingStorage::new(self.0.store.clone(), cache, shard_uid));
         Trie::new(store, shard_uid)
     }
 

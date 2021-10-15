@@ -11,11 +11,14 @@ use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
+use cached::{Cached, SizedCache};
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_crypto::Signature;
 use near_metrics;
+use near_network_primitives::types::PeerIdOrHash;
 use near_performance_metrics;
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
@@ -68,6 +71,10 @@ pub const EPOCH_SYNC_REQUEST_TIMEOUT_MS: u64 = 1_000;
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
 pub const EPOCH_SYNC_PEER_TIMEOUT_MS: u64 = 10;
+/// Limit cache size of 1000 messages
+pub const ROUTED_MESSAGE_CACHE_SIZE: usize = 1000;
+/// Duplicated messages will be dropped if routed through the same peer multiple times.
+pub const DROP_DUPLICATED_MESSAGES_PERIOD: Duration = Duration::from_millis(50);
 
 /// Internal structure to keep a circular queue within a tracker with unique hashes.
 struct CircularUniqueQueue {
@@ -193,6 +200,8 @@ pub struct Peer {
     peer_counter: Arc<AtomicUsize>,
     /// The last time a Epoch Sync request was received from this peer
     last_time_received_epoch_sync_request: Instant,
+    /// Cache of recently routed messages, this allows us to drop duplicates
+    routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
 }
 
 impl Peer {
@@ -233,6 +242,7 @@ impl Peer {
             peer_counter,
             last_time_received_epoch_sync_request: Instant::now()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
+            routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
         }
     }
 
@@ -682,7 +692,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             Ok(msg) => msg,
             Err(ban_reason) => {
                 self.ban_peer(ctx, ban_reason);
-                return ();
+                return;
             }
         };
 
@@ -726,6 +736,19 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 return;
             }
         };
+
+        // Drop duplicated messages routed within DROP_DUPLICATED_MESSAGES_PERIOD ms
+        if let PeerMessage::Routed(msg) = &peer_msg {
+            let key = (msg.author.clone(), msg.target.clone(), msg.signature.clone());
+            let now = Instant::now();
+            if let Some(time) = self.routed_message_cache.cache_get(&key) {
+                if now.duration_since(*time) <= DROP_DUPLICATED_MESSAGES_PERIOD {
+                    debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
+                    return;
+                }
+            }
+            self.routed_message_cache.cache_set(key, now);
+        }
         if let PeerMessage::Routed(RoutedMessage {
             body: RoutedMessageBody::ForwardTx(_), ..
         }) = &peer_msg
@@ -896,14 +919,14 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 if self.peer_type == PeerType::Inbound {
                     info!(target: "network", "{:?}: Inbound peer {:?} sent invalid message. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
-                    return ();
+                    return;
                 }
 
                 // Disconnect if neighbor propose invalid edge.
                 if !edge.verify() {
                     info!(target: "network", "{:?}: Peer {:?} sent invalid edge. Disconnect.", self.node_id(), self.peer_addr);
                     ctx.stop();
-                    return ();
+                    return;
                 }
 
                 self.peer_manager_addr
