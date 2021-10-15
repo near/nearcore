@@ -46,7 +46,6 @@ pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
-    InternalError,
 }
 
 impl RpcError {
@@ -170,7 +169,6 @@ impl fmt::Display for ServerError {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
-            ServerError::InternalError => write!(f, "ServerError: Internal Error"),
         }
     }
 }
