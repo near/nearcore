@@ -1117,7 +1117,15 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         }
                         Err(err) => {
                             error!(target: "view_client", "Cannot retrieve num shards: {}", err);
-                            NetworkViewClientResponses::NoResponse
+                            NetworkViewClientResponses::ChainInfo {
+                                genesis_id: GenesisId {
+                                    chain_id: self.config.chain_id.clone(),
+                                    hash: *self.chain.genesis().hash(),
+                                },
+                                height: self.get_height(&head),
+                                tracked_shards: self.config.tracked_shards.clone(),
+                                archival: self.config.archive,
+                            }
                         }
                     }
                 }
