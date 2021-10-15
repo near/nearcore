@@ -21,12 +21,12 @@ use std::str::FromStr;
 pub type ContractId = usize;
 
 pub const MAX_BLOCKS: usize = 2500;
-pub const MAX_TXS: usize = 500;
+pub const MAX_TXS: usize = 50;
 pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
 pub const MAX_ACTIONS: usize = 100;
 
-const GAS_1: u64 = 900_000_000_000_000;
+const GAS_1: u64 = 300_000_000_000_000;
 
 impl Arbitrary<'_> for Scenario {
     fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
@@ -63,7 +63,7 @@ impl BlockConfig {
         scope.last_tx_num = max_tx_num;
 
         while block_config.transactions.len() < max_tx_num
-            && u.len() > TransactionConfig::size_hint(0).1.unwrap()
+            && u.len() > TransactionConfig::size_hint(0).0
         {
             block_config.transactions.push(TransactionConfig::arbitrary(u, scope)?)
         }
@@ -336,7 +336,7 @@ pub enum Function {
     // # Contract for fuzzing #
     // ########################
     SumOfNumbers,
-    DataReceipt10,
+    DataReceipt,
 }
 
 impl Scope {
@@ -379,7 +379,7 @@ impl Scope {
                 code: near_test_contracts::fuzzing_contract().to_vec(),
                 functions: vec![
                     Function::SumOfNumbers,
-                    Function::DataReceipt10,
+                    Function::DataReceipt,
                 ],
             },
         ]
@@ -527,13 +527,13 @@ impl Function {
             // # Contract for fuzzing #
             // ########################
             Function::SumOfNumbers => {
-                let args = u.int_in_range::<u64>(1..=1_000)?.to_le_bytes();
+                let args = u.int_in_range::<u64>(1..=10)?.to_le_bytes();
                 res.method_name = "sum_of_numbers".to_string();
                 res.args = args.to_vec();
             }
-            Function::DataReceipt10 => {
+            Function::DataReceipt => {
                 let args = (*u.choose(&[10, 100, 1000, 10000, 100000])? as u64).to_le_bytes();
-                res.method_name = "data_receipt_10".to_string();
+                res.method_name = "data_receipt_with_size".to_string();
                 res.args = args.to_vec();
             }
         };
