@@ -1,23 +1,15 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
-use std::{fmt, ops};
 
-use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
-};
-use near_primitives::types::{AccountId, Gas};
+use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
+use near_primitives::types::AccountId;
 use near_vm_logic::ExtCosts;
-use num_rational::Ratio;
-use rand::prelude::ThreadRng;
-use rand::Rng;
 
-use crate::cases::ratio_to_gas;
 use crate::testbed::RuntimeTestbed;
-use crate::testbed_runners::{end_count, get_account_id, start_count, Config, GasMetric};
+use crate::testbed_runners::{end_count, get_account_id, start_count, Config};
+use crate::v2::gas_cost::GasCost;
+
+use super::ctx::TransactionBuilder;
 
 #[derive(Default)]
 pub(crate) struct CachedCosts {
@@ -37,9 +29,8 @@ pub(crate) struct Ctx<'c> {
 }
 
 struct ContractTestbedProto {
-    accounts: Vec<AccountId>,
     state_dump: tempfile::TempDir,
-    nonces: HashMap<AccountId, u64>,
+    transaction_builder: TransactionBuilder,
 }
 
 impl<'c> Ctx<'c> {
@@ -53,11 +44,9 @@ impl<'c> Ctx<'c> {
         TestBed {
             config: &self.config,
             inner,
-            transaction_builder: TransactionBuilder {
-                accounts: (0..self.config.active_accounts).map(get_account_id).collect(),
-                nonces: HashMap::new(),
-                used_accounts: HashSet::new(),
-            },
+            transaction_builder: TransactionBuilder::new(
+                (0..self.config.active_accounts).map(get_account_id).collect(),
+            ),
         }
     }
 
@@ -69,14 +58,14 @@ impl<'c> Ctx<'c> {
                 "test-contract/res/stable_small_contract.wasm"
             });
 
-            let mut tb = self.test_bed();
-            let accounts = deploy_contracts(&mut tb, code);
-            tb.inner.dump_state().unwrap();
+            let mut test_bed = self.test_bed();
+            let accounts = deploy_contracts(&mut test_bed, code);
+            test_bed.inner.dump_state().unwrap();
 
+            let transaction_builder = test_bed.transaction_builder.with_accounts(accounts);
             self.contracts_testbed = Some(ContractTestbedProto {
-                accounts,
-                state_dump: tb.inner.workdir,
-                nonces: tb.transaction_builder.nonces,
+                state_dump: test_bed.inner.workdir,
+                transaction_builder,
             });
         }
         let proto = self.contracts_testbed.as_ref().unwrap();
@@ -85,11 +74,7 @@ impl<'c> Ctx<'c> {
         TestBed {
             config: &self.config,
             inner,
-            transaction_builder: TransactionBuilder {
-                accounts: proto.accounts.clone(),
-                nonces: proto.nonces.clone(),
-                used_accounts: HashSet::new(),
-            },
+            transaction_builder: proto.transaction_builder.clone(),
         }
     }
 
@@ -173,151 +158,5 @@ impl<'c> TestBed<'c> {
         }
 
         res
-    }
-}
-
-/// A helper to create transaction for processing by a `TestBed`.
-pub(crate) struct TransactionBuilder {
-    accounts: Vec<AccountId>,
-    nonces: HashMap<AccountId, u64>,
-    used_accounts: HashSet<AccountId>,
-}
-
-impl TransactionBuilder {
-    pub(crate) fn transaction_from_actions(
-        &mut self,
-        sender: AccountId,
-        receiver: AccountId,
-        actions: Vec<Action>,
-    ) -> SignedTransaction {
-        let signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_ref());
-        let nonce = self.nonce(&sender);
-
-        SignedTransaction::from_actions(
-            nonce as u64,
-            sender.clone(),
-            receiver,
-            &signer,
-            actions,
-            CryptoHash::default(),
-        )
-    }
-
-    pub(crate) fn transaction_from_function_call(
-        &mut self,
-        sender: AccountId,
-        method: &str,
-        args: Vec<u8>,
-    ) -> SignedTransaction {
-        let receiver = sender.clone();
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
-            method_name: method.to_string(),
-            args,
-            gas: 10u64.pow(18),
-            deposit: 0,
-        })];
-        self.transaction_from_actions(sender, receiver, actions)
-    }
-
-    pub(crate) fn rng(&mut self) -> ThreadRng {
-        rand::thread_rng()
-    }
-
-    pub(crate) fn account(&mut self, account_index: usize) -> AccountId {
-        get_account_id(account_index)
-    }
-    pub(crate) fn random_account(&mut self) -> AccountId {
-        let account_index = self.rng().gen_range(0, self.accounts.len());
-        self.accounts[account_index].clone()
-    }
-    pub(crate) fn random_unused_account(&mut self) -> AccountId {
-        loop {
-            let account = self.random_account();
-            if self.used_accounts.insert(account.clone()) {
-                return account;
-            }
-        }
-    }
-    pub(crate) fn random_account_pair(&mut self) -> (AccountId, AccountId) {
-        let first = self.random_account();
-        loop {
-            let second = self.random_account();
-            if first != second {
-                return (first, second);
-            }
-        }
-    }
-    fn nonce(&mut self, account_id: &AccountId) -> u64 {
-        let nonce = self.nonces.entry(account_id.clone()).or_default();
-        *nonce += 1;
-        *nonce
-    }
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct GasCost {
-    /// The smallest thing we are measuring is one wasm instruction, and it
-    /// takes about a nanosecond, so we do need to account for fractional
-    /// nanoseconds here!
-    pub value: Ratio<u64>,
-    pub metric: GasMetric,
-}
-
-impl fmt::Debug for GasCost {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.metric {
-            GasMetric::ICount => write!(f, "{}i", self.value),
-            GasMetric::Time => fmt::Debug::fmt(&Duration::from_nanos(self.value.to_integer()), f),
-        }
-    }
-}
-
-impl ops::Add for GasCost {
-    type Output = GasCost;
-
-    fn add(self, rhs: GasCost) -> Self::Output {
-        assert_eq!(self.metric, rhs.metric);
-        GasCost { value: self.value + rhs.value, metric: self.metric }
-    }
-}
-
-impl ops::AddAssign for GasCost {
-    fn add_assign(&mut self, rhs: GasCost) {
-        *self = self.clone() + rhs;
-    }
-}
-
-impl ops::Sub for GasCost {
-    type Output = GasCost;
-
-    fn sub(self, rhs: GasCost) -> Self::Output {
-        assert_eq!(self.metric, rhs.metric);
-        GasCost { value: self.value - rhs.value, metric: self.metric }
-    }
-}
-
-impl ops::Div<u64> for GasCost {
-    type Output = GasCost;
-
-    fn div(self, rhs: u64) -> Self::Output {
-        GasCost { value: self.value / rhs, metric: self.metric }
-    }
-}
-
-impl PartialOrd for GasCost {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for GasCost {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.value.cmp(&other.value)
-    }
-}
-
-impl GasCost {
-    pub(crate) fn to_gas(self) -> Gas {
-        ratio_to_gas(self.metric, self.value)
     }
 }
