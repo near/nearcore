@@ -90,6 +90,52 @@ pub fn test_read_write() {
     });
 }
 
+#[test]
+pub fn test_stablized_host_function() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = test_contract();
+        let mut fake_external = MockedExternal::new();
+
+        let context = create_context(vec![]);
+        let config = VMConfig::default();
+        let fees = RuntimeFeesConfig::test();
+
+        let promise_results = vec![];
+        let result = run_vm(
+            &code,
+            "do_ripemd",
+            &mut fake_external,
+            context.clone(),
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
+        assert_eq!(result.1, None);
+
+        let result = run_vm(
+            &code,
+            "do_ripemd",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            45,
+            None,
+        );
+        match result.1 {
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) => {
+                assert!(msg.contains("ripemd160"))
+            }
+            _ => panic!("should return a link error due to missing import"),
+        }
+    });
+}
+
 macro_rules! def_test_ext {
     ($name:ident, $method:expr, $expected:expr, $input:expr, $validator:expr) => {
         #[test]
