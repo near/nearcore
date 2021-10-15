@@ -261,7 +261,7 @@ pub unsafe fn data_producer() {
 }
 
 #[no_mangle]
-pub unsafe fn data_receipt_10() {
+pub unsafe fn data_receipt_with_size() {
     input(0);
     let data = [0u8; size_of::<u64>()];
     read_register(0, data.as_ptr() as u64);
@@ -277,19 +277,17 @@ pub unsafe fn data_receipt_10() {
     let mut ids = [0u64; 10];
     let amount = 0u128;
     let gas = prepaid_gas();
-    for i in 0..10{
-        ids[i] = promise_create(
-            buf_len,
-            buf.as_ptr() as _,
-            method_name.len() as _,
-            method_name.as_ptr() as _,
-            args.len() as _,
-            args.as_ptr() as _,
-            &amount as *const u128 as *const u64 as u64,
-            gas / 20,
-        );
-    }
-    let id = promise_and(ids.as_ptr() as _, ids.len() as _);
+    let id = promise_create(
+        buf_len,
+        buf.as_ptr() as _,
+        method_name.len() as _,
+        method_name.as_ptr() as _,
+        args.len() as _,
+        args.as_ptr() as _,
+        &amount as *const u128 as *const u64 as u64,
+        gas / 20,
+    );
+
     let method_name = b"noop";
     let args = b"";
     promise_then(
