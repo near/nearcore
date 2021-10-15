@@ -1183,6 +1183,11 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyResult, RuntimeError> {
+        eprintln!(
+            "{} {:?}",
+            apply_state.current_protocol_version,
+            apply_state.config.wasm_config.limit_config.max_functions_number_per_contract
+        );
         let _span = tracing::debug_span!(target: "runtime", "Runtime::apply").entered();
 
         if states_to_patch.is_some() && !cfg!(feature = "sandbox") {

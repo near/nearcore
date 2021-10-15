@@ -8,3 +8,4 @@ license = "Apache-2.0"
 
 [dependencies]
 once_cell = "1"
+wat = "1.0.40"

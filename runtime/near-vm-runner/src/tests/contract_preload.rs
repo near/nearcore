@@ -1,17 +1,15 @@
-use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::thread::sleep;
+use std::time::Duration;
 
-use crate::cache::precompile_contract_vm;
-use crate::errors::ContractPrecompilatonResult;
 use assert_matches::assert_matches;
+
+use near_primitives::contract::ContractCode;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
-#[cfg(all(
-    feature = "protocol_feature_limit_contract_functions_number",
-    feature = "nightly_protocol"
-))]
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use near_primitives::version::ProtocolFeature;
 #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
 use near_primitives::version::PROTOCOL_VERSION;
@@ -20,11 +18,11 @@ use near_vm_errors::FunctionCallError::CompilationError;
 use near_vm_errors::PrepareError::TooManyFunctions;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::sync::{Arc, Mutex};
-use std::thread::sleep;
-use std::time::Duration;
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+
+use crate::cache::precompile_contract_vm;
+use crate::errors::ContractPrecompilatonResult;
+use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
 
 fn default_vm_context() -> VMContext {
     return VMContext {
@@ -235,37 +233,7 @@ pub fn test_precompile() {
     test_precompile_vm(VMKind::Wasmer2);
 }
 
-fn make_many_methods_contract(method_count: i32) -> ContractCode {
-    let mut methods = String::new();
-    for i in 0..method_count {
-        if i == 0 {
-            write!(&mut methods, "(export \"hello{i}\" (func {i}))", i = i).unwrap();
-        }
-        write!(
-            &mut methods,
-            "
-              (func (;{i};)
-                i32.const {i}
-                drop
-                return
-              )
-            ",
-            i = i
-        )
-        .unwrap();
-    }
-
-    let code = format!(
-        "
-        (module
-            {}
-            )",
-        methods
-    );
-    ContractCode::new(wat::parse_str(code).unwrap(), None)
-}
-
-pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
+pub fn test_limit_contract_functions_number_vm(vm_kind: VMKind) {
     const FUNCTIONS_NUMBER: u64 = 10_000;
     let method_name = "hello0";
 
@@ -279,13 +247,14 @@ pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
     let mut runner = |protocol_version: ProtocolVersion,
                       functions_number: u64|
      -> (Option<VMOutcome>, Option<VMError>) {
-        let code = Arc::new(make_many_methods_contract(functions_number as i32));
+        let code = near_test_contracts::many_functions_contract(functions_number as i32);
+        let contract_code = Arc::new(ContractCode::new(code, None));
         let runtime_config = runtime_config_store.get_config(protocol_version);
         let vm_config = &runtime_config.wasm_config;
         let cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(MockCompiledContractCache::new(0)));
         run_vm(
-            &code,
+            &contract_code,
             method_name,
             &mut fake_external,
             context.clone(),
@@ -298,10 +267,7 @@ pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
         )
     };
 
-    #[cfg(all(
-        feature = "protocol_feature_limit_contract_functions_number",
-        feature = "nightly_protocol"
-    ))]
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
     #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
     let old_protocol_version = PROTOCOL_VERSION - 1;
@@ -314,10 +280,7 @@ pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
     assert_eq!(result.1, None);
 
     let result = runner(new_protocol_version, FUNCTIONS_NUMBER + 10);
-    if cfg!(all(
-        feature = "protocol_feature_limit_contract_functions_number",
-        feature = "nightly_protocol"
-    )) {
+    if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
         assert_matches!(
             result.1,
             Some(FunctionCallError(CompilationError(PrepareError(TooManyFunctions { number: _ }))))
@@ -328,9 +291,9 @@ pub fn test_max_contract_functions_vm(vm_kind: VMKind) {
 }
 
 #[test]
-pub fn test_max_contract_functions() {
+pub fn test_limit_contract_functions_number() {
     #[cfg(feature = "wasmer0_vm")]
-    test_max_contract_functions_vm(VMKind::Wasmer0);
+    test_limit_contract_functions_number_vm(VMKind::Wasmer0);
     #[cfg(feature = "wasmer2_vm")]
-    test_max_contract_functions_vm(VMKind::Wasmer2);
+    test_limit_contract_functions_number_vm(VMKind::Wasmer2);
 }

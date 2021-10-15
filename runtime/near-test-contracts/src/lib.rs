@@ -1,6 +1,6 @@
-use std::path::Path;
-
 use once_cell::sync::OnceCell;
+use std::fmt::Write;
+use std::path::Path;
 
 pub fn rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
@@ -38,4 +38,34 @@ fn smoke_test() {
     assert!(!nightly_rs_contract().is_empty());
     assert!(!ts_contract().is_empty());
     assert!(!tiny_contract().is_empty());
+}
+
+pub fn many_functions_contract(function_count: i32) -> Vec<u8> {
+    let mut functions = String::new();
+    for i in 0..function_count {
+        if i == 0 {
+            write!(&mut functions, "(export \"hello{i}\" (func {i}))", i = i).unwrap();
+        }
+        write!(
+            &mut functions,
+            "
+              (func (;{i};)
+                i32.const {i}
+                drop
+                return
+              )
+            ",
+            i = i
+        )
+        .unwrap();
+    }
+
+    let code = format!(
+        "
+        (module
+            {}
+            )",
+        functions
+    );
+    wat::parse_str(code).unwrap()
 }
