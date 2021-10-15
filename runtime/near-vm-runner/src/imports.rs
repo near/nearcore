@@ -36,7 +36,7 @@ macro_rules! rust2wasm {
 }
 
 macro_rules! wrapped_imports {
-        ( $($(#[$stable_feature:ident])* $(#[$feature_name:literal, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+        ( $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             #[cfg(feature = "wasmer0_vm")]
             pub mod wasmer_ext {
                 use near_vm_logic::VMLogic;
@@ -124,7 +124,7 @@ macro_rules! wrapped_imports {
                 ns.insert("memory", memory);
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         ns.insert(stringify!($func), wasmer_runtime::func!(wasmer_ext::$func));
                     }
                 })*
@@ -147,7 +147,7 @@ macro_rules! wrapped_imports {
                 namespace.insert("memory", memory);
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer2_ext::$func));
                     }
                 })*
@@ -171,7 +171,7 @@ macro_rules! wrapped_imports {
                 linker.define("env", "memory", memory).expect("cannot define memory");
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         linker.func("env", stringify!($func), wasmtime_ext::$func).expect("cannot link external");
                     }
                 })*
