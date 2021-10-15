@@ -377,10 +377,7 @@ impl Scope {
             },
             Contract {
                 code: near_test_contracts::fuzzing_contract().to_vec(),
-                functions: vec![
-                    Function::SumOfNumbers,
-                    Function::DataReceipt,
-                ],
+                functions: vec![Function::SumOfNumbers, Function::DataReceipt],
             },
         ]
     }
