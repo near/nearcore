@@ -8,7 +8,7 @@ use primitive_types::U256;
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
-use near_primitives::epoch_manager::{AllEpochConfig, SlashState, AGGREGATOR_KEY};
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, SlashState, AGGREGATOR_KEY};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -1259,6 +1259,11 @@ impl EpochManager {
     ) -> Result<EpochId, EpochError> {
         let first_block_info = self.get_block_info(block_info.epoch_first_block())?;
         Ok(EpochId(*first_block_info.prev_hash()))
+    }
+
+    pub fn get_epoch_config(&mut self, epoch_id: &EpochId) -> Result<&EpochConfig, EpochError> {
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        Ok(&self.config.for_protocol_version(protocol_version))
     }
 
     pub fn get_shard_layout(&mut self, epoch_id: &EpochId) -> Result<&ShardLayout, EpochError> {
