@@ -25,7 +25,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -1046,6 +1046,11 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone().into())
     }
 
     fn get_prev_shard_ids(

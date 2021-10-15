@@ -61,6 +61,16 @@ pub struct ShardConfig {
     pub shard_layout: ShardLayout,
 }
 
+impl From<EpochConfig> for ShardConfig {
+    fn from(config: EpochConfig) -> Self {
+        ShardConfig {
+            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: config.avg_hidden_validator_seats_per_shard,
+            shard_layout: config.shard_layout,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AllEpochConfig {
     genesis_epoch_config: EpochConfig,
@@ -90,11 +100,7 @@ impl AllEpochConfig {
     }
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> &EpochConfig {
-        if checked_feature!(
-            "protocol_feature_simple_nightshade",
-            SimpleNightshade,
-            protocol_version
-        ) {
+        if checked_feature!("stable", SimpleNightshade, protocol_version) {
             &self.simple_nightshade_epoch_config
         } else {
             &self.genesis_epoch_config
