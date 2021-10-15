@@ -227,14 +227,10 @@ impl TestShardUpgradeEnv {
                             env.clients[i].chain.get_final_transaction_result(id).unwrap();
 
                         let outcome_status = final_outcome.status.clone();
-                        assert_matches!(
-                            outcome_status,
-                            FinalExecutionStatus::SuccessValue(_),
-                            "{:?}",
-                            final_outcome
-                        );
                         if matches!(outcome_status, FinalExecutionStatus::SuccessValue(_)) {
                             successful_txs.push(tx.get_hash());
+                        } else {
+                            panic!("tx failed {:?}", final_outcome);
                         }
                         for outcome in final_outcome.receipts_outcome {
                             assert_matches!(
