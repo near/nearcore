@@ -56,6 +56,7 @@ use crate::types::{
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::Doomslug;
 use crate::{BlockHeader, DoomslugThresholdMode, RuntimeAdapter};
+use near_primitives::epoch_manager::ShardConfig;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
@@ -479,6 +480,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::v0(self.num_shards, 0))
+    }
+
+    fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+        panic!("get_shard_config not implemented for KeyValueRuntime");
     }
 
     fn get_prev_shard_ids(

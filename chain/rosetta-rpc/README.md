@@ -8,20 +8,15 @@ Rosetta RPC is built into nearcore and it happily co-exist with JSON RPC.
 - [Rosetta API Specification](https://github.com/coinbase/rosetta-specifications)
 - [Rosetta Tooling](https://github.com/coinbase/rosetta-cli)
 
-You can view Rosetta API specification in [OpenAPI (Swagger) UI](https://petstore.swagger.io/)
-passing the link to Rosetta OpenAPI specification:
-
-```
-https://raw.githubusercontent.com/coinbase/rosetta-specifications/master/api.json
-```
+You can view Rosetta API specification in [OpenAPI (Swagger)
+UI](https://petstore.swagger.io/) passing the link to Rosetta OpenAPI
+specification:
+<https://raw.githubusercontent.com/coinbase/rosetta-specifications/master/api.json>.
 
 Also, Rosetta implementation in nearcore exposes auto-generated OpenAPI
 specification that has some extra comments regarding to the particular
-implementation, and you can always access it from the running node:
-
-```
-http://localhost:3040/api/spec
-```
+implementation, and you can always access it from the running node at
+<http://localhost:3040/api/spec>.
 
 ## Supported Features
 
@@ -44,7 +39,7 @@ transactions to a blockchain network.
 | - `/network/options`         | Done                                                                                                                                |
 | - `/block`                   | Feature-complete (exposes only balance-changing operations)                                                                         |
 | - `/block/transaction`       | Feature-complete (exposes only balance-changing operations and the implementation is suboptimal from the performance point of view) |
-| - `/account/balance`         | Done (properly exposes liquid, liquid for storage, and locked [staked] balances through sub-accounts)                               |
+| - `/account/balance`         | Done (properly exposes liquid, liquid for storage, and locked (staked) balances through sub-accounts)                               |
 | - `/mempool`                 | Not implemented as mempool does not hold transactions for any meaningful time                                                       |
 | - `/mempool/transaction`     | Not implemented (see above)                                                                                                         |
 | Construction API             | Done                                                                                                                                |
@@ -59,7 +54,7 @@ transactions to a blockchain network.
 
 To verify the API compliance use:
 
-```
+```bash
 rosetta-cli check:data --configuration-file=./rosetta.cfg
 rosetta-cli check:construction --configuration-file=./rosetta.cfg
 ```
@@ -142,7 +137,7 @@ current betanet and testnet, which have a single shard:
 ```
 
 By default, nearcore is configured to automatically clean old data (performs
-garbage collection [GC]), so querying the data that was observed a few epochs
+garbage collection), so querying the data that was observed a few epochs
 before may return an error saying that the data is missing. If you only need
 recent blocks, you don't need this tweak, but if you need access to the
 historical data, consider updating `"archive"` setting in `config.json` to
