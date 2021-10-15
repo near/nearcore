@@ -31,7 +31,6 @@ pytest --timeout=240 sanity/state_sync4.py
 pytest --timeout=240 sanity/state_sync4.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=240 sanity/state_sync5.py
 pytest --timeout=240 sanity/state_sync5.py --features nightly_protocol,nightly_protocol_features
-pytest --timeout=240 sanity/routing_table_sync.py
 pytest --timeout=240 sanity/routing_table_sync.py --features nightly_protocol,nightly_protocol_features
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115
 pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly_protocol,nightly_protocol_features

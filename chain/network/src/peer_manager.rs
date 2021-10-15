@@ -87,7 +87,7 @@ const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOVED: Duration = Duration::from_millis(50);
+const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_secs(1);
 
@@ -292,7 +292,7 @@ impl PeerManagerActor {
                 }
             }
             new_edges.push(edge);
-            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOVED {
+            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
                 break;
             }
         }
@@ -315,8 +315,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             BROADCAST_EDGES_INTERVAL,
             move |act, ctx| {
                 act.broadcast_edges(ctx);
@@ -347,26 +345,20 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            WAIT_FOR_SYNC_DELAY,
-            move |act, ctx2| {
-                if peer_type == PeerType::Inbound {
-                    act.routing_table_pool
-                        .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
-                        .into_actor(act)
-                        .map(move |response, act2, _ctx| match response {
-                            Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
-                                act2.start_routing_table_syncv2(addr, seed)
-                            }
-                            _ => error!(target: "network", "expected AddIbfSetResponse"),
-                        })
-                        .spawn(ctx2);
-                }
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx2| {
+            if peer_type == PeerType::Inbound {
+                act.routing_table_pool
+                    .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
+                    .into_actor(act)
+                    .map(move |response, act2, _ctx| match response {
+                        Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
+                            act2.start_routing_table_syncv2(addr, seed)
+                        }
+                        _ => error!(target: "network", "expected AddIbfSetResponse"),
+                    })
+                    .spawn(ctx2);
+            }
+        });
     }
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     fn start_routing_table_syncv2(&self, addr: Addr<Peer>, seed: u64) {
@@ -443,33 +435,27 @@ impl PeerManagerActor {
                 return;
             }
         );
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            WAIT_FOR_SYNC_DELAY,
-            move |act, ctx2| {
-                act.routing_table_pool
-                    .send(RoutingTableMessages::RequestRoutingTable)
-                    .into_actor(act)
-                    .map(move |response, act2, ctx3| match response {
-                        Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                            edges_info: routing_table,
-                        }) => {
-                            act2.send_sync(
-                                peer_type,
-                                addr,
-                                ctx3,
-                                target_peer_id.clone(),
-                                new_edge,
-                                routing_table,
-                            );
-                        }
-                        _ => error!(target: "network", "expected AddIbfSetResponse"),
-                    })
-                    .spawn(ctx2);
-            },
-        );
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx2| {
+            act.routing_table_pool
+                .send(RoutingTableMessages::RequestRoutingTable)
+                .into_actor(act)
+                .map(move |response, act2, ctx3| match response {
+                    Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                        edges_info: routing_table,
+                    }) => {
+                        act2.send_sync(
+                            peer_type,
+                            addr,
+                            ctx3,
+                            target_peer_id.clone(),
+                            new_edge,
+                            routing_table,
+                        );
+                    }
+                    _ => error!(target: "network", "expected AddIbfSetResponse"),
+                })
+                .spawn(ctx2);
+        });
     }
 
     fn send_sync(
@@ -486,37 +472,31 @@ impl PeerManagerActor {
         // Start syncing network point of view. Wait until both parties are connected before start
         // sending messages.
 
-        near_performance_metrics::actix::run_later(
-            ctx,
-            file!(),
-            line!(),
-            WAIT_FOR_SYNC_DELAY,
-            move |act, ctx| {
-                let _ = addr.do_send(SendMessage {
-                    message: PeerMessage::RoutingTableSync(SyncData {
-                        edges: known_edges,
-                        accounts: known_accounts,
-                    }),
-                });
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
+            let _ = addr.do_send(SendMessage {
+                message: PeerMessage::RoutingTableSync(SyncData {
+                    edges: known_edges,
+                    accounts: known_accounts,
+                }),
+            });
 
-                // Ask for peers list on connection.
-                let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
-                if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                    active_peer.last_time_peer_requested = Instant::now();
-                }
+            // Ask for peers list on connection.
+            let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
+            if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
+                active_peer.last_time_peer_requested = Instant::now();
+            }
 
-                if peer_type == PeerType::Outbound {
-                    // Only broadcast new message from the outbound endpoint.
-                    // Wait a time out before broadcasting this new edge to let the other party finish handshake.
-                    act.broadcast_message(
-                        ctx,
-                        SendMessage {
-                            message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
-                        },
-                    );
-                }
-            },
-        );
+            if peer_type == PeerType::Outbound {
+                // Only broadcast new message from the outbound endpoint.
+                // Wait a time out before broadcasting this new edge to let the other party finish handshake.
+                act.broadcast_message(
+                    ctx,
+                    SendMessage {
+                        message: PeerMessage::RoutingTableSync(SyncData::edge(new_edge)),
+                    },
+                );
+            }
+        });
     }
 
     /// Remove peer from active set.
@@ -802,8 +782,6 @@ impl PeerManagerActor {
             self.scheduled_routing_table_update = true;
             near_performance_metrics::actix::run_later(
                 ctx,
-                file!(),
-                line!(),
                 Duration::from_millis(1000),
                 |act, ctx2| {
                     act.scheduled_routing_table_update = false;
@@ -856,8 +834,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(WAIT_PEER_BEFORE_REMOVE),
             move |act, ctx| {
                 let other = edge.other(&act.peer_id).unwrap();
@@ -900,8 +876,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(WAIT_ON_TRY_UPDATE_NONCE),
             move |act, _ctx| {
                 if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
@@ -948,8 +922,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.config.peer_stats_period,
             move |act, ctx| {
                 act.monitor_peer_stats(ctx);
@@ -1111,8 +1083,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(wait),
             move |act, ctx| {
                 act.monitor_peers(ctx);
@@ -1337,6 +1307,7 @@ impl PeerManagerActor {
 
     // Ping pong useful functions.
 
+    // for unit tests
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
@@ -1398,8 +1369,6 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             self.config.push_info_period,
             move |act, ctx| {
                 act.push_network_info(ctx);
@@ -1724,6 +1693,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            // For unit tests
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -1831,10 +1801,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
+            // For unit tests
             NetworkRequests::PingTo(nonce, target) => {
                 self.send_ping(ctx, nonce, target);
                 NetworkResponses::NoResponse
             }
+            // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table.fetch_ping_pong();
                 NetworkResponses::PingPongInfo { pings, pongs }
@@ -1892,6 +1864,9 @@ impl Handler<SetAdvOptions> for PeerManagerActor {
         }
         if let Some(disable_edge_pruning) = msg.disable_edge_pruning {
             self.adv_disable_edge_pruning = disable_edge_pruning;
+        }
+        if let Some(set_max_peers) = msg.set_max_peers {
+            self.config.max_num_peers = set_max_peers as u32;
         }
         SetAdvOptionsResult {}
     }

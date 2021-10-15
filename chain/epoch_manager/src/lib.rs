@@ -436,9 +436,11 @@ impl EpochManager {
             Err(err) => return Err(err),
         };
         let next_next_epoch_id = EpochId(*last_block_hash);
-        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {}", next_next_epoch_info.epoch_height(), 
+        debug!(target: "epoch_manager", "next next epoch height: {}, id: {:?}, protocol version: {} shard layout: {:?}",
+               next_next_epoch_info.epoch_height(),
                &next_next_epoch_id,
-                   next_next_epoch_info.protocol_version());
+               next_next_epoch_info.protocol_version(),
+               self.config.for_protocol_version(next_next_epoch_info.protocol_version()).shard_layout);
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &next_next_epoch_id, next_next_epoch_info)?;

@@ -7,7 +7,7 @@ use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{convert_boot_nodes, open_port};
-use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, NumSeats, NumShards};
 use nearcore::{config::GenesisExt, load_test_config, start_with_config};
 use tempfile::TempDir;
 
@@ -48,15 +48,9 @@ pub fn start_nodes(
             near_config.network_config.boot_nodes =
                 convert_boot_nodes(vec![("near.0", first_node)]);
         }
-        // if non validator, add some shards to track.
+        // if non validator, track all shards
         if i >= (num_validator_seats as usize) && i < num_tracking_nodes {
-            let shards_per_node =
-                num_shards as usize / (num_tracking_nodes - num_validator_seats as usize);
-            let (from, to) = (
-                ((i - num_validator_seats as usize) * shards_per_node) as ShardId,
-                ((i - (num_validator_seats as usize) + 1) * shards_per_node) as ShardId,
-            );
-            near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
+            near_config.client_config.tracked_shards = vec![0];
         }
         near_config.client_config.epoch_sync_enabled = false;
         near_configs.push(near_config);

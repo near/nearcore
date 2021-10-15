@@ -329,7 +329,7 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_accounts, gen_changes, gen_receipts, test_populate_trie,
+        create_tries, gen_changes, gen_receipts, gen_unique_accounts, test_populate_trie,
     };
     use crate::{get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
@@ -427,10 +427,6 @@ mod tests {
             let tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
-            let shards: Vec<_> = (0..num_shards)
-                .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
-                .collect();
-            tries.add_new_shards(&shards);
             let mut state_root = Trie::empty_root();
             let mut state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
@@ -563,10 +559,6 @@ mod tests {
 
         let tries = create_tries();
         let num_shards = 4;
-        let shards: Vec<_> = (0..num_shards)
-            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
-            .collect();
-        tries.add_new_shards(&shards);
 
         for _ in 0..10 {
             let mut state_roots: HashMap<_, _> = (0..num_shards)
@@ -599,7 +591,7 @@ mod tests {
     fn test_split_and_update_state_impl(rng: &mut impl Rng) {
         let tries = create_tries();
         // add accounts and receipts to state
-        let mut account_ids = gen_accounts(rng, 100);
+        let mut account_ids = gen_unique_accounts(rng, 100);
         let mut trie_update = tries.new_trie_update(ShardUId::default(), CryptoHash::default());
         for account_id in account_ids.iter() {
             set_account(
@@ -631,10 +623,6 @@ mod tests {
         };
 
         let num_shards = 4;
-        let shards: Vec<_> = (0..num_shards)
-            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
-            .collect();
-        tries.add_new_shards(&shards);
         let account_id_to_shard_id = &|account_id: &AccountId| ShardUId {
             shard_id: (hash(account_id.as_ref().as_bytes()).0[0] as NumShards % num_shards) as u32,
             version: 1,
@@ -646,8 +634,11 @@ mod tests {
                 .get_view_trie_for_shard(ShardUId::default())
                 .get_trie_items_for_part(0, 1, &state_root)
                 .unwrap();
-            let split_state_roots: HashMap<_, _> =
-                shards.iter().map(|shard_uid| (shard_uid.clone(), CryptoHash::default())).collect();
+            let split_state_roots: HashMap<_, _> = (0..num_shards)
+                .map(|shard_id| {
+                    (ShardUId { version: 1, shard_id: shard_id as u32 }, CryptoHash::default())
+                })
+                .collect();
             let (store_update, split_state_roots) = tries
                 .add_values_to_split_states(
                     &split_state_roots,
@@ -676,7 +667,7 @@ mod tests {
         // update the original shard
         for _ in 0..10 {
             // add accounts
-            let new_accounts = gen_accounts(rng, 10);
+            let new_accounts = gen_unique_accounts(rng, 10);
             let mut trie_update = tries.new_trie_update(ShardUId::default(), state_root);
             for account_id in new_accounts.iter() {
                 set_account(
