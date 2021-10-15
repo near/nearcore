@@ -15,21 +15,6 @@
       "subtypes": [],
       "props": {}
     },
-    "BreakpointTrap": {
-      "name": "BreakpointTrap",
-      "subtypes": [],
-      "props": {}
-    },
-    "CacheError": {
-      "name": "CacheError",
-      "subtypes": [
-        "ReadError",
-        "WriteError",
-        "DeserializationError",
-        "SerializationError"
-      ],
-      "props": {}
-    },
     "CallIndirectOOB": {
       "name": "CallIndirectOOB",
       "subtypes": [],
@@ -57,7 +42,8 @@
       "subtypes": [
         "CodeDoesNotExist",
         "PrepareError",
-        "WasmerCompileError"
+        "WasmerCompileError",
+        "UnsupportedCompiler"
       ],
       "props": {}
     },
@@ -81,26 +67,16 @@
       "subtypes": [],
       "props": {}
     },
-    "DeserializationError": {
-      "name": "DeserializationError",
+    "ECRecoverError": {
+      "name": "ECRecoverError",
       "subtypes": [],
-      "props": {}
+      "props": {
+        "msg": ""
+      }
     },
     "EmptyMethodName": {
       "name": "EmptyMethodName",
       "subtypes": [],
-      "props": {}
-    },
-    "FunctionCallError": {
-      "name": "FunctionCallError",
-      "subtypes": [
-        "CompilationError",
-        "LinkError",
-        "MethodResolveError",
-        "WasmTrap",
-        "WasmUnknownError",
-        "HostError"
-      ],
       "props": {}
     },
     "GasExceeded": {
@@ -162,7 +138,8 @@
         "NumberInputDataDependenciesExceeded",
         "ReturnedValueLengthExceeded",
         "ContractSizeExceeded",
-        "Deprecated"
+        "Deprecated",
+        "ECRecoverError"
       ],
       "props": {}
     },
@@ -173,6 +150,11 @@
     },
     "IncorrectCallIndirectSignature": {
       "name": "IncorrectCallIndirectSignature",
+      "subtypes": [],
+      "props": {}
+    },
+    "IndirectCallToNull": {
+      "name": "IndirectCallToNull",
       "subtypes": [],
       "props": {}
     },
@@ -258,13 +240,6 @@
         "limit": ""
       }
     },
-    "LinkError": {
-      "name": "LinkError",
-      "subtypes": [],
-      "props": {
-        "msg": ""
-      }
-    },
     "Memory": {
       "name": "Memory",
       "subtypes": [],
@@ -299,15 +274,9 @@
       "name": "MethodResolveError",
       "subtypes": [
         "MethodEmptyName",
-        "MethodUTF8Error",
         "MethodNotFound",
         "MethodInvalidSignature"
       ],
-      "props": {}
-    },
-    "MethodUTF8Error": {
-      "name": "MethodUTF8Error",
-      "subtypes": [],
       "props": {}
     },
     "MisalignedAtomicAccess": {
@@ -358,11 +327,6 @@
         "method_name": ""
       }
     },
-    "ReadError": {
-      "name": "ReadError",
-      "subtypes": [],
-      "props": {}
-    },
     "ReturnedValueLengthExceeded": {
       "name": "ReturnedValueLengthExceeded",
       "subtypes": [],
@@ -375,13 +339,6 @@
       "name": "Serialization",
       "subtypes": [],
       "props": {}
-    },
-    "SerializationError": {
-      "name": "SerializationError",
-      "subtypes": [],
-      "props": {
-        "hash": ""
-      }
     },
     "StackHeightInstrumentation": {
       "name": "StackHeightInstrumentation",
@@ -406,6 +363,13 @@
       "subtypes": [],
       "props": {}
     },
+    "UnsupportedCompiler": {
+      "name": "UnsupportedCompiler",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
+    },
     "ValueLengthExceeded": {
       "name": "ValueLengthExceeded",
       "subtypes": [],
@@ -423,15 +387,10 @@
         "CallIndirectOOB",
         "IllegalArithmetic",
         "MisalignedAtomicAccess",
-        "BreakpointTrap",
+        "IndirectCallToNull",
         "StackOverflow",
         "GenericTrap"
       ],
-      "props": {}
-    },
-    "WasmUnknownError": {
-      "name": "WasmUnknownError",
-      "subtypes": [],
       "props": {}
     },
     "WasmerCompileError": {
@@ -440,11 +399,6 @@
       "props": {
         "msg": ""
       }
-    },
-    "WriteError": {
-      "name": "WriteError",
-      "subtypes": [],
-      "props": {}
     },
     "AccessKeyNotFound": {
       "name": "AccessKeyNotFound",
@@ -485,7 +439,8 @@
         "InsufficientStake",
         "FunctionCallError",
         "NewReceiptValidationError",
-        "OnlyImplicitAccountCreationAllowed"
+        "OnlyImplicitAccountCreationAllowed",
+        "DeleteAccountWithLargeState"
       ],
       "props": {
         "index": ""
@@ -559,6 +514,15 @@
         "tx_burnt_amount": ""
       }
     },
+    "ContractCallError": {
+      "name": "ContractCallError",
+      "subtypes": [
+        "MethodResolveError",
+        "CompilationError",
+        "ExecutionError"
+      ],
+      "props": {}
+    },
     "CostOverflow": {
       "name": "CostOverflow",
       "subtypes": [],
@@ -588,6 +552,13 @@
         "account_id": ""
       }
     },
+    "DeleteAccountWithLargeState": {
+      "name": "DeleteAccountWithLargeState",
+      "subtypes": [],
+      "props": {
+        "account_id": ""
+      }
+    },
     "DeleteActionMustBeFinal": {
       "name": "DeleteActionMustBeFinal",
       "subtypes": [],
@@ -605,6 +576,13 @@
       "name": "DepositWithFunctionCall",
       "subtypes": [],
       "props": {}
+    },
+    "ExecutionError": {
+      "name": "ExecutionError",
+      "subtypes": [],
+      "props": {
+        "msg": ""
+      }
     },
     "Expired": {
       "name": "Expired",
@@ -706,6 +684,7 @@
         "InvalidSignerId",
         "SignerDoesNotExist",
         "InvalidNonce",
+        "NonceTooLarge",
         "InvalidReceiverId",
         "InvalidSignature",
         "NotEnoughBalance",
@@ -713,7 +692,8 @@
         "CostOverflow",
         "InvalidChain",
         "Expired",
-        "ActionsValidation"
+        "ActionsValidation",
+        "TransactionSizeExceeded"
       ],
       "props": {}
     },
@@ -730,6 +710,14 @@
       "subtypes": [],
       "props": {
         "method_name": ""
+      }
+    },
+    "NonceTooLarge": {
+      "name": "NonceTooLarge",
+      "subtypes": [],
+      "props": {
+        "tx_nonce": "",
+        "upper_bound": ""
       }
     },
     "NotEnoughAllowance": {
@@ -807,6 +795,14 @@
         "total_prepaid_gas": ""
       }
     },
+    "TransactionSizeExceeded": {
+      "name": "TransactionSizeExceeded",
+      "subtypes": [],
+      "props": {
+        "limit": "",
+        "size": ""
+      }
+    },
     "TriesToStake": {
       "name": "TriesToStake",
       "subtypes": [],
@@ -844,18 +840,12 @@
       "subtypes": [],
       "props": {}
     },
-    "InternalError": {
-      "name": "InternalError",
-      "subtypes": [],
-      "props": {}
-    },
     "ServerError": {
       "name": "ServerError",
       "subtypes": [
         "TxExecutionError",
         "Timeout",
-        "Closed",
-        "InternalError"
+        "Closed"
       ],
       "props": {}
     },
