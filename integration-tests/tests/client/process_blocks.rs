@@ -3197,7 +3197,7 @@ fn test_validator_stake_host_function() {
 // Check that we can't call a contract exceeding functions number limit after upgrade.
 #[test]
 fn test_limit_contract_functions_number_upgrade() {
-    const FUNCTIONS_NUMBER: u64 = 10_000;
+    let functions_number_limit: u32 = 10_000;
 
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
@@ -3226,7 +3226,7 @@ fn test_limit_contract_functions_number_upgrade() {
         deploy_test_contract(
             &mut env,
             "test0".parse().unwrap(),
-            &near_test_contracts::many_functions_contract((FUNCTIONS_NUMBER + 10) as i32),
+            &near_test_contracts::many_functions_contract(functions_number_limit + 10),
             epoch_length,
             1,
         );
@@ -3239,7 +3239,7 @@ fn test_limit_contract_functions_number_upgrade() {
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
         actions: vec![Action::FunctionCall(FunctionCallAction {
-            method_name: "hello0".to_string(),
+            method_name: "main".to_string(),
             args: Vec::new(),
             gas: 100_000_000_000_000,
             deposit: 0,

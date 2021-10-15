@@ -144,7 +144,7 @@ impl<'a> ContractModule<'a> {
         {
             let functions_number = self.module.functions_space() as u64;
             if functions_number > max_functions_number {
-                return Err(PrepareError::TooManyFunctions { number: functions_number });
+                return Err(PrepareError::TooManyFunctions);
             }
         }
         Ok(self)

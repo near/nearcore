@@ -5,6 +5,7 @@ mod rs_contract;
 mod ts_contract;
 
 use near_primitives::contract::ContractCode;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -58,11 +59,14 @@ fn make_simple_contract_call_with_gas_vm(
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
+    protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let config = VMConfig::default();
+    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let config = &runtime_config.wasm_config;
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
@@ -73,11 +77,11 @@ fn make_simple_contract_call_with_gas_vm(
         method_name,
         &mut fake_external,
         context,
-        &config,
+        config,
         &fees,
         &promise_results,
         vm_kind,
-        LATEST_PROTOCOL_VERSION,
+        protocol_version,
         None,
     )
 }
@@ -87,7 +91,13 @@ fn make_simple_contract_call_vm(
     method_name: &str,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
+    make_simple_contract_call_with_gas_vm(
+        code,
+        method_name,
+        10u64.pow(14),
+        vm_kind,
+        LATEST_PROTOCOL_VERSION,
+    )
 }
 
 fn make_cached_contract_call_vm(

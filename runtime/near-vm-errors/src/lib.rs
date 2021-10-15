@@ -142,7 +142,7 @@ pub enum PrepareError {
     /// Error creating memory.
     Memory,
     /// Contract contains too many functions.
-    TooManyFunctions { number: u64 },
+    TooManyFunctions,
 }
 
 #[derive(
@@ -290,8 +290,8 @@ impl fmt::Display for PrepareError {
             GasInstrumentation => write!(f, "Gas instrumentation failed."),
             StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
             Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory"),
-            TooManyFunctions { number } => write!(f, "Too many functions in contract: {}", number),
+            Memory => write!(f, "Error creating memory."),
+            TooManyFunctions => write!(f, "Too many functions in contract."),
         }
     }
 }

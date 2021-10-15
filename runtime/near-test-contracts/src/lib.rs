@@ -40,31 +40,24 @@ fn smoke_test() {
     assert!(!tiny_contract().is_empty());
 }
 
-pub fn many_functions_contract(function_count: i32) -> Vec<u8> {
+pub fn many_functions_contract(function_count: u32) -> Vec<u8> {
     let mut functions = String::new();
     for i in 0..function_count {
-        if i == 0 {
-            write!(&mut functions, "(export \"hello{i}\" (func {i}))", i = i).unwrap();
-        }
-        write!(
+        writeln!(
             &mut functions,
-            "
-              (func (;{i};)
-                i32.const {i}
+            "(func
+                i32.const {}
                 drop
-                return
-              )
-            ",
-            i = i
+                return)",
+            i
         )
         .unwrap();
     }
 
     let code = format!(
-        "
-        (module
-            {}
-            )",
+        r#"(module
+            (export "main" (func 0))
+            {})"#,
         functions
     );
     wat::parse_str(code).unwrap()

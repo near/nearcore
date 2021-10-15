@@ -3,19 +3,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
-use assert_matches::assert_matches;
-
 use near_primitives::contract::ContractCode;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
-#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-use near_primitives::version::ProtocolFeature;
-#[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_errors::CompilationError::PrepareError;
-use near_vm_errors::FunctionCallError::CompilationError;
-use near_vm_errors::PrepareError::TooManyFunctions;
 use near_vm_errors::VMError::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
@@ -231,69 +221,4 @@ pub fn test_precompile() {
     test_precompile_vm(VMKind::Wasmer0);
     #[cfg(feature = "wasmer2_vm")]
     test_precompile_vm(VMKind::Wasmer2);
-}
-
-pub fn test_limit_contract_functions_number_vm(vm_kind: VMKind) {
-    const FUNCTIONS_NUMBER: u64 = 10_000;
-    let method_name = "hello0";
-
-    let mut fake_external = MockedExternal::new();
-
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let context = default_vm_context();
-    let fees = RuntimeFeesConfig::test();
-
-    let promise_results = vec![];
-    let mut runner = |protocol_version: ProtocolVersion,
-                      functions_number: u64|
-     -> (Option<VMOutcome>, Option<VMError>) {
-        let code = near_test_contracts::many_functions_contract(functions_number as i32);
-        let contract_code = Arc::new(ContractCode::new(code, None));
-        let runtime_config = runtime_config_store.get_config(protocol_version);
-        let vm_config = &runtime_config.wasm_config;
-        let cache: Option<Arc<dyn CompiledContractCache>> =
-            Some(Arc::new(MockCompiledContractCache::new(0)));
-        run_vm(
-            &contract_code,
-            method_name,
-            &mut fake_external,
-            context.clone(),
-            vm_config,
-            &fees,
-            &promise_results,
-            vm_kind,
-            protocol_version,
-            cache.as_deref(),
-        )
-    };
-
-    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-    let old_protocol_version = ProtocolFeature::LimitContractFunctionsNumber.protocol_version() - 1;
-    #[cfg(not(feature = "protocol_feature_limit_contract_functions_number"))]
-    let old_protocol_version = PROTOCOL_VERSION - 1;
-
-    let new_protocol_version = old_protocol_version + 1;
-
-    let result = runner(old_protocol_version, FUNCTIONS_NUMBER + 10);
-    assert_eq!(result.1, None);
-    let result = runner(new_protocol_version, FUNCTIONS_NUMBER - 10);
-    assert_eq!(result.1, None);
-
-    let result = runner(new_protocol_version, FUNCTIONS_NUMBER + 10);
-    if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
-        assert_matches!(
-            result.1,
-            Some(FunctionCallError(CompilationError(PrepareError(TooManyFunctions { number: _ }))))
-        );
-    } else {
-        assert_eq!(result.1, None);
-    }
-}
-
-#[test]
-pub fn test_limit_contract_functions_number() {
-    #[cfg(feature = "wasmer0_vm")]
-    test_limit_contract_functions_number_vm(VMKind::Wasmer0);
-    #[cfg(feature = "wasmer2_vm")]
-    test_limit_contract_functions_number_vm(VMKind::Wasmer2);
 }
