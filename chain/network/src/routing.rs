@@ -402,9 +402,9 @@ pub struct RoutingTable {
     /// New routes are added with minimum nonce.
     route_nonce: SizedCache<PeerId, usize>,
     /// Ping received by nonce.
-    ping_info: SizedCache<usize, Ping>,
+    ping_info: SizedCache<usize, (Ping, usize)>,
     /// Ping received by nonce.
-    pong_info: SizedCache<usize, Pong>,
+    pong_info: SizedCache<usize, (Pong, usize)>,
     /// List of pings sent for which we haven't received any pong yet.
     waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
@@ -691,7 +691,9 @@ impl RoutingTable {
     }
 
     pub fn add_ping(&mut self, ping: Ping) {
-        self.ping_info.cache_set(ping.nonce as usize, ping);
+        let cnt = self.ping_info.cache_get(&(ping.nonce as usize)).map(|v| v.1).unwrap_or(0);
+
+        self.ping_info.cache_set(ping.nonce as usize, (ping, cnt + 1));
     }
 
     /// Return time of the round trip of ping + pong
@@ -704,11 +706,14 @@ impl RoutingTable {
                 .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
         }
 
-        self.pong_info.cache_set(pong.nonce as usize, pong);
+        let cnt = self.pong_info.cache_get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
+
+        self.pong_info.cache_set(pong.nonce as usize, (pong, (cnt + 1)));
 
         res
     }
 
+    // for unit tests
     pub fn sending_ping(&mut self, nonce: usize, target: PeerId) {
         let entry = if let Some(entry) = self.waiting_pong.cache_get_mut(&target) {
             entry
@@ -730,7 +735,10 @@ impl RoutingTable {
         }
     }
 
-    pub fn fetch_ping_pong(&self) -> (HashMap<usize, Ping>, HashMap<usize, Pong>) {
+    // for unit tests
+    pub fn fetch_ping_pong(
+        &self,
+    ) -> (HashMap<usize, (Ping, usize)>, HashMap<usize, (Pong, usize)>) {
         (cache_to_hashmap(&self.ping_info), cache_to_hashmap(&self.pong_info))
     }
 

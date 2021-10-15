@@ -27,11 +27,21 @@ steps:
         cargo-deny --all-features check bans
       fi
       RUSTFLAGS='-D warnings' cargo check --workspace --all-targets --all-features
-      RUSTFLAGS='-D warnings' cargo check -p neard --features nightly_protocol,nightly_protocol_features
       RUSTFLAGS='-D warnings' cargo check -p neard --features test_features
       RUSTFLAGS='-D warnings' cargo check -p neard --features sandbox
-      RUSTFLAGS='-D warnings' cargo check -p neard
+
+      RUSTFLAGS='-D warnings' cargo build -p neard --bin neard --features nightly_protocol,nightly_protocol_features
+      cd pytest
+      python3 -m pip install --user -r requirements.txt
+      python3 tests/sanity/spin_up_cluster.py
+      cd ..
+      # Note: We’re not running spin_up_cluster.py for non-nightly
+      # because spinning up non-nightly clusters is already covered
+      # by other steps in the CI, e.g. upgradable.
+
+      RUSTFLAGS='-D warnings' cargo build -p neard --bin neard
       python3 scripts/state/update_res.py check
+
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
     timeout: 30
