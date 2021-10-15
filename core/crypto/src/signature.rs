@@ -562,7 +562,7 @@ const SECP256K1_N: U256 =
 const SECP256K1_N_HALF_ONE: U256 =
     U256([0xdfe92f46681b20a1, 0x5d576e7357a4501d, 0xffffffffffffffff, 0x7fffffffffffffff]);
 
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct Secp256K1Signature([u8; 65]);
 
 impl Secp256K1Signature {
@@ -666,6 +666,15 @@ impl From<Secp256K1Signature> for [u8; 65] {
 pub enum Signature {
     ED25519(ed25519_dalek::Signature),
     SECP256K1(Secp256K1Signature),
+}
+
+impl Hash for Signature {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Signature::ED25519(sig) => sig.to_bytes().hash(state),
+            Signature::SECP256K1(sig) => sig.hash(state),
+        };
+    }
 }
 
 impl Signature {
