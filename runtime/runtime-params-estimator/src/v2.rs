@@ -1,6 +1,6 @@
 mod ctx;
 mod gas_cost;
-mod support;
+mod transaction_builder;
 
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
@@ -23,13 +23,13 @@ use rand::Rng;
 
 use crate::cost_table::format_gas;
 use crate::testbed_runners::{end_count, start_count, Config};
-use crate::v2::ctx::TransactionBuilder;
+use crate::v2::ctx::Ctx;
 use crate::v2::gas_cost::GasCost;
-use crate::v2::support::Ctx;
+use crate::v2::transaction_builder::TransactionBuilder;
 use crate::vm_estimator::create_context;
 use crate::{Cost, CostTable};
 
-use self::support::TestBed;
+use self::ctx::TestBed;
 
 static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
