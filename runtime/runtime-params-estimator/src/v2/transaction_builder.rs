@@ -21,9 +21,6 @@ impl TransactionBuilder {
     pub(crate) fn new(accounts: Vec<AccountId>) -> TransactionBuilder {
         TransactionBuilder { accounts, nonces: HashMap::new(), used_accounts: HashSet::new() }
     }
-    pub(crate) fn with_accounts(&self, accounts: Vec<AccountId>) -> TransactionBuilder {
-        TransactionBuilder { accounts, nonces: self.nonces.clone(), used_accounts: HashSet::new() }
-    }
 
     pub(crate) fn transaction_from_actions(
         &mut self,

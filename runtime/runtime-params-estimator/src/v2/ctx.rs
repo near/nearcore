@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use near_primitives::types::AccountId;
+use near_primitives::transaction::SignedTransaction;
 use near_vm_logic::ExtCosts;
 
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{end_count, get_account_id, start_count, Config};
 use crate::v2::gas_cost::GasCost;
-use crate::v2::read_resource;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -43,10 +41,6 @@ impl<'c> Ctx<'c> {
                 (0..self.config.active_accounts).map(get_account_id).collect(),
             ),
         }
-    }
-
-    pub(crate) fn test_bed_with_contracts(&mut self) -> TestBed<'_> {
-        self.test_bed()
     }
 }
 

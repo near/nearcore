@@ -410,7 +410,7 @@ fn action_function_call_base(ctx: &mut Ctx) -> GasCost {
 }
 fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
-        let test_bed = ctx.test_bed_with_contracts();
+        let test_bed = ctx.test_bed();
 
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
@@ -873,7 +873,7 @@ fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
     }
 
     let cost = {
-        let test_bed = ctx.test_bed_with_contracts();
+        let test_bed = ctx.test_bed();
 
         let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
             let sender = tb.random_unused_account();
@@ -901,7 +901,7 @@ fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u
         let sender = tb.random_unused_account();
         tb.transaction_from_function_call(sender, method, Vec::new())
     };
-    let test_bed = ctx.test_bed_with_contracts();
+    let test_bed = ctx.test_bed();
     let (gas_cost, ext_costs) = transaction_cost_ext(test_bed, block_size, &mut make_transaction);
     let ext_cost = ext_costs[&ext_cost];
     (gas_cost, ext_cost)
@@ -918,7 +918,7 @@ fn fn_cost_with_setup(
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
 
-        let mut test_bed = ctx.test_bed_with_contracts();
+        let mut test_bed = ctx.test_bed();
 
         let blocks = {
             let mut blocks = Vec::with_capacity(2 * n_blocks);
