@@ -1,6 +1,7 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
+use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{types::ReturnData, VMConfig, VMOutcome};
@@ -124,7 +125,7 @@ pub fn test_stablized_host_function() {
             &fees,
             &promise_results,
             vm_kind.clone(),
-            45,
+            ProtocolFeature::MathExtension.protocol_version() - 1,
             None,
         );
         match result.1 {
