@@ -105,8 +105,8 @@ delayed_validator = spin_up_node(config, near_root, node_dirs[2], 2,
 observer = spin_up_node(config, near_root, node_dirs[3], 3,
                         boot_node.node_key.pk, boot_node.addr())
 
-validator.kill()
-validator.reset_data()
+delayed_validator.kill()
+delayed_validator.reset_data()
 
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
