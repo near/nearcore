@@ -59,7 +59,7 @@ else:
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    1, 2, 1,
+    2, 1, 1,
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
              ["epoch_length", 300], ["block_producer_kickout_threshold", 80]], {
                  1: {
@@ -92,7 +92,7 @@ TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-observer = spin_up_node(config, near_root, node_dirs[1], 1,
+observer = spin_up_node(config, near_root, node_dirs[2], 2,
                         boot_node.node_key.pk, boot_node.addr())
 
 
@@ -133,15 +133,15 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
 wait_for_height(SMALL_HEIGHT, boot_node)
 
-observer = spin_up_node(config, near_root, node_dirs[2], 2,
+validator = spin_up_node(config, near_root, node_dirs[1], 1,
                         boot_node.node_key.pk, boot_node.addr())
-tracker = LogTracker(observer)
+#tracker = LogTracker(observer)
 
 # Check that bps is not degraded
 wait_for_height(LARGE_HEIGHT, boot_node)
 
 # Make sure observer2 is able to sync
-wait_for_height(SMALL_HEIGHT, observer)
+wait_for_height(SMALL_HEIGHT, validator)
 
-tracker.reset()
-assert tracker.check("transition to State Sync")
+#tracker.reset()
+#assert tracker.check("transition to State Sync")

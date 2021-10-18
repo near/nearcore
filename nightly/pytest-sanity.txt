@@ -39,8 +39,8 @@ pytest --timeout=300 sanity/state_sync_late.py notx --features nightly_protocol,
 
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-#pytest --timeout=900 sanity/state_sync_massive.py
-#pytest --timeout=900 sanity/state_sync_massive.py --features nightly_protocol,nightly_protocol_features
+pytest --timeout=1500 sanity/state_sync_massive.py
+pytest --timeout=1500 sanity/state_sync_massive.py --features nightly_protocol,nightly_protocol_features
 #pytest sanity/sync_chunks_from_archival.py
 #pytest sanity/sync_chunks_from_archival.py --features nightly_protocol,nightly_protocol_features
 
