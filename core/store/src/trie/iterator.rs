@@ -216,6 +216,7 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
+    /// Note that path_begin and path_end are not bytes, they are nibbles
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return key-value pairs for each visited node with value stored
     /// Used to generate split states for re-sharding
@@ -224,12 +225,16 @@ impl<'a> TrieIterator<'a> {
         path_begin: &[u8],
         path_end: &[u8],
     ) -> Result<Vec<TrieItem>, StorageError> {
-        self.seek(path_begin)?;
+        let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, false);
+        let path_end_encoded = NibbleSlice::encode_nibbles(path_end, false);
+        let path_end_nibbles = NibbleSlice::from_encoded(&path_end_encoded).0;
+        self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
 
         let mut trie_items = vec![];
         while let Some(item) = self.next() {
             let trie_item = item?;
-            if &trie_item.0[..] >= path_end {
+            let key_encoded = NibbleSlice::new(&trie_item.0);
+            if key_encoded >= path_end_nibbles {
                 return Ok(trie_items);
             }
             trie_items.push(trie_item);
