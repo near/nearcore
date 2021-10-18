@@ -2,7 +2,7 @@
 extern crate lazy_static;
 
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::pin::Pin;
@@ -128,19 +128,24 @@ impl Store {
     }
 
     pub fn load_from_file(&self, column: DBCol, filename: &Path) -> Result<(), std::io::Error> {
-        let mut file = File::open(filename)?;
+        let file = File::open(filename)?;
+        let mut file = BufReader::new(file);
         let mut transaction = self.storage.transaction();
+        let mut key = Vec::new();
+        let mut value = Vec::new();
         loop {
             let key_len = match file.read_u32::<LittleEndian>() {
                 Ok(key_len) => key_len as usize,
                 Err(ref err) if err.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(err) => return Err(err),
             };
-            let mut key = Vec::<u8>::with_capacity(key_len);
-            Read::by_ref(&mut file).take(key_len as u64).read_to_end(&mut key)?;
+            key.resize(key_len, 0);
+            file.read_exact(&mut key)?;
+
             let value_len = file.read_u32::<LittleEndian>()? as usize;
-            let mut value = Vec::<u8>::with_capacity(value_len);
-            Read::by_ref(&mut file).take(value_len as u64).read_to_end(&mut value)?;
+            value.resize(value_len, 0);
+            file.read_exact(&mut value)?;
+
             transaction.put(column, &key, &value);
         }
         self.storage.write(transaction).map_err(|e| e.into())
