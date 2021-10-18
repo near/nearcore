@@ -18,7 +18,6 @@ from rc import gcloud
 from retrying import retry
 
 import network
-from bridge import GanacheNode, RainbowBridge, alice, bob, carol
 from configured_logger import logger
 from key import Key
 from proxy import NodesProxy
@@ -779,68 +778,11 @@ def start_cluster(num_nodes,
     return nodes
 
 
-def start_bridge(nodes,
-                 start_local_ethereum=True,
-                 handle_contracts=True,
-                 handle_relays=True,
-                 config=None):
-    if not config:
-        config = load_config()
-
-    config['bridge']['bridge_dir'] = os.path.abspath(
-        os.path.expanduser(os.path.expandvars(config['bridge']['bridge_dir'])))
-    config['bridge']['config_dir'] = os.path.abspath(
-        os.path.expanduser(os.path.expandvars(config['bridge']['config_dir'])))
-
-    # Run bridge.__init__() here.
-    # It will create necessary folders, download repos and install services automatically.
-    bridge = RainbowBridge(config['bridge'], nodes[0])
-
-    ganache_node = None
-    if start_local_ethereum:
-        ganache_node = GanacheNode(config['bridge'])
-        ganache_node.start()
-        # TODO wait until ganache actually starts
-        time.sleep(2)
-
-    # Allow the Bridge to fill the blockchains with initial contracts
-    # such as ed25519, erc20, lockers, token factory, etc.
-    # If false, contracts initialization should be completed in the test explicitly.
-    if handle_contracts:
-        # TODO implement initialization to non-Ganache Ethereum node when required
-        assert start_local_ethereum
-        bridge.init_near_contracts()
-        bridge.init_eth_contracts()
-        bridge.init_near_token_factory()
-
-    # Initial test ERC20 tokens distribution
-    billion_tokens = 1000000000
-    bridge.mint_erc20_tokens(alice, billion_tokens)
-    bridge.mint_erc20_tokens(bob, billion_tokens)
-    bridge.mint_erc20_tokens(carol, billion_tokens)
-
-    # Allow the Bridge to start Relays and handle them in a proper way.
-    # If false, Relays handling should be provided in the test explicitly.
-    if handle_relays:
-        bridge.start_near2eth_block_relay()
-        bridge.start_eth2near_block_relay()
-
-    return (bridge, ganache_node)
-
-
 DEFAULT_CONFIG = {
     'local': True,
     'near_root': '../target/debug/',
     'binary_name': 'neard',
     'release': False,
-    'bridge': {
-        'bridge_repo': 'https://github.com/near/rainbow-bridge.git',
-        'bridge_dir': '~/.rainbow-bridge',
-        'config_dir': '~/.rainbow',
-        'ganache_dir': 'testing/vendor/ganache',
-        'ganache_bin': 'testing/vendor/ganache/node_modules/.bin/ganache-cli',
-        'ganache_block_prod_time': 10,
-    }
 }
 
 CONFIG_ENV_VAR = 'NEAR_PYTEST_CONFIG'
