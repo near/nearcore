@@ -977,7 +977,7 @@ fn fn_cost_with_setup(
     (total_cost - base_cost) / count
 }
 
-pub(crate) fn read_resource(path: &str) -> Vec<u8> {
+pub fn read_resource(path: &str) -> Vec<u8> {
     let dir = env!("CARGO_MANIFEST_DIR");
     let path = std::path::Path::new(dir).join(path);
     std::fs::read(&path)
@@ -1014,9 +1014,14 @@ fn smoke() {
 
     let near_config = load_config(&state_dump_path);
     let store = create_store(&get_store_path(&state_dump_path));
+    let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+        "test-contract/res/nightly_small_contract.wasm"
+    } else {
+        "test-contract/res/stable_small_contract.wasm"
+    });
     GenesisBuilder::from_config_and_store(&state_dump_path, Arc::new(near_config.genesis), store)
         .add_additional_accounts(5_000)
-        .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+        .add_additional_accounts_contract(contract_code)
         .print_progress()
         .build()
         .unwrap()

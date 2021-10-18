@@ -26,18 +26,12 @@ pub(crate) struct CachedCosts {
 pub(crate) struct Ctx<'c> {
     pub(crate) config: &'c Config,
     pub(crate) cached: CachedCosts,
-    contracts_testbed: Option<ContractTestbedProto>,
-}
-
-struct ContractTestbedProto {
-    state_dump: tempfile::TempDir,
-    transaction_builder: TransactionBuilder,
 }
 
 impl<'c> Ctx<'c> {
     pub(crate) fn new(config: &'c Config) -> Self {
         let cached = CachedCosts::default();
-        Self { cached, config, contracts_testbed: None }
+        Self { cached, config }
     }
 
     pub(crate) fn test_bed(&mut self) -> TestBed<'_> {
@@ -52,62 +46,8 @@ impl<'c> Ctx<'c> {
     }
 
     pub(crate) fn test_bed_with_contracts(&mut self) -> TestBed<'_> {
-        if self.contracts_testbed.is_none() {
-            let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
-                "test-contract/res/nightly_small_contract.wasm"
-            } else {
-                "test-contract/res/stable_small_contract.wasm"
-            });
-
-            let mut test_bed = self.test_bed();
-            let accounts = deploy_contracts(&mut test_bed, code);
-            test_bed.inner.dump_state().unwrap();
-
-            let transaction_builder = test_bed.transaction_builder.with_accounts(accounts);
-            self.contracts_testbed = Some(ContractTestbedProto {
-                state_dump: test_bed.inner.workdir,
-                transaction_builder,
-            });
-        }
-        let proto = self.contracts_testbed.as_ref().unwrap();
-
-        let inner = RuntimeTestbed::from_state_dump(proto.state_dump.path());
-        TestBed {
-            config: &self.config,
-            inner,
-            transaction_builder: proto.transaction_builder.clone(),
-        }
+        self.test_bed()
     }
-}
-
-fn deploy_contracts(test_bed: &mut TestBed, code: Vec<u8>) -> Vec<AccountId> {
-    let mut accounts_with_code = Vec::new();
-    for _ in 0..3 {
-        let block_size = 100;
-        let n_blocks = test_bed.config.warmup_iters_per_block + test_bed.config.iter_per_block;
-        let blocks = {
-            let mut blocks = Vec::with_capacity(n_blocks);
-            for _ in 0..n_blocks {
-                let mut block = Vec::with_capacity(block_size);
-                for _ in 0..block_size {
-                    let tb = test_bed.transaction_builder();
-                    let sender = tb.random_unused_account();
-                    let receiver = sender.clone();
-
-                    accounts_with_code.push(sender.clone());
-
-                    let actions =
-                        vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
-                    let tx = tb.transaction_from_actions(sender, receiver, actions);
-                    block.push(tx);
-                }
-                blocks.push(block);
-            }
-            blocks
-        };
-        test_bed.measure_blocks(blocks);
-    }
-    accounts_with_code
 }
 
 /// A single isolated instance of near.

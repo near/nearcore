@@ -11,6 +11,7 @@ use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
+use runtime_params_estimator::v2::read_resource;
 use runtime_params_estimator::CostTable;
 use std::env;
 use std::fmt::Write;
@@ -85,6 +86,16 @@ fn main() -> anyhow::Result<()> {
         None => {
             temp_dir = tempfile::tempdir()?;
 
+            let contract_code = if cli_args.v2 {
+                read_resource(if cfg!(feature = "nightly_protocol_features") {
+                    "test-contract/res/nightly_small_contract.wasm"
+                } else {
+                    "test-contract/res/stable_small_contract.wasm"
+                })
+            } else {
+                near_test_contracts::tiny_contract().to_vec()
+            };
+
             let state_dump_path = temp_dir.path().to_path_buf();
             nearcore::init_configs(
                 &state_dump_path,
@@ -110,7 +121,7 @@ fn main() -> anyhow::Result<()> {
                 store,
             )
             .add_additional_accounts(cli_args.additional_accounts_num)
-            .add_additional_accounts_contract(near_test_contracts::tiny_contract().to_vec())
+            .add_additional_accounts_contract(contract_code)
             .print_progress()
             .build()
             .unwrap()
