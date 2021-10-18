@@ -59,7 +59,7 @@ else:
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    2, 1, 1,
+    3, 1, 1,
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
              ["epoch_length", 300], ["block_producer_kickout_threshold", 80]], {
                  1: {
@@ -94,7 +94,9 @@ start = time.time()
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
 validator = spin_up_node(config, near_root, node_dirs[1], 1,
                         boot_node.node_key.pk, boot_node.addr())
-observer = spin_up_node(config, near_root, node_dirs[2], 2,
+delayed_validator = spin_up_node(config, near_root, node_dirs[2], 2,
+                         boot_node.node_key.pk, boot_node.addr())
+observer = spin_up_node(config, near_root, node_dirs[3], 3,
                         boot_node.node_key.pk, boot_node.addr())
 
 validator.kill()
@@ -136,16 +138,16 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
         assert bps is None or bps >= bps_threshold
 
 
-wait_for_height(SMALL_HEIGHT, boot_node)
+wait_for_height(SMALL_HEIGHT, validator)
 
-validator.start(boot_node.node_key.pk, boot_node.addr())
+delayed_validator.start(boot_node.node_key.pk, boot_node.addr())
 #tracker = LogTracker(observer)
 
 # Check that bps is not degraded
-wait_for_height(LARGE_HEIGHT, boot_node)
+wait_for_height(LARGE_HEIGHT, validator)
 
 # Make sure observer2 is able to sync
-wait_for_height(SMALL_HEIGHT, validator)
+wait_for_height(SMALL_HEIGHT, delayed_validator)
 
 #tracker.reset()
 #assert tracker.check("transition to State Sync")
