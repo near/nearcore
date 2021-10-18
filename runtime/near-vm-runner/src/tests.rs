@@ -1,7 +1,7 @@
+mod compile_errors;
 mod contract_preload;
-mod error_cases;
-mod invalid_contracts;
 mod rs_contract;
+mod runtime_errors;
 mod ts_contract;
 
 use near_primitives::contract::ContractCode;
