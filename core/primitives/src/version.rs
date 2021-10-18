@@ -124,6 +124,8 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    /// Limit number of wasm functions in one contract. See
+    /// <https://github.com/near/nearcore/pull/4954> for more details.
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     LimitContractFunctionsNumber,
 }

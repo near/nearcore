@@ -167,25 +167,25 @@ fn test_limit_contract_functions_number() {
         let method_name = "main";
 
         let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
-        let result = make_simple_contract_call_with_protocol_version_vm(
+        let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
             old_protocol_version,
             vm_kind,
         );
-        assert_eq!(result.1, None);
+        assert_eq!(err, None);
 
         let code = near_test_contracts::many_functions_contract(functions_number_limit - 10);
-        let result = make_simple_contract_call_with_protocol_version_vm(
+        let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
             new_protocol_version,
             vm_kind,
         );
-        assert_eq!(result.1, None);
+        assert_eq!(err, None);
 
         let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
-        let result = make_simple_contract_call_with_protocol_version_vm(
+        let (_, err) = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
             new_protocol_version,
@@ -193,13 +193,13 @@ fn test_limit_contract_functions_number() {
         );
         if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
             assert_matches!(
-                result.1,
+                err,
                 Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
                     CompilationError::PrepareError(PrepareError::TooManyFunctions)
                 )))
             );
         } else {
-            assert_eq!(result.1, None);
+            assert_eq!(err, None);
         }
     });
 }
