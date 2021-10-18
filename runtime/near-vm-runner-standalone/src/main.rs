@@ -1,11 +1,5 @@
-//! See package description.
-//! Usage example:
-//! ```bash
-//! cargo run --package near-vm-runner-standalone --bin near-vm-runner-standalone \
-//! -- --method-name=hello --wasm-file=/tmp/main.wasm
-//! ```
-//! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
-//! to provide custom context and VM config.
+#![doc = include_str!("../README.md")]
+
 mod script;
 
 use crate::script::Script;

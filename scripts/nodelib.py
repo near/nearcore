@@ -401,8 +401,14 @@ def create_genesis(home, is_release, nodocker, image, chain_id, tracked_shards):
     else:
         subprocess.check_output(['mkdir', '-p', home])
         cmd = [
-            'docker', 'run', '-u', USER, '-v',
-            '%s:/srv/genesis-csv-to-json' % home, image, 'genesis-csv-to-json',
+            'docker',
+            'run',
+            '-u',
+            USER,
+            '-v',
+            '%s:/srv/genesis-csv-to-json' % home,
+            image,
+            'genesis-csv-to-json',
             '--home=/srv/genesis-csv-to-json',
         ]
         if chain_id:

@@ -58,9 +58,9 @@ protocol_feature_alt_bn128 = [
     "node-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
-protocol_feature_simple_nightshade = ["near-primitives/protocol_feature_simple_nightshade", "nearcore/protocol_feature_simple_nightshade"]
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3"]
 protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers"]
-nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3", "protocol_feature_simple_nightshade"]
+protocol_feature_limit_contract_functions_number = ["near-primitives/protocol_feature_limit_contract_functions_number", "near-vm-runner/protocol_feature_limit_contract_functions_number"]
+nightly_protocol_features = ["nearcore/nightly_protocol_features", "protocol_feature_alt_bn128", "protocol_feature_block_header_v3", "protocol_feature_limit_contract_functions_number"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 sandbox = ["near-network/sandbox", "near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]

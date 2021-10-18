@@ -2723,7 +2723,6 @@ pub struct DifferentHeightResult {
 pub struct SplitStateResult {
     // parent shard of the split states
     shard_uid: ShardUId,
-    is_new_chunk: bool,
     results: Vec<ApplySplitStateResult>,
 }
 
@@ -3394,7 +3393,6 @@ impl<'a> ChainUpdate<'a> {
                 result.push(Box::new(move || -> Result<ApplyChunkResult, Error> {
                     Ok(ApplyChunkResult::SplitState(SplitStateResult {
                         shard_uid,
-                        is_new_chunk,
                         results: runtime_adapter.apply_update_to_split_states(
                             &block_hash,
                             split_state_roots,
@@ -3454,96 +3452,75 @@ impl<'a> ChainUpdate<'a> {
         block_hash: &CryptoHash,
         prev_block_hash: &CryptoHash,
         shard_uid: &ShardUId,
-        is_new_chunk: bool,
         apply_results_or_state_changes: ApplySplitStateResultOrStateChanges,
     ) -> Result<(), Error> {
         match apply_results_or_state_changes {
             ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results) => {
-                if is_new_chunk {
-                    // Split validator_proposals, gas_burnt, balance_burnt to each split shard
-                    // and store the chunk extra for split shards
-                    // Note that here we do not split outcomes by the new shard layout, we simply store
-                    // the outcome_root from the parent shard. This is because outcome proofs are
-                    // generated per shard using the old shard layout and stored in the database.
-                    // For these proofs to work, we must store the outcome root per shard
-                    // using the old shard layout instead of the new shard layout
-                    let chunk_extra =
-                        self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
-                    let next_epoch_shard_layout = {
-                        let epoch_id = self
-                            .runtime_adapter
-                            .get_next_epoch_id_from_prev_block(prev_block_hash)?;
-                        self.runtime_adapter.get_shard_layout(&epoch_id)?
-                    };
+                // Split validator_proposals, gas_burnt, balance_burnt to each split shard
+                // and store the chunk extra for split shards
+                // Note that here we do not split outcomes by the new shard layout, we simply store
+                // the outcome_root from the parent shard. This is because outcome proofs are
+                // generated per shard using the old shard layout and stored in the database.
+                // For these proofs to work, we must store the outcome root per shard
+                // using the old shard layout instead of the new shard layout
+                let chunk_extra = self.chain_store_update.get_chunk_extra(block_hash, shard_uid)?;
+                let next_epoch_shard_layout = {
+                    let epoch_id =
+                        self.runtime_adapter.get_next_epoch_id_from_prev_block(prev_block_hash)?;
+                    self.runtime_adapter.get_shard_layout(&epoch_id)?
+                };
 
-                    let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
-                    for validator_proposal in chunk_extra.validator_proposals() {
-                        let shard_id = account_id_to_shard_uid(
-                            &validator_proposal.account_id(),
-                            &next_epoch_shard_layout,
-                        );
-                        validator_proposals_by_shard
-                            .entry(shard_id)
-                            .or_default()
-                            .push(validator_proposal);
-                    }
-
-                    let num_split_shards = next_epoch_shard_layout
-                        .get_split_shards(shard_uid.shard_id())
-                        .unwrap_or_else(|| {
-                            panic!("invalid shard layout {:?}", next_epoch_shard_layout)
-                        })
-                        .len() as NumShards;
-                    let total_gas_used = chunk_extra.gas_used();
-                    let total_balance_burnt = chunk_extra.balance_burnt();
-                    let gas_res = total_gas_used % num_split_shards;
-                    let gas_split = total_gas_used / num_split_shards;
-                    let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
-                    let balance_split = total_balance_burnt / (num_split_shards as u128);
-                    let gas_limit = chunk_extra.gas_limit();
-                    let outcome_root = chunk_extra.outcome_root().clone();
-
-                    let mut sum_gas_used = 0;
-                    let mut sum_balance_burnt = 0;
-                    for result in results {
-                        let shard_id = result.shard_uid.shard_id();
-                        let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
-                        let balance_burnt =
-                            balance_split + if shard_id < balance_res { 1 } else { 0 };
-                        let new_chunk_extra = ChunkExtra::new(
-                            &result.new_root,
-                            outcome_root.clone(),
-                            validator_proposals_by_shard
-                                .remove(&result.shard_uid)
-                                .unwrap_or_default(),
-                            gas_burnt,
-                            gas_limit,
-                            balance_burnt,
-                        );
-                        sum_gas_used += gas_burnt;
-                        sum_balance_burnt += balance_burnt;
-
-                        self.chain_store_update.save_chunk_extra(
-                            &block_hash,
-                            &result.shard_uid,
-                            new_chunk_extra,
-                        );
-                        self.chain_store_update.save_trie_changes(result.trie_changes);
-                    }
-                    assert_eq!(sum_gas_used, total_gas_used);
-                    assert_eq!(sum_balance_burnt, total_balance_burnt);
-                } else {
-                    for result in results {
-                        let chunk_extra = ChunkExtra::new_with_only_state_root(&result.new_root);
-
-                        self.chain_store_update.save_chunk_extra(
-                            &block_hash,
-                            &result.shard_uid,
-                            chunk_extra,
-                        );
-                        self.chain_store_update.save_trie_changes(result.trie_changes);
-                    }
+                let mut validator_proposals_by_shard: HashMap<_, Vec<_>> = HashMap::new();
+                for validator_proposal in chunk_extra.validator_proposals() {
+                    let shard_id = account_id_to_shard_uid(
+                        &validator_proposal.account_id(),
+                        &next_epoch_shard_layout,
+                    );
+                    validator_proposals_by_shard
+                        .entry(shard_id)
+                        .or_default()
+                        .push(validator_proposal);
                 }
+
+                let num_split_shards = next_epoch_shard_layout
+                    .get_split_shards(shard_uid.shard_id())
+                    .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
+                    .len() as NumShards;
+                let total_gas_used = chunk_extra.gas_used();
+                let total_balance_burnt = chunk_extra.balance_burnt();
+                let gas_res = total_gas_used % num_split_shards;
+                let gas_split = total_gas_used / num_split_shards;
+                let balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
+                let balance_split = total_balance_burnt / (num_split_shards as u128);
+                let gas_limit = chunk_extra.gas_limit();
+                let outcome_root = chunk_extra.outcome_root().clone();
+
+                let mut sum_gas_used = 0;
+                let mut sum_balance_burnt = 0;
+                for result in results {
+                    let shard_id = result.shard_uid.shard_id();
+                    let gas_burnt = gas_split + if shard_id < gas_res { 1 } else { 0 };
+                    let balance_burnt = balance_split + if shard_id < balance_res { 1 } else { 0 };
+                    let new_chunk_extra = ChunkExtra::new(
+                        &result.new_root,
+                        outcome_root.clone(),
+                        validator_proposals_by_shard.remove(&result.shard_uid).unwrap_or_default(),
+                        gas_burnt,
+                        gas_limit,
+                        balance_burnt,
+                    );
+                    sum_gas_used += gas_burnt;
+                    sum_balance_burnt += balance_burnt;
+
+                    self.chain_store_update.save_chunk_extra(
+                        &block_hash,
+                        &result.shard_uid,
+                        new_chunk_extra,
+                    );
+                    self.chain_store_update.save_trie_changes(result.trie_changes);
+                }
+                assert_eq!(sum_gas_used, total_gas_used);
+                assert_eq!(sum_balance_burnt, total_balance_burnt);
             }
             ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
                 self.chain_store_update.add_state_changes_for_split_states(
@@ -3605,7 +3582,6 @@ impl<'a> ChainUpdate<'a> {
                         &block_hash,
                         &prev_block_hash,
                         &shard_uid,
-                        true,
                         apply_results_or_state_changes,
                     )?;
                 }
@@ -3628,17 +3604,15 @@ impl<'a> ChainUpdate<'a> {
                         &block_hash,
                         &prev_block_hash,
                         &shard_uid,
-                        false,
                         apply_results_or_state_changes,
                     )?;
                 }
             }
-            ApplyChunkResult::SplitState(SplitStateResult { shard_uid, is_new_chunk, results }) => {
+            ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }) => {
                 self.process_split_state(
                     &block_hash,
                     &prev_block_hash,
                     &shard_uid,
-                    is_new_chunk,
                     ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results),
                 )?;
             }

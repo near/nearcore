@@ -1260,20 +1260,34 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    /// Process a given block in the client with index `id`.
-    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
-    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+    pub fn process_block_with_options(
+        &mut self,
+        id: usize,
+        block: Block,
+        provenance: Provenance,
+        should_run_catchup: bool,
+        should_produce_chunk: bool,
+    ) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
-        let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
-        accepted_blocks.extend(more_accepted_blocks);
+        if should_run_catchup {
+            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
+            accepted_blocks.extend(more_accepted_blocks);
+        }
         for accepted_block in accepted_blocks {
-            self.clients[id].on_block_accepted(
+            self.clients[id].on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
+                !should_produce_chunk,
             );
         }
+    }
+
+    /// Process a given block in the client with index `id`.
+    /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
+    pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
+        self.process_block_with_options(id, block, provenance, true, true);
     }
 
     /// Produces block by given client, which may kick off chunk production.

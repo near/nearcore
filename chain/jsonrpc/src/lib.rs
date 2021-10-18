@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::time::Duration;
 
 use actix::Addr;
@@ -274,6 +276,7 @@ impl JsonRpcHandler {
                                 .disable_edge_signature_verification,
                             disable_edge_propagation: params.disable_edge_propagation,
                             disable_edge_pruning: params.disable_edge_pruning,
+                            set_max_peers: None,
                         })
                         .await?;
                     Some(

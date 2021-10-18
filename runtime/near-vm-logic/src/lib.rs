@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 #[cfg(feature = "protocol_feature_alt_bn128")]
 pub mod alt_bn128;
 mod context;

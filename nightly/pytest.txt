@@ -3,8 +3,3 @@
 ./pytest-sanity.txt
 ./pytest-spec.txt
 ./pytest-stress.txt
-
-# python upgradable test
-# upgradable.py moves `near` binary, and must be the last python test in the set
-pytest --timeout=600 sanity/upgradable.py
-pytest --timeout=600 sanity/upgradable.py --features nightly_protocol,nightly_protocol_features

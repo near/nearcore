@@ -1,6 +1,9 @@
+#![doc = include_str!("../README.md")]
+
 use anyhow::Context;
 use clap::Clap;
 use genesis_populate::GenesisBuilder;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
 use near_vm_runner::VMKind;
 use nearcore::{get_store_path, load_config};
@@ -43,8 +46,8 @@ struct CliArgs {
     #[clap(long, default_value = "icount", possible_values = &["icount", "time"])]
     metric: String,
     /// Which VM to test.
-    #[clap(long, default_value = "wasmer", possible_values = &["wasmer", "wasmer2", "wasmtime"])]
-    vm_kind: String,
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
+    vm_kind: Option<String>,
     /// Only test contract compilation costs.
     #[clap(long)]
     compile_only: bool,
@@ -160,11 +163,12 @@ fn main() -> anyhow::Result<()> {
         "time" => GasMetric::Time,
         other => unreachable!("Unknown metric {}", other),
     };
-    let vm_kind = match cli_args.vm_kind.as_str() {
-        "wasmer" => VMKind::Wasmer0,
-        "wasmer2" => VMKind::Wasmer2,
-        "wasmtime" => VMKind::Wasmtime,
-        other => unreachable!("Unknown vm_kind {}", other),
+    let vm_kind = match cli_args.vm_kind.as_deref() {
+        Some("wasmer") => VMKind::Wasmer0,
+        Some("wasmer2") => VMKind::Wasmer2,
+        Some("wasmtime") => VMKind::Wasmtime,
+        None => VMKind::for_protocol_version(PROTOCOL_VERSION),
+        Some(other) => unreachable!("Unknown vm_kind {}", other),
     };
     let metrics_to_measure =
         cli_args.metrics_to_measure.map(|it| it.split(',').map(str::to_string).collect());
