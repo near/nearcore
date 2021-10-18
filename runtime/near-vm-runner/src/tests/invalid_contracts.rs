@@ -7,7 +7,8 @@ use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError}
 use assert_matches::assert_matches;
 
 use crate::tests::{
-    make_simple_contract_call_vm, make_simple_contract_call_with_gas_vm, with_vm_variants,
+    make_simple_contract_call_vm, make_simple_contract_call_with_protocol_version_vm,
+    with_vm_variants,
 };
 use crate::VMKind;
 
@@ -164,35 +165,31 @@ fn test_limit_contract_functions_number() {
 
         let functions_number_limit: u32 = 10_000;
         let method_name = "main";
-        let prepaid_gas = 10u64.pow(14);
 
         let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
-        let result = make_simple_contract_call_with_gas_vm(
+        let result = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
-            prepaid_gas,
-            vm_kind,
             old_protocol_version,
+            vm_kind,
         );
         assert_eq!(result.1, None);
 
         let code = near_test_contracts::many_functions_contract(functions_number_limit - 10);
-        let result = make_simple_contract_call_with_gas_vm(
+        let result = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
-            prepaid_gas,
-            vm_kind,
             new_protocol_version,
+            vm_kind,
         );
         assert_eq!(result.1, None);
 
         let code = near_test_contracts::many_functions_contract(functions_number_limit + 10);
-        let result = make_simple_contract_call_with_gas_vm(
+        let result = make_simple_contract_call_with_protocol_version_vm(
             &code,
             method_name,
-            prepaid_gas,
-            vm_kind,
             new_protocol_version,
+            vm_kind,
         );
         if cfg!(feature = "protocol_feature_limit_contract_functions_number") {
             assert_matches!(

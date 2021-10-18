@@ -59,14 +59,11 @@ fn make_simple_contract_call_with_gas_vm(
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
-    protocol_version: ProtocolVersion,
 ) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let runtime_config = runtime_config_store.get_config(protocol_version);
-    let config = &runtime_config.wasm_config;
+    let config = VMConfig::default();
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
@@ -77,8 +74,38 @@ fn make_simple_contract_call_with_gas_vm(
         method_name,
         &mut fake_external,
         context,
-        config,
+        &config,
         &fees,
+        &promise_results,
+        vm_kind,
+        LATEST_PROTOCOL_VERSION,
+        None,
+    )
+}
+
+fn make_simple_contract_call_with_protocol_version_vm(
+    code: &[u8],
+    method_name: &str,
+    protocol_version: ProtocolVersion,
+    vm_kind: VMKind,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    let mut fake_external = MockedExternal::new();
+    let context = create_context(vec![]);
+    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let config = &runtime_config.wasm_config;
+    let fees = &runtime_config.transaction_costs;
+
+    let promise_results = vec![];
+
+    let code = ContractCode::new(code.to_vec(), None);
+    run_vm(
+        &code,
+        method_name,
+        &mut fake_external,
+        context,
+        &config,
+        fees,
         &promise_results,
         vm_kind,
         protocol_version,
@@ -91,13 +118,7 @@ fn make_simple_contract_call_vm(
     method_name: &str,
     vm_kind: VMKind,
 ) -> (Option<VMOutcome>, Option<VMError>) {
-    make_simple_contract_call_with_gas_vm(
-        code,
-        method_name,
-        10u64.pow(14),
-        vm_kind,
-        LATEST_PROTOCOL_VERSION,
-    )
+    make_simple_contract_call_with_gas_vm(code, method_name, 10u64.pow(14), vm_kind)
 }
 
 fn make_cached_contract_call_vm(
