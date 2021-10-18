@@ -144,7 +144,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
         assert bps is None or bps >= bps_threshold
 
 
-wait_for_height(SMALL_HEIGHT, validator)
+#wait_for_height(SMALL_HEIGHT, validator)
 
 delayed_validator.start(boot_node.node_key.pk, boot_node.addr())
 # tracker = LogTracker(observer)
