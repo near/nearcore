@@ -92,8 +92,13 @@ TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+validator = spin_up_node(config, near_root, node_dirs[1], 1,
+                        boot_node.node_key.pk, boot_node.addr())
 observer = spin_up_node(config, near_root, node_dirs[2], 2,
                         boot_node.node_key.pk, boot_node.addr())
+
+validator.kill()
+validator.reset_data()
 
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
@@ -133,8 +138,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
 
 wait_for_height(SMALL_HEIGHT, boot_node)
 
-validator = spin_up_node(config, near_root, node_dirs[1], 1,
-                        boot_node.node_key.pk, boot_node.addr())
+validator.start(boot_node.node_key.pk, boot_node.addr())
 #tracker = LogTracker(observer)
 
 # Check that bps is not degraded
