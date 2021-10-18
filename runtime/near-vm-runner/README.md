@@ -44,7 +44,7 @@ larger test contracts from the `near-test-contracts` crate.
 `tracing` crate is used to collect Rust code profile data via manual instrumentation.
 If you want to know how long a particular function executes, use the following pattern:
 
-```rust
+```ignore
 fn compute_thing() {
     let _span = tracing::debug_span!(target: "vm", "compute_thing").entered();
     for i in 0..99 {
@@ -57,7 +57,7 @@ This will record when the `_span` object is created and dropped, including the t
 
 To get a human readable output out of this events, you can use the built-in tracing subscriber:
 
-```rust
+```ignore
 tracing_subscriber::fmt::Subscriber::builder()
     .with_max_level(tracing::level_filters::LevelFilter::DEBUG)
     .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
@@ -68,15 +68,15 @@ code_to_profile_here();
 
 Alternatively, there's an alternative hierarchical profiler
 
-```rust
-tracing_span_tree::span_tree().enable();;
+```ignore
+tracing_span_tree::span_tree().enable();
 
 code_to_profile_here();
 ```
 
 The result would look like this:
 
-```
+```text
       112.33ms deserialize_wasmer
       2.64ms run_wasmer/instantiate
       96.34µs run_wasmer/call

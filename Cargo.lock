@@ -3218,6 +3218,7 @@ name = "near-test-contracts"
 version = "0.0.0"
 dependencies = [
  "once_cell",
+ "wat",
 ]
 
 [[package]]

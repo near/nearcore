@@ -146,7 +146,12 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+    pub fn test_with_runtime_config_store(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        runtime_config_store: RuntimeConfigStore,
+    ) -> Self {
         Self::new(
             home_dir,
             store,
@@ -154,8 +159,12 @@ impl NightshadeRuntime {
             TrackedConfig::new_empty(),
             None,
             None,
-            RuntimeConfigStore::test(),
+            runtime_config_store,
         )
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
     }
 
     pub fn with_config(

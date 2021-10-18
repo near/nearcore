@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use anyhow::Context;
 use clap::Clap;
 use genesis_populate::GenesisBuilder;
