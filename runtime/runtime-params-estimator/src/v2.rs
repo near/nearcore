@@ -363,7 +363,7 @@ fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
     }
 
     let total_cost = {
-        let code = ctx.read_resource("test-contract/res/smallest_contract.wasm");
+        let code = read_resource("test-contract/res/smallest_contract.wasm");
         deploy_contract_cost(ctx, code)
     };
 
@@ -375,7 +375,7 @@ fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
 }
 fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
     let total_cost = {
-        let code = ctx.read_resource(if cfg!(feature = "nightly_protocol_features") {
+        let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
             "test-contract/res/nightly_large_contract.wasm"
         } else {
             "test-contract/res/stable_large_contract.wasm"
@@ -482,7 +482,7 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
 fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
-    let code = ctx.read_resource(if cfg!(feature = "nightly_protocol_features") {
+    let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
         "test-contract/res/nightly_large_contract.wasm"
     } else {
         "test-contract/res/stable_large_contract.wasm"
@@ -721,7 +721,7 @@ fn storage_read_base(ctx: &mut Ctx) -> GasCost {
         return cost;
     }
 
-    let cost  = fn_cost_with_setup(
+    let cost = fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10b_value_1k",
         "storage_read_10b_key_10b_value_1k",
@@ -975,6 +975,13 @@ fn fn_cost_with_setup(
     let base_cost = noop_host_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
+}
+
+pub(crate) fn read_resource(path: &str) -> Vec<u8> {
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let path = std::path::Path::new(dir).join(path);
+    std::fs::read(&path)
+        .unwrap_or_else(|err| panic!("failed to load test resource: {}, {}", path.display(), err))
 }
 
 #[test]

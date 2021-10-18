@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::AccountId;
@@ -8,6 +7,7 @@ use near_vm_logic::ExtCosts;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{end_count, get_account_id, start_count, Config};
 use crate::v2::gas_cost::GasCost;
+use crate::v2::read_resource;
 
 use super::transaction_builder::TransactionBuilder;
 
@@ -53,7 +53,7 @@ impl<'c> Ctx<'c> {
 
     pub(crate) fn test_bed_with_contracts(&mut self) -> TestBed<'_> {
         if self.contracts_testbed.is_none() {
-            let code = self.read_resource(if cfg!(feature = "nightly_protocol_features") {
+            let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
                 "test-contract/res/nightly_small_contract.wasm"
             } else {
                 "test-contract/res/stable_small_contract.wasm"
@@ -77,14 +77,6 @@ impl<'c> Ctx<'c> {
             inner,
             transaction_builder: proto.transaction_builder.clone(),
         }
-    }
-
-    pub(crate) fn read_resource(&mut self, path: &str) -> Vec<u8> {
-        let dir = env!("CARGO_MANIFEST_DIR");
-        let path = Path::new(dir).join(path);
-        std::fs::read(&path).unwrap_or_else(|err| {
-            panic!("failed to load test resource: {}, {}", path.display(), err)
-        })
     }
 }
 
