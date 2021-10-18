@@ -658,7 +658,7 @@ fn test_initializer_no_gas() {
                 &some_initializer_contract(),
                 "hello",
                 0,
-                vm_kind
+                vm_kind,
             ),
             (
                 Some(vm_outcome_with_gas(0)),
@@ -734,7 +734,7 @@ fn test_external_call_ok() {
 fn test_external_call_error() {
     with_vm_variants(|vm_kind: VMKind| {
         assert_eq!(
-            make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind),
+            make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind,),
             (
                 Some(vm_outcome_with_gas(100)),
                 Some(VMError::FunctionCallError(FunctionCallError::HostError(
