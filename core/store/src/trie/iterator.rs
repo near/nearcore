@@ -344,6 +344,7 @@ mod tests {
         create_tries, create_tries_complex, gen_changes, simplify_changes, test_populate_trie,
     };
     use crate::trie::iterator::IterStep;
+    use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use near_primitives::shard_layout::ShardUId;
 
@@ -406,7 +407,13 @@ mod tests {
         path_begin: &[u8],
         path_end: &[u8],
     ) {
-        let result1 = trie.iter(&state_root).unwrap().get_trie_items(path_begin, path_end).unwrap();
+        let path_begin_nibbles: Vec<_> = NibbleSlice::new(&path_begin).iter().collect();
+        let path_end_nibbles: Vec<_> = NibbleSlice::new(&path_end).iter().collect();
+        let result1 = trie
+            .iter(&state_root)
+            .unwrap()
+            .get_trie_items(&path_begin_nibbles, &path_end_nibbles)
+            .unwrap();
         let result2: Vec<_> = map
             .range(path_begin.to_vec()..path_end.to_vec())
             .map(|(k, v)| (k.clone(), v.clone()))
