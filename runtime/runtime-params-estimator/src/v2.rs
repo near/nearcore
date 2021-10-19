@@ -22,7 +22,7 @@ use num_rational::Ratio;
 use rand::Rng;
 
 use crate::cost_table::format_gas;
-use crate::testbed_runners::{end_count, start_count, Config};
+use crate::testbed_runners::Config;
 use crate::v2::ctx::Ctx;
 use crate::v2::gas_cost::GasCost;
 use crate::v2::transaction_builder::TransactionBuilder;
@@ -445,8 +445,8 @@ fn action_function_call_base_per_byte_v2(ctx: &mut Ctx) -> (GasCost, GasCost) {
         Ratio::new((*r.numer()).try_into().unwrap(), (*r.denom()).try_into().unwrap())
     };
     let base_byte_cost = (
-        GasCost { value: convert_ratio(base), metric: ctx.config.metric },
-        GasCost { value: convert_ratio(byte), metric: ctx.config.metric },
+        GasCost::from_raw(convert_ratio(base), ctx.config.metric),
+        GasCost::from_raw(convert_ratio(byte), ctx.config.metric),
     );
 
     ctx.cached.action_function_call_base_per_byte_v2 = Some(base_byte_cost.clone());
@@ -518,12 +518,13 @@ fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
 
     let warmup_outcome = run();
 
-    let start = start_count(ctx.config.metric);
-    for _ in 0..n_iters {
-        run();
-    }
-    let total = end_count(ctx.config.metric, &start);
-    let total = Ratio::from_integer(total);
+    let total = {
+        let start = GasCost::measure(ctx.config.metric);
+        for _ in 0..n_iters {
+            run();
+        }
+        start.elapsed()
+    };
 
     let instructions_per_iter = {
         let op_cost = config.regular_op_cost as u64;
@@ -531,7 +532,7 @@ fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
     };
 
     let per_instruction = total / (instructions_per_iter * n_iters);
-    GasCost { value: per_instruction, metric: ctx.config.metric }
+    per_instruction
 }
 
 fn read_memory_base(ctx: &mut Ctx) -> GasCost {
@@ -636,7 +637,7 @@ fn alt_bn128g1_multiexp_base(ctx: &mut Ctx) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(ctx, "alt_bn128_g1_multiexp_1_1k", ExtCosts::alt_bn128_g1_multiexp_base, 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 fn alt_bn128g1_multiexp_byte(ctx: &mut Ctx) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -647,7 +648,7 @@ fn alt_bn128g1_multiexp_byte(ctx: &mut Ctx) -> GasCost {
         964 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 fn alt_bn128g1_multiexp_sublinear(ctx: &mut Ctx) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -658,20 +659,20 @@ fn alt_bn128g1_multiexp_sublinear(ctx: &mut Ctx) -> GasCost {
         743342 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 
 fn alt_bn128g1_sum_base(ctx: &mut Ctx) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(ctx, "alt_bn128_g1_sum_1_1k", ExtCosts::alt_bn128_g1_sum_base, 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 fn alt_bn128g1_sum_byte(ctx: &mut Ctx) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_byte, 654 * 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 
 fn alt_bn128_pairing_check_base(ctx: &mut Ctx) -> GasCost {
@@ -683,7 +684,7 @@ fn alt_bn128_pairing_check_base(ctx: &mut Ctx) -> GasCost {
         1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 fn alt_bn128_pairing_check_byte(ctx: &mut Ctx) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
@@ -694,7 +695,7 @@ fn alt_bn128_pairing_check_byte(ctx: &mut Ctx) -> GasCost {
         1924 * 1000,
     );
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
-    return GasCost { value: 0.into(), metric: ctx.config.metric };
+    return GasCost::zero(ctx.config.metric);
 }
 
 fn storage_has_key_base(ctx: &mut Ctx) -> GasCost {
@@ -849,7 +850,7 @@ fn transaction_cost_ext(
         measurements.into_iter().skip(test_bed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost { value: 0.into(), metric: test_bed.config.metric };
+    let mut total = GasCost::zero(test_bed.config.metric);
     let mut n = 0;
     for (gas_cost, ext_cost) in measurements {
         total += gas_cost;
@@ -952,7 +953,7 @@ fn fn_cost_with_setup(
             .collect();
 
         let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-        let mut total = GasCost { value: 0.into(), metric: ctx.config.metric };
+        let mut total = GasCost::zero(ctx.config.metric);
         let mut n = 0;
         for (gas_cost, ext_cost) in measurements.into_iter().skip(ctx.config.warmup_iters_per_block)
         {

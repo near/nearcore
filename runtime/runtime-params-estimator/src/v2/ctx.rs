@@ -4,7 +4,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_vm_logic::ExtCosts;
 
 use crate::testbed::RuntimeTestbed;
-use crate::testbed_runners::{end_count, get_account_id, start_count, Config};
+use crate::testbed_runners::{get_account_id, Config};
 use crate::v2::gas_cost::GasCost;
 
 use super::transaction_builder::TransactionBuilder;
@@ -68,12 +68,12 @@ impl<'c> TestBed<'c> {
 
         for block in blocks {
             node_runtime::with_ext_cost_counter(|cc| cc.clear());
-            let start = start_count(self.config.metric);
-            self.inner.process_block(&block, allow_failures);
-            self.inner.process_blocks_until_no_receipts(allow_failures);
-            let measured = end_count(self.config.metric, &start);
-
-            let gas_cost = GasCost { value: measured.into(), metric: self.config.metric };
+            let gas_cost = {
+                let start = GasCost::measure(self.config.metric);
+                self.inner.process_block(&block, allow_failures);
+                self.inner.process_blocks_until_no_receipts(allow_failures);
+                start.elapsed()
+            };
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
             node_runtime::with_ext_cost_counter(|cc| {

@@ -6,15 +6,41 @@ use near_primitives::types::Gas;
 use num_rational::Ratio;
 
 use crate::cases::ratio_to_gas;
-use crate::testbed_runners::GasMetric;
+use crate::testbed_runners::{end_count, start_count, Consumed, GasMetric};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct GasCost {
     /// The smallest thing we are measuring is one wasm instruction, and it
     /// takes about a nanosecond, so we do need to account for fractional
     /// nanoseconds here!
-    pub value: Ratio<u64>,
-    pub metric: GasMetric,
+    value: Ratio<u64>,
+    metric: GasMetric,
+}
+
+pub(crate) struct GasClock {
+    start: Consumed,
+    metric: GasMetric,
+}
+
+impl GasCost {
+    pub(crate) fn from_raw(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
+        GasCost { value: raw, metric }
+    }
+
+    pub(crate) fn measure(metric: GasMetric) -> GasClock {
+        let start = start_count(metric);
+        GasClock { start, metric }
+    }
+    pub(crate) fn zero(metric: GasMetric) -> GasCost {
+        GasCost { value: 0.into(), metric }
+    }
+}
+
+impl GasClock {
+    pub(crate) fn elapsed(self) -> GasCost {
+        let measured = end_count(self.metric, &self.start);
+        GasCost { value: measured.into(), metric: self.metric }
+    }
 }
 
 impl fmt::Debug for GasCost {
