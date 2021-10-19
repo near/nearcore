@@ -1,42 +1,43 @@
-# Survive massive state sync for validator
-#
-# Create 4 nodes, 3 validators and 1 observers tracking the single shard 0.
-# Generate a large state using genesis-populate. [*]
-#
-# Spawn everything and wait for them to make some progress.
-# Kill one of the validators, delete state and rerun it
-#
-# To run this test is important to compile genesis-populate tool first.
-# In nearcore folder run:
-#
-# ```
-# cargo build -p genesis-populate
-# ```
-#
-# [*] This test might take a very large time generating the state.
-# To speed up this between multiple executions, large state can be generated once
-# saved, and reused on multiple executions. Steps to do this.
-#
-# 1. Run test for first time:
-#
-# ```
-# python3 tests/sanity/state_sync_massive_validator.py
-# ```
-#
-# Stop at any point after seeing the message: "Genesis generated"
-#
-# 2. Save generated data:
-#
-# ```
-# cp -r ~/.near/test0_finished ~/.near/backup_genesis
-# ```
-#
-# 3. Run test passing path to backup_genesis
-#
-# ```
-# python3 tests/sanity/state_sync_massive_validator.py ~/.near/backup_genesis
-# ```
-#
+"""
+Survive massive state sync for validator
+
+Create 4 nodes, 3 validators and 1 observers tracking the single shard 0.
+Generate a large state using genesis-populate. [*]
+
+Spawn everything and wait for them to make some progress.
+Kill one of the validators, delete state and rerun it
+
+To run this test is important to compile genesis-populate tool first.
+In nearcore folder run:
+
+```
+cargo build -p genesis-populate
+```
+
+[*] This test might take a very large time generating the state.
+To speed up this between multiple executions, large state can be generated once
+saved, and reused on multiple executions. Steps to do this.
+
+1. Run test for first time:
+
+```
+python3 tests/sanity/state_sync_massive_validator.py
+```
+
+Stop at any point after seeing the message: "Genesis generated"
+
+2. Save generated data:
+
+```
+cp -r ~/.near/test0_finished ~/.near/backup_genesis
+```
+
+3. Run test passing path to backup_genesis
+
+```
+python3 tests/sanity/state_sync_massive_validator.py ~/.near/backup_genesis
+```
+"""
 
 import sys, time, requests, logging
 from subprocess import check_output
