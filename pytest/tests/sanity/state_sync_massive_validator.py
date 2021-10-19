@@ -151,7 +151,7 @@ wait_for_height(INTERMEDIATE_HEIGHT, validator)
 
 delayed_validator.kill()
 delayed_validator.reset_data()
-delayed_validator.start(boot_node.node_key.pk, boot_node.addr())
+delayed_validator.start(boot_node=boot_node)
 
 # Check that bps is not degraded
 wait_for_height(LARGE_HEIGHT, validator)
