@@ -78,6 +78,11 @@ impl<'a> NibbleSlice<'a> {
         NibbleSlice { data, offset }
     }
 
+    pub fn from_nibbles(nibbles: &'a [u8]) -> Self {
+        let encoded = Self::encode_nibbles(nibbles, false);
+        Self::from_encoded(&encoded).0
+    }
+
     /// Get an iterator for the series of nibbles.
     pub fn iter(&'a self) -> NibbleSliceIterator<'a> {
         NibbleSliceIterator { p: self, i: 0 }
@@ -296,7 +301,10 @@ mod tests {
         let n = NibbleSlice::encode_nibbles(nibbles, is_leaf);
         let (n, is_leaf_decoded) = NibbleSlice::from_encoded(&n);
         assert_eq!(&n.iter().collect::<Vec<_>>(), nibbles);
-        assert_eq!(is_leaf_decoded, is_leaf)
+        assert_eq!(is_leaf_decoded, is_leaf);
+
+        let n = NibbleSlice::from_nibbles(nibbles);
+        assert_eq!(&n.iter().collect::<Vec<_>>(), nibbles);
     }
 
     #[test]
