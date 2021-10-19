@@ -44,7 +44,7 @@ while cur_height < target_height:
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
 
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 tracker = LogTracker(nodes[1])
 time.sleep(1)
 

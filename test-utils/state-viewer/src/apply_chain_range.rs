@@ -9,9 +9,10 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter}
 use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::Store;
+use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
 
 fn inc_and_report_progress(cnt: &AtomicU64) {
@@ -19,6 +20,26 @@ fn inc_and_report_progress(cnt: &AtomicU64) {
     if (prev + 1) % 10000 == 0 {
         println!("Processed {} blocks", prev + 1);
     }
+}
+
+fn old_outcomes(
+    store: Arc<Store>,
+    new_outcomes: &Vec<ExecutionOutcomeWithId>,
+) -> Vec<ExecutionOutcomeWithId> {
+    new_outcomes
+        .iter()
+        .map(|outcome| {
+            store
+                .get_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(
+                    DBCol::ColTransactionResult,
+                    outcome.id.as_ref(),
+                )
+                .unwrap()
+                .unwrap()[0]
+                .outcome_with_id
+                .clone()
+        })
+        .collect()
 }
 
 pub fn apply_chain_range(
@@ -160,7 +181,7 @@ pub fn apply_chain_range(
         match existing_chunk_extra {
             Some(existing_chunk_extra) => {
                 println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
-                assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+                assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
             },
             None => {
                 assert!(prev_chunk_extra.is_some());
