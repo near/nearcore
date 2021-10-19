@@ -34,10 +34,12 @@ lazy_static! {
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]
-static ALLOC: MyAllocator = MyAllocator;
+static ALLOC: MyAllocator<tikv_jemallocator::Jemalloc> =
+    MyAllocator::new(tikv_jemallocator::Jemalloc);
 
-#[cfg(all(not(feature = "memory_stats"), jemallocator))]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+#[cfg(all(not(feature = "memory_stats"), feature = "jemalloc"))]
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
     // We use it to automatically search the for root certificates to perform HTTPS calls

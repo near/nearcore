@@ -1,17 +1,18 @@
-use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
-use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
-
-use crate::cache::precompile_contract_vm;
-use crate::errors::ContractPrecompilatonResult;
-use near_primitives::types::CompiledContractCache;
-use near_vm_errors::VMError::FunctionCallError;
-use near_vm_logic::mocks::mock_external::MockedExternal;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
+
+use near_primitives::contract::ContractCode;
+use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_primitives::types::CompiledContractCache;
+use near_vm_errors::VMError::FunctionCallError;
+use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::{ProtocolVersion, VMConfig, VMContext, VMOutcome};
+
+use crate::cache::precompile_contract_vm;
+use crate::errors::ContractPrecompilatonResult;
+use crate::{run_vm, ContractCallPrepareRequest, ContractCaller, VMError, VMKind};
 
 fn default_vm_context() -> VMContext {
     return VMContext {
