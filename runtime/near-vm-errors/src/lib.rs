@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -141,6 +143,8 @@ pub enum PrepareError {
     Instantiate,
     /// Error creating memory.
     Memory,
+    /// Contract contains too many functions.
+    TooManyFunctions,
 }
 
 #[derive(
@@ -288,7 +292,8 @@ impl fmt::Display for PrepareError {
             GasInstrumentation => write!(f, "Gas instrumentation failed."),
             StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
             Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory"),
+            Memory => write!(f, "Error creating memory."),
+            TooManyFunctions => write!(f, "Too many functions in contract."),
         }
     }
 }

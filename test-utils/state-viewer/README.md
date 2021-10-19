@@ -12,9 +12,10 @@ TODO: Fill out documentation for all available commands
 ### `apply_range`
 
 Basic example:
-```
+```bash
 make release
-./target/release/state-viewer --home ~/.near/ apply_range --shard_id=0 --start_index=42376889 --end_index=423770101
+./target/release/state-viewer --home ~/.near/ apply_range \
+        --shard_id=0 --start_index=42376889 --end_index=423770101
 ```
 
 This command will:
@@ -30,7 +31,7 @@ flags. Omitting `--start_index` makes `state-viewer` use blockchain state starti
 
 Enable debug output to print extra details such as individual outcomes:
 
-```
+```bash
 ./target/release/state-viewer ...
 ```
 
@@ -39,19 +40,19 @@ Enable debug output to print extra details such as individual outcomes:
 As of today you need approximately 2TB of disk space for the whole history of `mainnet`, and the most practical way of
 obtaining this whole history is the following:
 
-* Patch https://github.com/near/near-ops/pull/591 to define your own GCP instance in project `rpc-prod`.
+* Patch <https://github.com/near/near-ops/pull/591> to define your own GCP instance in project `rpc-prod`.
 * Make sure to change `machine-name` and `role` to something unique.
 * Make a Pull Request and ask Mario (@mhalambek) or Sandi (@chefsale) for review.
 * Ask Mario or Sandi to grant you permissions to the GCP project `rpc-prod`.
-* Run `terraform init` and `terraform apply` to start an instance. This instance will have a running `neard` systemd 
+* Run `terraform init` and `terraform apply` to start an instance. This instance will have a running `neard` systemd
   service, with `/home/ubuntu/.near` as the home directory. Follow the `terraform` CLI
   [installation guide](https://learn.hashicorp.com/tutorials/terraform/install-cli) if needed.
 * SSH using `gcloud compute ssh <machine_name>" --project=rpc-prod`. Follow the `gcloud` CLI
   [installation guide](https://cloud.google.com/sdk/docs/install) if needed.
 * It is recommended to run all the following commands as user `ubuntu`: `sudo su ubuntu`.
 * Install tools be able to compile `state-viewer`:
-  * Install development packages: https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node
-  * Install Rust: https://rustup.rs/
+  * Install development packages: <https://docs.near.org/docs/develop/node/validator/compile-and-run-a-node>
+  * Install Rust: <https://rustup.rs/>
   * Clone the git repository: `git clone http://github.com/near/nearcore`
   * `make release` - note that this compiles not only `state-viewer` but also a few other tools.
 * `sudo systemctl stop neard`, because a running node has a LOCK over the database.
