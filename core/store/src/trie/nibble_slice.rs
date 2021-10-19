@@ -44,8 +44,8 @@ use std::fmt;
 /// ```
 #[derive(Copy, Clone, Eq, Ord)]
 pub struct NibbleSlice<'a> {
-    pub data: &'a [u8],
-    pub offset: usize,
+    data: &'a [u8],
+    offset: usize,
 }
 
 /// Iterator type for a nibble slice.
