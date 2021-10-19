@@ -1,10 +1,11 @@
-import base58
 import json
 import os
-import shlex
 import os.path
+import shlex
 import tempfile
 import time
+
+import base58
 import requests
 from rc import run, pmap, gcloud
 
@@ -89,16 +90,19 @@ def get_nodes(pattern=None):
     return nodes
 
 
+# Needs to be in-sync with init.sh.tmpl in terraform.
 def node_account_name(node_name):
-    return f'{node_name}.near'
+    # Assuming node_name is a hostname and looks like
+    # 'mocknet-betanet-spoon-abcd' or 'mocknet-zxcv'.
+    parts = node_name.split('-')
+    return f'{parts[-1]}-load-test.near'
 
 
 def load_testing_account_id(node_account_id, i):
     NUM_LETTERS = 26
     letter = i % NUM_LETTERS
     num = i // NUM_LETTERS
-    return "%s%02d_load_test_%s" % (chr(ord('a') + letter), num,
-                                    node_account_id)
+    return "%s%02d_%s" % (chr(ord('a') + letter), num, node_account_id)
 
 
 def get_validator_account(node):
@@ -107,6 +111,26 @@ def get_validator_account(node):
     node.machine.download('/home/ubuntu/.near/validator_key.json',
                           validator_key_file.name)
     return Key.from_json_file(validator_key_file.name)
+
+
+# Same as list_validators but assumes that the node can still be starting and expects connection errors.
+def node_wait(node):
+    attempt = 0
+    while True:
+        try:
+            validators = node.get_validators()['result']
+            break
+        except (ConnectionRefusedError,
+                requests.exceptions.ConnectionError) as e:
+            attempt += 1
+            logger.info(f'attempt {attempt} failed: {e}')
+        except BaseException as e:
+            attempt += 1
+            logger.info(f'attempt {attempt} failed: {e}')
+        time.sleep(30)
+    validator_accounts = set(
+        map(lambda v: v['account_id'], validators['current_validators']))
+    return validator_accounts
 
 
 def list_validators(node):
@@ -124,9 +148,6 @@ def setup_python_environment(node, wasm_contract):
     m.upload('requirements.txt', PYTHON_DIR, switch_user='ubuntu')
     m.upload(wasm_contract,
              os.path.join(PYTHON_DIR, WASM_FILENAME),
-             switch_user='ubuntu')
-    m.upload('tests/mocknet/load_testing_helper.py',
-             PYTHON_DIR,
              switch_user='ubuntu')
     m.upload('tests/mocknet/load_test_spoon_helper.py',
              PYTHON_DIR,
@@ -653,6 +674,10 @@ def create_genesis_file(validator_node_names,
 
     # Testing simple nightshade.
     genesis_config["protocol_version"] = 47
+    if "simple_nightshade_shard_layout" in genesis_config:
+        del genesis_config["simple_nightshade_shard_layout"]
+    if "shard_layout" in genesis_config:
+        del genesis_config["shard_layout"]
     genesis_config["epoch_length"] = epoch_length
     genesis_config["num_block_producer_seats"] = len(validator_node_names)
     # Loadtest helper signs all transactions using the same block.
@@ -804,10 +829,6 @@ def wait_genesis_updater_done(node, done_filename):
         f'Waiting for the genesis updater on {node.instance_name} -- done')
 
 
-def wait_all_nodes_up(all_nodes):
-    pmap(lambda node: wait_node_up(node), all_nodes)
-
-
 def wait_node_up(node):
     logger.info(f'Waiting for node {node.instance_name} to start')
     attempt = 0
@@ -819,8 +840,16 @@ def wait_node_up(node):
         except (ConnectionRefusedError,
                 requests.exceptions.ConnectionError) as e:
             attempt += 1
-            logger.info(f'attempt {attempt} failed: {e}')
+            logger.info(
+                f'Waiting for node {node.instance_name}, attempt {attempt} failed: {e}'
+            )
         except BaseException as e:
             attempt += 1
-            logger.info(f'attempt {attempt} failed: {e}')
+            logger.info(
+                f'Waiting for node {node.instance_name}, attempt {attempt} failed: {e}'
+            )
         time.sleep(30)
+
+
+def wait_all_nodes_up(all_nodes):
+    pmap(lambda node: wait_node_up(node), all_nodes)

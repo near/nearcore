@@ -1,15 +1,9 @@
-# This file is uploaded to each mocknet node and run there.
-# It is responsibe for updating the genesis to the requirements of the test, such as changing the chain id and adding test-only accounts to the genesis state..
+# Creates a genesis file from a template.
+# This file is uploaded to each mocknet node and run on the node, producing identical genesis files across all nodes.
+# This approach is significantly faster than the alternative, of uploading the genesis file to all mocknet nodes. Currently testnet state is a 17GB json file, and uploading that file to 100 machines over a 1Gbit/s connection would need 4 hours.
 
-import base58
-import json
-import random
-import requests
-import string
+import pathlib
 import sys
-import time
-import os
-from rc import pmap
 
 sys.path.append('lib')
 import mocknet
@@ -20,18 +14,19 @@ if __name__ == '__main__':
     genesis_filename_in = sys.argv[1]
     genesis_filename_out = sys.argv[2]
     chain_id = sys.argv[3]
-    validator_node_names = sys.argv[4].split(',')
+    validator_node_names = None
+    if sys.argv[4]:
+        validator_node_names = sys.argv[4].split(',')
     rpc_node_names = None
     if sys.argv[5]:
         rpc_node_names = sys.argv[5].split(',')
-
     done_filename = sys.argv[6]
     epoch_length = int(sys.argv[7])
+
     assert genesis_filename_in
     assert genesis_filename_out
     assert chain_id
-    assert validator_node_names is not None and len(
-        validator_node_names) > 0 and validator_node_names[0]
+    assert validator_node_names
     assert done_filename
     assert epoch_length
 
@@ -43,5 +38,4 @@ if __name__ == '__main__':
                                 append=True,
                                 epoch_length=epoch_length)
 
-    with open(done_filename, 'w') as f:
-        f.write('DONE')
+    pathlib.Path(done_filename).write_text('DONE')

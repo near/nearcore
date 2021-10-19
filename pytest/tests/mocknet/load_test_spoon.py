@@ -1,18 +1,13 @@
-# Force each node to submit many transactions for
-# about 20 minutes. Monitor the block production time
-# stays consistent.
-
+import argparse
+import random
 import sys
 import time
-import random
 
 sys.path.append('lib')
 
-from rc import pmap
-
 import load_test_spoon_helper
 import mocknet
-import data, utils
+import data
 
 from metrics import Metrics
 from configured_logger import logger
@@ -36,6 +31,15 @@ def measure_tps_bps(nodes, tx_filename):
     return result
 
 
+def check_tps(measurement, expected_in, expected_out=None, tolarance=0.05):
+    if expected_out is None:
+        expected_out = expected_in
+    within_tolarance = lambda x, y: (abs(x - y) / y) <= tolarance
+    return within_tolarance(measurement['in_tps'],
+                            expected_in) and within_tolarance(
+                                measurement['out_tps'], expected_out)
+
+
 def check_memory_usage(node):
     metrics = mocknet.get_metrics(node)
     mem_usage = metrics.memory_usage / 1e6
@@ -43,60 +47,54 @@ def check_memory_usage(node):
     return mem_usage < 4500
 
 
+def check_slow_blocks(initial_metrics, final_metrics):
+    delta = Metrics.diff(final_metrics, initial_metrics)
+    slow_process_blocks = delta.block_processing_time[
+        'le +Inf'] - delta.block_processing_time['le 1']
+    logger.info(
+        f'Number of blocks processing for more than 1s: {slow_process_blocks}')
+    return slow_process_blocks == 0
+
+
 if __name__ == '__main__':
     logger.info('Starting Load test.')
+    parser = argparse.ArgumentParser(description="Run a load test")
+    parser.add_argument('--chain-id', type=ascii, required=True)
+    parser.add_argument('--pattern', type=ascii, required=False)
+    parser.add_argument('--epoch-length', type=int, required=True)
+    parser.add_argument('--num-nodes', type=int, required=True)
+    parser.add_argument('--max-tps', type=float, required=True)
+    parser.add_argument('--skip-load', default=False, action="store_true")
+    parser.add_argument('--skip-setup', default=False, action="store_true")
+    parser.add_argument('--skip-restart', default=False, action="store_true")
 
-    chain_id = None
-    for arg in sys.argv:
-        if '--chain_id' in arg:
-            assert not chain_id
-            chain_id = arg.split('=')[1]
-    assert chain_id, 'Please add an argument --chain_id=testnet-spoon or similar'
+    parser.parse_args()
 
-    pattern = None
-    for arg in sys.argv:
-        if '--pattern' in arg:
-            assert not pattern
-            pattern = arg.split('=')[1]
-    assert pattern, 'Please add an argument --pattern=mocknet2 or similar'
-
-    epoch_length = None
-    for arg in sys.argv:
-        if '--epoch_length' in arg:
-            assert not epoch_length
-            epoch_length = int(arg.split('=')[1])
-    assert epoch_length, 'Please add an argument --epoch_length=10000 or similar'
-
-    num_nodes = None
-    for arg in sys.argv:
-        if '--num_nodes' in arg:
-            assert not num_nodes
-            num_nodes = int(arg.split('=')[1])
-    assert num_nodes, 'Please add an argument --num_nodes=100 or similar'
-
-    max_tps = None
-    for arg in sys.argv:
-        if '--max_tps' in arg:
-            assert not max_tps
-            max_tps = int(arg.split('=')[1])
-    assert max_tps, 'Please add an argument --num_nodes=100 or similar'
+    chain_id = parser.chain_id
+    pattern = parser.pattern
+    epoch_length = parser.epoch_length
+    assert epoch_length > 0
+    num_nodes = parser.num_nodes
+    assert num_nodes > 0
+    max_tps = parser.max_tps
+    assert max_tps > 0
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
     random.shuffle(all_nodes)
-    assert len(all_nodes) > num_nodes
+    assert len(all_nodes) > num_nodes, "Need at least one RPC node"
     validator_nodes = all_nodes[:num_nodes]
     rpc_nodes = all_nodes[num_nodes:]
     logger.info(
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
 
-    if '--skip_setup' not in sys.argv:
+    if not parser.skip_setup:
         logger.info('Setting remote python environments')
         mocknet.setup_python_environments(all_nodes,
                                           'add_and_delete_state.wasm')
         logger.info('Setting remote python environments -- done')
 
-    if '--skip_restart' not in sys.argv:
+    if not parser.skip_restart:
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
@@ -117,7 +115,7 @@ if __name__ == '__main__':
     logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
     test_passed = True
 
-    if '--skip_load' not in sys.argv:
+    if not parser.skip_load:
         logger.info('Starting transaction spamming scripts.')
         mocknet.start_load_test_helpers(validator_nodes,
                                         'load_test_spoon_helper.py', rpc_nodes,
@@ -138,6 +136,7 @@ if __name__ == '__main__':
                                              f'{mocknet.TX_OUT_FILE}.0')
         test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
         test_passed = check_memory_usage(validator_nodes[0]) and test_passed
+        test_passed = check_slow_blocks(initial_metrics, final_metrics) and test_passed
 
     time.sleep(5)
 

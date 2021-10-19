@@ -1,8 +1,10 @@
+use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::{metadata, near_bindgen};
+use near_sdk::json_types::{ValidAccountId, WrappedBalance, U128};
+use near_sdk::near_bindgen;
+use near_sdk::{assert_one_yocto, serde_json, PromiseOrValue};
 use std::collections::HashMap;
 
-metadata! {
 #[near_bindgen]
 #[derive(Default, BorshDeserialize, BorshSerialize)]
 pub struct StatusMessage {
@@ -19,4 +21,18 @@ impl StatusMessage {
         self.records.remove(&account_id);
     }
 }
+
+// Implements a callback which makes it possible to use `ft_transfer_call` with this contract as the
+// receiver. The callback simply returns `1`.
+#[near_bindgen]
+impl FungibleTokenReceiver for StatusMessage {
+    #[allow(unused_variables)]
+    fn ft_on_transfer(
+        &mut self,
+        sender_id: ValidAccountId,
+        amount: U128,
+        msg: String,
+    ) -> PromiseOrValue<U128> {
+        PromiseOrValue::Value(1.into())
+    }
 }
