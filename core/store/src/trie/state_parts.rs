@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
+use tracing::error;
 
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -133,6 +134,11 @@ impl Trie {
                 // to indicate that
                 debug_assert!(
                     false,
+                    "This should not be reached target size {} node memory usage {} size skipped {}",
+                    size_start, node.memory_usage, size_skipped,
+                );
+                error!(
+                    target: "state_parts",
                     "This should not be reached target size {} node memory usage {} size skipped {}",
                     size_start, node.memory_usage, size_skipped,
                 );
