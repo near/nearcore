@@ -61,19 +61,19 @@ near_root, node_dirs = init_cluster(
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
              ["epoch_length", 300], ["block_producer_kickout_threshold", 0],
              ["chunk_producer_kickout_threshold", 0]], {
-        1: {
-            "tracked_shards": [0]
-        },
-        2: {
-            "tracked_shards": [0]
-        },
-        3: {
-            "tracked_shards": [0]
-        },
-        4: {
-            "tracked_shards": [0]
-        }
-    })
+                 1: {
+                     "tracked_shards": [0]
+                 },
+                 2: {
+                     "tracked_shards": [0]
+                 },
+                 3: {
+                     "tracked_shards": [0]
+                 },
+                 4: {
+                     "tracked_shards": [0]
+                 }
+             })
 
 logging.info("Populating genesis")
 
@@ -86,7 +86,7 @@ else:
 logging.info("Genesis generated")
 
 for node_dir in node_dirs:
-    result = check_output(['ls', '-la', node_dir]).decode()
+    result = check_output(['ls', '-la', node_dir], text=True)
     logging.info(f'Node directory: {node_dir}')
     for line in result.split('\n'):
         logging.info(line)
@@ -98,12 +98,17 @@ TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-validator = spin_up_node(config, near_root, node_dirs[1], 1,
-                         boot_node.node_key.pk, boot_node.addr())
-delayed_validator = spin_up_node(config, near_root, node_dirs[2], 2,
-                                 boot_node.node_key.pk, boot_node.addr())
-observer = spin_up_node(config, near_root, node_dirs[3], 3,
-                        boot_node.node_key.pk, boot_node.addr())
+validator = spin_up_node(config,
+                         near_root,
+                         node_dirs[1],
+                         1,
+                         boot_node=boot_node)
+delayed_validator = spin_up_node(config,
+                                 near_root,
+                                 node_dirs[2],
+                                 2,
+                                 boot_node=boot_node)
+observer = spin_up_node(config, near_root, node_dirs[3], 3, boot_node=boot_node)
 
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
