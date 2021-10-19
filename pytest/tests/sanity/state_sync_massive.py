@@ -47,7 +47,6 @@ sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
-from utils import LogTracker
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 

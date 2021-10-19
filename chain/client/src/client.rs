@@ -1699,6 +1699,11 @@ impl Client {
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
+                        debug!(
+                            "Finished block catchup, {} blocks processed",
+                            accepted_blocks.read().unwrap().len()
+                        );
+
                         self.send_challenges(challenges);
 
                         self.shards_mgr.request_chunks(
