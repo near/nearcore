@@ -79,6 +79,9 @@ impl Trie {
         num_parts: u64,
     ) -> Result<Vec<u8>, StorageError> {
         assert!(part_id <= num_parts);
+        if part_id == num_parts {
+            return Ok(vec![16]);
+        }
         let root_node = self.retrieve_node(&state_root)?;
         let total_size = root_node.memory_usage;
         let size_start = (total_size + num_parts - 1) / num_parts * part_id;
@@ -106,10 +109,11 @@ impl Trie {
                 Ok(false)
             }
             TrieNode::Branch(children, _) => {
-                let mut last_child_node = TrieNodeWithSize::empty();
                 for child_index in 0..children.len() {
                     let child = match &children[child_index] {
-                        None => TrieNodeWithSize::empty(),
+                        None => {
+                            continue;
+                        }
                         Some(NodeHandle::InMemory(_)) => {
                             unreachable!("only possible while mutating")
                         }
@@ -117,7 +121,6 @@ impl Trie {
                     };
                     if *size_skipped + child.memory_usage <= size_start {
                         *size_skipped += child.memory_usage;
-                        last_child_node = child.clone();
                         continue;
                     } else {
                         key_nibbles.push(child_index as u8);
@@ -125,9 +128,8 @@ impl Trie {
                         return Ok(true);
                     }
                 }
-                key_nibbles.push(15u8);
-                *node = last_child_node;
-                Ok(true)
+                key_nibbles.push(16u8);
+                Ok(false)
             }
             TrieNode::Extension(key, child_handle) => {
                 let child = match child_handle {

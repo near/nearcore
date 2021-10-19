@@ -226,15 +226,13 @@ impl<'a> TrieIterator<'a> {
         path_end: &[u8],
     ) -> Result<Vec<TrieItem>, StorageError> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, false);
-        let path_end_encoded = NibbleSlice::encode_nibbles(path_end, false);
-        let path_end_nibbles = NibbleSlice::from_encoded(&path_end_encoded).0;
         self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
 
         let mut trie_items = vec![];
         while let Some(item) = self.next() {
             let trie_item = item?;
-            let key_encoded = NibbleSlice::new(&trie_item.0);
-            if key_encoded >= path_end_nibbles {
+            let key_encoded: Vec<_> = NibbleSlice::new(&trie_item.0).iter().collect();
+            if &key_encoded[..] >= path_end {
                 return Ok(trie_items);
             }
             trie_items.push(trie_item);
@@ -418,6 +416,13 @@ mod tests {
             .range(path_begin.to_vec()..path_end.to_vec())
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+        assert_eq!(result1, result2);
+
+        // test when path_end ends in [16]
+        let result1 =
+            trie.iter(&state_root).unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
+        let result2: Vec<_> =
+            map.range(path_begin.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).collect();
         assert_eq!(result1, result2);
     }
 

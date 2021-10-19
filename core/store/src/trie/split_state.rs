@@ -438,7 +438,6 @@ mod tests {
         let mut expected_trie_items: Vec<_> =
             changes.into_iter().map(|(key, value)| (key, value.unwrap())).collect();
         expected_trie_items.sort();
-        println!("{}", expected_trie_items.len());
 
         let trie = tries.get_trie_for_shard(ShardUId::default());
         let total_trie_items = trie.get_trie_items_for_part(0, 1, &state_root).unwrap();
@@ -448,9 +447,9 @@ mod tests {
         for part_id in 0..num_parts {
             let trie_items = trie.get_trie_items_for_part(part_id, num_parts, &state_root).unwrap();
             combined_trie_items.extend_from_slice(&trie_items);
-            // check that items are split relatively evenly accross all parts
+            // check that items are split relatively evenly across all parts
             assert!(
-                trie_items.len() > total_trie_items.len() / num_parts as usize / 2,
+                trie_items.len() >= total_trie_items.len() / num_parts as usize / 2,
                 "part length {} avg length {}",
                 trie_items.len(),
                 total_trie_items.len() / num_parts as usize
