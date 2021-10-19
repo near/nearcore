@@ -462,14 +462,15 @@ fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
 ) -> (TestShardUpgradeEnv, HashMap<CryptoHash, AccountId>) {
     let mut test_env = TestShardUpgradeEnv::new(epoch_length, 4, 4, 100, Some(100_000_000_000_000));
+    let mut rng = thread_rng();
 
     let genesis_hash = test_env.env.clients[0].chain.genesis_block().hash().clone();
     // use test0, test1 and two random accounts to deploy contracts because we want accounts on different shards
     let contract_accounts = vec![
         test_env.initial_accounts[0].clone(),
         test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[test_env.num_validators].clone(),
-        test_env.initial_accounts[test_env.num_validators + 1].clone(),
+        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
+        test_env.initial_accounts[rng.gen_range(0, test_env.initial_accounts.len())].clone(),
     ];
     test_env.set_init_tx(
         contract_accounts
@@ -495,7 +496,6 @@ fn setup_test_env_with_cross_contract_txs(
     );
 
     let mut nonce = 100;
-    let mut rng = thread_rng();
     let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
     let mut new_accounts = HashMap::new();
     let generate_txs: &mut dyn FnMut(usize, usize) -> Vec<SignedTransaction> =
