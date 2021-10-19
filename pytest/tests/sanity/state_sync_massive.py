@@ -61,7 +61,9 @@ config = load_config()
 near_root, node_dirs = init_cluster(
     3, 1, 1,
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-             ["epoch_length", 300], ["block_producer_kickout_threshold", 0]], {
+             ["epoch_length", 300], ["block_producer_kickout_threshold", 0], ["minimum_validators_per_shard", 2],
+             ["chunk_producer_kickout_threshold", 0], ["num_block_producer_seats", 199],
+             ["num_block_producer_seats_per_shard", [99, 100]]], {
         1: {
             "tracked_shards": [0]
         },
@@ -104,6 +106,7 @@ delayed_validator = spin_up_node(config, near_root, node_dirs[2], 2,
                                  boot_node.node_key.pk, boot_node.addr())
 observer = spin_up_node(config, near_root, node_dirs[3], 3,
                         boot_node.node_key.pk, boot_node.addr())
+
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
     queue = []
