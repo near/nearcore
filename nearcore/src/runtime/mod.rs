@@ -1800,6 +1800,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
         config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
+        let shard_config = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_shard_config(epoch_id)?
+        };
+        config.num_block_producer_seats_per_shard = shard_config.num_block_producer_seats_per_shard;
+        config.avg_hidden_validator_seats_per_shard =
+            shard_config.avg_hidden_validator_seats_per_shard;
+        config.shard_layout = shard_config.shard_layout;
         Ok(config)
     }
 

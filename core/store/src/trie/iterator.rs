@@ -216,6 +216,7 @@ impl<'a> TrieIterator<'a> {
         prefix
     }
 
+    /// Note that path_begin and path_end are not bytes, they are nibbles
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return key-value pairs for each visited node with value stored
     /// Used to generate split states for re-sharding
@@ -224,12 +225,14 @@ impl<'a> TrieIterator<'a> {
         path_begin: &[u8],
         path_end: &[u8],
     ) -> Result<Vec<TrieItem>, StorageError> {
-        self.seek(path_begin)?;
+        let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, false);
+        self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0)?;
 
         let mut trie_items = vec![];
         while let Some(item) = self.next() {
             let trie_item = item?;
-            if &trie_item.0[..] >= path_end {
+            let key_encoded: Vec<_> = NibbleSlice::new(&trie_item.0).iter().collect();
+            if &key_encoded[..] >= path_end {
                 return Ok(trie_items);
             }
             trie_items.push(trie_item);
@@ -339,6 +342,7 @@ mod tests {
         create_tries, create_tries_complex, gen_changes, simplify_changes, test_populate_trie,
     };
     use crate::trie::iterator::IterStep;
+    use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use near_primitives::shard_layout::ShardUId;
 
@@ -401,11 +405,24 @@ mod tests {
         path_begin: &[u8],
         path_end: &[u8],
     ) {
-        let result1 = trie.iter(&state_root).unwrap().get_trie_items(path_begin, path_end).unwrap();
+        let path_begin_nibbles: Vec<_> = NibbleSlice::new(&path_begin).iter().collect();
+        let path_end_nibbles: Vec<_> = NibbleSlice::new(&path_end).iter().collect();
+        let result1 = trie
+            .iter(&state_root)
+            .unwrap()
+            .get_trie_items(&path_begin_nibbles, &path_end_nibbles)
+            .unwrap();
         let result2: Vec<_> = map
             .range(path_begin.to_vec()..path_end.to_vec())
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
+        assert_eq!(result1, result2);
+
+        // test when path_end ends in [16]
+        let result1 =
+            trie.iter(&state_root).unwrap().get_trie_items(&path_begin_nibbles, &[16u8]).unwrap();
+        let result2: Vec<_> =
+            map.range(path_begin.to_vec()..).map(|(k, v)| (k.clone(), v.clone())).collect();
         assert_eq!(result1, result2);
     }
 

@@ -84,10 +84,12 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
         .collect()
 }
 
-pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-    let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
-    let max_length = rng.gen_range(2, 8);
-
+fn gen_changes_helper(
+    rng: &mut impl Rng,
+    max_size: usize,
+    alphabet: &[u8],
+    max_length: u64,
+) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
     let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     let mut result = Vec::new();
     let delete_probability = rng.gen_range(0.1, 0.5);
@@ -112,6 +114,18 @@ pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<
         }
     }
     result
+}
+
+pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
+    let max_length = rng.gen_range(2, 8);
+    gen_changes_helper(rng, max_size, alphabet, max_length)
+}
+
+pub fn gen_larger_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+    let alphabet = b"abcdefghijklmnopqrst";
+    let max_length = rng.gen_range(10, 20);
+    gen_changes_helper(rng, max_size, alphabet, max_length)
 }
 
 pub(crate) fn simplify_changes(
