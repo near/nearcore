@@ -45,7 +45,7 @@ while node0_height <= EPOCH_LENGTH * 2 + 1:
     status = nodes[0].get_status()
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(5)
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 logger.info("step 2")
