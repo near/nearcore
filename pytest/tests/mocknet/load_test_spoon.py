@@ -134,17 +134,23 @@ if __name__ == '__main__':
         logger.info('All transaction types results:')
         all_tx_measurement = measure_tps_bps(validator_nodes,
                                              f'{mocknet.TX_OUT_FILE}.0')
-        test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
-        test_passed = check_memory_usage(validator_nodes[0]) and test_passed
-        test_passed = check_slow_blocks(initial_metrics,
-                                        final_metrics) and test_passed
+        if all_tx_measurement['bps'] < 0.5:
+            test_passed = False
+            logger.error(f'bps is below 0.5: {all_tx_measurement["bps"]}')
+        if not check_memory_usage(validator_nodes[0]):
+            test_passed = False
+            logger.error('Memory usage failed')
+        if not check_slow_blocks(initial_metrics, final_metrics):
+            test_passed = False
+            logger.error('Slow blocks check failed')
 
     time.sleep(5)
 
     final_validator_accounts = mocknet.list_validators(validator_nodes[0])
     logger.info(f'final_validator_accounts: {final_validator_accounts}')
-    assert initial_validator_accounts == final_validator_accounts
+    if initial_validator_accounts != final_validator_accounts:
+        test_passed = False
+        logger.error(f'Mismatching set of validators:\n{initial_validator_accounts}\n{final_validator_accounts}')
 
     assert test_passed
-
     logger.info('Load test complete.')

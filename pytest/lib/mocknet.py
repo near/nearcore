@@ -113,26 +113,6 @@ def get_validator_account(node):
     return Key.from_json_file(validator_key_file.name)
 
 
-# Same as list_validators but assumes that the node can still be starting and expects connection errors.
-def node_wait(node):
-    attempt = 0
-    while True:
-        try:
-            validators = node.get_validators()['result']
-            break
-        except (ConnectionRefusedError,
-                requests.exceptions.ConnectionError) as e:
-            attempt += 1
-            logger.info(f'attempt {attempt} failed: {e}')
-        except BaseException as e:
-            attempt += 1
-            logger.info(f'attempt {attempt} failed: {e}')
-        time.sleep(30)
-    validator_accounts = set(
-        map(lambda v: v['account_id'], validators['current_validators']))
-    return validator_accounts
-
-
 def list_validators(node):
     validators = node.get_validators()['result']
     validator_accounts = set(
@@ -674,10 +654,8 @@ def create_genesis_file(validator_node_names,
 
     # Testing simple nightshade.
     genesis_config["protocol_version"] = 47
-    if "simple_nightshade_shard_layout" in genesis_config:
-        del genesis_config["simple_nightshade_shard_layout"]
-    if "shard_layout" in genesis_config:
-        del genesis_config["shard_layout"]
+    genesis_config.pop("simple_nightshade_shard_layout", None)
+    genesis_config.pop("shard_layout", None)
     genesis_config["epoch_length"] = epoch_length
     genesis_config["num_block_producer_seats"] = len(validator_node_names)
     # Loadtest helper signs all transactions using the same block.
@@ -829,6 +807,8 @@ def wait_genesis_updater_done(node, done_filename):
         f'Waiting for the genesis updater on {node.instance_name} -- done')
 
 
+# Same as list_validators but assumes that the node can still be starting and expects connection errors and the data not
+# being available.
 def wait_node_up(node):
     logger.info(f'Waiting for node {node.instance_name} to start')
     attempt = 0
@@ -843,7 +823,7 @@ def wait_node_up(node):
             logger.info(
                 f'Waiting for node {node.instance_name}, attempt {attempt} failed: {e}'
             )
-        except BaseException as e:
+        except Exception as e:
             attempt += 1
             logger.info(
                 f'Waiting for node {node.instance_name}, attempt {attempt} failed: {e}'

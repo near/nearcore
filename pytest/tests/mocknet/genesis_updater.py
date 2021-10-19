@@ -9,19 +9,21 @@ sys.path.append('lib')
 import mocknet
 from configured_logger import logger
 
-if __name__ == '__main__':
-    logger.info(sys.argv)
-    genesis_filename_in = sys.argv[1]
-    genesis_filename_out = sys.argv[2]
-    chain_id = sys.argv[3]
+def main(argv):
+    logger.info(argv)
+    assert len(argv) == 8
+
+    genesis_filename_in = argv[1]
+    genesis_filename_out = argv[2]
+    chain_id = argv[3]
     validator_node_names = None
-    if sys.argv[4]:
-        validator_node_names = sys.argv[4].split(',')
+    if argv[4]:
+        validator_node_names = argv[4].split(',')
     rpc_node_names = None
-    if sys.argv[5]:
-        rpc_node_names = sys.argv[5].split(',')
-    done_filename = sys.argv[6]
-    epoch_length = int(sys.argv[7])
+    if argv[5]:
+        rpc_node_names = argv[5].split(',')
+    done_filename = argv[6]
+    epoch_length = int(argv[7])
 
     assert genesis_filename_in
     assert genesis_filename_out

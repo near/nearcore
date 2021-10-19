@@ -37,8 +37,6 @@ class Account:
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
-        # return self.json_rpc('broadcast_tx_commit',
-        #                      [base64.b64encode(signed_tx).decode('utf8')])
         return self.json_rpc('broadcast_tx_async',
                              [base64.b64encode(signed_tx).decode('utf8')])
 

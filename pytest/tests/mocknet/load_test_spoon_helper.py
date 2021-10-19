@@ -1,5 +1,5 @@
+# Generates transactions on a mocknet node.
 # This file is uploaded to each mocknet node and run there.
-# It is responsible for making the node send many transactions to an RPC node.
 
 import json
 import random
@@ -14,6 +14,7 @@ sys.path.append('lib')
 import account
 import key
 import mocknet
+import utils
 from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
@@ -50,11 +51,11 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
 
 def get_latest_block_hash():
     last_block_hash = get_status()['sync_info']['latest_block_hash']
-    return base58.b58decode(last_block_hash.encode('utf8'))
+    return base58.b58decode(last_block_hash.encode('utf-8'))
 
 
 def send_transfer(account, i, node_account):
-    next_id = random.randint(0, mocknet.NUM_ACCOUNTS - 1)
+    next_id = random.randrange(mocknet.NUM_ACCOUNTS)
     dest_account_id = mocknet.load_testing_account_id(
         node_account.key.account_id, next_id)
     account.send_transfer_tx(dest_account_id)
@@ -72,17 +73,16 @@ def function_call_set_delete_state(account, i, node_account):
         action = random.choice(["add", "delete"])
 
     if action == "add":
-        next_id = random.randint(0, mocknet.NUM_ACCOUNTS - 1)
+        next_id = random.randrange(mocknet.NUM_ACCOUNTS)
         next_val = random.randint(0, 1000)
         next_account_id = mocknet.load_testing_account_id(
             node_account.key.account_id, next_id)
-        s = '{"account_id": "account_' + str(next_val) + '", "message":"' + str(
-            next_val) + '"}'
+        s = f'{{"account_id": "account_{str(next_val)}", "message":"{str(next_val)}"}}'
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
         tx_res = account.send_call_contract_raw_tx(next_account_id, 'set_state',
-                                                   bytes(s, encoding='utf8'), 0)
+                                                   s.encode('utf-8'), 0)
         logger.info(
             f'{account.key.account_id} set_state on {next_account_id} {tx_res}')
         function_call_state[i].append((next_id, next_val))
@@ -92,13 +92,13 @@ def function_call_set_delete_state(account, i, node_account):
         (next_id, next_val) = item
         next_account_id = mocknet.load_testing_account_id(
             node_account.key.account_id, next_id)
-        s = '{"account_id": "account_' + str(next_val) + '"}'
+        s = f'{{"account_id": "account_{str(next_val)}"}}'
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
         tx_res = account.send_call_contract_raw_tx(next_account_id,
                                                    'delete_state',
-                                                   bytes(s, encoding='utf8'), 0)
+                                                   s.encode('utf-8'), 0)
         logger.info(
             f'{account.key.account_id} delete_state on {next_account_id} {tx_res}'
         )
@@ -118,13 +118,13 @@ def function_call_ft_transfer_call(account, i, node_account):
     dest_account_id = mocknet.load_testing_account_id(
         node_account.key.account_id, next_id)
 
-    s = '{"receiver_id": "' + dest_account_id + '", "amount": "3", "msg": "\\"hi\\""}'
+    s = f'{{"receiver_id": "{dest_account_id}", "amount": "3", "msg": "\\"hi\\""}}'
     logger.info(
         f'Calling function "ft_transfer_call" with arguments {s} on account {account.key.account_id} contract {dest_account_id}'
     )
     tx_res = account.send_call_contract_raw_tx(dest_account_id,
                                                'ft_transfer_call',
-                                               bytes(s, encoding='utf8'), 1)
+                                               s.encode('utf-8'), 1)
     logger.info(
         f'{account.key.account_id} ft_transfer to {dest_account_id} {tx_res}')
 
@@ -204,39 +204,57 @@ def get_test_accounts_from_args():
                                  base_block_hash, rpc_infos[i]), i)
                 for (key, i) in test_account_keys]
     max_tps_per_node = max_tps / num_nodes
-    return (node_account, accounts, max_tps_per_node)
+    return node_account, accounts, max_tps_per_node
 
 
 def init_ft(node_account):
     tx_res = node_account.send_deploy_contract_tx(
         '/home/ubuntu/fungible_token.wasm')
     logger.info(f'ft deployment {tx_res}')
-    time.sleep(1)
+    wait_at_least_one_block()
 
-    s = '{"owner_id": "' + node_account.key.account_id + '", "total_supply": "' + str(int(10**33)) + '"}'
+    s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{str(int(10**33))}"}}'
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
                                                     'new_default_meta',
-                                                    bytes(s,
-                                                          encoding='utf8'), 0)
+                                                    s.encode('utf-8'), 0)
     logger.info(f'ft new_default_meta {tx_res}')
 
 
 def init_ft_account(node_account, account, i):
-    s = '{"account_id": "' + account.key.account_id + '"}'
-    tx_res = account.send_call_contract_raw_tx(node_account.key.account_id, 'storage_deposit', bytes(s, encoding='utf8'), int(0.00125 * 10**24))
+    s = f'{{"account_id": "{account.key.account_id}"}}'
+    tx_res = account.send_call_contract_raw_tx(node_account.key.account_id,
+                                               'storage_deposit',
+                                               s.encode('utf-8'),
+                                               int(10**24 // 800))
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
     # Sleeping for 1 second is the poor man's solution for waiting for that transaction to succeed.
     # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
-    time.sleep(1)
+    wait_at_least_one_block()
 
-    s = '{"receiver_id": "' + account.key.account_id + '", "amount": "' + str(int(10**18)) + '"}'
-    logger.info(f'Calling function "ft_transfer" with arguments {s} on account {i}')
-    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id, 'ft_transfer', bytes(s, encoding='utf8'), 1)
+    s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{str(int(10**18))}"}}'
+    logger.info(
+        f'Calling function "ft_transfer" with arguments {s} on account {i}')
+    tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
+                                                    'ft_transfer',
+                                                    s.encode('utf-8'), 1)
     logger.info(
         f'{node_account.key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
     )
+
+
+def wait_at_least_one_block():
+    status = get_status()
+    start_height = status['sync_info']['latest_block_height']
+    timeout_sec = 5
+    started = time.time()
+    while time.time() - started < timeout_sec:
+        status = get_status()
+        height = status['sync_info']['latest_block_height']
+        if height > start_height:
+            break
+        time.sleep(1.0)
 
 
 if __name__ == '__main__':
