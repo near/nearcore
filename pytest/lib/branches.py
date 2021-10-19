@@ -169,5 +169,5 @@ def prepare_ab_test(stable_branch):
     except Exception:
         if is_nayduck:
             sys.exit('RC binary should be downloaded for NayDuck.')
-        stable = _compile_binary(str(other_branch))
+        stable = _compile_binary(str(stable_branch))
     return ABExecutables(stable=stable, current=current)
