@@ -257,8 +257,8 @@ def wait_at_least_one_block():
         time.sleep(1.0)
 
 
-if __name__ == '__main__':
-    logger.info(sys.argv)
+def main(argv):
+    logger.info(argv)
     (node_account, test_accounts,
      max_tps_per_node) = get_test_accounts_from_args()
 
@@ -296,3 +296,7 @@ if __name__ == '__main__':
 
     write_tx_events(test_accounts, f'{mocknet.TX_OUT_FILE}.0')
     logger.info('Wrote tx events')
+
+
+if __name__ == '__main__':
+    main(sys.argv)

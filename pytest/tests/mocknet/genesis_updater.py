@@ -9,6 +9,7 @@ sys.path.append('lib')
 import mocknet
 from configured_logger import logger
 
+
 def main(argv):
     logger.info(argv)
     assert len(argv) == 8
@@ -41,3 +42,7 @@ def main(argv):
                                 epoch_length=epoch_length)
 
     pathlib.Path(done_filename).write_text('DONE')
+
+
+if __name__ == '__main__':
+    main(sys.argv)
