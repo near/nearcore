@@ -92,7 +92,7 @@ for node_dir in node_dirs:
     for line in result.split('\n'):
         logging.info(line)
 
-SMALL_HEIGHT = 600
+SMALL_HEIGHT = 610
 LARGE_HEIGHT = 660
 TIMEOUT = 1450
 start = time.time()
@@ -141,7 +141,7 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
         assert bps is None or bps >= bps_threshold
 
 
-wait_for_height(290, validator)
+wait_for_height(310, validator)
 
 delayed_validator.kill()
 delayed_validator.reset_data()
