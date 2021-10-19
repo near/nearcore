@@ -97,7 +97,7 @@ LARGE_HEIGHT = 660
 TIMEOUT = 1450
 start = time.time()
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 validator = spin_up_node(config,
                          near_root,
                          node_dirs[1],
