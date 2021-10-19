@@ -75,7 +75,7 @@ while cur_height < target_height:
     time.sleep(1)
 
 logger.info('restart node1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 logger.info('node1 restarted')
 time.sleep(3)
 

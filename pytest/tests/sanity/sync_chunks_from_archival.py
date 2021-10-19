@@ -142,10 +142,13 @@ near_root, node_dirs = init_cluster(
         }
     })
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None, [],
-                         proxy)
-node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
-                     boot_node.addr(), [], proxy)
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0, proxy=proxy)
+node1 = spin_up_node(config,
+                     near_root,
+                     node_dirs[1],
+                     1,
+                     boot_node=boot_node,
+                     proxy=proxy)
 
 
 def get_validators(node):
@@ -161,10 +164,18 @@ while True:
         break
     time.sleep(1)
 
-node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk,
-                     boot_node.addr(), [], proxy)
-node3 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk,
-                     boot_node.addr(), [], proxy)
+node2 = spin_up_node(config,
+                     near_root,
+                     node_dirs[2],
+                     2,
+                     boot_node=boot_node,
+                     proxy=proxy)
+node3 = spin_up_node(config,
+                     near_root,
+                     node_dirs[3],
+                     3,
+                     boot_node=boot_node,
+                     proxy=proxy)
 
 status = boot_node.get_status()
 hash_ = status['sync_info']['latest_block_hash']
@@ -213,8 +224,7 @@ while True:
     time.sleep(1)
 
 logging.info("Spinning up one more node")
-node4 = spin_up_node(config, near_root, node_dirs[4], 4, node2.node_key.pk,
-                     node2.addr())
+node4 = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=node2)
 
 logging.info("Waiting for the new node to sync. We are %s seconds in" %
              (time.time() - started))
