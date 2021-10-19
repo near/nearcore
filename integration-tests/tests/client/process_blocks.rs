@@ -163,7 +163,7 @@ fn prepare_env_with_congestion(
         "test0".parse().unwrap(),
         &signer,
         vec![Action::DeployContract(DeployContractAction {
-            code: near_test_contracts::rs_contract().to_vec(),
+            code: near_test_contracts::rs_contract_base_protocol().to_vec(),
         })],
         *genesis_block.hash(),
     );

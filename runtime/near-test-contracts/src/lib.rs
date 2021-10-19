@@ -2,9 +2,18 @@ use std::path::Path;
 
 use once_cell::sync::OnceCell;
 
+/// Standard test contract which can call various host functinos
+///
+/// Note: the contract relies on the latest protocol version, and
+/// might not work for tests using older version
 pub fn rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
+}
+
+pub fn rs_contract_base_protocol() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("test_contract_rs_base_protocol.wasm")).as_slice()
 }
 
 pub fn nightly_rs_contract() -> &'static [u8] {
@@ -20,11 +29,6 @@ pub fn ts_contract() -> &'static [u8] {
 pub fn tiny_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("tiny_contract_rs.wasm")).as_slice()
-}
-
-pub fn ripemd_contract() -> &'static [u8] {
-    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("test_ripemd.wasm")).as_slice()
 }
 
 /// Read given wasm file or panic if unable to.

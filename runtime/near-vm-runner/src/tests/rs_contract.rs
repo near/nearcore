@@ -22,11 +22,6 @@ fn test_contract() -> ContractCode {
     ContractCode::new(code.to_vec(), None)
 }
 
-fn test_ripemd_contract() -> ContractCode {
-    let code = near_test_contracts::ripemd_contract();
-    ContractCode::new(code.to_vec(), None)
-}
-
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
     if let Some(_) = err {
         panic!("Failed execution");
@@ -99,7 +94,7 @@ pub fn test_read_write() {
 #[test]
 pub fn test_stablized_host_function() {
     with_vm_variants(|vm_kind: VMKind| {
-        let code = test_ripemd_contract();
+        let code = test_contract();
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(vec![]);
