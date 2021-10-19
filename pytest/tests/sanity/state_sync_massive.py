@@ -105,10 +105,6 @@ delayed_validator = spin_up_node(config, near_root, node_dirs[2], 2,
 observer = spin_up_node(config, near_root, node_dirs[3], 3,
                         boot_node.node_key.pk, boot_node.addr())
 
-delayed_validator.kill()
-delayed_validator.reset_data()
-
-
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
     queue = []
     latest_height = 0
@@ -144,7 +140,12 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
         assert bps is None or bps >= bps_threshold
 
 
-wait_for_height(20, validator)
+wait_for_height(290, validator)
+
+delayed_validator.kill()
+delayed_validator.reset_data()
+
+wait_for_height(310, validator)
 
 delayed_validator.start(boot_node.node_key.pk, boot_node.addr())
 # tracker = LogTracker(observer)
