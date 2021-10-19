@@ -183,7 +183,7 @@ def get_test_accounts_from_args():
     sk = sys.argv[3]
     rpc_nodes = sys.argv[4].split(',')
     num_nodes = int(sys.argv[5])
-    max_tps = int(sys.argv[6])
+    max_tps = float(sys.argv[6])
     logger.info(f'rpc_nodes: {str(rpc_nodes)}')
 
     node_account_key = key.Key(node_account_id, pk, sk)
