@@ -105,7 +105,6 @@ For example, `nightly.txt` file may just look as follows:
     ./pytest.txt
     ./expensive.txt
     ./mocknet.txt
-    ./bridge.txt
 
 with individual tests listed in each of the referenced files.  This
 makes the files more tidy.

@@ -38,7 +38,7 @@ validator_key = Key(nodes[1].validator_key.account_id, nodes[2].signer_key.pk,
                     nodes[2].signer_key.sk)
 nodes[2].reset_validator_key(validator_key)
 nodes[2].reset_data()
-nodes[2].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[2].start(boot_node=nodes[0])
 time.sleep(3)
 
 status = nodes[0].get_status()

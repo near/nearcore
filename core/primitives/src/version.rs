@@ -124,6 +124,10 @@ pub enum ProtocolFeature {
     ChunkOnlyProducers,
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     RoutingExchangeAlgorithm,
+    /// Limit number of wasm functions in one contract. See
+    /// <https://github.com/near/nearcore/pull/4954> for more details.
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+    LimitContractFunctionsNumber,
 }
 
 /// Current latest stable version of the protocol.
@@ -134,7 +138,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = 48;
 
 /// Current latest nightly version of the protocol.
 #[cfg(feature = "nightly_protocol")]
-pub const PROTOCOL_VERSION: ProtocolVersion = 122;
+pub const PROTOCOL_VERSION: ProtocolVersion = 123;
 
 impl ProtocolFeature {
     pub const fn protocol_version(self) -> ProtocolVersion {
@@ -167,6 +171,8 @@ impl ProtocolFeature {
             ProtocolFeature::ChunkOnlyProducers => 115,
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             ProtocolFeature::RoutingExchangeAlgorithm => 117,
+            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+            ProtocolFeature::LimitContractFunctionsNumber => 123,
         }
     }
 }

@@ -62,7 +62,7 @@ nodes[1].kill()
 
 # Switch node1 to an adversarial chain
 nodes[1].reset_data()
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 num_produce_blocks = BLOCKS // 2 - 5
 if overtake:
@@ -75,11 +75,11 @@ nodes[1].kill()
 
 # Restart both nodes.
 # Disabling doomslug must happen before starting node1
-nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[0].start(boot_node=nodes[0])
 if not doomslug:
     res = nodes[0].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 time.sleep(3)
 status = nodes[1].get_status()
