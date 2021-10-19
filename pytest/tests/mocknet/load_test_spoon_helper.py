@@ -1,6 +1,5 @@
 # This file is uploaded to each mocknet node and run there.
-# It is responsible for making the node send many transactions
-# to itself.
+# It is responsible for making the node send many transactions to an RPC node.
 
 import json
 import random

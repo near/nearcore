@@ -58,43 +58,43 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 if __name__ == '__main__':
     logger.info('Starting Load test.')
-    parser = argparse.ArgumentParser(description="Run a load test")
+    parser = argparse.ArgumentParser(description='Run a load test')
     parser.add_argument('--chain-id', type=ascii, required=True)
     parser.add_argument('--pattern', type=ascii, required=False)
     parser.add_argument('--epoch-length', type=int, required=True)
     parser.add_argument('--num-nodes', type=int, required=True)
     parser.add_argument('--max-tps', type=float, required=True)
-    parser.add_argument('--skip-load', default=False, action="store_true")
-    parser.add_argument('--skip-setup', default=False, action="store_true")
-    parser.add_argument('--skip-restart', default=False, action="store_true")
+    parser.add_argument('--skip-load', default=False, action='store_true')
+    parser.add_argument('--skip-setup', default=False, action='store_true')
+    parser.add_argument('--skip-restart', default=False, action='store_true')
 
-    parser.parse_args()
+    args = parser.parse_args()
 
-    chain_id = parser.chain_id
-    pattern = parser.pattern
-    epoch_length = parser.epoch_length
+    chain_id = args.chain_id.strip("'")
+    pattern = args.pattern.strip("'")
+    epoch_length = args.epoch_length
     assert epoch_length > 0
-    num_nodes = parser.num_nodes
+    num_nodes = args.num_nodes
     assert num_nodes > 0
-    max_tps = parser.max_tps
+    max_tps = args.max_tps
     assert max_tps > 0
 
     all_nodes = mocknet.get_nodes(pattern=pattern)
     random.shuffle(all_nodes)
-    assert len(all_nodes) > num_nodes, "Need at least one RPC node"
+    assert len(all_nodes) > num_nodes, 'Need at least one RPC node'
     validator_nodes = all_nodes[:num_nodes]
     rpc_nodes = all_nodes[num_nodes:]
     logger.info(
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
     )
 
-    if not parser.skip_setup:
+    if not args.skip_setup:
         logger.info('Setting remote python environments')
         mocknet.setup_python_environments(all_nodes,
                                           'add_and_delete_state.wasm')
         logger.info('Setting remote python environments -- done')
 
-    if not parser.skip_restart:
+    if not args.skip_restart:
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
     test_passed = True
 
-    if not parser.skip_load:
+    if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')
         mocknet.start_load_test_helpers(validator_nodes,
                                         'load_test_spoon_helper.py', rpc_nodes,
@@ -136,7 +136,8 @@ if __name__ == '__main__':
                                              f'{mocknet.TX_OUT_FILE}.0')
         test_passed = (all_tx_measurement['bps'] > 0.5) and test_passed
         test_passed = check_memory_usage(validator_nodes[0]) and test_passed
-        test_passed = check_slow_blocks(initial_metrics, final_metrics) and test_passed
+        test_passed = check_slow_blocks(initial_metrics,
+                                        final_metrics) and test_passed
 
     time.sleep(5)
 

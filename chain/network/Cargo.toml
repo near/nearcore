@@ -18,7 +18,7 @@ byteorder = "1.2"
 lazy_static = "1.4"
 tracing = "0.1.13"
 strum = { version = "0.20", features = ["derive"] }
-near-rust-allocator-proxy = "0.2.9"
+near-rust-allocator-proxy = "0.3.0"
 bytesize = "1.0.1"
 conqueue = "0.4.0"
 serde = { version = "1", features = ["derive"], optional=true }

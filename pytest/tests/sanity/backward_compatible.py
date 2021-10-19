@@ -33,12 +33,13 @@ def main():
     # Run both binaries at the same time.
     config = executables.stable.node_config()
     stable_node = cluster.spin_up_node(config, executables.stable.root,
-                                       str(node_root / 'test0'), 0, None, None)
+                                       str(node_root / 'test0'), 0)
     config = executables.current.node_config()
-    current_node = cluster.spin_up_node(config, executables.current.root,
-                                        str(node_root / 'test1'), 1,
-                                        stable_node.node_key.pk,
-                                        stable_node.addr())
+    current_node = cluster.spin_up_node(config,
+                                        executables.current.root,
+                                        str(node_root / 'test1'),
+                                        1,
+                                        boot_node=stable_node)
 
     # Check it all works.
     BLOCKS = 100

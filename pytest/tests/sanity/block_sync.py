@@ -60,7 +60,7 @@ nodes[0].kill()
 nodes[0].reset_data()
 
 logger.info("restart node 0")
-nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[0].start(boot_node=nodes[0])
 time.sleep(3)
 
 node1_status = nodes[1].get_status()

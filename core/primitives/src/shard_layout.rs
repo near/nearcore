@@ -95,6 +95,15 @@ impl ShardLayout {
         })
     }
 
+    pub fn v1_test() -> Self {
+        ShardLayout::v1(
+            vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        )
+    }
+
     #[inline]
     pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         match self {
