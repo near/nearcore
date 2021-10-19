@@ -26,7 +26,6 @@ smart-default = "0.6"
 validator = "0.12"
 rand = "0.7"
 reed-solomon-erasure = "4"
-jemallocator = { version = "0.3", optional = true }
 hex = "0.4"
 num-rational = { version = "0.3", features = ["serde"] }
 primitive-types = "0.10"
@@ -39,7 +38,6 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
-default = ["jemallocator"]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_block_header_v3 = []
 protocol_feature_alt_bn128 = ["near-primitives-core/protocol_feature_alt_bn128", "near-vm-errors/protocol_feature_alt_bn128"]
@@ -51,9 +49,6 @@ nightly_protocol = []
 
 [dev-dependencies]
 bencher = "0.1.5"
-
-[package.metadata.cargo-udeps.ignore]
-normal = ["jemallocator"]
 
 [[bench]]
 name = "serialization"
