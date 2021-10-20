@@ -852,23 +852,7 @@ fn transaction_cost_ext(
     let measurements =
         measurements.into_iter().skip(test_bed.config.warmup_iters_per_block).collect::<Vec<_>>();
 
-    let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-    let mut total = GasCost::zero(test_bed.config.metric);
-    let mut n = 0;
-    for (gas_cost, ext_cost) in measurements {
-        total += gas_cost;
-        n += block_size as u64;
-        for (c, v) in ext_cost {
-            *total_ext_costs.entry(c).or_default() += v;
-        }
-    }
-
-    for v in total_ext_costs.values_mut() {
-        *v /= n;
-    }
-
-    let gas_cost = total / n;
-    (gas_cost, total_ext_costs)
+    aggregate_per_block_measurements(test_bed.config, block_size, measurements)
 }
 
 fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
@@ -955,30 +939,37 @@ fn fn_cost_with_setup(
             .map(|(_, m)| m)
             .collect();
 
-        let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
-        let mut total = GasCost::zero(ctx.config.metric);
-        let mut n = 0;
-        for (gas_cost, ext_cost) in measurements.into_iter().skip(ctx.config.warmup_iters_per_block)
-        {
-            total += gas_cost;
-            n += block_size as u64;
-            for (c, v) in ext_cost {
-                *total_ext_costs.entry(c).or_default() += v;
-            }
-        }
-
-        for v in total_ext_costs.values_mut() {
-            *v /= n;
-        }
-
-        let gas_cost = total / n;
-        (gas_cost, total_ext_costs[&ext_cost])
+        let (gas_cost, ext_costs) =
+            aggregate_per_block_measurements(&ctx.config, block_size, measurements);
+        (gas_cost, ext_costs[&ext_cost])
     };
     assert_eq!(measured_count, count);
 
     let base_cost = noop_host_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
+}
+
+fn aggregate_per_block_measurements(
+    config: &Config,
+    block_size: usize,
+    measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
+) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
+    let mut total = GasCost::zero(config.metric);
+    let mut n = 0;
+    for (gas_cost, ext_cost) in measurements {
+        total += gas_cost;
+        n += block_size as u64;
+        for (c, v) in ext_cost {
+            *total_ext_costs.entry(c).or_default() += v;
+        }
+    }
+    for v in total_ext_costs.values_mut() {
+        *v /= n;
+    }
+    let gas_cost = total / n;
+    (gas_cost, total_ext_costs)
 }
 
 pub fn read_resource(path: &str) -> Vec<u8> {

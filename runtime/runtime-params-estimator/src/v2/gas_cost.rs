@@ -115,7 +115,7 @@ impl Ord for GasCost {
 }
 
 impl GasCost {
-    pub(crate) fn to_gas(self) -> Gas {
+    pub(crate) fn to_gas(&self) -> Gas {
         ratio_to_gas(self.metric, self.value)
     }
 }
