@@ -2827,6 +2827,7 @@ dependencies = [
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
+ "near-jsonrpc-test-utils",
  "near-logger-utils",
  "near-metrics",
  "near-network",
@@ -2892,12 +2893,17 @@ name = "near-jsonrpc-test-utils"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "awc",
+ "futures",
  "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
  "near-network",
  "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

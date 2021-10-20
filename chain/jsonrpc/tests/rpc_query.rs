@@ -17,8 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
-#[macro_use]
-pub mod test_utils;
+use near_jsonrpc_test_utils::{self as test_utils, test_with_client};
 
 /// Retrieve blocks via json rpc
 #[test]
