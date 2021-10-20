@@ -52,6 +52,12 @@ steps:
           echo '    python3 -m yapf -pir pytest scripts'
           exit 1
       fi >&2
+      RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
+      if ! diff chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
+          echo 'The RPC errors schema reflects outdated typing structure; please run'
+          echo '    cargo build -p near-jsonrpc --features dump_errors_schema'
+          exit 1
+      fi >&2
     timeout: 30
     agents:
     - "distro=amazonlinux"
