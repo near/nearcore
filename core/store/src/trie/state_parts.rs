@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
+use tracing::error;
 
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -128,6 +129,19 @@ impl Trie {
                         return Ok(true);
                     }
                 }
+                // This line should not be reached if node.memory_usage > size_start
+                // To avoid changing production behavior, I'm just adding a debug_assert here
+                // to indicate that
+                debug_assert!(
+                    false,
+                    "This should not be reached target size {} node memory usage {} size skipped {}",
+                    size_start, node.memory_usage, size_skipped,
+                );
+                error!(
+                    target: "state_parts",
+                    "This should not be reached target size {} node memory usage {} size skipped {}",
+                    size_start, node.memory_usage, size_skipped,
+                );
                 key_nibbles.push(16u8);
                 Ok(false)
             }
@@ -144,7 +158,11 @@ impl Trie {
         }
     }
 
+    // find the first node so that including this node, the traversed size is larger than size
     fn find_path(&self, root_node: &TrieNodeWithSize, size: u64) -> Result<Vec<u8>, StorageError> {
+        if root_node.memory_usage <= size {
+            return Ok(vec![16u8]);
+        }
         let mut key_nibbles: Vec<u8> = Vec::new();
         let mut node = root_node.clone();
         let mut size_skipped = 0u64;
