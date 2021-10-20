@@ -112,7 +112,7 @@ pub fn run(config: Config) -> CostTable {
 
         let start = Instant::now();
         let value = f(&mut ctx);
-        let uncertain = if value.is_uncertain() { "uncertain " } else { "" };
+        let uncertain = if value.is_uncertain() { "UNCERTAIN " } else { "" };
         let gas = value.to_gas();
         res.add(cost, gas);
 
@@ -955,10 +955,12 @@ fn aggregate_per_block_measurements(
     block_size: usize,
     measurements: Vec<(GasCost, HashMap<ExtCosts, u64>)>,
 ) -> (GasCost, HashMap<ExtCosts, u64>) {
+    let mut block_costs = Vec::new();
     let mut total_ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
     let mut total = GasCost::zero(config.metric);
     let mut n = 0;
     for (gas_cost, ext_cost) in measurements {
+        block_costs.push(gas_cost.to_gas() as f64);
         total += gas_cost;
         n += block_size as u64;
         for (c, v) in ext_cost {
@@ -968,8 +970,21 @@ fn aggregate_per_block_measurements(
     for v in total_ext_costs.values_mut() {
         *v /= n;
     }
-    let gas_cost = total / n;
+    let mut gas_cost = total / n;
+    gas_cost.set_uncertain(is_high_variance(&block_costs));
     (gas_cost, total_ext_costs)
+}
+
+fn is_high_variance(samples: &[f64]) -> bool {
+    let n_samples = samples.len() as f64;
+    let threshold = 0.15;
+
+    let mean = samples.iter().copied().sum::<f64>() / n_samples;
+
+    let all_below_threshold =
+        samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
+
+    !all_below_threshold
 }
 
 pub fn read_resource(path: &str) -> Vec<u8> {
