@@ -1,3 +1,20 @@
+"""
+Runs a loadtest on mocknet.
+
+The setup requires you to have a few nodes that will be validators and at least one node that will be an RPC node.
+Specify the number of validator nodes using the `--num-nodes` flag.
+
+Use https://github.com/near/near-ops/tree/master/provisioning/terraform/network/mocknet to bring up a set of VM
+instances for the test. It also takes care of downloading necessary binaries and smart contracts.
+
+Depending on the `--chain-id` flag, the nodes will be initialized with an empty state, or with the most recent state
+dump of `mainnet`, `testnet` and `betanet`. Note that `mainnet` and `testnet` state dumps are huge. Starting a node with
+`testnet` state dump takes about 1.5 hours.
+
+You can run multiple tests in parallel, use `--pattern` to disambiguate.
+
+Configure the desirable generated load with the `--max-tps` flag, or disable load altogether with `--skip-load`.
+"""
 import argparse
 import random
 import sys
@@ -5,7 +22,7 @@ import time
 
 sys.path.append('lib')
 
-import load_test_spoon_helper
+from helpers import load_test_spoon_helper
 import mocknet
 import data
 
@@ -31,13 +48,12 @@ def measure_tps_bps(nodes, tx_filename):
     return result
 
 
-def check_tps(measurement, expected_in, expected_out=None, tolarance=0.05):
+def check_tps(measurement, expected_in, expected_out=None, tolerance=0.05):
     if expected_out is None:
         expected_out = expected_in
-    within_tolarance = lambda x, y: (abs(x - y) / y) <= tolarance
-    return within_tolarance(measurement['in_tps'],
-                            expected_in) and within_tolarance(
-                                measurement['out_tps'], expected_out)
+    almost_equal = lambda x, y: (abs(x - y) / y) <= tolerance
+    return (almost_equal(measurement['in_tps'], expected_in) and
+            almost_equal(measurement['out_tps'], expected_out))
 
 
 def check_memory_usage(node):
@@ -59,8 +75,8 @@ def check_slow_blocks(initial_metrics, final_metrics):
 if __name__ == '__main__':
     logger.info('Starting Load test.')
     parser = argparse.ArgumentParser(description='Run a load test')
-    parser.add_argument('--chain-id', type=ascii, required=True)
-    parser.add_argument('--pattern', type=ascii, required=False)
+    parser.add_argument('--chain-id', required=True)
+    parser.add_argument('--pattern', required=False)
     parser.add_argument('--epoch-length', type=int, required=True)
     parser.add_argument('--num-nodes', type=int, required=True)
     parser.add_argument('--max-tps', type=float, required=True)
@@ -70,8 +86,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    chain_id = args.chain_id.strip("'")
-    pattern = args.pattern.strip("'")
+    chain_id = args.chain_id
+    pattern = args.pattern
     epoch_length = args.epoch_length
     assert epoch_length > 0
     num_nodes = args.num_nodes
@@ -139,10 +155,10 @@ if __name__ == '__main__':
             logger.error(f'bps is below 0.5: {all_tx_measurement["bps"]}')
         if not check_memory_usage(validator_nodes[0]):
             test_passed = False
-            logger.error('Memory usage failed')
+            logger.error('Memory usage too large')
         if not check_slow_blocks(initial_metrics, final_metrics):
             test_passed = False
-            logger.error('Slow blocks check failed')
+            logger.error('Too many slow blocks')
 
     time.sleep(5)
 
@@ -150,7 +166,9 @@ if __name__ == '__main__':
     logger.info(f'final_validator_accounts: {final_validator_accounts}')
     if initial_validator_accounts != final_validator_accounts:
         test_passed = False
-        logger.error(f'Mismatching set of validators:\n{initial_validator_accounts}\n{final_validator_accounts}')
+        logger.error(
+            f'Mismatching set of validators:\n{initial_validator_accounts}\n{final_validator_accounts}'
+        )
 
     assert test_passed
     logger.info('Load test complete.')

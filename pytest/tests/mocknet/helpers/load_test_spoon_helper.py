@@ -1,7 +1,10 @@
-# Generates transactions on a mocknet node.
-# This file is uploaded to each mocknet node and run there.
+"""
+Generates transactions on a mocknet node.
+This file is uploaded to each mocknet node and run there.
+"""
 
 import json
+import itertools
 import random
 import sys
 import time
@@ -14,7 +17,6 @@ sys.path.append('lib')
 import account
 import key
 import mocknet
-import utils
 from configured_logger import logger
 
 LOCAL_ADDR = '127.0.0.1'
@@ -143,9 +145,9 @@ def random_transaction(account, i, node_account, max_tps_per_node):
 
 def send_random_transactions(node_account, test_accounts, max_tps_per_node):
     pmap(
-        lambda account_and_index: random_transaction(account_and_index[
-            0], account_and_index[1], node_account, max_tps_per_node),
-        test_accounts)
+        lambda index_and_account: random_transaction(index_and_account[
+            1], index_and_account[0], node_account, max_tps_per_node),
+        enumerate(test_accounts))
 
 
 def throttle_txns(send_txns, total_tx_sent, elapsed_time, max_tps_per_node,
@@ -177,19 +179,19 @@ def write_tx_events(accounts_and_indices, filename):
             output.write(f'{t}\n')
 
 
-def get_test_accounts_from_args():
-    node_account_id = sys.argv[1]
-    pk = sys.argv[2]
-    sk = sys.argv[3]
-    rpc_nodes = sys.argv[4].split(',')
-    num_nodes = int(sys.argv[5])
-    max_tps = float(sys.argv[6])
+def get_test_accounts_from_args(argv):
+    node_account_id = argv[1]
+    pk = argv[2]
+    sk = argv[3]
+    rpc_nodes = argv[4].split(',')
+    num_nodes = int(argv[5])
+    max_tps = float(argv[6])
     logger.info(f'rpc_nodes: {str(rpc_nodes)}')
 
     node_account_key = key.Key(node_account_id, pk, sk)
     test_account_keys = [
-        (key.Key(mocknet.load_testing_account_id(node_account_id, i), pk,
-                 sk), i) for i in range(mocknet.NUM_ACCOUNTS)
+        key.Key(mocknet.load_testing_account_id(node_account_id, i), pk, sk)
+        for i in range(mocknet.NUM_ACCOUNTS)
     ]
 
     base_block_hash = get_latest_block_hash()
@@ -200,9 +202,11 @@ def get_test_accounts_from_args():
         node_account_key,
         get_nonce_for_pk(node_account_key.account_id, node_account_key.pk),
         base_block_hash, rpc_infos[0])
-    accounts = [(account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                                 base_block_hash, rpc_infos[i]), i)
-                for (key, i) in test_account_keys]
+    accounts = [
+        account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
+                        base_block_hash, rpc_info)
+        for key, rpc_info in zip(test_account_keys, itertools.cycle(rpc_infos))
+    ]
     max_tps_per_node = max_tps / num_nodes
     return node_account, accounts, max_tps_per_node
 
@@ -213,7 +217,7 @@ def init_ft(node_account):
     logger.info(f'ft deployment {tx_res}')
     wait_at_least_one_block()
 
-    s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{str(int(10**33))}"}}'
+    s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{str(10**33)}"}}'
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
                                                     'new_default_meta',
                                                     s.encode('utf-8'), 0)
@@ -224,8 +228,7 @@ def init_ft_account(node_account, account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
     tx_res = account.send_call_contract_raw_tx(node_account.key.account_id,
                                                'storage_deposit',
-                                               s.encode('utf-8'),
-                                               int(10**24 // 800))
+                                               s.encode('utf-8'), 10**24 // 800)
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
@@ -233,7 +236,7 @@ def init_ft_account(node_account, account, i):
     # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
     wait_at_least_one_block()
 
-    s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{str(int(10**18))}"}}'
+    s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{str(10**18)}"}}'
     logger.info(
         f'Calling function "ft_transfer" with arguments {s} on account {i}')
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
@@ -260,7 +263,7 @@ def wait_at_least_one_block():
 def main(argv):
     logger.info(argv)
     (node_account, test_accounts,
-     max_tps_per_node) = get_test_accounts_from_args()
+     max_tps_per_node) = get_test_accounts_from_args(argv)
 
     start_time = time.time()
 
@@ -271,7 +274,7 @@ def main(argv):
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
     init_ft(node_account)
-    for (account, i) in test_accounts:
+    for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         init_ft_account(node_account, account, i)

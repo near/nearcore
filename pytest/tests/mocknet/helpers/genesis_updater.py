@@ -1,6 +1,10 @@
-# Creates a genesis file from a template.
-# This file is uploaded to each mocknet node and run on the node, producing identical genesis files across all nodes.
-# This approach is significantly faster than the alternative, of uploading the genesis file to all mocknet nodes. Currently testnet state is a 17GB json file, and uploading that file to 100 machines over a 1Gbit/s connection would need 4 hours.
+"""
+Creates a genesis file from a template.
+This file is uploaded to each mocknet node and run on the node, producing identical genesis files across all nodes.
+This approach is significantly faster than the alternative, of uploading the genesis file to all mocknet nodes.
+Currently testnet state is a 17GB json file, and uploading that file to 100 machines over a 1Gbit/s connection would
+need at 4 hours.
+"""
 
 import pathlib
 import sys

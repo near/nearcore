@@ -129,10 +129,10 @@ def setup_python_environment(node, wasm_contract):
     m.upload(wasm_contract,
              os.path.join(PYTHON_DIR, WASM_FILENAME),
              switch_user='ubuntu')
-    m.upload('tests/mocknet/load_test_spoon_helper.py',
+    m.upload('tests/mocknet/helpers/load_test_spoon_helper.py',
              PYTHON_DIR,
              switch_user='ubuntu')
-    m.upload('tests/mocknet/genesis_updater.py',
+    m.upload('tests/mocknet/helpers/genesis_updater.py',
              PYTHON_DIR,
              switch_user='ubuntu')
     m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
