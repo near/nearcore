@@ -1,5 +1,6 @@
 import atexit
 import base64
+import collections
 import json
 import multiprocessing
 import os
@@ -13,6 +14,7 @@ import sys
 import threading
 import time
 import traceback
+import typing
 import uuid
 from rc import gcloud
 from retrying import retry
@@ -64,6 +66,42 @@ def nretry(fn, timeout):
             delay *= 1.2
 
 
+BootNode = typing.Union[None, 'BaseNode', typing.Iterable['BaseNode']]
+
+
+def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
+    """Converts `boot_node` argument to `--boot-nodes` command line argument.
+
+    If the argument is `None` returns an empty tuple.  Otherwise, returns
+    a tuple representing arguments to be added to `neard` invocation for setting
+    boot nodes according to `boot_node` argument.
+
+    Apart from `None` as described above, `boot_node` can be a [`BaseNode`]
+    object, or an iterable (think list) of [`BaseNode`] objects.  The boot node
+    address of a BaseNode object is contstructed using [`BaseNode.addr_with_pk`]
+    method.
+
+    If iterable of nodes is given, the `neard` is going to be configured with
+    multiple boot nodes.
+
+    Args:
+        boot_node: Specification of boot node(s).
+    Returns:
+        A tuple to add to `neard` invocation specifying boot node(s) if any
+        specified.
+    """
+    if not boot_node:
+        return ()
+    try:
+        it = iter(boot_node)
+    except TypeError:
+        it = iter((boot_node,))
+    nodes = ','.join(node.addr_with_pk() for node in it)
+    if not nodes:
+        return ()
+    return ('--boot-nodes', nodes)
+
+
 class BaseNode(object):
 
     def __init__(self):
@@ -76,12 +114,10 @@ class BaseNode(object):
     def _get_command_line(self,
                           near_root,
                           node_dir,
-                          boot_node,
+                          boot_node: BootNode,
                           binary_name='neard'):
-        cmd = [os.path.join(near_root, binary_name), '--home', node_dir, 'run']
-        if boot_node:
-            cmd.extend(('--boot-nodes', boot_node.addr_with_pk()))
-        return cmd
+        cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
+        return cmd + make_boot_nodes_arg(boot_node)
 
     def addr_with_pk(self) -> str:
         pk_hash = self.node_key.pk.split(':')[1]
@@ -294,7 +330,7 @@ class LocalNode(BaseNode):
         if self._start_proxy is not None:
             self._proxy_local_stopped = self._start_proxy()
 
-    def start(self, *, boot_node=None, skip_starting_proxy=False):
+    def start(self, *, boot_node: BootNode = None, skip_starting_proxy=False):
         if self._proxy_local_stopped is not None:
             while self._proxy_local_stopped.value != 2:
                 logger.info(f'Waiting for previous proxy instance to close')
@@ -451,7 +487,7 @@ chmod +x neard
     def rpc_addr(self):
         return (self.ip, self.rpc_port)
 
-    def start(self, *, boot_node=None):
+    def start(self, *, boot_node: BootNode = None):
         self.machine.run_detach_tmux(
             "RUST_BACKTRACE=1 " +
             " ".join(self._get_command_line('.', '.near', boot_node)))
@@ -512,17 +548,17 @@ def spin_up_node(config,
                  node_dir,
                  ordinal,
                  *,
-                 boot_node=None,
+                 boot_node: BootNode = None,
                  blacklist=[],
                  proxy=None,
                  skip_starting_proxy=False,
                  single_node=False):
     is_local = config['local']
 
+    args = make_boot_nodes_arg(boot_node)
     logger.info("Starting node %s %s" %
                 (ordinal,
-                 ('with boot=' +
-                  boot_node.addr_with_pk() if boot_node else 'as BOOT NODE')))
+                 ('with ' + '='.join(args) if args else 'as BOOT NODE')))
 
     if is_local:
         blacklist = [
@@ -672,7 +708,7 @@ def start_cluster(num_nodes,
     proxy = NodesProxy(message_handler) if message_handler is not None else None
     ret = []
 
-    def spin_up_node_and_push(i, boot_node):
+    def spin_up_node_and_push(i, boot_node: BootNode):
         single_node = (num_nodes == 1) and (num_observers == 0)
         node = spin_up_node(config,
                             near_root,

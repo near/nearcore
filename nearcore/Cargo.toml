@@ -6,7 +6,6 @@ publish = false
 edition = "2018"
 
 [dependencies]
-jemallocator = "0.3"
 awc = "3.0.0-beta.5"
 actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
@@ -26,7 +25,7 @@ thiserror = "1.0"
 tracing = "0.1.13"
 smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
-near-rust-allocator-proxy = "0.2.8"
+near-rust-allocator-proxy = "0.3.0"
 lazy-static-include = "3"
 
 near-crypto = { path = "../core/crypto" }
