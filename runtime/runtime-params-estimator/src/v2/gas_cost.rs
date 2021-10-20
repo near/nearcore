@@ -8,6 +8,11 @@ use num_rational::Ratio;
 use crate::cases::ratio_to_gas;
 use crate::testbed_runners::{end_count, start_count, Consumed, GasMetric};
 
+/// Result of cost estimation.
+///
+/// Holds wall-clock time or number of instructions and can be converted to
+/// `Gas`. `GasCost` can also be flagged as "uncertain" if we failed to
+/// reproducibly measure it.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct GasCost {
     /// The smallest thing we are measuring is one wasm instruction, and it
@@ -24,16 +29,19 @@ pub(crate) struct GasClock {
 }
 
 impl GasCost {
-    pub(crate) fn from_raw(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
-        GasCost { value: raw, metric, uncertain: false }
+    pub(crate) fn zero(metric: GasMetric) -> GasCost {
+        GasCost { value: 0.into(), metric, uncertain: false }
     }
 
     pub(crate) fn measure(metric: GasMetric) -> GasClock {
         let start = start_count(metric);
         GasClock { start, metric }
     }
-    pub(crate) fn zero(metric: GasMetric) -> GasCost {
-        GasCost { value: 0.into(), metric, uncertain: false }
+
+    /// Creates `GasCost` out of raw numeric value. This is required mostly for
+    /// compatibility with existing code, prefer using `measure` instead.
+    pub(crate) fn from_raw(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
+        GasCost { value: raw, metric, uncertain: false }
     }
 
     pub(crate) fn is_uncertain(&self) -> bool {

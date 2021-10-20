@@ -9,6 +9,12 @@ use crate::v2::gas_cost::GasCost;
 
 use super::transaction_builder::TransactionBuilder;
 
+/// Global context shared by all cost calculating functions.
+pub(crate) struct Ctx<'c> {
+    pub(crate) config: &'c Config,
+    pub(crate) cached: CachedCosts,
+}
+
 #[derive(Default)]
 pub(crate) struct CachedCosts {
     pub(crate) action_receipt_creation: Option<GasCost>,
@@ -18,12 +24,6 @@ pub(crate) struct CachedCosts {
     pub(crate) noop_host_function_call_cost: Option<GasCost>,
     pub(crate) storage_read_base: Option<GasCost>,
     pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
-}
-
-/// Global context shared by all cost calculating functions.
-pub(crate) struct Ctx<'c> {
-    pub(crate) config: &'c Config,
-    pub(crate) cached: CachedCosts,
 }
 
 impl<'c> Ctx<'c> {
@@ -44,7 +44,7 @@ impl<'c> Ctx<'c> {
     }
 }
 
-/// A single isolated instance of near.
+/// A single isolated instance of runtime.
 ///
 /// We use it to time processing a bunch of blocks.
 pub(crate) struct TestBed<'c> {

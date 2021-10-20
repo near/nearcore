@@ -1,5 +1,42 @@
-mod ctx;
+//! Code to estimate each specific cost.
+//!
+//! Each cost is registered in `ALL_COSTS` array, together with a
+//! cost-estimation function. Function can be arbitrary. Most, but not all,
+//! costs are estimated using roughly the following algorithm:
+//!
+//!   * Create an instance of near starting with specific fixture with many
+//!     accounts deployed.
+//!   * Create a template transaction, like transfer from a to b.
+//!   * Create a bunch of blocks stuffed with copies of this template
+//!     transaction.
+//!   * Measure the "time" it takes to process the blocks (including all
+//!     generated receipts)
+//!   * Divide the total time by number of blocks * number of transactions in a
+//!     block.
+//!
+//! Some common variations:
+//!
+//!   * As we measure "the whole thing", we deduct base costs from composite
+//!     measurements. For example, when estimating cost of transfer action we
+//!     deduct the cost of an empty transaction, as that is accounted for
+//!     separately.
+//!   * For "per byte" costs, like `ActionDeployContractPerByte`, we estimate
+//!     the time required for a "large" input, for an empty input, and divide
+//!     the difference by the number of bytes. As an alternative, least squares
+//!     method is used for cases where we have several interesting inputs with
+//!     different sizes.
+//!   * For host functions, use few blocks of transactions. Instead, each
+//!     transaction calls host function from `wasm` in a loop.
+//!   * Some costs are measured more directly. For example, to measure cost of
+//!     wasm opcode we call vm_runner directly, bypassing the rest of runtime
+//!     machinery.
+//!
+//! Some costs depend on each other. As we want to allow estimating a subset of
+//! costs and don't want to just run everything in order (as that would be to
+//! slow), we have a very simple manual caching infrastructure in place.
+
 mod gas_cost;
+mod ctx;
 mod transaction_builder;
 
 use std::collections::HashMap;
@@ -481,6 +518,24 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
 
     (total_cost - base_cost) / count
 }
+fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
+    if let Some(cost) = ctx.cached.noop_host_function_call_cost.clone() {
+        return cost;
+    }
+
+    let cost = {
+        let test_bed = ctx.test_bed();
+
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            tb.transaction_from_function_call(sender, "noop", Vec::new())
+        };
+        transaction_cost(test_bed, &mut make_transaction)
+    };
+
+    ctx.cached.noop_host_function_call_cost = Some(cost.clone());
+    cost
+}
 
 fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
@@ -855,25 +910,6 @@ fn transaction_cost_ext(
     aggregate_per_block_measurements(test_bed.config, block_size, measurements)
 }
 
-fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
-    if let Some(cost) = ctx.cached.noop_host_function_call_cost.clone() {
-        return cost;
-    }
-
-    let cost = {
-        let test_bed = ctx.test_bed();
-
-        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
-            let sender = tb.random_unused_account();
-            tb.transaction_from_function_call(sender, "noop", Vec::new())
-        };
-        transaction_cost(test_bed, &mut make_transaction)
-    };
-
-    ctx.cached.noop_host_function_call_cost = Some(cost.clone());
-    cost
-}
-
 fn fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> GasCost {
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
     assert_eq!(measured_count, count);
@@ -895,6 +931,13 @@ fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u
     (gas_cost, ext_cost)
 }
 
+/// Estimates the cost to call `method`, but makes sure that `setup` is called
+/// before.
+///
+/// Used for storage costs -- `setup` writes stuff into the storage, where
+/// `method` can then find it. We take care to make sure that `setup` is run in
+/// a separate block, to make sure we hit the database and not an in-memory hash
+/// map.
 fn fn_cost_with_setup(
     ctx: &mut Ctx,
     setup: &str,
@@ -975,11 +1018,19 @@ fn aggregate_per_block_measurements(
     (gas_cost, total_ext_costs)
 }
 
+/// We expect our cost computations to be fairly reproducible, and just flag
+/// "high-variance" measurements as suspicious. To make results easily
+/// explainable, we just require that all the samples don't deviate from the
+/// mean by more than 15%, where the number 15 is somewhat arbitrary.
+///
+/// Note that this looks at block processing times, and each block contains
+/// multiples of things we are actually measuring. As low block variance doesn't
+/// guarantee low within-block variance, this is necessary an approximate sanity
+/// check.
 fn is_high_variance(samples: &[f64]) -> bool {
-    let n_samples = samples.len() as f64;
     let threshold = 0.15;
 
-    let mean = samples.iter().copied().sum::<f64>() / n_samples;
+    let mean = samples.iter().copied().sum::<f64>() / (samples.len() as f64);
 
     let all_below_threshold =
         samples.iter().copied().all(|it| (mean - it).abs() < mean * threshold);
