@@ -1,4 +1,5 @@
-# Spins up two validating nodes. Stop one of them and make another one produce
+# Spins up two validating nodes. The nodes start with 1 shard and will update to 4 shards
+# Stop one of them and make another one produce
 # sufficient number of blocks. Restart the stopped node and check that it can
 # still sync.
 
@@ -31,23 +32,49 @@ consensus_config = {
 
 nodes = start_cluster(
     2, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats", 5],
+    [["protocol_version", 47],
+     ["epoch_length", 10], ["num_block_producer_seats", 5],
      ["num_block_producer_seats_per_shard", [5]],
      ["chunk_producer_kickout_threshold", 80],
      ["shard_layout", {
-                         "V0": {
-                             "num_shards": 1,
-                             "version": 1,
-                         }
-                     }],
+         "V0": {
+             "num_shards": 1,
+             "version": 0,
+         }
+     }],
+     ["simple_nightshade_shard_layout", {
+         "V1": {
+             "fixed_shards": [],
+             "boundary_accounts": [
+                 "aurora",
+                 "aurora-0",
+                 "kkuuue2akv_1630967379.near"
+             ],
+             "shards_split_map": [
+                 [
+                     0,
+                     1,
+                     2,
+                     3
+                 ]
+             ],
+             "to_parent_shard_map": [
+                 0,
+                 0,
+                 0,
+                 0
+             ],
+             "version": 1
+         }
+     }],
      ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
      ], ["total_supply", "3060000000000000000000000000000000"]], {
-         0: consensus_config,
-         1: consensus_config
-     })
+        0: consensus_config,
+        1: consensus_config
+    })
 
 logger.info('Kill node 1')
 nodes[1].kill()
