@@ -79,7 +79,7 @@ def function_call_set_delete_state(account, i, node_account):
         next_val = random.randint(0, 1000)
         next_account_id = mocknet.load_testing_account_id(
             node_account.key.account_id, next_id)
-        s = f'{{"account_id": "account_{str(next_val)}", "message":"{str(next_val)}"}}'
+        s = f'{{"account_id": "account_{next_val}", "message":"{next_val}"}}'
         logger.info(
             f'Calling function "set_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
@@ -94,7 +94,7 @@ def function_call_set_delete_state(account, i, node_account):
         (next_id, next_val) = item
         next_account_id = mocknet.load_testing_account_id(
             node_account.key.account_id, next_id)
-        s = f'{{"account_id": "account_{str(next_val)}"}}'
+        s = f'{{"account_id": "account_{next_val}"}}'
         logger.info(
             f'Calling function "delete_state" of account {next_account_id} with arguments {s} from account {account.key.account_id}'
         )
@@ -186,7 +186,7 @@ def get_test_accounts_from_args(argv):
     rpc_nodes = argv[4].split(',')
     num_nodes = int(argv[5])
     max_tps = float(argv[6])
-    logger.info(f'rpc_nodes: {str(rpc_nodes)}')
+    logger.info(f'rpc_nodes: {rpc_nodes}')
 
     node_account_key = key.Key(node_account_id, pk, sk)
     test_account_keys = [
@@ -195,17 +195,15 @@ def get_test_accounts_from_args(argv):
     ]
 
     base_block_hash = get_latest_block_hash()
-    rpc_infos = [(rpc_nodes[i % len(rpc_nodes)], RPC_PORT)
-                 for i in range(len(test_account_keys))]
 
     node_account = account.Account(
         node_account_key,
         get_nonce_for_pk(node_account_key.account_id, node_account_key.pk),
-        base_block_hash, rpc_infos[0])
+        base_block_hash, (rpc_nodes[0], RPC_PORT))
     accounts = [
         account.Account(key, get_nonce_for_pk(key.account_id, key.pk),
-                        base_block_hash, rpc_info)
-        for key, rpc_info in zip(test_account_keys, itertools.cycle(rpc_infos))
+                        base_block_hash, (rpc_node, RPC_PORT))
+        for key, rpc_node in zip(test_account_keys, itertools.cycle(rpc_nodes))
     ]
     max_tps_per_node = max_tps / num_nodes
     return node_account, accounts, max_tps_per_node
@@ -217,7 +215,7 @@ def init_ft(node_account):
     logger.info(f'ft deployment {tx_res}')
     wait_at_least_one_block()
 
-    s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{str(10**33)}"}}'
+    s = f'{{"owner_id": "{node_account.key.account_id}", "total_supply": "{10**33}"}}'
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
                                                     'new_default_meta',
                                                     s.encode('utf-8'), 0)
@@ -236,7 +234,7 @@ def init_ft_account(node_account, account, i):
     # This works because the contracts are being deployed slow enough to keep block production above 1 bps.
     wait_at_least_one_block()
 
-    s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{str(10**18)}"}}'
+    s = f'{{"receiver_id": "{account.key.account_id}", "amount": "{10**18}"}}'
     logger.info(
         f'Calling function "ft_transfer" with arguments {s} on account {i}')
     tx_res = node_account.send_call_contract_raw_tx(node_account.key.account_id,
