@@ -233,6 +233,8 @@ impl fmt::Debug for NibbleSlice<'_> {
 mod tests {
     use super::NibbleSlice;
     use elastic_array::ElasticArray36;
+    use rand::{thread_rng, Rng};
+
     static D: &'static [u8; 3] = &[0x01u8, 0x23, 0x45];
 
     #[test]
@@ -288,6 +290,28 @@ mod tests {
         assert_eq!((n, true), NibbleSlice::from_encoded(&[0x20, 0x01, 0x23, 0x45]));
         assert_eq!((n.mid(1), false), NibbleSlice::from_encoded(&[0x11, 0x23, 0x45]));
         assert_eq!((n.mid(1), true), NibbleSlice::from_encoded(&[0x31, 0x23, 0x45]));
+    }
+
+    fn encode_decode(nibbles: &[u8], is_leaf: bool) {
+        let n = NibbleSlice::encode_nibbles(nibbles, is_leaf);
+        let (n, is_leaf_decoded) = NibbleSlice::from_encoded(&n);
+        assert_eq!(&n.iter().collect::<Vec<_>>(), nibbles);
+        assert_eq!(is_leaf_decoded, is_leaf)
+    }
+
+    #[test]
+    fn test_encode_decode() {
+        encode_decode(&[15u8], false);
+        encode_decode(&[0u8], false);
+        encode_decode(&[15u8], true);
+        encode_decode(&[0u8], true);
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let l = rng.gen_range(0, 10);
+            let nibbles: Vec<_> = (0..l).map(|_| rng.gen_range(0, 16) as u8).collect();
+            encode_decode(&nibbles, true);
+            encode_decode(&nibbles, false);
+        }
     }
 
     #[test]

@@ -44,6 +44,14 @@ steps:
 
       python3 scripts/check_nightly.py
       python3 scripts/check_pytests.py
+      # TODO(near-ops#645): Remove pip install once yapf is bundled in the image.
+      python3 -m pip install --user yapf
+      if ! python3 -m yapf -pdr pytest scripts; then
+          echo 'Some of the Python files are not correctly formatted; please run'
+          echo '    python3 -m pip install -U yapf'
+          echo '    python3 -m yapf -pir pytest scripts'
+          exit 1
+      fi >&2
     timeout: 30
     agents:
     - "distro=amazonlinux"
