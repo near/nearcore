@@ -628,8 +628,11 @@ impl Chain {
                         break;
                     } else if prev_block_refcount == 1 {
                         debug_assert_eq!(blocks_current_height.len(), 1);
-                        chain_store_update
-                            .clear_block_data(*block_hash, GCMode::Canonical(tries.clone()))?;
+                        chain_store_update.clear_block_data(
+                            *block_hash,
+                            &*self.runtime_adapter,
+                            GCMode::Canonical(tries.clone()),
+                        )?;
                         gc_blocks_remaining -= 1;
                     } else {
                         return Err(ErrorKind::GCError(
@@ -670,8 +673,11 @@ impl Chain {
                             *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
                         // It's safe to call `clear_block_data` for prev data because it clears fork only here
-                        chain_store_update
-                            .clear_block_data(current_hash, GCMode::Fork(tries.clone()))?;
+                        chain_store_update.clear_block_data(
+                            current_hash,
+                            &*self.runtime_adapter,
+                            GCMode::Fork(tries.clone()),
+                        )?;
                         chain_store_update.commit()?;
                         *gc_blocks_remaining -= 1;
 
@@ -933,6 +939,7 @@ impl Chain {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
+                    let runtime_adapter = self.runtime_adapter();
                     let mut chain_store_update = self.mut_store().store_update();
                     if !tail_prev_block_cleaned {
                         let prev_block_hash =
@@ -940,6 +947,7 @@ impl Chain {
                         if chain_store_update.get_block(&prev_block_hash).is_ok() {
                             chain_store_update.clear_block_data(
                                 prev_block_hash,
+                                &*runtime_adapter,
                                 GCMode::StateSync { clear_block_info: true },
                             )?;
                         }
@@ -947,6 +955,7 @@ impl Chain {
                     }
                     chain_store_update.clear_block_data(
                         block_hash,
+                        &*runtime_adapter,
                         GCMode::StateSync { clear_block_info: block_hash != prev_hash },
                     )?;
                     chain_store_update.commit()?;
