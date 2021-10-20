@@ -4,9 +4,18 @@ use once_cell::sync::OnceCell;
 use std::fmt::Write;
 use std::path::Path;
 
+/// Standard test contract which can call various host functinos
+///
+/// Note: the contract relies on the latest protocol version, and
+/// might not work for tests using older version
 pub fn rs_contract() -> &'static [u8] {
     static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("test_contract_rs.wasm")).as_slice()
+}
+
+pub fn rs_contract_base_protocol() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("test_contract_rs_base_protocol.wasm")).as_slice()
 }
 
 pub fn nightly_rs_contract() -> &'static [u8] {
@@ -40,6 +49,7 @@ fn smoke_test() {
     assert!(!nightly_rs_contract().is_empty());
     assert!(!ts_contract().is_empty());
     assert!(!tiny_contract().is_empty());
+    assert!(!rs_contract_base_protocol().is_empty());
 }
 
 pub fn many_functions_contract(function_count: u32) -> Vec<u8> {

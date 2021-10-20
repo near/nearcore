@@ -36,7 +36,7 @@ macro_rules! rust2wasm {
 }
 
 macro_rules! wrapped_imports {
-        ( $($(#[$feature_name:tt, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
+        ( $($(#[$stable_feature:ident])? $(#[$feature_name:literal, $feature:ident])* $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             #[cfg(feature = "wasmer0_vm")]
             pub mod wasmer_ext {
                 use near_vm_logic::VMLogic;
@@ -127,7 +127,7 @@ macro_rules! wrapped_imports {
                 ns.insert("memory", memory);
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         ns.insert(stringify!($func), wasmer_runtime::func!(wasmer_ext::$func));
                     }
                 })*
@@ -150,7 +150,7 @@ macro_rules! wrapped_imports {
                 namespace.insert("memory", memory);
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         namespace.insert(stringify!($func), wasmer::Function::new_native_with_env(&store, env.clone(), wasmer2_ext::$func));
                     }
                 })*
@@ -174,7 +174,7 @@ macro_rules! wrapped_imports {
                 linker.define("env", "memory", memory).expect("cannot define memory");
                 $({
                     $(#[cfg(feature = $feature_name)])*
-                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* {
+                    if true $(&& near_primitives::checked_feature!($feature_name, $feature, protocol_version))* $(&& near_primitives::checked_feature!("stable", $stable_feature, protocol_version))? {
                         linker.func("env", stringify!($func), wasmtime_ext::$func).expect("cannot link external");
                     }
                 })*
@@ -224,8 +224,8 @@ wrapped_imports! {
     sha256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak256<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
     keccak512<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
-    ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
+    #[MathExtension] ripemd160<[value_len: u64, value_ptr: u64, register_id: u64] -> []>,
+    #[MathExtension] ecrecover<[hash_len: u64, hash_ptr: u64, sign_len: u64, sig_ptr: u64, v: u64, malleability_flag: u64, register_id: u64] -> [u64]>,
     // #####################
     // # Miscellaneous API #
     // #####################
