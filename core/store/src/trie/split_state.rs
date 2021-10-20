@@ -329,8 +329,10 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_changes, gen_receipts, gen_unique_accounts, test_populate_trie,
+        create_tries, gen_changes, gen_larger_changes, gen_receipts, gen_unique_accounts,
+        simplify_changes, test_populate_trie,
     };
+
     use crate::{get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
     use near_primitives::account::Account;
@@ -420,6 +422,44 @@ mod tests {
     }
 
     #[test]
+    fn test_get_trie_items_for_part() {
+        let mut rng = rand::thread_rng();
+        let tries = create_tries();
+        let num_parts = rng.gen_range(5, 10);
+
+        let changes = gen_larger_changes(&mut rng, 1000);
+        let changes = simplify_changes(&changes);
+        let state_root = test_populate_trie(
+            &tries,
+            &CryptoHash::default(),
+            ShardUId::default(),
+            changes.clone(),
+        );
+        let mut expected_trie_items: Vec<_> =
+            changes.into_iter().map(|(key, value)| (key, value.unwrap())).collect();
+        expected_trie_items.sort();
+
+        let trie = tries.get_trie_for_shard(ShardUId::default());
+        let total_trie_items = trie.get_trie_items_for_part(0, 1, &state_root).unwrap();
+        assert_eq!(expected_trie_items, total_trie_items);
+
+        let mut combined_trie_items = vec![];
+        for part_id in 0..num_parts {
+            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, &state_root).unwrap();
+            combined_trie_items.extend_from_slice(&trie_items);
+            // check that items are split relatively evenly across all parts
+            assert!(
+                trie_items.len() >= total_trie_items.len() / num_parts as usize / 2
+                    && trie_items.len() <= total_trie_items.len() / num_parts as usize * 2,
+                "part length {} avg length {}",
+                trie_items.len(),
+                total_trie_items.len() / num_parts as usize
+            );
+        }
+        assert_eq!(expected_trie_items, combined_trie_items);
+    }
+
+    #[test]
     fn test_add_values_to_split_states() {
         let mut rng = rand::thread_rng();
 
@@ -427,10 +467,6 @@ mod tests {
             let tries = create_tries();
             // add 4 new shards for version 1
             let num_shards = 4;
-            let shards: Vec<_> = (0..num_shards)
-                .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
-                .collect();
-            tries.add_new_shards(&shards);
             let mut state_root = Trie::empty_root();
             let mut state_roots: HashMap<_, _> = (0..num_shards)
                 .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, CryptoHash::default()))
@@ -563,10 +599,6 @@ mod tests {
 
         let tries = create_tries();
         let num_shards = 4;
-        let shards: Vec<_> = (0..num_shards)
-            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
-            .collect();
-        tries.add_new_shards(&shards);
 
         for _ in 0..10 {
             let mut state_roots: HashMap<_, _> = (0..num_shards)
@@ -631,10 +663,6 @@ mod tests {
         };
 
         let num_shards = 4;
-        let shards: Vec<_> = (0..num_shards)
-            .map(|shard_id| ShardUId { shard_id: shard_id as u32, version: 1 })
-            .collect();
-        tries.add_new_shards(&shards);
         let account_id_to_shard_id = &|account_id: &AccountId| ShardUId {
             shard_id: (hash(account_id.as_ref().as_bytes()).0[0] as NumShards % num_shards) as u32,
             version: 1,
@@ -646,8 +674,11 @@ mod tests {
                 .get_view_trie_for_shard(ShardUId::default())
                 .get_trie_items_for_part(0, 1, &state_root)
                 .unwrap();
-            let split_state_roots: HashMap<_, _> =
-                shards.iter().map(|shard_uid| (shard_uid.clone(), CryptoHash::default())).collect();
+            let split_state_roots: HashMap<_, _> = (0..num_shards)
+                .map(|shard_id| {
+                    (ShardUId { version: 1, shard_id: shard_id as u32 }, CryptoHash::default())
+                })
+                .collect();
             let (store_update, split_state_roots) = tries
                 .add_values_to_split_states(
                     &split_state_roots,

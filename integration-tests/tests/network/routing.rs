@@ -90,8 +90,8 @@ fn ping_simple() {
     runner.push(Action::AddEdge(0, 1));
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
     runner.push(Action::PingTo(0, 0, 1));
-    runner.push(Action::CheckPingPong(1, vec![(0, 0)], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 1)]));
+    runner.push(Action::CheckPingPong(1, vec![(0, 0, None)], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 1, None)]));
 
     start_test(runner);
 }
@@ -104,8 +104,8 @@ fn ping_jump() {
     runner.push(Action::AddEdge(1, 2));
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
     runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::CheckPingPong(2, vec![(0, 0)], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2)]));
+    runner.push(Action::CheckPingPong(2, vec![(0, 0, None)], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, None)]));
 
     start_test(runner);
 }
@@ -126,8 +126,8 @@ fn test_dont_drop_after_ttl() {
     runner.push(Action::AddEdge(1, 2));
     runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
     runner.push(Action::PingTo(0, 0, 2));
-    runner.push(Action::CheckPingPong(2, vec![(0, 0)], vec![]));
-    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2)]));
+    runner.push(Action::CheckPingPong(2, vec![(0, 0, None)], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, None)]));
 
     start_test(runner);
 }
@@ -271,6 +271,42 @@ fn archival_node() {
         runner.push_action(check_expected_connections(0, Some(2), Some(2)));
         runner.push_action(check_direct_connection(0, 1));
     }
+
+    start_test(runner);
+}
+
+/// Spawn 3 nodes, add edges to form 0---1---2 line. Then send 2 pings from 0 to 2, one should be dropped.
+#[test]
+#[cfg(feature = "test_features")]
+fn test_dropping_routing_messages() {
+    let mut runner = Runner::new(3, 3).max_num_peers(2).enable_outbound();
+
+    runner.push(Action::SetOptions { target: 0, max_num_peers: Some(1) });
+    runner.push(Action::SetOptions { target: 1, max_num_peers: Some(2) });
+    runner.push(Action::SetOptions { target: 2, max_num_peers: Some(1) });
+    runner.push(Action::AddEdge(0, 1));
+    runner.push(Action::AddEdge(1, 2));
+    runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+    runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+    runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1])]));
+    // Wait for routing table calculation
+    runner.push(Action::Wait(2000));
+
+    // Send two pings, one will be dropped, because the delay between them was less than 100ms.
+    runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::Wait(100));
+    runner.push(Action::CheckPingPong(2, vec![(0, 0, Some(1))], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, Some(1))]));
+
+    // Send two pings, one will be dropped, the delay is 150ms, so they don't get dropped.
+    runner.push(Action::Wait(300));
+    runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::Wait(300));
+    runner.push(Action::PingTo(0, 0, 2));
+    runner.push(Action::Wait(300));
+    runner.push(Action::CheckPingPong(2, vec![(0, 0, Some(3))], vec![]));
+    runner.push(Action::CheckPingPong(0, vec![], vec![(0, 2, Some(3))]));
 
     start_test(runner);
 }

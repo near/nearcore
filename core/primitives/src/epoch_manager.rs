@@ -61,6 +61,16 @@ pub struct ShardConfig {
     pub shard_layout: ShardLayout,
 }
 
+impl From<EpochConfig> for ShardConfig {
+    fn from(config: EpochConfig) -> Self {
+        ShardConfig {
+            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: config.avg_hidden_validator_seats_per_shard,
+            shard_layout: config.shard_layout,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AllEpochConfig {
     genesis_epoch_config: EpochConfig,

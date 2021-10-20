@@ -25,7 +25,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -146,7 +146,12 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+    pub fn test_with_runtime_config_store(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        runtime_config_store: RuntimeConfigStore,
+    ) -> Self {
         Self::new(
             home_dir,
             store,
@@ -154,8 +159,12 @@ impl NightshadeRuntime {
             TrackedConfig::new_empty(),
             None,
             None,
-            RuntimeConfigStore::test(),
+            runtime_config_store,
         )
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
     }
 
     pub fn with_config(
@@ -1048,6 +1057,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
     }
 
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone().into())
+    }
+
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
@@ -1648,7 +1662,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let new_shards = next_epoch_shard_layout
             .get_split_shards(shard_id)
             .ok_or(ErrorKind::InvalidShardId(shard_id))?;
-        self.tries.add_new_shards(&new_shards);
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
         let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
@@ -1787,6 +1800,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
         config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
+        let shard_config = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_shard_config(epoch_id)?
+        };
+        config.num_block_producer_seats_per_shard = shard_config.num_block_producer_seats_per_shard;
+        config.avg_hidden_validator_seats_per_shard =
+            shard_config.avg_hidden_validator_seats_per_shard;
+        config.shard_layout = shard_config.shard_layout;
         Ok(config)
     }
 
