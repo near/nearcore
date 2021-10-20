@@ -438,6 +438,16 @@ impl ShardChunkHeader {
     }
 
     #[inline]
+    pub fn shard_id_mut(&mut self) -> &mut ShardId {
+        match self {
+            Self::V1(header) => &mut header.inner.shard_id,
+            Self::V2(header) => &mut header.inner.shard_id,
+            #[cfg(feature = "protocol_feature_block_header_v3")]
+            Self::V3(header) => header.inner.shard_id_mut(),
+        }
+    }
+
+    #[inline]
     pub fn encoded_length(&self) -> u64 {
         match self {
             Self::V1(header) => header.inner.encoded_length,

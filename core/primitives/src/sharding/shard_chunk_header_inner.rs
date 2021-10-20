@@ -68,6 +68,14 @@ impl ShardChunkHeaderInner {
     }
 
     #[inline]
+    pub fn shard_id_mut(&mut self) -> &mut ShardId {
+        match self {
+            Self::V1(inner) => &mut inner.shard_id,
+            Self::V2(inner) => &mut inner.shard_id,
+        }
+    }
+
+    #[inline]
     pub fn outcome_root(&self) -> &CryptoHash {
         match self {
             Self::V1(inner) => &inner.outcome_root,
