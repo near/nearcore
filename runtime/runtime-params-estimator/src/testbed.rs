@@ -10,7 +10,7 @@ use near_store::{ShardTries, ShardUId, StoreCompiledContractCache};
 use near_vm_logic::VMLimitConfig;
 use nearcore::get_store_path;
 use node_runtime::{ApplyState, Runtime};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct RuntimeTestbed {
@@ -136,11 +136,5 @@ impl RuntimeTestbed {
         while !self.prev_receipts.is_empty() {
             self.process_block(&[], allow_failures);
         }
-    }
-
-    pub fn dump_state(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let state_dump = StateDump { store: self.tries.get_store(), roots: vec![self.root] };
-        state_dump.save_to_dir(self.workdir.path().to_path_buf())?;
-        Ok(self.workdir.path().to_path_buf())
     }
 }

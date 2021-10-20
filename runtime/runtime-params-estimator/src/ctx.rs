@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use near_primitives::transaction::SignedTransaction;
 use near_vm_logic::ExtCosts;
 
+use crate::gas_cost::GasCost;
 use crate::testbed::RuntimeTestbed;
 use crate::testbed_runners::{get_account_id, Config};
-use crate::v2::gas_cost::GasCost;
 
 use super::transaction_builder::TransactionBuilder;
 

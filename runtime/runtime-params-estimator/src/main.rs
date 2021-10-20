@@ -7,11 +7,10 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::create_store;
 use near_vm_runner::internal::VMKind;
 use nearcore::{get_store_path, load_config};
-use runtime_params_estimator::cases::run;
 use runtime_params_estimator::costs_to_runtime_config;
+use runtime_params_estimator::read_resource;
 use runtime_params_estimator::testbed_runners::Config;
 use runtime_params_estimator::testbed_runners::GasMetric;
-use runtime_params_estimator::v2::read_resource;
 use runtime_params_estimator::CostTable;
 use std::env;
 use std::fmt::Write;
@@ -49,9 +48,6 @@ struct CliArgs {
     /// Which VM to test.
     #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: Option<String>,
-    /// Only test contract compilation costs.
-    #[clap(long)]
-    compile_only: bool,
     /// Render existing `costs.txt` as `RuntimeConfig`.
     #[clap(long)]
     costs_file: Option<PathBuf>,
@@ -69,10 +65,6 @@ struct CliArgs {
     /// Works only with enabled docker, because precise computations without it doesn't make sense.
     #[clap(long)]
     full: bool,
-
-    /// Work in progess -- run alternative version of the estimator.
-    #[clap(long)]
-    v2: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -86,15 +78,11 @@ fn main() -> anyhow::Result<()> {
         None => {
             temp_dir = tempfile::tempdir()?;
 
-            let contract_code = if cli_args.v2 {
-                read_resource(if cfg!(feature = "nightly_protocol_features") {
-                    "test-contract/res/nightly_small_contract.wasm"
-                } else {
-                    "test-contract/res/stable_small_contract.wasm"
-                })
+            let contract_code = read_resource(if cfg!(feature = "nightly_protocol_features") {
+                "test-contract/res/nightly_small_contract.wasm"
             } else {
-                near_test_contracts::tiny_contract().to_vec()
-            };
+                "test-contract/res/stable_small_contract.wasm"
+            });
 
             let state_dump_path = temp_dir.path().to_path_buf();
             nearcore::init_configs(
@@ -198,11 +186,7 @@ fn main() -> anyhow::Result<()> {
         vm_kind,
         metrics_to_measure,
     };
-    let cost_table = if cli_args.v2 {
-        runtime_params_estimator::v2::run(config)
-    } else {
-        run(config, cli_args.compile_only)
-    };
+    let cost_table = runtime_params_estimator::run(config);
 
     let output_path = {
         let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);

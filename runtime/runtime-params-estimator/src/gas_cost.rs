@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
+use std::convert::TryFrom;
 use std::time::Duration;
 use std::{fmt, ops};
 
 use near_primitives::types::Gas;
 use num_rational::Ratio;
 
-use crate::cases::ratio_to_gas;
 use crate::testbed_runners::{end_count, start_count, Consumed, GasMetric};
 
 /// Result of cost estimation.
@@ -126,4 +126,41 @@ impl GasCost {
     pub(crate) fn to_gas(&self) -> Gas {
         ratio_to_gas(self.metric, self.value)
     }
+}
+
+/// How much gas there is in a nanosecond worth of computation.
+const GAS_IN_MEASURE_UNIT: u128 = 1_000_000u128;
+
+pub(crate) fn ratio_to_gas(gas_metric: GasMetric, value: Ratio<u64>) -> Gas {
+    let divisor = match gas_metric {
+        // We use factor of 8 to approximately match the price of SHA256 operation between
+        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+        GasMetric::ICount => 8u128,
+        GasMetric::Time => 1u128,
+    };
+    u64::try_from(
+        Ratio::<u128>::new(
+            (*value.numer() as u128) * GAS_IN_MEASURE_UNIT,
+            (*value.denom() as u128) * divisor,
+        )
+        .to_integer(),
+    )
+    .unwrap()
+}
+
+pub(crate) fn ratio_to_gas_signed(gas_metric: GasMetric, value: Ratio<i128>) -> i64 {
+    let divisor = match gas_metric {
+        // We use factor of 8 to approximately match the price of SHA256 operation between
+        // time-based and icount-based metric as measured on 3.2Ghz Core i5.
+        GasMetric::ICount => 8i128,
+        GasMetric::Time => 1i128,
+    };
+    i64::try_from(
+        Ratio::<i128>::new(
+            (*value.numer() as i128) * (GAS_IN_MEASURE_UNIT as i128),
+            (*value.denom() as i128) * divisor,
+        )
+        .to_integer(),
+    )
+    .unwrap()
 }
