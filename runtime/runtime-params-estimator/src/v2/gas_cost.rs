@@ -15,6 +15,7 @@ pub(crate) struct GasCost {
     /// nanoseconds here!
     value: Ratio<u64>,
     metric: GasMetric,
+    uncertain: bool,
 }
 
 pub(crate) struct GasClock {
@@ -24,7 +25,7 @@ pub(crate) struct GasClock {
 
 impl GasCost {
     pub(crate) fn from_raw(raw: Ratio<u64>, metric: GasMetric) -> GasCost {
-        GasCost { value: raw, metric }
+        GasCost { value: raw, metric, uncertain: false }
     }
 
     pub(crate) fn measure(metric: GasMetric) -> GasClock {
@@ -32,14 +33,21 @@ impl GasCost {
         GasClock { start, metric }
     }
     pub(crate) fn zero(metric: GasMetric) -> GasCost {
-        GasCost { value: 0.into(), metric }
+        GasCost { value: 0.into(), metric, uncertain: false }
+    }
+
+    pub(crate) fn is_uncertain(&self) -> bool {
+        self.uncertain
+    }
+    pub(crate) fn set_uncertain(&mut self, uncertain: bool) {
+        self.uncertain = uncertain;
     }
 }
 
 impl GasClock {
     pub(crate) fn elapsed(self) -> GasCost {
         let measured = end_count(self.metric, &self.start);
-        GasCost { value: measured.into(), metric: self.metric }
+        GasCost { value: measured.into(), metric: self.metric, uncertain: false }
     }
 }
 
@@ -57,7 +65,8 @@ impl ops::Add for GasCost {
 
     fn add(self, rhs: GasCost) -> Self::Output {
         assert_eq!(self.metric, rhs.metric);
-        GasCost { value: self.value + rhs.value, metric: self.metric }
+        let uncertain = self.uncertain || rhs.uncertain;
+        GasCost { value: self.value + rhs.value, metric: self.metric, uncertain }
     }
 }
 
@@ -72,7 +81,8 @@ impl ops::Sub for GasCost {
 
     fn sub(self, rhs: GasCost) -> Self::Output {
         assert_eq!(self.metric, rhs.metric);
-        GasCost { value: self.value - rhs.value, metric: self.metric }
+        let uncertain = self.uncertain || rhs.uncertain;
+        GasCost { value: self.value - rhs.value, metric: self.metric, uncertain }
     }
 }
 
@@ -80,7 +90,7 @@ impl ops::Mul<u64> for GasCost {
     type Output = GasCost;
 
     fn mul(self, rhs: u64) -> Self::Output {
-        GasCost { value: self.value * rhs, metric: self.metric }
+        GasCost { value: self.value * rhs, ..self }
     }
 }
 
@@ -88,7 +98,7 @@ impl ops::Div<u64> for GasCost {
     type Output = GasCost;
 
     fn div(self, rhs: u64) -> Self::Output {
-        GasCost { value: self.value / rhs, metric: self.metric }
+        GasCost { value: self.value / rhs, ..self }
     }
 }
 

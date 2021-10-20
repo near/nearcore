@@ -112,13 +112,16 @@ pub fn run(config: Config) -> CostTable {
 
         let start = Instant::now();
         let value = f(&mut ctx);
+        let uncertain = if value.is_uncertain() { "uncertain " } else { "" };
         let gas = value.to_gas();
         res.add(cost, gas);
+
         eprintln!(
-            "{:<40} {:>25} gas  (computed in {:.2?})",
+            "{:<40} {:>25} gas {}(computed in {:.2?})",
             cost.to_string(),
             format_gas(gas),
-            start.elapsed()
+            uncertain,
+            start.elapsed(),
         );
     }
     eprintln!();
