@@ -129,9 +129,7 @@ pub fn test_stablized_host_function() {
             None,
         );
         match result.1 {
-            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) => {
-                assert!(msg.contains("ripemd160"))
-            }
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
             _ => panic!("should return a link error due to missing import"),
         }
     });
