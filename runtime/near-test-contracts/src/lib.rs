@@ -49,7 +49,7 @@ fn smoke_test() {
     assert!(!nightly_rs_contract().is_empty());
     assert!(!ts_contract().is_empty());
     assert!(!tiny_contract().is_empty());
-    assert!(!ripemd_contract().is_empty());
+    assert!(!rs_contract_base_protocol().is_empty());
 }
 
 pub fn many_functions_contract(function_count: u32) -> Vec<u8> {
