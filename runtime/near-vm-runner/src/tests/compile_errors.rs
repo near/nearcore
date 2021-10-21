@@ -4,6 +4,7 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_errors::{CompilationError, FunctionCallError, PrepareError, VMError};
 
+#[cfg(feature = "protocol_feature_limit_contract_functions_number")]
 use assert_matches::assert_matches;
 
 use crate::tests::{
