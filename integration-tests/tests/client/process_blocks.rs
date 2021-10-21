@@ -3732,7 +3732,6 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let genesis_config = genesis.config.clone();
         let runtime_adapters = stores
             .iter()
             .map(|store| {
@@ -3826,7 +3825,6 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let genesis_config = genesis.config.clone();
         let runtime_adapters = stores
             .iter()
             .map(|store| {
@@ -3902,7 +3900,6 @@ mod contract_precompilation_tests {
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let genesis_config = genesis.config.clone();
         let runtime_adapters = stores
             .iter()
             .map(|store| {
