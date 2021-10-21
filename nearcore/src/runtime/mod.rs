@@ -1945,12 +1945,11 @@ mod test {
     };
     use near_store::create_store;
 
-    use crate::config::{mainnet_genesis, GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
 
-    use near_primitives::runtime::config::RuntimeConfig;
     use primitive_types::U256;
 
     fn stake(
