@@ -1,3 +1,7 @@
+// Very simple contract that can:
+// - write to the state
+// - delete from the state
+// Independently from that the same contract can be used as a receiver for `ft_transfer_call`.
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::json_types::{ValidAccountId, WrappedBalance, U128};
