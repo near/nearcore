@@ -11,7 +11,7 @@ use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::CompiledContractCache;
 use near_primitives::version::ProtocolVersion;
-use near_vm_errors::VMError;
+use near_vm_errors::{FunctionCallError, HostError, VMError};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{VMConfig, VMContext, VMOutcome};
 
@@ -148,4 +148,20 @@ fn make_cached_contract_call_vm(
         LATEST_PROTOCOL_VERSION,
         Some(cache),
     )
+}
+
+#[test]
+fn gas_metering_bench() {
+    let code = near_test_contracts::rs_contract();
+
+    // Warmup.
+    make_simple_contract_call_vm(code, "cpu_ram_soak_test", VMKind::Wasmer2);
+
+    let t = std::time::Instant::now();
+    let (_out, err) = make_simple_contract_call_vm(code, "cpu_ram_soak_test", VMKind::Wasmer2);
+    assert!(matches!(
+        err,
+        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
+    ));
+    eprintln!("{:?}", t.elapsed())
 }

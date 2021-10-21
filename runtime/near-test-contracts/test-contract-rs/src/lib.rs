@@ -802,3 +802,16 @@ fn do_ripemd() {
         ripemd160(data.len() as _, data.as_ptr() as _, 0);
     }
 }
+
+#[no_mangle]
+pub unsafe fn cpu_ram_soak_test() {
+    let mut buf = [0u8; 100 * 1024];
+    let len = buf.len();
+    for i in 0..10_000_000 {
+        let j = (i * 7 + len / 2) % len;
+        let k = (i * 3) % len;
+        let tmp = buf[k];
+        buf[k] = buf[j];
+        buf[j] = tmp;
+    }
+}
