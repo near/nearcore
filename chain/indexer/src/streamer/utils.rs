@@ -2,6 +2,7 @@ use std::convert::TryFrom;
 
 use actix::Addr;
 
+use crate::near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
@@ -15,6 +16,9 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
+    let protocol_version = protocol_config.protocol_version;
+    let runtime_config_store = RuntimeConfigStore::for_chain_id(&protocol_config.chain_id);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
     let prev_block = fetch_block_by_hash(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
@@ -22,7 +26,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
         txs.into_iter()
             .map(|tx| {
                 let cost = tx_cost(
-                    &protocol_config.runtime_config.transaction_costs,
+                    &runtime_config.transaction_costs,
                     &near_primitives::transaction::Transaction {
                         signer_id: tx.transaction.signer_id.clone(),
                         public_key: tx.transaction.public_key.clone(),
@@ -41,7 +45,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     },
                     prev_block_gas_price,
                     true,
-                    protocol_config.clone().protocol_version,
+                    protocol_version,
                 );
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),

@@ -7,6 +7,7 @@ use near_logger_utils::init_integration_logger;
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
@@ -62,7 +63,7 @@ fn test_check_tx_error_log() {
 fn test_deliver_tx_error_log() {
     let node = start_node();
     let fee_helper = testlib::fees_utils::FeeHelper::new(
-        node.genesis().config.runtime_config.transaction_costs.clone(),
+        RuntimeConfig::test().transaction_costs.clone(),
         node.genesis().config.min_gas_price,
     );
     let signer =

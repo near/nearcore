@@ -23,6 +23,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (123, include_config!("123.json")),
 ];
 
+static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
+
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
 pub struct RuntimeConfigStore {
@@ -53,6 +55,20 @@ impl RuntimeConfigStore {
         }
 
         Self { store }
+    }
+
+    /// Constructs a new store for the given chain id.
+    ///
+    /// Needed because historically testnet runtime config was different from other chains.
+    pub fn for_chain_id(chain_id: &str) -> Self {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config =
+                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                Self::new(Some(&genesis_runtime_config))
+            }
+            _ => Self::new(None),
+        }
     }
 
     /// Constructs test store.

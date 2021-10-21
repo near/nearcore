@@ -14,6 +14,7 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
+use near_primitives::runtime::config::RuntimeConfig;
 use primitive_types::U256;
 
 fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
@@ -22,7 +23,7 @@ fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     f(&mut genesis);
     let fee_helper = FeeHelper::new(
-        genesis.config.runtime_config.transaction_costs.clone(),
+        RuntimeConfig::test().transaction_costs.clone(),
         genesis.config.min_gas_price,
     );
     let env = TestEnv::builder(ChainGenesis::from(&genesis))

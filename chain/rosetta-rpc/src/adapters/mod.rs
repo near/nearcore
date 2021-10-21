@@ -5,6 +5,7 @@ use actix::Addr;
 
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseEncode;
 
 use validated_operations::ValidatedOperation;
@@ -36,14 +37,15 @@ async fn convert_genesis_records_to_transaction(
         &view_client_addr,
     )
     .await?;
+    let protocol_version = block.header.latest_protocol_version;
+    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
         let account_id = super::types::AccountId::from(account_id);
-        let account_balances = crate::utils::RosettaAccountBalances::from_account(
-            &account,
-            &genesis.config.runtime_config,
-        );
+        let account_balances =
+            crate::utils::RosettaAccountBalances::from_account(&account, &runtime_config);
 
         if account_balances.liquid != 0 {
             operations.push(crate::models::Operation {
@@ -142,8 +144,11 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .await??;
 
+    let protocol_version = block.header.latest_protocol_version;
+    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
     let transactions = convert_block_changes_to_transactions(
-        &genesis.config.runtime_config,
+        &runtime_config,
         &block.header.hash,
         accounts_changes,
         accounts_previous_state,

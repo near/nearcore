@@ -19,6 +19,7 @@ use near_primitives::borsh::BorshDeserialize;
 use near_primitives::serialize::BaseEncode;
 
 pub use config::RosettaRpcConfig;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 mod adapters;
 mod config;
@@ -370,6 +371,9 @@ async fn account_balance(
         .send(near_client::GetBlock(block_id.clone()))
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
+    let protocol_version = block.header.latest_protocol_version;
+    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
 
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
@@ -383,10 +387,8 @@ async fn account_balance(
             Err(err) => return Err(err.into()),
         };
 
-    let account_balances = crate::utils::RosettaAccountBalances::from_account(
-        account_info,
-        &genesis.config.runtime_config,
-    );
+    let account_balances =
+        crate::utils::RosettaAccountBalances::from_account(account_info, &runtime_config);
 
     let balance = if let Some(sub_account) = account_identifier.sub_account {
         match sub_account.address {

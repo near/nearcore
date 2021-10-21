@@ -589,8 +589,6 @@ pub struct ProtocolConfigView {
     pub online_max_threshold: Rational,
     /// Gas price adjustment rate
     pub gas_price_adjustment_rate: Rational,
-    /// Runtime configuration (mostly economics constants).
-    pub runtime_config: RuntimeConfig,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
     /// Protocol treasury rate
@@ -632,7 +630,6 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             online_min_threshold: config.online_min_threshold,
             online_max_threshold: config.online_max_threshold,
             gas_price_adjustment_rate: config.gas_price_adjustment_rate,
-            runtime_config: config.runtime_config,
             transaction_validity_period: config.transaction_validity_period,
             protocol_reward_rate: config.protocol_reward_rate,
             max_inflation_rate: config.max_inflation_rate,

@@ -181,7 +181,7 @@ impl NightshadeRuntime {
             TrackedConfig::from_config(&config.client_config),
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
-            RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
+            RuntimeConfigStore::for_chain_id(&config.client_config.chain_id),
         )
     }
 
@@ -283,6 +283,10 @@ impl NightshadeRuntime {
         let tries =
             ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
+        let protocol_version = genesis.config.protocol_version;
+        let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
+        let runtime_config = runtime_config_store.get_config(protocol_version);
+
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
@@ -306,7 +310,7 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &genesis,
-                &genesis.config.runtime_config,
+                &runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
             ));
         }
@@ -1799,7 +1803,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
         let mut config = self.genesis_config.clone();
         config.protocol_version = protocol_version;
-        config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
         let shard_config = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             epoch_manager.get_shard_config(epoch_id)?
@@ -1947,6 +1950,7 @@ mod test {
 
     use super::*;
 
+    use near_primitives::runtime::config::RuntimeConfig;
     use primitive_types::U256;
 
     fn stake(
@@ -3431,19 +3435,5 @@ mod test {
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake(), 0);
-    }
-
-    #[test]
-    fn test_runtime_configs_similarity_mainnet() {
-        let genesis = mainnet_genesis();
-        let genesis_runtime_config = genesis.config.runtime_config;
-
-        let overridden_store = RuntimeConfigStore::new(Some(&genesis_runtime_config));
-        let store = RuntimeConfigStore::new(None);
-        for protocol_version in [29u32, 34u32, 42u32, 50u32].iter() {
-            let old_config = overridden_store.get_config(protocol_version.clone());
-            let new_config = store.get_config(protocol_version.clone());
-            assert_eq!(old_config, new_config);
-        }
     }
 }

@@ -41,6 +41,7 @@ use near_primitives::errors::TxExecutionError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::verify_hash;
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardUId;
 #[cfg(not(feature = "protocol_feature_block_header_v3"))]
@@ -1789,27 +1790,13 @@ fn test_gas_price_change() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let target_num_tokens_left = NEAR_BASE / 10 + 1;
-    let send_money_total_gas = genesis
-        .config
-        .runtime_config
-        .transaction_costs
-        .action_creation_config
-        .transfer_cost
-        .send_fee(false)
-        + genesis
-            .config
-            .runtime_config
-            .transaction_costs
-            .action_receipt_creation_config
-            .send_fee(false)
-        + genesis
-            .config
-            .runtime_config
-            .transaction_costs
-            .action_creation_config
-            .transfer_cost
-            .exec_fee()
-        + genesis.config.runtime_config.transaction_costs.action_receipt_creation_config.exec_fee();
+    let transaction_costs = RuntimeConfig::test().transaction_costs;
+
+    let send_money_total_gas =
+        transaction_costs.action_creation_config.transfer_cost.send_fee(false)
+            + transaction_costs.action_receipt_creation_config.send_fee(false)
+            + transaction_costs.action_creation_config.transfer_cost.exec_fee()
+            + transaction_costs.action_receipt_creation_config.exec_fee();
     let min_gas_price = target_num_tokens_left / send_money_total_gas as u128;
     let gas_limit = 1000000000000;
     let gas_price_adjustment_rate = Rational::new(1, 10);
@@ -1817,7 +1804,6 @@ fn test_gas_price_change() {
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    genesis.config.runtime_config.storage_amount_per_byte = 0;
     let chain_genesis = ChainGenesis::from(&genesis);
     let mut env = TestEnv::builder(chain_genesis)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
@@ -3781,11 +3767,8 @@ mod contract_precompilation_tests {
             .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
-        let key = get_contract_cache_key(
-            &contract_code,
-            vm_kind,
-            &genesis_config.runtime_config.wasm_config,
-        );
+        let runtime_config = RuntimeConfig::test();
+        let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key.0)
@@ -3889,15 +3872,16 @@ mod contract_precompilation_tests {
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
+        let runtime_config = RuntimeConfig::test();
         let tiny_contract_key = get_contract_cache_key(
             &ContractCode::new(tiny_wasm_code.clone(), None),
             vm_kind,
-            &genesis_config.runtime_config.wasm_config,
+            &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
             vm_kind,
-            &genesis_config.runtime_config.wasm_config,
+            &runtime_config.wasm_config,
         );
 
         // Check that both deployed contracts are presented in cache for client 0.
@@ -3965,11 +3949,12 @@ mod contract_precompilation_tests {
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
 
+        let runtime_config = RuntimeConfig::test();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
             vm_kind,
-            &genesis_config.runtime_config.wasm_config,
+            &runtime_config.wasm_config,
         );
 
         // Check that contract is cached for client 0 despite account deletion.
