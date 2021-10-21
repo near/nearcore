@@ -748,7 +748,7 @@ pub(crate) fn state_sync_info_block_exists(
 
 pub(crate) fn chunk_extra_block_exists(
     sv: &mut StoreValidator,
-    block_hash: &CryptoHash,
+    (block_hash, _shard_uid): &(CryptoHash, ShardUId),
     _chunk_extra: &ChunkExtra,
 ) -> Result<(), StoreValidatorError> {
     unwrap_or_err_db!(

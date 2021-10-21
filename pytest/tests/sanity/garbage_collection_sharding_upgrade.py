@@ -10,8 +10,8 @@ sys.path.append('lib')
 from cluster import start_cluster
 from configured_logger import logger
 
-TARGET_HEIGHT = 60
-TIMEOUT = 30
+TARGET_HEIGHT = 150
+TIMEOUT = 60
 
 consensus_config = {
     "consensus": {
@@ -99,3 +99,25 @@ while True:
     if node1_height >= node0_height:
         break
     time.sleep(2)
+
+
+# all fresh data should be synced
+blocks_count = 0
+for height in range(node1_height - 10, node1_height):
+    block0 = nodes[0].json_rpc('block', [height], timeout=15)
+    block1 = nodes[1].json_rpc('block', [height], timeout=15)
+    assert block0 == block1
+    if 'result' in block0:
+        blocks_count += 1
+assert blocks_count > 0
+time.sleep(1)
+
+# all old data should be GCed
+blocks_count = 0
+for height in range(1, 60):
+    block0 = nodes[0].json_rpc('block', [height], timeout=15)
+    block1 = nodes[1].json_rpc('block', [height], timeout=15)
+    assert block0 == block1
+    if 'result' in block0:
+        blocks_count += 1
+assert blocks_count == 0

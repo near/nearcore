@@ -2116,9 +2116,15 @@ impl<'a> ChainStoreUpdate<'a> {
         // gc shards in this epoch
         let mut shard_uids_to_gc: Vec<_> = shard_layout.get_shard_uids();
         // gc shards in the shard layout in the next epoch if shards will change in the next epoch
-        let next_shard_layout = runtime_adapter
-            .get_shard_layout(&block_header.next_epoch_id())
-            .expect("epoch info must exist");
+        // Suppose shard changes at epoch T, we need to garbage collect the new shard layout
+        // from the last block in epoch T-2 to the last block in epoch T-1
+        // Because we need to gc the last block in epoch T-2, we can't simply use
+        // block_header.epoch_id() as next_epoch_id
+        let next_epoch_id = runtime_adapter
+            .get_next_epoch_id_from_prev_block(block_hash)
+            .expect("block info must exist");
+        let next_shard_layout =
+            runtime_adapter.get_shard_layout(&next_epoch_id).expect("epoch info must exist");
         if shard_layout != next_shard_layout {
             shard_uids_to_gc.extend(next_shard_layout.get_shard_uids());
         }
