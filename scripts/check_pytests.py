@@ -21,7 +21,7 @@ import nayduck
 # test but rather helper scripts and libraries.
 HELPER_SCRIPTS = [
     'delete_remote_nodes.py',
-    'mocknet/load_testing_helper.py',
+    'mocknet/helpers/*',
     'stress/hundred_nodes/*',
 ]
 

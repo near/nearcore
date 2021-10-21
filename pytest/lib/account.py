@@ -8,6 +8,7 @@ from transaction import (
     sign_create_account_with_full_access_key_and_balance_tx, sign_staking_tx)
 from key import Key
 from utils import load_binary_file
+from configured_logger import logger
 
 
 class Account:
@@ -17,7 +18,11 @@ class Account:
         self.nonce = init_nonce
         self.base_block_hash = base_block_hash
         self.rpc_addr, self.rpc_port = rpc_info
+        assert self.rpc_addr, key.account_id
         self.tx_timestamps = []
+        logger.info(
+            f'Creating Account {key.account_id} {init_nonce} {rpc_info} {key.pk} {key.sk}'
+        )
 
     def json_rpc(self, method, params):
         j = {
@@ -54,9 +59,14 @@ class Account:
         return self.send_tx(tx)
 
     def send_call_contract_tx(self, method_name, args):
+        return self.send_call_contract_raw_tx(self.key.account_id, method_name,
+                                              args, 0)
+
+    def send_call_contract_raw_tx(self, contract_id, method_name, args,
+                                  deposit):
         self.prep_tx()
         tx = sign_function_call_tx(self.key, self.key.account_id, method_name,
-                                   args, 300000000000000, 0, self.nonce,
+                                   args, int(3 * 10**14), 0, self.nonce,
                                    self.base_block_hash)
         return self.send_tx(tx)
 
