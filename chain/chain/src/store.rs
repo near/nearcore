@@ -3466,9 +3466,10 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_ok());
 
         let trie = chain.runtime_adapter.get_tries();
+        let runtime_adapter = chain.runtime_adapter.clone();
         let mut store_update = chain.mut_store().store_update();
         assert!(store_update
-            .clear_block_data(*blocks[5].hash(), &*chain.runtime_adapter, GCMode::Canonical(trie))
+            .clear_block_data(*blocks[5].hash(), &*runtime_adapter, GCMode::Canonical(trie))
             .is_ok());
         store_update.commit().unwrap();
 
