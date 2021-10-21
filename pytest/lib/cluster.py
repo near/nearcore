@@ -24,7 +24,17 @@ from configured_logger import logger
 from key import Key
 from proxy import NodesProxy
 
-os.environ["ADVERSARY_CONSENT"] = "1"
+# When built with adversarial behaviour (the `test_features` feature) the
+# binary refuses to start unless this environment variable is set so make
+# sure it is.  Some tests require `neard` to be built with `test_features`
+# and on NayDuck the executable is always built with it set.
+os.environ['ADVERSARY_CONSENT'] = '1'
+
+# Debug level of this target message is quite noisy.  This affects NayDuck
+# noticeably increasing their run time considerably.  However, use `setdefault`
+# so that user can easily override the setting if they want to.  The logging has
+# been added in # <https://github.com/near/nearcore/pull/5018>.
+os.environ.setdefault('RUST_LOG', 'host-function=info')
 
 remote_nodes = []
 remote_nodes_lock = threading.Lock()
