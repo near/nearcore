@@ -159,7 +159,6 @@ impl ShardLayout {
         }
     }
 
-    #[inline]
     pub fn get_shard_uids(&self) -> Vec<ShardUId> {
         (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
     }

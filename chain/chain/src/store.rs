@@ -2129,66 +2129,63 @@ impl<'a> ChainStoreUpdate<'a> {
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
         &mut self,
-        mut block_hash: CryptoHash,
         runtime_adapter: &dyn RuntimeAdapter,
+        mut block_hash: CryptoHash,
         gc_mode: GCMode,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
 
         // 1. Apply revert insertions or deletions from ColTrieChanges for Trie
-        match gc_mode.clone() {
-            GCMode::Fork(tries) => {
-                // If the block is on a fork, we delete the state that's the result of applying this block
-                let shard_uids_to_gc: Vec<_> =
-                    self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
-                for shard_uid in shard_uids_to_gc {
-                    self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
-                        .map(|trie_changes: TrieChanges| {
-                            tries
-                                .revert_insertions(&trie_changes, shard_uid, &mut store_update)
-                                .map(|_| {
-                                    self.gc_col(
-                                        ColTrieChanges,
-                                        &get_block_shard_uid(&block_hash, &shard_uid),
-                                    );
-                                    self.inc_gc_col_state();
-                                })
-                                .map_err(|err| ErrorKind::Other(err.to_string()))
-                        })
-                        .unwrap_or(Ok(()))?;
+        {
+            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
+            match gc_mode.clone() {
+                GCMode::Fork(tries) => {
+                    // If the block is on a fork, we delete the state that's the result of applying this block
+                    for shard_uid in shard_uids_to_gc {
+                        self.store()
+                            .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
+                            .map(|trie_changes: TrieChanges| {
+                                tries
+                                    .revert_insertions(&trie_changes, shard_uid, &mut store_update)
+                                    .map(|_| {
+                                        self.gc_col(
+                                            ColTrieChanges,
+                                            &get_block_shard_uid(&block_hash, &shard_uid),
+                                        );
+                                        self.inc_gc_col_state();
+                                    })
+                                    .map_err(|err| ErrorKind::Other(err.to_string()))
+                            })
+                            .unwrap_or(Ok(()))?;
+                    }
                 }
-            }
-            GCMode::Canonical(tries) => {
-                let shard_uids_to_gc: Vec<_> =
-                    self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
-                // If the block is on canonical chain, we delete the state that's before applying this block
-                for shard_uid in shard_uids_to_gc {
-                    self.store()
-                        .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
-                        .map(|trie_changes: TrieChanges| {
-                            tries
-                                .apply_deletions(&trie_changes, shard_uid, &mut store_update)
-                                .map(|_| {
-                                    self.gc_col(
-                                        ColTrieChanges,
-                                        &get_block_shard_uid(&block_hash, &shard_uid),
-                                    );
-                                    self.inc_gc_col_state();
-                                })
-                                .map_err(|err| ErrorKind::Other(err.to_string()))
-                        })
-                        .unwrap_or(Ok(()))?;
+                GCMode::Canonical(tries) => {
+                    // If the block is on canonical chain, we delete the state that's before applying this block
+                    for shard_uid in shard_uids_to_gc {
+                        self.store()
+                            .get_ser(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
+                            .map(|trie_changes: TrieChanges| {
+                                tries
+                                    .apply_deletions(&trie_changes, shard_uid, &mut store_update)
+                                    .map(|_| {
+                                        self.gc_col(
+                                            ColTrieChanges,
+                                            &get_block_shard_uid(&block_hash, &shard_uid),
+                                        );
+                                        self.inc_gc_col_state();
+                                    })
+                                    .map_err(|err| ErrorKind::Other(err.to_string()))
+                            })
+                            .unwrap_or(Ok(()))?;
+                    }
+                    // Set `block_hash` on previous one
+                    block_hash = *self.get_block_header(&block_hash)?.prev_hash();
                 }
-                // Set `block_hash` on previous one
-                block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-            }
-            GCMode::StateSync { .. } => {
-                let shard_uids_to_gc: Vec<_> =
-                    self.get_shard_uids_to_gc(runtime_adapter, &block_hash);
-                // Not apply the data from ColTrieChanges
-                for shard_uid in shard_uids_to_gc {
-                    self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
+                GCMode::StateSync { .. } => {
+                    // Not apply the data from ColTrieChanges
+                    for shard_uid in shard_uids_to_gc {
+                        self.gc_col(ColTrieChanges, &get_block_shard_uid(&block_hash, &shard_uid));
+                    }
                 }
             }
         }
@@ -3469,7 +3466,7 @@ mod tests {
         let runtime_adapter = chain.runtime_adapter.clone();
         let mut store_update = chain.mut_store().store_update();
         assert!(store_update
-            .clear_block_data(*blocks[5].hash(), &*runtime_adapter, GCMode::Canonical(trie))
+            .clear_block_data(&*runtime_adapter, *blocks[5].hash(), GCMode::Canonical(trie))
             .is_ok());
         store_update.commit().unwrap();
 
