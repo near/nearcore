@@ -243,7 +243,7 @@ impl TransactionConfig {
             );
 
             let mut receiver_functions = vec![];
-            for contract_id in receiver_account.deployed_contracts {
+            if let Some(contract_id) = receiver_account.deployed_contract {
                 for function in &scope.available_contracts[contract_id].functions {
                     receiver_functions.push(function);
                 }
@@ -301,7 +301,7 @@ pub struct Scope {
 pub struct Account {
     pub id: AccountId,
     pub balance: Balance,
-    pub deployed_contracts: HashSet<ContractId>,
+    pub deployed_contract: Option<ContractId>,
 }
 
 #[derive(Clone)]
@@ -418,7 +418,7 @@ impl Scope {
 
     pub fn deploy_contract(&mut self, receiver_account: &Account, contract_id: usize) {
         let acc_id = receiver_account.usize_id();
-        self.accounts[acc_id].deployed_contracts.insert(contract_id);
+        self.accounts[acc_id].deployed_contract = Some(contract_id);
     }
 }
 
@@ -427,7 +427,7 @@ impl Account {
         Self {
             id: AccountId::from_str(id.as_str()).expect("Invalid account_id"),
             balance: TESTING_INIT_BALANCE,
-            deployed_contracts: HashSet::default(),
+            deployed_contract: None,
         }
     }
 
