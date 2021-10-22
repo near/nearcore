@@ -3425,6 +3425,7 @@ mod tests {
     #[test]
     fn test_clear_old_data_fixed_height() {
         let mut chain = get_chain();
+        let runtime_adapter = chain.runtime_adapter.clone();
         let genesis = chain.get_block_by_height(0).unwrap().clone();
         let signer = Arc::new(InMemoryValidatorSigner::from_seed(
             "test1".parse().unwrap(),
@@ -3434,6 +3435,10 @@ mod tests {
         let mut prev_block = genesis.clone();
         let mut blocks = vec![prev_block.clone()];
         for i in 1..10 {
+            // This is a hack to make the KeyValueRuntime to have epoch information stored
+            runtime_adapter
+                .get_next_epoch_id_from_prev_block(prev_block.hash())
+                .expect("block must exist");
             let mut store_update = chain.mut_store().store_update();
 
             let block = Block::empty_with_height(&prev_block, i, &*signer);
@@ -3469,7 +3474,6 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_ok());
 
         let trie = chain.runtime_adapter.get_tries();
-        let runtime_adapter = chain.runtime_adapter.clone();
         let mut store_update = chain.mut_store().store_update();
         assert!(store_update
             .clear_block_data(&*runtime_adapter, *blocks[5].hash(), GCMode::Canonical(trie))
