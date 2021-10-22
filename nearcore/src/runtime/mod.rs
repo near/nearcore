@@ -69,7 +69,6 @@ use near_primitives::shard_layout::{
 };
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_store::split_state::get_delayed_receipts;
-use node_runtime::config::RuntimeConfig;
 use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
@@ -147,6 +146,9 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// Needed because historically testnet runtime config was different from other chains.
     fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
         match chain_id {
             "testnet" => {
@@ -300,9 +302,9 @@ impl NightshadeRuntime {
         let tries =
             ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
-        let protocol_version = genesis.config.protocol_version;
-        let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
-        let runtime_config = runtime_config_store.get_config(protocol_version);
+        let runtime_config_store =
+            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
+        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
 
         for shard_id in 0..num_shards {
             let validators = genesis

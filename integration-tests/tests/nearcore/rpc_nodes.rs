@@ -233,7 +233,7 @@ fn test_protocol_config_rpc() {
         .set_epoch_length(10)
         .set_genesis_height(0);
 
-    cluster.exec_until_stop(|genesis, rpc_addrs, _| async move {
+    cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let config_response = client
             .EXPERIMENTAL_protocol_config(
@@ -246,7 +246,7 @@ fn test_protocol_config_rpc() {
             .await
             .unwrap();
 
-        let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
+        let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
         assert_ne!(
             config_response.config_view.runtime_config.storage_amount_per_byte,

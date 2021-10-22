@@ -408,7 +408,6 @@ pub(crate) async fn query_access_key(
     }
 }
 
-// TODO #5065: use separate RPC to query runtime config
 pub(crate) async fn query_runtime_config(
     block_hash: near_primitives::types::CryptoHash,
     view_client_addr: &Addr<ViewClientActor>,

@@ -20,7 +20,6 @@ use tracing::info;
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::version::ProtocolFeature;
@@ -617,7 +616,7 @@ pub struct ProtocolConfig {
 
 impl From<ProtocolConfig> for ProtocolConfigView {
     fn from(protocol_config: ProtocolConfig) -> Self {
-        let (config, runtime_config) = protocol_config;
+        let ProtocolConfig { genesis: config, runtime: runtime_config } = protocol_config;
 
         ProtocolConfigView {
             protocol_version: config.protocol_version,

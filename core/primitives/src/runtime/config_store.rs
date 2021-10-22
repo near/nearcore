@@ -57,20 +57,6 @@ impl RuntimeConfigStore {
         Self { store }
     }
 
-    /// Constructs a new store for the given chain id.
-    ///
-    /// Needed because historically testnet runtime config was different from other chains.
-    pub fn for_chain_id(chain_id: &str) -> Self {
-        match chain_id {
-            "testnet" => {
-                let genesis_runtime_config =
-                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
-                Self::new(Some(&genesis_runtime_config))
-            }
-            _ => Self::new(None),
-        }
-    }
-
     /// Constructs test store.
     pub fn test() -> Self {
         Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::test()))].iter().cloned()) }
