@@ -136,10 +136,6 @@ pub struct GenesisConfig {
     /// Gas price adjustment rate
     #[default(Rational::from_integer(0))]
     pub gas_price_adjustment_rate: Rational,
-    /// Runtime configuration (mostly economics constants).
-    /// TODO #4649: remove this field together with hacky default value setting
-    #[default(RuntimeConfig::test())]
-    pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid

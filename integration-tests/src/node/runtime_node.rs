@@ -109,6 +109,7 @@ mod tests {
         let node_user = node.user();
         let (alice1, bob1) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         node_user.send_money(alice.clone(), bob.clone(), 1).unwrap();
+        node_user.runtime_config
         let fee_helper = FeeHelper::new(
             RuntimeConfig::test().transaction_costs.clone(),
             node.genesis().config.min_gas_price,
