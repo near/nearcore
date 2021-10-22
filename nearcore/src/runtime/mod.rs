@@ -146,41 +146,6 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    /// Create store of runtime configs for the given chain id.
-    ///
-    /// Needed because historically testnet runtime config was different from other chains.
-    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
-        match chain_id {
-            "testnet" => {
-                let genesis_runtime_config =
-                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
-                RuntimeConfigStore::new(Some(&genesis_runtime_config))
-            }
-            _ => RuntimeConfigStore::new(None),
-        }
-    }
-
-    pub fn test_with_runtime_config_store(
-        home_dir: &Path,
-        store: Arc<Store>,
-        genesis: &Genesis,
-        runtime_config_store: RuntimeConfigStore,
-    ) -> Self {
-        Self::new(
-            home_dir,
-            store,
-            genesis,
-            TrackedConfig::new_empty(),
-            None,
-            None,
-            Some(runtime_config_store),
-        )
-    }
-
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
-    }
-
     pub fn with_config(
         home_dir: &Path,
         store: Arc<Store>,
@@ -249,6 +214,27 @@ impl NightshadeRuntime {
         }
     }
 
+    pub fn test_with_runtime_config_store(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        runtime_config_store: RuntimeConfigStore,
+    ) -> Self {
+        Self::new(
+            home_dir,
+            store,
+            genesis,
+            TrackedConfig::new_empty(),
+            None,
+            None,
+            Some(runtime_config_store),
+        )
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
+    }
+
     fn get_epoch_height_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -261,6 +247,20 @@ impl NightshadeRuntime {
     pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
+    }
+
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// Needed because historically testnet runtime config was different from other chains.
+    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config =
+                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                RuntimeConfigStore::new(Some(&genesis_runtime_config))
+            }
+            _ => RuntimeConfigStore::new(None),
+        }
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
