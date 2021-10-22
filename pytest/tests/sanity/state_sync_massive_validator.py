@@ -1,43 +1,43 @@
-# Survive massive state sync
-#
-# Create 3 nodes, 1 validator and 2 observers tracking the single shard 0.
-# Generate a large state using genesis-populate. [*]
-#
-# Spawn validator and first observer and wait for them to make some progress.
-# Spawn second observer and watch how it is able to sync state
-# without degrading blocks per second.
-#
-# To run this test is important to compile genesis-populate tool first.
-# In nearcore folder run:
-#
-# ```
-# cargo build -p genesis-populate
-# ```
-#
-# [*] This test might take a very large time generating the state.
-# To speed up this between multiple executions, large state can be generated once
-# saved, and reused on multiple executions. Steps to do this.
-#
-# 1. Run test for first time:
-#
-# ```
-# python3 tests/sanity/state_sync_massive.py
-# ```
-#
-# Stop at any point after seeing the message: "Genesis generated"
-#
-# 2. Save generated data:
-#
-# ```
-# cp -r ~/.near/test0_finished ~/.near/backup_genesis
-# ```
-#
-# 3. Run test passing path to backup_genesis
-#
-# ```
-# python3 tests/sanity/state_sync_massive.py ~/.near/backup_genesis
-# ```
-#
+"""
+Survive massive state sync for validator
+
+Create 4 nodes, 3 validators and 1 observers tracking the single shard 0.
+Generate a large state using genesis-populate. [*]
+
+Spawn everything and wait for them to make some progress.
+Kill one of the validators, delete state and rerun it
+
+To run this test is important to compile genesis-populate tool first.
+In nearcore folder run:
+
+```
+cargo build -p genesis-populate
+```
+
+[*] This test might take a very large time generating the state.
+To speed up this between multiple executions, large state can be generated once
+saved, and reused on multiple executions. Steps to do this.
+
+1. Run test for first time:
+
+```
+python3 tests/sanity/state_sync_massive_validator.py
+```
+
+Stop at any point after seeing the message: "Genesis generated"
+
+2. Save generated data:
+
+```
+cp -r ~/.near/test0_finished ~/.near/backup_genesis
+```
+
+3. Run test passing path to backup_genesis
+
+```
+python3 tests/sanity/state_sync_massive_validator.py ~/.near/backup_genesis
+```
+"""
 
 import sys, time, requests, logging
 from subprocess import check_output
@@ -47,7 +47,6 @@ sys.path.append('lib')
 
 from cluster import init_cluster, spin_up_node, load_config
 from populate import genesis_populate_all, copy_genesis
-from utils import LogTracker
 
 logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG)
 
@@ -59,13 +58,20 @@ else:
 
 config = load_config()
 near_root, node_dirs = init_cluster(
-    1, 2, 1,
+    3, 1, 1,
     config, [["min_gas_price", 0], ["max_inflation_rate", [0, 1]],
-             ["epoch_length", 300], ["block_producer_kickout_threshold", 80]], {
+             ["epoch_length", 300], ["block_producer_kickout_threshold", 0],
+             ["chunk_producer_kickout_threshold", 0]], {
                  1: {
                      "tracked_shards": [0]
                  },
                  2: {
+                     "tracked_shards": [0]
+                 },
+                 3: {
+                     "tracked_shards": [0]
+                 },
+                 4: {
                      "tracked_shards": [0]
                  }
              })
@@ -81,18 +87,29 @@ else:
 logging.info("Genesis generated")
 
 for node_dir in node_dirs:
-    result = check_output(['ls', '-la', node_dir]).decode()
+    result = check_output(['ls', '-la', node_dir], text=True)
     logging.info(f'Node directory: {node_dir}')
     for line in result.split('\n'):
         logging.info(line)
 
-SMALL_HEIGHT = 600
+INTERMEDIATE_HEIGHT = 310
+SMALL_HEIGHT = 610
 LARGE_HEIGHT = 660
 TIMEOUT = 1450
 start = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
-observer = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
+validator = spin_up_node(config,
+                         near_root,
+                         node_dirs[1],
+                         1,
+                         boot_node=boot_node)
+delayed_validator = spin_up_node(config,
+                                 near_root,
+                                 node_dirs[2],
+                                 2,
+                                 boot_node=boot_node)
+observer = spin_up_node(config, near_root, node_dirs[3], 3, boot_node=boot_node)
 
 
 def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
@@ -130,16 +147,13 @@ def wait_for_height(target_height, rpc_node, sleep_time=2, bps_threshold=-1):
         assert bps is None or bps >= bps_threshold
 
 
-wait_for_height(SMALL_HEIGHT, boot_node)
+wait_for_height(INTERMEDIATE_HEIGHT, validator)
 
-observer = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
-tracker = LogTracker(observer)
+delayed_validator.kill()
+delayed_validator.reset_data()
+delayed_validator.start(boot_node=boot_node)
 
 # Check that bps is not degraded
-wait_for_height(LARGE_HEIGHT, boot_node)
+wait_for_height(LARGE_HEIGHT, validator)
 
-# Make sure observer2 is able to sync
-wait_for_height(SMALL_HEIGHT, observer)
-
-tracker.reset()
-assert tracker.check("transition to State Sync")
+wait_for_height(SMALL_HEIGHT, delayed_validator)

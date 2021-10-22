@@ -57,7 +57,7 @@ while height < TARGET_HEIGHT2:
     height = status0['sync_info']['latest_block_height']
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 start = time.time()
 while height < TARGET_HEIGHT3:

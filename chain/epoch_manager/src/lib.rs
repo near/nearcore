@@ -8,7 +8,9 @@ use primitive_types::U256;
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
-use near_primitives::epoch_manager::{AllEpochConfig, SlashState, AGGREGATOR_KEY};
+use near_primitives::epoch_manager::{
+    AllEpochConfig, EpochConfig, ShardConfig, SlashState, AGGREGATOR_KEY,
+};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -1261,21 +1263,22 @@ impl EpochManager {
         Ok(EpochId(*first_block_info.prev_hash()))
     }
 
+    pub fn get_shard_config(&mut self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        Ok(self.config.for_protocol_version(protocol_version).clone().into())
+    }
+
+    pub fn get_epoch_config(&mut self, epoch_id: &EpochId) -> Result<&EpochConfig, EpochError> {
+        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        Ok(&self.config.for_protocol_version(protocol_version))
+    }
+
     pub fn get_shard_layout(&mut self, epoch_id: &EpochId) -> Result<&ShardLayout, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         let shard_layout = &self.config.for_protocol_version(protocol_version).shard_layout;
         Ok(shard_layout)
     }
 
-    #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
-    pub fn will_shard_layout_change(
-        &mut self,
-        _parent_hash: &CryptoHash,
-    ) -> Result<bool, EpochError> {
-        Ok(false)
-    }
-
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     pub fn will_shard_layout_change(
         &mut self,
         parent_hash: &CryptoHash,
@@ -1503,12 +1506,9 @@ mod tests {
     use super::*;
     use crate::reward_calculator::NUM_NS_IN_SECOND;
     use near_primitives::epoch_manager::EpochConfig;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::epoch_manager::ShardConfig;
     use near_primitives::shard_layout::ShardLayout;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::utils::get_num_seats_per_shard;
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
 
     impl EpochManager {
@@ -3771,7 +3771,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     fn test_protocol_version_switch_with_shard_layout_change() {
         let store = create_test_store();
         let shard_layout = ShardLayout::v1(

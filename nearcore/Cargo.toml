@@ -6,7 +6,6 @@ publish = false
 edition = "2018"
 
 [dependencies]
-jemallocator = "0.3"
 awc = "3.0.0-beta.5"
 actix = "=0.11.0-beta.2" # Pinned the version to avoid compilation errors
 actix_derive = "=0.6.0-beta.1" # Pinned dependency in addition to actix dependecy (remove this line once the pinning is not needed)
@@ -26,7 +25,7 @@ thiserror = "1.0"
 tracing = "0.1.13"
 smart-default = "0.6"
 num-rational = { version = "0.3", features = ["serde"] }
-near-rust-allocator-proxy = "0.2.8"
+near-rust-allocator-proxy = "0.3.0"
 lazy-static-include = "3"
 
 near-crypto = { path = "../core/crypto" }
@@ -70,10 +69,10 @@ rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc"]
 protocol_feature_alt_bn128 = ["near-primitives/protocol_feature_alt_bn128", "node-runtime/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["near-epoch-manager/protocol_feature_block_header_v3", "near-store/protocol_feature_block_header_v3", "near-primitives/protocol_feature_block_header_v3", "near-chain/protocol_feature_block_header_v3", "near-client/protocol_feature_block_header_v3"]
-protocol_feature_simple_nightshade = ["near-primitives/protocol_feature_simple_nightshade", "near-epoch-manager/protocol_feature_simple_nightshade", "near-chain-configs/protocol_feature_simple_nightshade"]
 protocol_feature_chunk_only_producers = ["protocol_feature_block_header_v3", "near-chain-configs/protocol_feature_chunk_only_producers", "near-epoch-manager/protocol_feature_chunk_only_producers", "near-chain/protocol_feature_chunk_only_producers", "near-client/protocol_feature_chunk_only_producers", "node-runtime/protocol_feature_chunk_only_producers", "near-rosetta-rpc/protocol_feature_chunk_only_producers"]
 protocol_feature_routing_exchange_algorithm = ["near-primitives/protocol_feature_routing_exchange_algorithm", "near-chain/protocol_feature_routing_exchange_algorithm", "near-network/protocol_feature_routing_exchange_algorithm", "near-client/protocol_feature_routing_exchange_algorithm", "near-jsonrpc/protocol_feature_routing_exchange_algorithm"]
-nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_simple_nightshade", "protocol_feature_routing_exchange_algorithm"]
+protocol_feature_limit_contract_functions_number = ["near-primitives/protocol_feature_limit_contract_functions_number", "near-vm-runner/protocol_feature_limit_contract_functions_number"]
+nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "near-client/nightly_protocol_features", "near-epoch-manager/nightly_protocol_features", "near-store/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128", "protocol_feature_chunk_only_producers", "protocol_feature_routing_exchange_algorithm", "protocol_feature_limit_contract_functions_number"]
 nightly_protocol = ["near-primitives/nightly_protocol", "near-jsonrpc/nightly_protocol"]
 
 # Force usage of a specific wasm vm irrespective of protocol version.

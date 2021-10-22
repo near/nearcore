@@ -329,8 +329,10 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_changes, gen_receipts, gen_unique_accounts, test_populate_trie,
+        create_tries, gen_changes, gen_larger_changes, gen_receipts, gen_unique_accounts,
+        simplify_changes, test_populate_trie,
     };
+
     use crate::{get, get_delayed_receipt_indices, set, set_account, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
     use near_primitives::account::Account;
@@ -417,6 +419,44 @@ mod tests {
             expected_receipts_by_shard.get_mut(&shard_uid).unwrap().push(receipt.clone());
         }
         assert_eq!(expected_receipts_by_shard, receipts_from_split_states);
+    }
+
+    #[test]
+    fn test_get_trie_items_for_part() {
+        let mut rng = rand::thread_rng();
+        let tries = create_tries();
+        let num_parts = rng.gen_range(5, 10);
+
+        let changes = gen_larger_changes(&mut rng, 1000);
+        let changes = simplify_changes(&changes);
+        let state_root = test_populate_trie(
+            &tries,
+            &CryptoHash::default(),
+            ShardUId::default(),
+            changes.clone(),
+        );
+        let mut expected_trie_items: Vec<_> =
+            changes.into_iter().map(|(key, value)| (key, value.unwrap())).collect();
+        expected_trie_items.sort();
+
+        let trie = tries.get_trie_for_shard(ShardUId::default());
+        let total_trie_items = trie.get_trie_items_for_part(0, 1, &state_root).unwrap();
+        assert_eq!(expected_trie_items, total_trie_items);
+
+        let mut combined_trie_items = vec![];
+        for part_id in 0..num_parts {
+            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, &state_root).unwrap();
+            combined_trie_items.extend_from_slice(&trie_items);
+            // check that items are split relatively evenly across all parts
+            assert!(
+                trie_items.len() >= total_trie_items.len() / num_parts as usize / 2
+                    && trie_items.len() <= total_trie_items.len() / num_parts as usize * 2,
+                "part length {} avg length {}",
+                trie_items.len(),
+                total_trie_items.len() / num_parts as usize
+            );
+        }
+        assert_eq!(expected_trie_items, combined_trie_items);
     }
 
     #[test]

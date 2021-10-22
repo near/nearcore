@@ -21,20 +21,22 @@ tracing = "0.1.13"
 git-version = "0.3.1"
 tracing-subscriber = "0.2.4"
 openssl-probe = "0.1.2"
-near-rust-allocator-proxy = { version = "0.2.8", optional = true }
+near-rust-allocator-proxy = { version = "0.3", optional = true }
 lazy_static = "1.4"
 tokio = "1.1"
 futures = "0.3"
+tikv-jemallocator = { version = "0.4.0", optional = true }
 
 nearcore = { path = "../nearcore" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [features]
-default = ["json_rpc"]
+default = ["json_rpc", "jemalloc"]
 
+jemalloc = ["tikv-jemallocator"]
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
+memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy", "jemalloc"]
 c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
@@ -45,7 +47,6 @@ json_rpc = ["nearcore/json_rpc"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["nearcore/protocol_feature_block_header_v3"]
 protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_producers"]
-protocol_feature_simple_nightshade = ["nearcore/protocol_feature_simple_nightshade"]
 protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]

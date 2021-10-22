@@ -53,7 +53,7 @@ while node0_height < TARGET_HEIGHT:
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()
