@@ -54,7 +54,7 @@ macro_rules! get_parent_function_name {
 
 macro_rules! err {
     ($($x: tt),*) => (
-        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } );
+        return Err(StoreValidatorError::ValidationFailed { func_name: get_parent_function_name!(), error: format!($($x),*) } )
     )
 }
 
@@ -81,7 +81,7 @@ macro_rules! unwrap_or_err {
                     reason: format!("{}, error: {}", format!($($x),*), e)
                 })
             }
-        };
+        }
     };
 }
 
@@ -101,7 +101,7 @@ macro_rules! unwrap_or_err_db {
                     reason: format!($($x),*)
                 })
             }
-        };
+        }
     };
 }
 
