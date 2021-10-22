@@ -46,7 +46,6 @@ macro_rules! wrapped_imports {
                     #[allow(unused_parens)]
                     $(#[cfg(feature = $feature_name)])*
                     pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
-                        let _span = tracing::debug_span!(target: "host-function", stringify!($func)).entered();
                         let logic: &mut VMLogic<'_> = unsafe { &mut *(ctx.data as *mut VMLogic<'_>) };
                         logic.$func( $( $arg_name, )* )
                     }
@@ -63,7 +62,6 @@ macro_rules! wrapped_imports {
                 #[allow(unused_parens)]
                 $(#[cfg(feature = $feature_name)])*
                 pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
-                    let _span = tracing::debug_span!(target: "host-function", stringify!($func)).entered();
                     let logic: &mut VMLogic = unsafe { &mut *(env.logic.0 as *mut VMLogic<'_>) };
                     logic.$func( $( $arg_name, )* )
                 }
@@ -87,7 +85,6 @@ macro_rules! wrapped_imports {
                     #[allow(unused_parens)]
                     #[cfg(all(feature = "wasmtime_vm" $(, feature = $feature_name)*))]
                     pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
-                        let _span = tracing::debug_span!(target: "host-function", stringify!($func)).entered();
                         let data = CALLER_CONTEXT.with(|caller_context| {
                             unsafe {
                                 *caller_context.get()

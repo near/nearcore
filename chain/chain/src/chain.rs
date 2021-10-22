@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -1108,29 +1109,28 @@ impl Chain {
 
                 match &head {
                     Some(tip) => {
-                        near_metrics::set_gauge(
-                            &metrics::VALIDATOR_ACTIVE_TOTAL,
-                            match self.runtime_adapter.get_epoch_block_producers_ordered(
-                                &tip.epoch_id,
-                                &tip.last_block_hash,
-                            ) {
-                                Ok(value) => value
-                                    .iter()
-                                    .map(|(_, is_slashed)| if *is_slashed { 0 } else { 1 })
-                                    .sum(),
-                                Err(_) => 0,
-                            },
-                        );
+                        if let Ok(producers) = self
+                            .runtime_adapter
+                            .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+                        {
+                            let mut count = 0;
+                            let mut stake = 0;
+                            for (info, is_slashed) in producers.iter() {
+                                if !*is_slashed {
+                                    stake += info.stake();
+                                    count += 1;
+                                }
+                            }
+                            stake /= NEAR_BASE;
+                            near_metrics::set_gauge(
+                                &metrics::VALIDATOR_AMOUNT_STAKED,
+                                i64::try_from(stake).unwrap_or(i64::MAX),
+                            );
+                            near_metrics::set_gauge(&metrics::VALIDATOR_ACTIVE_TOTAL, count);
+                        }
                     }
                     None => {}
                 }
-                // Sum validator balances in full NEARs (divided by 10**24)
-                let sum = block
-                    .header()
-                    .validator_proposals()
-                    .map(|validator_stake| (validator_stake.stake() / NEAR_BASE) as i64)
-                    .sum::<i64>();
-                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
                 let status = self.determine_status(head.clone(), prev_head);
 
