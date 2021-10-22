@@ -33,6 +33,11 @@ pub fn tiny_contract() -> &'static [u8] {
     CONTRACT.get_or_init(|| read_contract("tiny_contract_rs.wasm")).as_slice()
 }
 
+pub fn fuzzing_contract() -> &'static [u8] {
+    static CONTRACT: OnceCell<Vec<u8>> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
+}
+
 /// Read given wasm file or panic if unable to.
 fn read_contract(file_name: &str) -> Vec<u8> {
     let base = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -49,6 +54,7 @@ fn smoke_test() {
     assert!(!nightly_rs_contract().is_empty());
     assert!(!ts_contract().is_empty());
     assert!(!tiny_contract().is_empty());
+    assert!(!fuzzing_contract().is_empty());
     assert!(!rs_contract_base_protocol().is_empty());
 }
 
