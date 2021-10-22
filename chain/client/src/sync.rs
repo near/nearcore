@@ -694,6 +694,7 @@ impl StateSync {
         if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
             != chain.runtime_adapter.get_shard_layout(&epoch_id)?
         {
+            error!("cannot sync to the first epoch after sharding upgrade");
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
         }
         let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
