@@ -4,7 +4,6 @@ use near_chain_configs::ProtocolConfigView;
 
 use near_client::ViewClientActor;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::runtime::config::RuntimeConfig;
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);

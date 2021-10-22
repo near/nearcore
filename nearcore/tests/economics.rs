@@ -14,7 +14,6 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::types::EpochId;
 use primitive_types::U256;
 

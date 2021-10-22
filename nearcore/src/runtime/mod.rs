@@ -1833,7 +1833,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.shard_layout = shard_config.shard_layout;
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
-        Ok(ProtocolConfig { genesis_config: genesis_config, runtime_config: runtime_config })
+        Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
     fn get_prev_epoch_id_from_prev_block(

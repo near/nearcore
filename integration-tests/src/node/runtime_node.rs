@@ -98,7 +98,6 @@ impl Node for RuntimeNode {
 mod tests {
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
-    use near_primitives::runtime::config::RuntimeConfig;
     use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
 

@@ -39,7 +39,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -54,6 +55,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::utils::MaybeValidated;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
@@ -1408,6 +1410,10 @@ impl TestEnv {
     /// specifically, returns validator id of the client’s validator signer.
     pub fn get_client_id(&self, idx: usize) -> &AccountId {
         self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    }
+
+    pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
+        self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
 }
 
