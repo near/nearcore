@@ -689,8 +689,8 @@ impl StateSync {
         };
 
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
-        let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id();
-        let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id();
+        let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
+        let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
         if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
             != chain.runtime_adapter.get_shard_layout(&epoch_id)?
         {
