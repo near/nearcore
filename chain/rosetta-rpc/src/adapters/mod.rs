@@ -5,10 +5,8 @@ use actix::Addr;
 
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseEncode;
 
-use crate::utils::query_runtime_config;
 use validated_operations::ValidatedOperation;
 
 mod validated_operations;

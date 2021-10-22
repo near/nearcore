@@ -8,7 +8,6 @@ use clap::{App, Arg};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
 use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};

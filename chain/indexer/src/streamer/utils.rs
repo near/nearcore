@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 
 use actix::Addr;
 
-use crate::near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
 
@@ -43,7 +42,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     },
                     prev_block_gas_price,
                     true,
-                    protocol_version,
+                    protocol_config.protocol_version.clone(),
                 );
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),

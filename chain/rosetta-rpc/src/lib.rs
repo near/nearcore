@@ -19,7 +19,6 @@ use near_primitives::borsh::BorshDeserialize;
 use near_primitives::serialize::BaseEncode;
 
 pub use config::RosettaRpcConfig;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 mod adapters;
 mod config;
