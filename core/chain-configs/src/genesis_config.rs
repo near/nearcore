@@ -86,6 +86,7 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
 pub struct GenesisConfig {
+    pub runtime_config: RuntimeConfig,
     /// Protocol version that this genesis works with.
     pub protocol_version: ProtocolVersion,
     /// Official time of blockchain start.
