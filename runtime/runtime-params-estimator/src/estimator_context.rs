@@ -10,7 +10,7 @@ use crate::testbed_runners::{get_account_id, Config};
 use super::transaction_builder::TransactionBuilder;
 
 /// Global context shared by all cost calculating functions.
-pub(crate) struct Ctx<'c> {
+pub(crate) struct EstimatorContext<'c> {
     pub(crate) config: &'c Config,
     pub(crate) cached: CachedCosts,
 }
@@ -26,7 +26,7 @@ pub(crate) struct CachedCosts {
     pub(crate) action_function_call_base_per_byte_v2: Option<(GasCost, GasCost)>,
 }
 
-impl<'c> Ctx<'c> {
+impl<'c> EstimatorContext<'c> {
     pub(crate) fn new(config: &'c Config) -> Self {
         let cached = CachedCosts::default();
         Self { cached, config }

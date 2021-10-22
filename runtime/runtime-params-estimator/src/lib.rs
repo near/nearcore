@@ -38,7 +38,7 @@
 mod cost;
 mod cost_table;
 mod costs_to_runtime_config;
-mod ctx;
+mod estimator_context;
 mod gas_cost;
 mod transaction_builder;
 
@@ -72,7 +72,7 @@ use num_rational::Ratio;
 use rand::Rng;
 
 use crate::cost_table::format_gas;
-use crate::ctx::{Ctx, TestBed};
+use crate::estimator_context::{EstimatorContext, TestBed};
 use crate::gas_cost::GasCost;
 use crate::testbed_runners::Config;
 use crate::transaction_builder::TransactionBuilder;
@@ -82,7 +82,7 @@ pub use crate::cost::Cost;
 pub use crate::cost_table::CostTable;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 
-static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
+static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),
     (Cost::ActionSirReceiptCreation, action_sir_receipt_creation),
     (Cost::ActionTransfer, action_transfer),
@@ -149,7 +149,7 @@ static ALL_COSTS: &[(Cost, fn(&mut Ctx) -> GasCost)] = &[
 ];
 
 pub fn run(config: Config) -> CostTable {
-    let mut ctx = Ctx::new(&config);
+    let mut ctx = EstimatorContext::new(&config);
     let mut res = CostTable::default();
 
     for (cost, f) in ALL_COSTS.iter().copied() {
@@ -180,7 +180,7 @@ pub fn run(config: Config) -> CostTable {
     res
 }
 
-fn action_receipt_creation(ctx: &mut Ctx) -> GasCost {
+fn action_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cached) = ctx.cached.action_receipt_creation.clone() {
         return cached;
     }
@@ -198,7 +198,7 @@ fn action_receipt_creation(ctx: &mut Ctx) -> GasCost {
     cost
 }
 
-fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
+fn action_sir_receipt_creation(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cached) = ctx.cached.action_sir_receipt_creation.clone() {
         return cached;
     }
@@ -217,7 +217,7 @@ fn action_sir_receipt_creation(ctx: &mut Ctx) -> GasCost {
     cost
 }
 
-fn action_transfer(ctx: &mut Ctx) -> GasCost {
+fn action_transfer(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -235,7 +235,7 @@ fn action_transfer(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
-fn action_create_account(ctx: &mut Ctx) -> GasCost {
+fn action_create_account(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -258,7 +258,7 @@ fn action_create_account(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
-fn action_delete_account(ctx: &mut Ctx) -> GasCost {
+fn action_delete_account(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -278,7 +278,7 @@ fn action_delete_account(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
-fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
+fn action_add_full_access_key(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -295,7 +295,7 @@ fn action_add_full_access_key(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
-fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
+fn action_add_function_access_key_base(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = ctx.cached.action_add_function_access_key_base.clone() {
         return cost;
     }
@@ -324,7 +324,7 @@ fn action_add_function_access_key_base(ctx: &mut Ctx) -> GasCost {
     cost
 }
 
-fn action_add_function_access_key_per_byte(ctx: &mut Ctx) -> GasCost {
+fn action_add_function_access_key_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -368,7 +368,7 @@ fn add_key_transaction(
     )
 }
 
-fn action_delete_key(ctx: &mut Ctx) -> GasCost {
+fn action_delete_key(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -389,7 +389,7 @@ fn action_delete_key(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
-fn action_stake(ctx: &mut Ctx) -> GasCost {
+fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -411,7 +411,7 @@ fn action_stake(ctx: &mut Ctx) -> GasCost {
     total_cost - base_cost
 }
 
-fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
+fn action_deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = ctx.cached.action_deploy_contract_base.clone() {
         return cost;
     }
@@ -427,7 +427,7 @@ fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
     ctx.cached.action_deploy_contract_base = Some(cost.clone());
     cost
 }
-fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
+fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
             "test-contract/res/nightly_large_contract.wasm"
@@ -443,7 +443,7 @@ fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
 
     (total_cost - base_cost) / bytes_per_transaction
 }
-fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
+fn deploy_contract_cost(ctx: &mut EstimatorContext, code: Vec<u8>) -> GasCost {
     let test_bed = ctx.test_bed();
 
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
@@ -456,13 +456,13 @@ fn deploy_contract_cost(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
     transaction_cost(test_bed, &mut make_transaction)
 }
 
-fn action_function_call_base(ctx: &mut Ctx) -> GasCost {
+fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = noop_host_function_call_cost(ctx);
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost - base_cost
 }
-fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
+fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
         let test_bed = ctx.test_bed();
 
@@ -480,15 +480,15 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
     (total_cost - base_cost) / bytes_per_transaction
 }
 
-fn action_function_call_base_v2(ctx: &mut Ctx) -> GasCost {
+fn action_function_call_base_v2(ctx: &mut EstimatorContext) -> GasCost {
     let (base, _per_byte) = action_function_call_base_per_byte_v2(ctx);
     base
 }
-fn action_function_call_per_byte_v2(ctx: &mut Ctx) -> GasCost {
+fn action_function_call_per_byte_v2(ctx: &mut EstimatorContext) -> GasCost {
     let (_base, per_byte) = action_function_call_base_per_byte_v2(ctx);
     per_byte
 }
-fn action_function_call_base_per_byte_v2(ctx: &mut Ctx) -> (GasCost, GasCost) {
+fn action_function_call_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
     if let Some(base_byte_cost) = ctx.cached.action_function_call_base_per_byte_v2.clone() {
         return base_byte_cost;
     }
@@ -507,14 +507,14 @@ fn action_function_call_base_per_byte_v2(ctx: &mut Ctx) -> (GasCost, GasCost) {
     base_byte_cost
 }
 
-fn data_receipt_creation_base(ctx: &mut Ctx) -> GasCost {
+fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     let (total_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
     let (base_cost, _) = fn_cost_count(ctx, "data_receipt_base_10b_1000", ExtCosts::base);
     (total_cost - base_cost) / 1000
 }
 
-fn data_receipt_creation_per_byte(ctx: &mut Ctx) -> GasCost {
+fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     let (total_cost, _) = fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base);
     let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base);
@@ -524,7 +524,7 @@ fn data_receipt_creation_per_byte(ctx: &mut Ctx) -> GasCost {
     (total_cost - base_cost) / bytes_per_transaction
 }
 
-fn host_function_call(ctx: &mut Ctx) -> GasCost {
+fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
     let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base);
     assert_eq!(count, 1_000_000);
 
@@ -532,7 +532,7 @@ fn host_function_call(ctx: &mut Ctx) -> GasCost {
 
     (total_cost - base_cost) / count
 }
-fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
+fn noop_host_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = ctx.cached.noop_host_function_call_cost.clone() {
         return cost;
     }
@@ -551,7 +551,7 @@ fn noop_host_function_call_cost(ctx: &mut Ctx) -> GasCost {
     cost
 }
 
-fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
+fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let vm_kind = ctx.config.vm_kind;
 
     let code = read_resource(if cfg!(feature = "nightly_protocol_features") {
@@ -607,46 +607,46 @@ fn wasm_instruction(ctx: &mut Ctx) -> GasCost {
     per_instruction
 }
 
-fn read_memory_base(ctx: &mut Ctx) -> GasCost {
+fn read_memory_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "read_memory_10b_10k", ExtCosts::read_memory_base, 10_000)
 }
-fn read_memory_byte(ctx: &mut Ctx) -> GasCost {
+fn read_memory_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "read_memory_1Mib_10k", ExtCosts::read_memory_byte, 1024 * 1024 * 10_000)
 }
 
-fn write_memory_base(ctx: &mut Ctx) -> GasCost {
+fn write_memory_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "write_memory_10b_10k", ExtCosts::write_memory_base, 10_000)
 }
-fn write_memory_byte(ctx: &mut Ctx) -> GasCost {
+fn write_memory_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "write_memory_1Mib_10k", ExtCosts::write_memory_byte, 1024 * 1024 * 10_000)
 }
 
-fn read_register_base(ctx: &mut Ctx) -> GasCost {
+fn read_register_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "read_register_10b_10k", ExtCosts::read_register_base, 10_000)
 }
-fn read_register_byte(ctx: &mut Ctx) -> GasCost {
+fn read_register_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "read_register_1Mib_10k", ExtCosts::read_register_byte, 1024 * 1024 * 10_000)
 }
 
-fn write_register_base(ctx: &mut Ctx) -> GasCost {
+fn write_register_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "write_register_10b_10k", ExtCosts::write_register_base, 10_000)
 }
-fn write_register_byte(ctx: &mut Ctx) -> GasCost {
+fn write_register_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "write_register_1Mib_10k", ExtCosts::write_register_byte, 1024 * 1024 * 10_000)
 }
 
-fn log_base(ctx: &mut Ctx) -> GasCost {
+fn log_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::log_base, 10_000)
 }
-fn log_byte(ctx: &mut Ctx) -> GasCost {
+fn log_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NOTE: We are paying per *output* byte here, hence 3/2 multiplier.
     fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::log_byte, (10 * 1024 * 3 / 2) * 10_000)
 }
 
-fn utf8_decoding_base(ctx: &mut Ctx) -> GasCost {
+fn utf8_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "utf8_log_10b_10k", ExtCosts::utf8_decoding_base, 10_000)
 }
-fn utf8_decoding_byte(ctx: &mut Ctx) -> GasCost {
+fn utf8_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
     let no_nul =
         fn_cost(ctx, "utf8_log_10kib_10k", ExtCosts::utf8_decoding_byte, 10 * 1024 * 10_000);
     let nul = fn_cost(
@@ -658,10 +658,10 @@ fn utf8_decoding_byte(ctx: &mut Ctx) -> GasCost {
     nul.max(no_nul)
 }
 
-fn utf16_decoding_base(ctx: &mut Ctx) -> GasCost {
+fn utf16_decoding_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "utf16_log_10b_10k", ExtCosts::utf16_decoding_base, 10_000)
 }
-fn utf16_decoding_byte(ctx: &mut Ctx) -> GasCost {
+fn utf16_decoding_byte(ctx: &mut EstimatorContext) -> GasCost {
     let no_nul =
         fn_cost(ctx, "utf16_log_10kib_10k", ExtCosts::utf16_decoding_byte, 10 * 1024 * 10_000);
     let nul = fn_cost(
@@ -673,45 +673,45 @@ fn utf16_decoding_byte(ctx: &mut Ctx) -> GasCost {
     nul.max(no_nul)
 }
 
-fn sha256_base(ctx: &mut Ctx) -> GasCost {
+fn sha256_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "sha256_10b_10k", ExtCosts::sha256_base, 10_000)
 }
-fn sha256_byte(ctx: &mut Ctx) -> GasCost {
+fn sha256_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "sha256_10kib_10k", ExtCosts::sha256_byte, 10 * 1024 * 10_000)
 }
 
-fn keccak256_base(ctx: &mut Ctx) -> GasCost {
+fn keccak256_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak256_10b_10k", ExtCosts::keccak256_base, 10_000)
 }
-fn keccak256_byte(ctx: &mut Ctx) -> GasCost {
+fn keccak256_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak256_10kib_10k", ExtCosts::keccak256_byte, 10 * 1024 * 10_000)
 }
 
-fn keccak512_base(ctx: &mut Ctx) -> GasCost {
+fn keccak512_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak512_10b_10k", ExtCosts::keccak512_base, 10_000)
 }
-fn keccak512_byte(ctx: &mut Ctx) -> GasCost {
+fn keccak512_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "keccak512_10kib_10k", ExtCosts::keccak512_byte, 10 * 1024 * 10_000)
 }
 
-fn ripemd160_base(ctx: &mut Ctx) -> GasCost {
+fn ripemd160_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ripemd160_10b_10k", ExtCosts::ripemd160_base, 10_000)
 }
-fn ripemd160_block(ctx: &mut Ctx) -> GasCost {
+fn ripemd160_block(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ripemd160_10kib_10k", ExtCosts::ripemd160_block, (10 * 1024 / 64 + 1) * 10_000)
 }
 
-fn ecrecover_base(ctx: &mut Ctx) -> GasCost {
+fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "ecrecover_10k", ExtCosts::ecrecover_base, 10_000)
 }
 
-fn alt_bn128g1_multiexp_base(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128g1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(ctx, "alt_bn128_g1_multiexp_1_1k", ExtCosts::alt_bn128_g1_multiexp_base, 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128g1_multiexp_byte(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128g1_multiexp_byte(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(
         ctx,
@@ -722,7 +722,7 @@ fn alt_bn128g1_multiexp_byte(ctx: &mut Ctx) -> GasCost {
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128g1_multiexp_sublinear(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128g1_multiexp_sublinear(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(
         ctx,
@@ -734,20 +734,20 @@ fn alt_bn128g1_multiexp_sublinear(ctx: &mut Ctx) -> GasCost {
     return GasCost::zero(ctx.config.metric);
 }
 
-fn alt_bn128g1_sum_base(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128g1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(ctx, "alt_bn128_g1_sum_1_1k", ExtCosts::alt_bn128_g1_sum_base, 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128g1_sum_byte(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128g1_sum_byte(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(ctx, "alt_bn128_g1_sum_10_1k", ExtCosts::alt_bn128_g1_sum_byte, 654 * 1000);
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
 
-fn alt_bn128_pairing_check_base(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128_pairing_check_base(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(
         ctx,
@@ -758,7 +758,7 @@ fn alt_bn128_pairing_check_base(ctx: &mut Ctx) -> GasCost {
     #[cfg(not(feature = "protocol_feature_alt_bn128"))]
     return GasCost::zero(ctx.config.metric);
 }
-fn alt_bn128_pairing_check_byte(ctx: &mut Ctx) -> GasCost {
+fn alt_bn128_pairing_check_byte(ctx: &mut EstimatorContext) -> GasCost {
     #[cfg(feature = "protocol_feature_alt_bn128")]
     return fn_cost(
         ctx,
@@ -770,7 +770,7 @@ fn alt_bn128_pairing_check_byte(ctx: &mut Ctx) -> GasCost {
     return GasCost::zero(ctx.config.metric);
 }
 
-fn storage_has_key_base(ctx: &mut Ctx) -> GasCost {
+fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10b_value_1k",
@@ -779,7 +779,7 @@ fn storage_has_key_base(ctx: &mut Ctx) -> GasCost {
         1000,
     )
 }
-fn storage_has_key_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_has_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10kib_key_10b_value_1k",
@@ -789,7 +789,7 @@ fn storage_has_key_byte(ctx: &mut Ctx) -> GasCost {
     )
 }
 
-fn storage_read_base(ctx: &mut Ctx) -> GasCost {
+fn storage_read_base(ctx: &mut EstimatorContext) -> GasCost {
     if let Some(cost) = ctx.cached.storage_read_base.clone() {
         return cost;
     }
@@ -805,7 +805,7 @@ fn storage_read_base(ctx: &mut Ctx) -> GasCost {
     ctx.cached.storage_read_base = Some(cost.clone());
     cost
 }
-fn storage_read_key_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_read_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10kib_key_10b_value_1k",
@@ -814,7 +814,7 @@ fn storage_read_key_byte(ctx: &mut Ctx) -> GasCost {
         10 * 1024 * 1000,
     )
 }
-fn storage_read_value_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10kib_value_1k",
@@ -824,10 +824,10 @@ fn storage_read_value_byte(ctx: &mut Ctx) -> GasCost {
     )
 }
 
-fn storage_write_base(ctx: &mut Ctx) -> GasCost {
+fn storage_write_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "storage_write_10b_key_10b_value_1k", ExtCosts::storage_write_base, 1000)
 }
-fn storage_write_key_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_write_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(
         ctx,
         "storage_write_10kib_key_10b_value_1k",
@@ -835,7 +835,7 @@ fn storage_write_key_byte(ctx: &mut Ctx) -> GasCost {
         10 * 1024 * 1000,
     )
 }
-fn storage_write_value_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_write_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(
         ctx,
         "storage_write_10b_key_10kib_value_1k",
@@ -843,7 +843,7 @@ fn storage_write_value_byte(ctx: &mut Ctx) -> GasCost {
         10 * 1024 * 1000,
     )
 }
-fn storage_write_evicted_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_write_evicted_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10kib_value_1k",
@@ -853,7 +853,7 @@ fn storage_write_evicted_byte(ctx: &mut Ctx) -> GasCost {
     )
 }
 
-fn storage_remove_base(ctx: &mut Ctx) -> GasCost {
+fn storage_remove_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10b_value_1k",
@@ -862,7 +862,7 @@ fn storage_remove_base(ctx: &mut Ctx) -> GasCost {
         1000,
     )
 }
-fn storage_remove_key_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_remove_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10kib_key_10b_value_1k",
@@ -871,7 +871,7 @@ fn storage_remove_key_byte(ctx: &mut Ctx) -> GasCost {
         10 * 1024 * 1000,
     )
 }
-fn storage_remove_ret_value_byte(ctx: &mut Ctx) -> GasCost {
+fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10kib_value_1k",
@@ -881,7 +881,7 @@ fn storage_remove_ret_value_byte(ctx: &mut Ctx) -> GasCost {
     )
 }
 
-fn touching_trie_node(ctx: &mut Ctx) -> GasCost {
+fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     // TODO: Actually compute it once our storage is complete.
     // TODO: temporary value, as suggested by @nearmax, divisor is log_16(20000) ~ 3.57 ~ 7/2.
     storage_read_base(ctx) * 2 / 7
@@ -924,7 +924,7 @@ fn transaction_cost_ext(
     aggregate_per_block_measurements(test_bed.config, block_size, measurements)
 }
 
-fn fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> GasCost {
+fn fn_cost(ctx: &mut EstimatorContext, method: &str, ext_cost: ExtCosts, count: u64) -> GasCost {
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
     assert_eq!(measured_count, count);
 
@@ -933,7 +933,7 @@ fn fn_cost(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts, count: u64) -> GasCo
     (total_cost - base_cost) / count
 }
 
-fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
+fn fn_cost_count(ctx: &mut EstimatorContext, method: &str, ext_cost: ExtCosts) -> (GasCost, u64) {
     let block_size = 2;
     let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
         let sender = tb.random_unused_account();
@@ -953,7 +953,7 @@ fn fn_cost_count(ctx: &mut Ctx, method: &str, ext_cost: ExtCosts) -> (GasCost, u
 /// a separate block, to make sure we hit the database and not an in-memory hash
 /// map.
 fn fn_cost_with_setup(
-    ctx: &mut Ctx,
+    ctx: &mut EstimatorContext,
     setup: &str,
     method: &str,
     ext_cost: ExtCosts,
@@ -1058,4 +1058,3 @@ pub fn read_resource(path: &str) -> Vec<u8> {
     std::fs::read(&path)
         .unwrap_or_else(|err| panic!("failed to load test resource: {}, {}", path.display(), err))
 }
-
