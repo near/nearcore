@@ -20,6 +20,12 @@ pub(crate) struct GasCost {
     /// nanoseconds here!
     value: Ratio<u64>,
     metric: GasMetric,
+    /// Signals that the measurement was uncertain (ie, had high variance), and
+    /// that the estimation needs to be re-run.
+    ///
+    /// Each specific cost can use it's own criteria for uncertainty -- the end
+    /// result here is just printing UNCERTAIN next to the corresponding cost in
+    /// the output.
     uncertain: bool,
 }
 
