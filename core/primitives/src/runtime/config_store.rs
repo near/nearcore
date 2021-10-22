@@ -23,7 +23,7 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     (123, include_config!("123.json")),
 ];
 
-static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
+pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]

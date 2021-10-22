@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         TrackedConfig::from_config(&near_config.client_config),
         None,
         near_config.client_config.max_gas_burnt_view,
-        RuntimeConfigStore::new(None),
+        None,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();

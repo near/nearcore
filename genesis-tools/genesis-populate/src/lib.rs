@@ -71,7 +71,7 @@ impl GenesisBuilder {
             TrackedConfig::new_empty(),
             None,
             None,
-            RuntimeConfigStore::for_chain_id(&genesis.config.chain_id),
+            None,
         );
         Self {
             home_dir: home_dir.to_path_buf(),
@@ -166,6 +166,7 @@ impl GenesisBuilder {
         }
         let mut state_update =
             self.state_updates.remove(&shard_idx).expect("State updates are always available");
+        self.runtime
         let runtime_config_store = RuntimeConfigStore::for_chain_id(&self.genesis.config.chain_id);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 

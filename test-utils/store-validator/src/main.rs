@@ -39,7 +39,7 @@ fn main() {
         TrackedConfig::from_config(&near_config.client_config),
         None,
         None,
-        RuntimeConfigStore::new(None),
+        None,
     ));
 
     let mut store_validator = StoreValidator::new(

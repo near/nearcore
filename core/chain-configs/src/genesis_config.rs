@@ -591,7 +591,6 @@ pub struct ProtocolConfigView {
     /// Gas price adjustment rate
     pub gas_price_adjustment_rate: Rational,
     /// Runtime configuration (mostly economics constants).
-    /// TODO #5065: remove and have a separate RPC for it
     pub runtime_config: RuntimeConfig,
     /// Number of blocks for which a given transaction is valid
     pub transaction_validity_period: NumBlocks,
@@ -611,12 +610,14 @@ pub struct ProtocolConfigView {
 }
 
 // This may be subject to change
-pub type ProtocolConfig = GenesisConfig;
+pub struct ProtocolConfig {
+    pub genesis: GenesisConfig,
+    pub runtime: RuntimeConfig,
+}
 
 impl From<ProtocolConfig> for ProtocolConfigView {
-    fn from(config: ProtocolConfig) -> Self {
-        let runtime_config_store = RuntimeConfigStore::for_chain_id(&config.chain_id);
-        let runtime_config = runtime_config_store.get_config(config.protocol_version);
+    fn from(protocol_config: ProtocolConfig) -> Self {
+        let (config, runtime_config) = protocol_config;
 
         ProtocolConfigView {
             protocol_version: config.protocol_version,
@@ -637,7 +638,7 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             online_min_threshold: config.online_min_threshold,
             online_max_threshold: config.online_max_threshold,
             gas_price_adjustment_rate: config.gas_price_adjustment_rate,
-            runtime_config: runtime_config.as_ref().clone(),
+            runtime_config,
             transaction_validity_period: config.transaction_validity_period,
             protocol_reward_rate: config.protocol_reward_rate,
             max_inflation_rate: config.max_inflation_rate,

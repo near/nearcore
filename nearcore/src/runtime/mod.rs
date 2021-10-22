@@ -62,13 +62,14 @@ use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::migrations::load_migration_data;
 use crate::NearConfig;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
 };
 use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
 use near_store::split_state::get_delayed_receipts;
+use node_runtime::config::RuntimeConfig;
 use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
@@ -146,6 +147,17 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
+    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config =
+                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                RuntimeConfigStore::new(Some(&genesis_runtime_config))
+            }
+            _ => RuntimeConfigStore::new(None),
+        }
+    }
+
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
         store: Arc<Store>,
@@ -159,7 +171,7 @@ impl NightshadeRuntime {
             TrackedConfig::new_empty(),
             None,
             None,
-            runtime_config_store,
+            Some(runtime_config_store),
         )
     }
 
@@ -181,7 +193,7 @@ impl NightshadeRuntime {
             TrackedConfig::from_config(&config.client_config),
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
-            RuntimeConfigStore::for_chain_id(&config.client_config.chain_id),
+            None,
         )
     }
 
@@ -192,8 +204,13 @@ impl NightshadeRuntime {
         tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
-        runtime_config_store: RuntimeConfigStore,
+        runtime_config_store: Option<RuntimeConfigStore>,
     ) -> Self {
+        let runtime_config_store = match runtime_config_store {
+            Some(store) => store,
+            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+        };
+
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
@@ -1801,17 +1818,20 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let mut config = self.genesis_config.clone();
-        config.protocol_version = protocol_version;
+        let mut genesis_config = self.genesis_config.clone();
+        genesis_config.protocol_version = protocol_version;
         let shard_config = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             epoch_manager.get_shard_config(epoch_id)?
         };
-        config.num_block_producer_seats_per_shard = shard_config.num_block_producer_seats_per_shard;
-        config.avg_hidden_validator_seats_per_shard =
+        genesis_config.num_block_producer_seats_per_shard =
+            shard_config.num_block_producer_seats_per_shard;
+        genesis_config.avg_hidden_validator_seats_per_shard =
             shard_config.avg_hidden_validator_seats_per_shard;
-        config.shard_layout = shard_config.shard_layout;
-        Ok(config)
+        genesis_config.shard_layout = shard_config.shard_layout;
+        let runtime_config =
+            self.runtime_config_store.get_config(protocol_version).as_ref().clone();
+        Ok(ProtocolConfig { genesis: genesis_config, runtime: runtime_config })
     }
 
     fn get_prev_epoch_id_from_prev_block(
@@ -2073,7 +2093,7 @@ mod test {
                 tracked_config,
                 None,
                 None,
-                RuntimeConfigStore::free(),
+                Some(RuntimeConfigStore::free()),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
