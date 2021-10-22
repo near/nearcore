@@ -2,7 +2,7 @@
 name = "testlib"
 version = "0.1.0"
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
