@@ -904,7 +904,6 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
 
     use super::*;
 

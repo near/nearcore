@@ -3,7 +3,6 @@
 #[macro_use]
 extern crate clap;
 
-use std::convert::TryFrom;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;

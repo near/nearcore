@@ -1,7 +1,6 @@
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::convert::TryFrom;
 use std::iter::FromIterator;
 
 use near_epoch_manager::test_utils::{

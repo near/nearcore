@@ -1,5 +1,4 @@
 //! Settings of the parameters of the runtime.
-use std::convert::TryFrom;
 
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
