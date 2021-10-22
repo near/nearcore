@@ -3,6 +3,8 @@ use futures::StreamExt;
 
 use near_client::ViewClientActor;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config::RuntimeConfig;
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -404,6 +406,20 @@ pub(crate) async fn query_access_key(
             "queried ViewAccessKey, but received something else.".to_string(),
         )),
     }
+}
+
+// TODO #5065: use separate RPC to query runtime config
+pub(crate) async fn query_runtime_config(
+    block_hash: near_primitives::types::CryptoHash,
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<RuntimeConfig, crate::errors::ErrorKind> {
+    let protocol_config = view_client_addr
+        .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
+            near_primitives::types::BlockId::Hash(block_hash),
+        )))
+        .await?
+        .map_err(|err| crate::errors::ErrorKind::NotFound(err.to_string()))?;
+    Ok(protocol_config.runtime_config.clone())
 }
 
 /// This is a helper to ensure that all the values you try to assign are the

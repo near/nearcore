@@ -335,7 +335,7 @@ async fn block_transaction_details(
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
 async fn account_balance(
-    genesis: web::Data<Arc<Genesis>>,
+    _genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::AccountBalanceRequest>,
@@ -371,9 +371,8 @@ async fn account_balance(
         .send(near_client::GetBlock(block_id.clone()))
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
-    let protocol_version = block.header.latest_protocol_version;
-    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
-    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let runtime_config =
+        crate::utils::query_runtime_config(block.header.hash, view_client_addr.get_ref()).await?;
 
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =

@@ -16,9 +16,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
-    let protocol_version = protocol_config.protocol_version;
-    let runtime_config_store = RuntimeConfigStore::for_chain_id(&protocol_config.chain_id);
-    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let runtime_config = &protocol_config.runtime_config;
     let prev_block = fetch_block_by_hash(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 

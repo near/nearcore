@@ -8,6 +8,7 @@ use near_client::ViewClientActor;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::BaseEncode;
 
+use crate::utils::query_runtime_config;
 use validated_operations::ValidatedOperation;
 
 mod validated_operations;
@@ -37,9 +38,8 @@ async fn convert_genesis_records_to_transaction(
         &view_client_addr,
     )
     .await?;
-    let protocol_version = block.header.latest_protocol_version;
-    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
-    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let runtime_config =
+        crate::utils::query_runtime_config(block.header.hash, &view_client_addr).await?;
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
@@ -107,7 +107,7 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    genesis: Arc<Genesis>,
+    _genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
@@ -144,9 +144,8 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .await??;
 
-    let protocol_version = block.header.latest_protocol_version;
-    let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
-    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let runtime_config =
+        crate::utils::query_runtime_config(block.header.hash, &view_client_addr).await?;
     let transactions = convert_block_changes_to_transactions(
         &runtime_config,
         &block.header.hash,
