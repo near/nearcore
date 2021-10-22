@@ -1,13 +1,9 @@
 # our local base image
 # FROM ubuntu
-FROM rust:1.51
+FROM rust:1.56
 
 LABEL description="Container for builds"
 
-# RUN rustup update nightly
-RUN rustup toolchain uninstall nightly
-# Must match nearcore/rust-toolchain.
-RUN rustup default 1.56.0
 RUN rustup target add wasm32-unknown-unknown
 
 # install build dependencies for QEMU

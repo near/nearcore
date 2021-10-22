@@ -51,10 +51,10 @@ Now start the estimator under QEMU with the counter plugin enabled (note, that R
       CARGO_PROFILE_RELEASE_LTO=fat
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
       export CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
-  
+
   See [#4678](https://github.com/near/nearcore/issues/4678) for more details.
-  
-* You also may observe slight differences in different launches, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations. 
+
+* You also may observe slight differences in different launches, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations.
   To improve estimation, you can launch it several times and take the worst result.
 
 ## IO cost calibration
@@ -102,7 +102,8 @@ However, in case you still want to build it - use the following steps.
 
 Important: we build QEMU and the TCG plugin inside the container, so execute following commands inside Docker.
 Set environment variable HOST_DIR (on the host) to location where both QEMU and nearcore source code is checked
-out, it will be mounted as `/host` inside the Docker container.
+out, it will be mounted as `/host` inside the Docker container. You can get QEMU source code from
+https://www.qemu.org/download/
 Start container with:
 
     ./run.sh
@@ -112,6 +113,7 @@ To build QEMU use:
     cd /host/qemu
     ./configure --disable-system --enable-user --enable-plugins  --prefix=/host/qemu-linux --target-list=x86_64-linux-user
     make && make install
+    cp /host/qemu-linux/bin/qemu-x86_64 /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/
 
 Then build and test the QEMU's JIT plugin:
 
