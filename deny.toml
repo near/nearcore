@@ -22,6 +22,8 @@ skip = [
     { name = "socket2", version = "=0.3.19" },
     { name = "textwrap", version = "=0.12.1" },
 
+    # insta uses older version of console
+    { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha

@@ -1722,7 +1722,7 @@ dependencies = [
  "borsh 0.9.1",
  "byteorder",
  "clap 2.33.3",
- "indicatif 0.15.0",
+ "indicatif",
  "near-chain",
  "near-chain-configs",
  "near-client",
@@ -2060,19 +2060,6 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8572bccfb0665e70b7faf44ee28841b8e0823450cd4ad562a76b5a3c4bf48487"
-dependencies = [
- "console 0.15.0",
- "lazy_static",
- "number_prefix",
- "rayon",
- "regex",
-]
-
-[[package]]
-name = "indicatif"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7baab56125e25686df467fe470785512329883aab42696d661247aca2a2896e4"
@@ -2080,6 +2067,7 @@ dependencies = [
  "console 0.15.0",
  "lazy_static",
  "number_prefix",
+ "rayon",
  "regex",
 ]
 
@@ -3328,7 +3316,7 @@ dependencies = [
  "borsh 0.9.1",
  "byteorder",
  "hex",
- "indicatif 0.13.0",
+ "indicatif",
  "lazy_static",
  "log",
  "near-chain-configs",
@@ -4359,7 +4347,7 @@ dependencies = [
  "glob",
  "gnuplot",
  "hex",
- "indicatif 0.15.0",
+ "indicatif",
  "libc",
  "near-chain-configs",
  "near-crypto",
