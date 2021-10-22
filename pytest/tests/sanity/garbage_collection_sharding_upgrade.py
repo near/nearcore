@@ -31,50 +31,36 @@ consensus_config = {
 }
 
 nodes = start_cluster(
-    2, 0, 1, None,
-    [["protocol_version", 47],
-     ["epoch_length", 10], ["num_block_producer_seats", 5],
-     ["num_block_producer_seats_per_shard", [5]],
-     ["chunk_producer_kickout_threshold", 80],
-     ["shard_layout", {
-         "V0": {
-             "num_shards": 1,
-             "version": 0,
-         }
-     }],
-     ["simple_nightshade_shard_layout", {
-         "V1": {
-             "fixed_shards": [],
-             "boundary_accounts": [
-                 "aurora",
-                 "aurora-0",
-                 "kkuuue2akv_1630967379.near"
-             ],
-             "shards_split_map": [
-                 [
-                     0,
-                     1,
-                     2,
-                     3
-                 ]
-             ],
-             "to_parent_shard_map": [
-                 0,
-                 0,
-                 0,
-                 0
-             ],
-             "version": 1
-         }
-     }],
-     ["validators", 0, "amount", "110000000000000000000000000000000"],
-     [
-         "records", 0, "Account", "account", "locked",
-         "110000000000000000000000000000000"
-     ], ["total_supply", "3060000000000000000000000000000000"]], {
-        0: consensus_config,
-        1: consensus_config
-    })
+    2, 0, 1,
+    None, [["protocol_version", 47], ["epoch_length", 10],
+           ["num_block_producer_seats", 5],
+           ["num_block_producer_seats_per_shard", [5]],
+           ["chunk_producer_kickout_threshold", 80],
+           ["shard_layout", {
+               "V0": {
+                   "num_shards": 1,
+                   "version": 0,
+               }
+           }],
+           [
+               "simple_nightshade_shard_layout", {
+                   "V1": {
+                       "fixed_shards": [],
+                       "boundary_accounts":
+                           ["aurora", "aurora-0", "kkuuue2akv_1630967379.near"],
+                       "shards_split_map": [[0, 1, 2, 3]],
+                       "to_parent_shard_map": [0, 0, 0, 0],
+                       "version": 1
+                   }
+               }
+           ], ["validators", 0, "amount", "110000000000000000000000000000000"],
+           [
+               "records", 0, "Account", "account", "locked",
+               "110000000000000000000000000000000"
+           ], ["total_supply", "3060000000000000000000000000000000"]], {
+               0: consensus_config,
+               1: consensus_config
+           })
 
 logger.info('Kill node 1')
 nodes[1].kill()
@@ -99,7 +85,6 @@ while True:
     if node1_height >= node0_height:
         break
     time.sleep(2)
-
 
 # all fresh data should be synced
 blocks_count = 0
