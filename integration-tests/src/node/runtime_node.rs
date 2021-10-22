@@ -109,11 +109,9 @@ mod tests {
         let node_user = node.user();
         let (alice1, bob1) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         node_user.send_money(alice.clone(), bob.clone(), 1).unwrap();
-        node_user.runtime_config
-        let fee_helper = FeeHelper::new(
-            RuntimeConfig::test().transaction_costs.clone(),
-            node.genesis().config.min_gas_price,
-        );
+        let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+        let fee_helper =
+            FeeHelper::new(runtime_config.transaction_costs, node.genesis().config.min_gas_price);
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         assert_eq!(alice2, alice1 - 1 - transfer_cost);

@@ -3766,8 +3766,11 @@ mod contract_precompilation_tests {
             .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
-        let runtime_config = RuntimeConfig::test();
-        let key = get_contract_cache_key(&contract_code, vm_kind, &runtime_config.wasm_config);
+        let epoch_id =
+            env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+        let protocol_config = env.clients[0].runtime_adapter.get_protocol_config(epoch_id).unwrap();
+        let wasm_config = protocol_config.runtime.wasm_config;
+        let key = get_contract_cache_key(&contract_code, vm_kind, &wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key.0)
@@ -3870,16 +3873,19 @@ mod contract_precompilation_tests {
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
-        let runtime_config = RuntimeConfig::test();
+        let epoch_id =
+            env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+        let protocol_config = env.clients[0].runtime_adapter.get_protocol_config(epoch_id).unwrap();
+        let wasm_config = protocol_config.runtime.wasm_config;
         let tiny_contract_key = get_contract_cache_key(
             &ContractCode::new(tiny_wasm_code.clone(), None),
             vm_kind,
-            &runtime_config.wasm_config,
+            &wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
             vm_kind,
-            &runtime_config.wasm_config,
+            &wasm_config,
         );
 
         // Check that both deployed contracts are presented in cache for client 0.
@@ -3946,12 +3952,15 @@ mod contract_precompilation_tests {
             .map(|s| Arc::new(StoreCompiledContractCache { store: s.clone() }))
             .collect();
 
-        let runtime_config = RuntimeConfig::test();
+        let epoch_id =
+            env.clients[0].chain.get_block_by_height(height - 1).unwrap().header().epoch_id();
+        let protocol_config = env.clients[0].runtime_adapter.get_protocol_config(epoch_id).unwrap();
+        let wasm_config = protocol_config.runtime.wasm_config;
         let vm_kind = VMKind::for_protocol_version(PROTOCOL_VERSION);
         let contract_key = get_contract_cache_key(
             &ContractCode::new(wasm_code.clone(), None),
             vm_kind,
-            &runtime_config.wasm_config,
+            &wasm_config,
         );
 
         // Check that contract is cached for client 0 despite account deletion.
