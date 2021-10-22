@@ -79,9 +79,8 @@ impl ShardTries {
     }
 
     pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
-        let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
-        let mut shards =
-            caches.keys().map(|shard_uid| (*shard_uid, Vec::new())).collect::<HashMap<_, _>>();
+        let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
+        let mut shards = HashMap::new();
         for op in &transaction.ops {
             match op {
                 DBOp::UpdateRefcount { col, ref key, ref value } if *col == DBCol::ColState => {
@@ -101,7 +100,8 @@ impl ShardTries {
             }
         }
         for (shard_uid, ops) in shards {
-            caches[&shard_uid].update_cache(ops);
+            let cache = caches.entry(shard_uid).or_insert_with(TrieCache::new).clone();
+            cache.update_cache(ops);
         }
         Ok(())
     }
