@@ -1,24 +1,20 @@
 #!/usr/bin/env python
+"""Runs integration tests in the cloud on NayDuck.
 
-# This script runs integration tests in the cloud.  You can see the runs here:
-#
-#     http://nayduck.eastus.cloudapp.azure.com:3000/
-#
-# To request a run, use the following command:
-#
-#    python3 scripts/nayduck.py      \
-#        --branch    <your_branch>   \
-#        --test_file <test_file>.txt
-#
-# See README.md in nightly directory for documentation of the test suite file
-# format.  Note that you must be a member of the Near or Near Protocol
-# organisation on GitHub to authenticate:
-#
-#    https://github.com/orgs/near/people
-#
-# The source code for NayDuck itself is here:
-#
-#    https://github.com/near/nayduck
+To request a new run, use the following command:
+
+   python3 scripts/nayduck.py      \
+       --branch    <your_branch>   \
+       --test_file <test_file>.txt
+
+Scheduled runs can be seen at <http://nayduck.near.org/>.
+
+See README.md in nightly directory for documentation of the test suite file
+format.  Note that you must be a member of the Near or Near Protocol
+organisation on GitHub to authenticate (<https://github.com/orgs/near/people>).
+
+The source code for NayDuck itself is at <https://github.com/near/nayduck>.
+"""
 
 import json
 import os

@@ -50,6 +50,7 @@ steps:
           echo 'Some of the Python files are not correctly formatted; please run'
           echo '    python3 -m pip install -U yapf'
           echo '    python3 -m yapf -pir pytest scripts'
+          exit 1
       fi >&2
     timeout: 30
     agents:
