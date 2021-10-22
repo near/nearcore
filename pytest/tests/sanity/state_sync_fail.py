@@ -20,46 +20,31 @@ near_root, node_dirs = init_cluster(
     2, 1, 1, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 10],
      ["protocol_version", 47],
-     ["simple_nightshade_shard_layout", {
-         "V1": {
-             "fixed_shards": [],
-             "boundary_accounts": [
-                 "aurora",
-                 "aurora-0",
-                 "kkuuue2akv_1630967379.near"
-             ],
-             "shards_split_map": [
-                 [
-                     0,
-                     1,
-                     2,
-                     3
-                 ]
-             ],
-             "to_parent_shard_map": [
-                 0,
-                 0,
-                 0,
-                 0
-             ],
-             "version": 1
+     [
+         "simple_nightshade_shard_layout", {
+             "V1": {
+                 "fixed_shards": [],
+                 "boundary_accounts":
+                     ["aurora", "aurora-0", "kkuuue2akv_1630967379.near"],
+                 "shards_split_map": [[0, 1, 2, 3]],
+                 "to_parent_shard_map": [0, 0, 0, 0],
+                 "version": 1
+             }
          }
-     }],
-     ["block_producer_kickout_threshold", 80]],
-    {
-        0: {
-            "tracked_shards": [0]
-        },
-        1: {
-            "tracked_shards": [0]
-        },
-        2: {
-            "tracked_shards": [0],
-            "consensus": {
-                "block_fetch_horizon": 20,
-            },
-        }
-    })
+     ], ["block_producer_kickout_threshold", 80]], {
+         0: {
+             "tracked_shards": [0]
+         },
+         1: {
+             "tracked_shards": [0]
+         },
+         2: {
+             "tracked_shards": [0],
+             "consensus": {
+                 "block_fetch_horizon": 20,
+             },
+         }
+     })
 
 started = time.time()
 
@@ -90,5 +75,3 @@ try:
     sys.exit("node 2 successfully started while it should fail")
 except requests.exceptions.HTTPError:
     pass
-
-
