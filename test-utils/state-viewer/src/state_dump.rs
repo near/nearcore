@@ -134,7 +134,7 @@ mod test {
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
         simple_nightshade_layout: Option<ShardLayout>,
-    ) -> (Arc<Store>, Genesis, TestEnv) {
+    ) -> (Arc<Store>, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
@@ -151,7 +151,22 @@ mod test {
             .validator_seats(2)
             .runtime_adapters(vec![Arc::new(nightshade_runtime)])
             .build();
-        (store, genesis, env)
+
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis.clone(),
+            KeyFile {
+                account_id: AccountId::test_account(),
+                public_key: PublicKey::empty(KeyType::ED25519),
+                secret_key: SecretKey::from_random(KeyType::ED25519),
+            },
+            Some(Arc::new(InMemoryValidatorSigner::from_random(
+                AccountId::test_account(),
+                KeyType::ED25519,
+            ))),
+        );
+
+        (store, genesis, env, near_config)
     }
 
     /// Produces blocks, avoiding the potential failure where the client is not the
@@ -179,7 +194,7 @@ mod test {
     #[test]
     fn test_dump_state_preserve_validators() {
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -193,20 +208,6 @@ mod test {
         env.clients[0].process_tx(tx, false, false);
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
-
-        let near_config = NearConfig::new(
-            Config::default(),
-            genesis.clone(),
-            KeyFile {
-                account_id: AccountId::test_account(),
-                public_key: PublicKey::empty(KeyType::ED25519),
-                secret_key: SecretKey::from_random(KeyType::ED25519),
-            },
-            Some(Arc::new(InMemoryValidatorSigner::from_random(
-                AccountId::test_account(),
-                KeyType::ED25519,
-            ))),
-        );
 
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
@@ -239,7 +240,7 @@ mod test {
     #[test]
     fn test_dump_state_return_locked() {
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -254,20 +255,6 @@ mod test {
         for i in 1..=epoch_length + 1 {
             env.produce_block(0, i);
         }
-
-        let near_config = NearConfig::new(
-            Config::default(),
-            genesis.clone(),
-            KeyFile {
-                account_id: AccountId::test_account(),
-                public_key: PublicKey::empty(KeyType::ED25519),
-                secret_key: SecretKey::from_random(KeyType::ED25519),
-            },
-            Some(Arc::new(InMemoryValidatorSigner::from_random(
-                AccountId::test_account(),
-                KeyType::ED25519,
-            ))),
-        );
 
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
@@ -304,7 +291,7 @@ mod test {
             return;
         }
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(
+        let (store, genesis, mut env, near_config) = setup(
             epoch_length,
             SimpleNightshade.protocol_version() - 1,
             Some(ShardLayout::v1_test()),
@@ -312,19 +299,6 @@ mod test {
         for i in 1..=2 * epoch_length + 1 {
             env.produce_block(0, i);
         }
-        let near_config = NearConfig::new(
-            Config::default(),
-            genesis.clone(),
-            KeyFile {
-                account_id: AccountId::test_account(),
-                public_key: PublicKey::empty(KeyType::ED25519),
-                secret_key: SecretKey::from_random(KeyType::ED25519),
-            },
-            Some(Arc::new(InMemoryValidatorSigner::from_random(
-                AccountId::test_account(),
-                KeyType::ED25519,
-            ))),
-        );
         let head = env.clients[0].chain.head().unwrap();
         assert_eq!(
             env.clients[0].runtime_adapter.get_shard_layout(&head.epoch_id).unwrap(),
