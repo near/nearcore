@@ -27,7 +27,6 @@ use validate::StoreValidatorError;
 
 use crate::RuntimeAdapter;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
-use tracing::debug;
 
 mod validate;
 
