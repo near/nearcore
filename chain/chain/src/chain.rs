@@ -1106,12 +1106,12 @@ impl Chain {
                         {
                             let mut count = 0;
                             let mut stake = 0;
-                            producers.iter().for_each(|(info, is_slashed)| {
+                            for (info, is_slashed) in producers.iter() {
                                 if !*is_slashed {
                                     stake += info.stake();
                                     count += 1;
                                 }
-                            });
+                            }
                             stake /= NEAR_BASE;
                             near_metrics::set_gauge(
                                 &metrics::VALIDATOR_AMOUNT_STAKED,
