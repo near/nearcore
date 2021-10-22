@@ -36,8 +36,9 @@ async fn convert_genesis_records_to_transaction(
         &view_client_addr,
     )
     .await?;
-    let runtime_config =
-        crate::utils::query_runtime_config(block.header.hash, &view_client_addr).await?;
+    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
+        .await?
+        .runtime_config;
 
     let mut operations = Vec::new();
     for (account_id, account) in genesis_accounts {
@@ -105,7 +106,6 @@ async fn convert_genesis_records_to_transaction(
 }
 
 pub(crate) async fn convert_block_to_transactions(
-    _genesis: Arc<Genesis>,
     view_client_addr: Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
 ) -> Result<Vec<crate::models::Transaction>, crate::errors::ErrorKind> {
@@ -142,8 +142,9 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .await??;
 
-    let runtime_config =
-        crate::utils::query_runtime_config(block.header.hash, &view_client_addr).await?;
+    let runtime_config = crate::utils::query_protocol_config(block.header.hash, &view_client_addr)
+        .await?
+        .runtime_config;
     let transactions = convert_block_changes_to_transactions(
         &runtime_config,
         &block.header.hash,
@@ -393,7 +394,7 @@ pub(crate) async fn collect_transactions(
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
-        convert_block_to_transactions(genesis, view_client_addr, block).await
+        convert_block_to_transactions(view_client_addr, block).await
     }
 }
 

@@ -15,7 +15,6 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
-    let runtime_config = &protocol_config.runtime_config;
     let prev_block = fetch_block_by_hash(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
@@ -23,7 +22,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
         txs.into_iter()
             .map(|tx| {
                 let cost = tx_cost(
-                    &runtime_config.transaction_costs,
+                    &protocol_config.runtime_config.transaction_costs,
                     &near_primitives::transaction::Transaction {
                         signer_id: tx.transaction.signer_id.clone(),
                         public_key: tx.transaction.public_key.clone(),

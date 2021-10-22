@@ -77,7 +77,7 @@ fn test_burn_mint() {
         .runtime_adapter
         .get_protocol_config(&EpochId::default())
         .unwrap()
-        .runtime
+        .runtime_config
         .transaction_costs
         .clone();
     let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);

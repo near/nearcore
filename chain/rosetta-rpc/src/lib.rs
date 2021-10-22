@@ -371,7 +371,9 @@ async fn account_balance(
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
     let runtime_config =
-        crate::utils::query_runtime_config(block.header.hash, view_client_addr.get_ref()).await?;
+        crate::utils::query_protocol_config(block.header.hash, view_client_addr.get_ref())
+            .await?
+            .runtime_config;
 
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
