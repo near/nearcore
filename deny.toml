@@ -99,10 +99,10 @@ skip = [
     { name = "ahash", version = "=0.4.7" },
 
     # zeropool-bn use borsh 0.9.0
-    { name = "borsh", version = "=0.9.0" },
-    { name = "borsh-derive", version = "=0.9.0" },
-    { name = "borsh-derive-internal", version = "=0.9.0" },
-    { name = "borsh-schema-derive-internal", version = "=0.9.0" },
+    { name = "borsh", version = "=0.9.1" },
+    { name = "borsh-derive", version = "=0.9.1" },
+    { name = "borsh-derive-internal", version = "=0.9.1" },
+    { name = "borsh-schema-derive-internal", version = "=0.9.1" },
 
     # rocksdb (transitively through clang-sys) uses this as a build
     # dependency which conflicts with 0.6.7 that wasmer-engine-native
