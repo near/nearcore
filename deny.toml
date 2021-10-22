@@ -35,7 +35,7 @@ skip = [
     { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "generic-array", version = "=0.12.3" },
+    { name = "generic-array", version = "=0.12.4" },
 
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
