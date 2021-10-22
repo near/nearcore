@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -628,8 +629,11 @@ impl Chain {
                         break;
                     } else if prev_block_refcount == 1 {
                         debug_assert_eq!(blocks_current_height.len(), 1);
-                        chain_store_update
-                            .clear_block_data(*block_hash, GCMode::Canonical(tries.clone()))?;
+                        chain_store_update.clear_block_data(
+                            &*self.runtime_adapter,
+                            *block_hash,
+                            GCMode::Canonical(tries.clone()),
+                        )?;
                         gc_blocks_remaining -= 1;
                     } else {
                         return Err(ErrorKind::GCError(
@@ -670,8 +674,11 @@ impl Chain {
                             *chain_store_update.get_block_header(&current_hash)?.prev_hash();
 
                         // It's safe to call `clear_block_data` for prev data because it clears fork only here
-                        chain_store_update
-                            .clear_block_data(current_hash, GCMode::Fork(tries.clone()))?;
+                        chain_store_update.clear_block_data(
+                            &*self.runtime_adapter,
+                            current_hash,
+                            GCMode::Fork(tries.clone()),
+                        )?;
                         chain_store_update.commit()?;
                         *gc_blocks_remaining -= 1;
 
@@ -933,12 +940,14 @@ impl Chain {
                 let blocks_current_height =
                     blocks_current_height.values().flatten().cloned().collect::<Vec<_>>();
                 for block_hash in blocks_current_height {
+                    let runtime_adapter = self.runtime_adapter();
                     let mut chain_store_update = self.mut_store().store_update();
                     if !tail_prev_block_cleaned {
                         let prev_block_hash =
                             *chain_store_update.get_block_header(&block_hash)?.prev_hash();
                         if chain_store_update.get_block(&prev_block_hash).is_ok() {
                             chain_store_update.clear_block_data(
+                                &*runtime_adapter,
                                 prev_block_hash,
                                 GCMode::StateSync { clear_block_info: true },
                             )?;
@@ -946,6 +955,7 @@ impl Chain {
                         tail_prev_block_cleaned = true;
                     }
                     chain_store_update.clear_block_data(
+                        &*runtime_adapter,
                         block_hash,
                         GCMode::StateSync { clear_block_info: block_hash != prev_hash },
                     )?;
@@ -1099,29 +1109,28 @@ impl Chain {
 
                 match &head {
                     Some(tip) => {
-                        near_metrics::set_gauge(
-                            &metrics::VALIDATOR_ACTIVE_TOTAL,
-                            match self.runtime_adapter.get_epoch_block_producers_ordered(
-                                &tip.epoch_id,
-                                &tip.last_block_hash,
-                            ) {
-                                Ok(value) => value
-                                    .iter()
-                                    .map(|(_, is_slashed)| if *is_slashed { 0 } else { 1 })
-                                    .sum(),
-                                Err(_) => 0,
-                            },
-                        );
+                        if let Ok(producers) = self
+                            .runtime_adapter
+                            .get_epoch_block_producers_ordered(&tip.epoch_id, &tip.last_block_hash)
+                        {
+                            let mut count = 0;
+                            let mut stake = 0;
+                            for (info, is_slashed) in producers.iter() {
+                                if !*is_slashed {
+                                    stake += info.stake();
+                                    count += 1;
+                                }
+                            }
+                            stake /= NEAR_BASE;
+                            near_metrics::set_gauge(
+                                &metrics::VALIDATOR_AMOUNT_STAKED,
+                                i64::try_from(stake).unwrap_or(i64::MAX),
+                            );
+                            near_metrics::set_gauge(&metrics::VALIDATOR_ACTIVE_TOTAL, count);
+                        }
                     }
                     None => {}
                 }
-                // Sum validator balances in full NEARs (divided by 10**24)
-                let sum = block
-                    .header()
-                    .validator_proposals()
-                    .map(|validator_stake| (validator_stake.stake() / NEAR_BASE) as i64)
-                    .sum::<i64>();
-                near_metrics::set_gauge(&metrics::VALIDATOR_AMOUNT_STAKED, sum);
 
                 let status = self.determine_status(head.clone(), prev_head);
 

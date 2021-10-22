@@ -22,6 +22,7 @@ fn try_main() -> io::Result<()> {
         "nightly_test_contract_rs",
     )?;
     build_contract("./tiny-contract-rs", &[], "tiny_contract_rs")?;
+    build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
     build_contract(
         "./test-contract-rs",
         &["--features", "base_protocol"],
