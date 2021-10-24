@@ -533,7 +533,7 @@ impl Error {
     }
 }
 
-impl<T> std::convert::From<T> for Error
+impl<T> From<T> for Error
 where
     T: Into<crate::errors::ErrorKind>,
 {
