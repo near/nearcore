@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::iter::FromIterator;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};

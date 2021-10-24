@@ -2,7 +2,6 @@ use std::collections::{
     hash_map::{Entry, Iter},
     HashMap,
 };
-use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
