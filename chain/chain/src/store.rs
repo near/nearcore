@@ -2120,9 +2120,6 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the last block in epoch T-2 to the last block in epoch T-1
         // Because we need to gc the last block in epoch T-2, we can't simply use
         // block_header.epoch_id() as next_epoch_id
-        // let next_epoch_id = runtime_adapter
-        //     .get_next_epoch_id_from_prev_block(block_hash)
-        //     .expect("block info must exist");
         let next_epoch_id = block_header.next_epoch_id();
         let next_shard_layout =
             runtime_adapter.get_shard_layout(&next_epoch_id).expect("epoch info must exist");
