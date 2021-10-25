@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use near_primitives::time::Utc;
 use num_rational::Rational;
 use serde::Serialize;
 
@@ -800,7 +801,7 @@ pub enum ValidatorInfoIdentifier {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use near_primitives::time::Utc;
 
     use near_crypto::KeyType;
     use near_primitives::block::{genesis_chunks, Approval};

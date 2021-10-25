@@ -1,7 +1,9 @@
 use std::fmt::{self, Display};
 use std::io;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use near_primitives::time::Utc;
+
 use failure::{Backtrace, Context, Fail};
 use log::error;
 

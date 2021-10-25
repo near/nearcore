@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::Utc;
+use near_primitives::time::Clock;
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
@@ -39,7 +39,7 @@ fn create_block() -> Block {
     let genesis = Block::genesis(
         PROTOCOL_VERSION,
         genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-        Utc::now(),
+        Clock::utc(),
         0,
         1_000,
         1_000,
