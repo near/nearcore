@@ -10,7 +10,7 @@ use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, Nonce};
+use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce};
 use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
@@ -35,7 +35,9 @@ impl Scenario {
         let accounts: Vec<AccountId> =
             self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect();
         let clients = vec![accounts[0].clone()];
-        let genesis = Genesis::test(accounts, 1);
+        let mut genesis = Genesis::test(accounts, 1);
+        genesis.config.runtime_config.wasm_config.limit_config.max_total_prepaid_gas =
+            self.runtime_config.max_total_prepaid_gas;
 
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
@@ -93,6 +95,7 @@ impl Scenario {
 #[derive(Serialize, Deserialize)]
 pub struct Scenario {
     pub network_config: NetworkConfig,
+    pub runtime_config: RuntimeConfig,
     pub blocks: Vec<BlockConfig>,
     pub use_in_memory_store: bool,
 }
@@ -100,6 +103,11 @@ pub struct Scenario {
 #[derive(Serialize, Deserialize)]
 pub struct NetworkConfig {
     pub seeds: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RuntimeConfig {
+    pub max_total_prepaid_gas: Gas,
 }
 
 #[derive(Serialize, Deserialize)]

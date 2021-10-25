@@ -60,7 +60,11 @@ mod tests {
             "test1",
         ));
         let num_shards = prev_state_roots.len() as u64;
+        let runtime_adapter = chain.runtime_adapter.clone();
         for i in 0..num_blocks {
+            runtime_adapter
+                .get_next_epoch_id_from_prev_block(prev_block.hash())
+                .expect("block must exist");
             let block = Block::empty(&prev_block, &*signer);
 
             let head = chain.head().unwrap();
