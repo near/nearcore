@@ -1413,40 +1413,7 @@ fn test_gc_with_epoch_length() {
 /// When an epoch is very long there should not be anything garbage collected unexpectedly
 #[test]
 fn test_gc_long_epoch() {
-    let epoch_length = 5;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 5);
-    genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .clients_count(2)
-        .validator_seats(5)
-        .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
-        .build();
-    let num_blocks = 100;
-    let mut blocks = vec![];
-
-    for i in 1..=num_blocks {
-        if i < epoch_length || i == num_blocks {
-            let block_producer = env.clients[0]
-                .runtime_adapter
-                .get_block_producer(&EpochId(CryptoHash::default()), i)
-                .unwrap();
-            if block_producer.as_ref() == "test0" {
-                let block = env.clients[0].produce_block(i).unwrap().unwrap();
-                env.process_block(0, block.clone(), Provenance::PRODUCED);
-                blocks.push(block);
-            }
-        }
-    }
-    for block in blocks {
-        assert!(env.clients[0].chain.get_block(&block.hash()).is_ok());
-        assert!(env.clients[0]
-            .chain
-            .mut_store()
-            .get_all_block_hashes_by_height(block.header().height())
-            .is_ok());
-    }
+    test_gc_with_epoch_length_common(200);
 }
 
 #[test]
