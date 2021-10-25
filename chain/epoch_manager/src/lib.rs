@@ -44,15 +44,8 @@ mod types;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
 mod validator_selection;
 
-#[cfg(feature = "no_cache")]
-const EPOCH_CACHE_SIZE: usize = 1;
-#[cfg(not(feature = "no_cache"))]
-const EPOCH_CACHE_SIZE: usize = 50;
-
-#[cfg(feature = "no_cache")]
-const BLOCK_CACHE_SIZE: usize = 5; // TODO(#5080): fix this
-#[cfg(not(feature = "no_cache"))]
-const BLOCK_CACHE_SIZE: usize = 1000;
+const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
+const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1000 } else { 5 }; // TODO(#5080): fix this
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 /// Tracks epoch information across different forks, such as validators.
