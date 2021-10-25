@@ -20,7 +20,7 @@ use std::str::FromStr;
 
 pub type ContractId = usize;
 
-pub const MAX_BLOCKS: usize = 2500;
+pub const MAX_BLOCKS: usize = 250;
 pub const MAX_TXS: usize = 50;
 pub const MAX_TX_DIFF: usize = 10;
 pub const MAX_ACCOUNTS: usize = 100;
@@ -37,7 +37,11 @@ impl Arbitrary<'_> for Scenario {
         let mut scope = Scope::from_seeds(&seeds);
 
         let network_config = NetworkConfig { seeds };
-        let runtime_config = RuntimeConfig { max_total_prepaid_gas: GAS_1 * 100 };
+        let runtime_config = RuntimeConfig {
+            max_total_prepaid_gas: GAS_1 * 100,
+            gas_limit: (GAS_1 as f64 * *u.choose(&[0.01, 0.1, 1., 10., 100.])?) as u64,
+            epoch_length: *u.choose(&[5, 10, 100, 500])? as u64
+        };
 
         let mut blocks = vec![];
 
