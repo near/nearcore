@@ -67,7 +67,7 @@ Nearcore is a reasonably standard Rust project, so `cargo test` most likely will
 There are couple of specifics though:
 
 * `nearcore` assumes UNIX-like environment.
-  You can compile and run it on Linux or Mac, but windows is supported yet.
+  You can compile and run it on Linux or Mac, but windows is not supported yet.
 * `nearcore` build process includes generating bindings to RocksDB via `bindgen`, which requires `libclang`.
   See [`bindgen` documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang) for installation instructions.
 * At the moment, `nearcore` only supports compiling for x86_64 architecture
