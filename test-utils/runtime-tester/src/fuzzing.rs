@@ -173,7 +173,7 @@ impl TransactionConfig {
                 let receiver_account = scope.random_non_zero_account(u)?;
                 let beneficiary_id = {
                     if u.arbitrary::<bool>()? {
-                        scope.accounts.len() + 100
+                        scope.new_account()
                     } else {
                         scope.random_alive_account_usize_id(u)?
                     }
