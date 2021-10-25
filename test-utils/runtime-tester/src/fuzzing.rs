@@ -88,7 +88,13 @@ impl TransactionConfig {
         // Transfer
         options.push(|u, scope| {
             let signer_account = scope.random_account(u)?;
-            let receiver_account = scope.random_account(u)?;
+            let receiver_account = {
+                if u.arbitrary::<bool>()? {
+                    scope.new_account()
+                } else {
+                    scope.random_account(u)?
+                }
+            };
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
 
             scope.accounts[signer_account.usize_id()].balance =
