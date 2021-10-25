@@ -241,7 +241,19 @@ impl TransactionConfig {
             let nonce = scope.nonce();
 
             let signer_account = scope.random_account(u)?;
-            let receiver_account = scope.random_account(u)?;
+            let receiver_account = {
+                let mut possible_receiver_accounts = vec![];
+                for account in &scope.accounts {
+                    if account.deployed_function != None {
+                        possible_receiver_accounts.push(account);
+                    }
+                }
+                if possible_receiver_accounts.is_empty() {
+                    signer_account.clone()
+                } else {
+                    (*u.choose(&possible_receiver_accounts)?).clone()
+                }
+            };
 
             let signer = InMemorySigner::from_seed(
                 signer_account.id.clone(),
