@@ -200,9 +200,14 @@ impl StoreValidator {
                     self.check(&validate::chunk_tx_exists, &chunk_hash, &shard_chunk, col);
                 }
                 DBCol::ColChunkExtra => {
-                    let (block_hash, _) = get_block_shard_uid_rev(key_ref)?;
+                    let (block_hash, shard_uid) = get_block_shard_uid_rev(key_ref)?;
                     let chunk_extra = ChunkExtra::try_from_slice(value_ref)?;
-                    self.check(&validate::chunk_extra_block_exists, &block_hash, &chunk_extra, col);
+                    self.check(
+                        &validate::chunk_extra_block_exists,
+                        &(block_hash, shard_uid),
+                        &chunk_extra,
+                        col,
+                    );
                 }
                 DBCol::ColTrieChanges => {
                     let (block_hash, shard_uid) = get_block_shard_uid_rev(key_ref)?;

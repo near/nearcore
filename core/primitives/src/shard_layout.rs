@@ -158,6 +158,10 @@ impl ShardLayout {
             Self::V1(v1) => (v1.fixed_shards.len() + v1.boundary_accounts.len() + 1) as NumShards,
         }
     }
+
+    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
+        (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
+    }
 }
 
 /// Maps account_id to shard_id given a shard_layout
