@@ -45,6 +45,7 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
             "account_id": account_id,
             "finality": finality
         })
+    logger.info(f'get_nonce_for_pk {account_id}')
     assert access_keys['result']['keys'], account_id
     for k in access_keys['result']['keys']:
         if k['public_key'] == pk:
