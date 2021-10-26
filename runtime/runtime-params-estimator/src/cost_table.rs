@@ -30,6 +30,10 @@ impl FromStr for CostTable {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut res = CostTable::default();
         for line in s.lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+
             let mut words = line.split_ascii_whitespace();
             let cost = words.next().ok_or(())?;
             let gas = words.next().ok_or(())?;

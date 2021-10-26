@@ -1,3 +1,6 @@
+# The cost table for latest stable version of the protocol.
+# It exists for the ease of comparing costs, and currently
+# needs to be synchronized manually.
 ActionReceiptCreation                         216_119_000_000
 DataReceiptCreationBase                        72_973_464_625
 DataReceiptCreationPerByte                         34_424_023
@@ -14,7 +17,7 @@ ActionAddFunctionAccessKeyPerByte                   3_850_662
 ActionDeleteKey                               189_893_250_000
 ActionDeleteAccount                           294_978_000_000
 HostFunctionCall                                   88_256_037
-WasmInstruction                                     1_285_457
+WasmInstruction                                       735_958
 ReadMemoryBase                                    869_954_400
 ReadMemoryByte                                      1_267_111
 WriteMemoryBase                                   934_598_287
