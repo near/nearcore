@@ -3,7 +3,7 @@ name = "near-jsonrpc-adversarial-primitives"
 version = "0.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }

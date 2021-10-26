@@ -4,7 +4,7 @@ version = "2.2.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 byteorder = "1.2"

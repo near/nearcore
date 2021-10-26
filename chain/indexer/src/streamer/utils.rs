@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use actix::Addr;
 
 use near_primitives::views;

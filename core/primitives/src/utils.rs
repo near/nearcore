@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::convert::{AsRef, TryFrom};
+use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};

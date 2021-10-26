@@ -2,7 +2,7 @@
 name = "near-chain-configs"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 chrono = { version = "0.4.4", features = ["serde"] }

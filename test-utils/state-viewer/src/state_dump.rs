@@ -80,7 +80,6 @@ pub fn state_dump(
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
-    use std::iter::FromIterator;
     use std::path::Path;
     use std::sync::Arc;
 

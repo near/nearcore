@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
