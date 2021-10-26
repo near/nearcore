@@ -26,6 +26,7 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 
 /// Fast gas counter with very simple structure, could be exposed to compiled code in the VM.
 #[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FastGasCounter {
     /// The following three fields must be put next to another to make sure
     /// generated gas counting code can use and adjust them.
@@ -89,25 +90,30 @@ impl GasCounter {
     }
 
     fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
+        use std::cmp::min;
         assert!(burn_gas <= use_gas);
+        let promise_gas = use_gas - burn_gas;
         let new_promises_gas =
-            self.promises_gas.checked_add(use_gas - burn_gas).ok_or(HostError::IntegerOverflow)?;
+            self.promises_gas.checked_add(promise_gas).ok_or(HostError::IntegerOverflow)?;
         let new_burnt_gas =
             self.fast_counter.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
         {
+            if promise_gas != 0 {
+                self.fast_counter.gas_limit =
+                    min(self.max_gas_burnt, self.prepaid_gas - new_promises_gas);
+            }
             self.fast_counter.burnt_gas = new_burnt_gas;
             self.promises_gas = new_promises_gas;
             Ok(())
         } else {
-            use std::cmp::min;
             let res = if new_burnt_gas > self.max_gas_burnt {
                 self.fast_counter.burnt_gas = self.max_gas_burnt;
                 Err(HostError::GasLimitExceeded.into())
             } else if new_used_gas > self.prepaid_gas {
-                self.fast_counter.burnt_gas = min(self.prepaid_gas, self.fast_counter.gas_limit);
+                self.promises_gas = self.prepaid_gas - self.fast_counter.burnt_gas;
                 Err(HostError::GasExceeded.into())
             } else {
                 unreachable!()

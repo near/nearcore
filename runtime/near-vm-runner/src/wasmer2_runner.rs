@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 use wasmer::{Bytes, ImportObject, Instance, Memory, MemoryType, Module, Pages, Store};
 
 use near_stable_hasher::StableHasher;
+use near_vm_logic::HostError;
 use wasmer_compiler_singlepass::Singlepass;
 use wasmer_vm::TrapCode;
 
@@ -122,6 +123,7 @@ impl IntoVMError for wasmer::RuntimeError {
             TrapCode::UnalignedAtomic => {
                 FunctionCallError::WasmTrap(WasmTrap::MisalignedAtomicAccess)
             }
+            TrapCode::GasExceeded => FunctionCallError::HostError(HostError::GasExceeded),
         };
         VMError::FunctionCallError(error)
     }
@@ -191,13 +193,7 @@ pub fn run_wasmer2(
         );
     }
 
-    let store = default_wasmer2_store();
-    let module =
-        cache::wasmer2_cache::compile_module_cached_wasmer2(&code, wasm_config, cache, &store);
-    let module = match into_vm_result(module) {
-        Ok(it) => it,
-        Err(err) => return (None, Some(err)),
-    };
+    let mut store = default_wasmer2_store();
 
     let mut memory = Wasmer2Memory::new(
         &store,
@@ -217,6 +213,17 @@ pub fn run_wasmer2(
         &mut memory,
         current_protocol_version,
     );
+
+    // FastGasCounter in Nearcore and Wasmer must match in layout.
+    // TODO: add assert
+    store.set_gas_counter(logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter);
+
+    let module =
+        cache::wasmer2_cache::compile_module_cached_wasmer2(&code, wasm_config, cache, &store);
+    let module = match into_vm_result(module) {
+        Ok(it) => it,
+        Err(err) => return (None, Some(err)),
+    };
 
     // TODO: remove, as those costs are incorrectly computed, and we shall account it on deployment.
     if logic.add_contract_compile_fee(code.code().len() as u64).is_err() {
@@ -364,5 +371,7 @@ pub(crate) fn run_wasmer2_module<'a>(
     }
 
     let err = run_method(module, &import, method_name).err();
-    (Some(logic.outcome()), err)
+    let o = logic.outcome();
+    println!("o={:?}", o);
+    (Some(o), err)
 }

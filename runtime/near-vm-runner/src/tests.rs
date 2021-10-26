@@ -63,7 +63,8 @@ fn make_simple_contract_call_with_gas_vm(
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
-    let config = VMConfig::default();
+    let mut config = VMConfig::default();
+    config.limit_config.max_gas_burnt = prepaid_gas;
     let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
@@ -158,10 +159,14 @@ fn gas_metering_bench() {
     make_simple_contract_call_vm(code, "cpu_ram_soak_test", VMKind::Wasmer2);
 
     let t = std::time::Instant::now();
-    let (_out, err) = make_simple_contract_call_vm(code, "cpu_ram_soak_test", VMKind::Wasmer2);
+    let (_out, err) = make_simple_contract_call_with_gas_vm(
+        code, "cpu_ram_soak_test",
+        10u64.pow(16),VMKind::Wasmer2);
+    println!("err {:?}", err);
+    /*
     assert!(matches!(
         err,
         Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded)))
-    ));
+    )); */
     eprintln!("{:?}", t.elapsed())
 }

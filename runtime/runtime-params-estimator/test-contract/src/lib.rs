@@ -1032,7 +1032,7 @@ pub unsafe fn data_receipt_100kib_1000() {
 pub unsafe fn cpu_ram_soak_test() {
     let mut buf = [0u8; 100 * 1024];
     let len = buf.len();
-    for i in 0..10_000_000 {
+    for i in 0..10_000_000_000 {
         let j = (i * 7 + len / 2) % len;
         let k = (i * 3) % len;
         let tmp = buf[k];
