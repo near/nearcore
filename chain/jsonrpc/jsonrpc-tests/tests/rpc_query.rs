@@ -6,8 +6,7 @@ use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_jsonrpc::client::new_client;
-use near_jsonrpc_client::ChunkId;
+use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_logger_utils::init_test_logger;
@@ -17,7 +16,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, ShardId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
 
-use near_jsonrpc_test_utils::{self as test_utils, test_with_client};
+use near_jsonrpc_tests::{self as test_utils, test_with_client};
 
 /// Retrieve blocks via json rpc
 #[test]
