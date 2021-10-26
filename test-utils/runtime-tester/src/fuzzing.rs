@@ -363,7 +363,7 @@ impl Scope {
         Scope {
             accounts,
             alive_accounts: HashSet::from_iter(0..seeds.len()),
-            nonce: 0,
+            nonce: 1_000_000,
             height: 0,
             available_contracts: Scope::construct_available_contracts(),
             last_tx_num: MAX_TXS,
