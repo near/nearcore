@@ -7,7 +7,7 @@ LABEL description="Container for builds"
 # RUN rustup update nightly
 RUN rustup toolchain uninstall nightly
 # Must match nearcore/rust-toolchain.
-RUN rustup default 1.55.0
+RUN rustup default 1.56.0
 RUN rustup target add wasm32-unknown-unknown
 
 # install build dependencies for QEMU

@@ -26,7 +26,7 @@ impl ValidatedOperation for InitiateDeployContractOperation {
     }
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for InitiateDeployContractOperation {
+impl TryFrom<crate::models::Operation> for InitiateDeployContractOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
