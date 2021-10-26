@@ -425,6 +425,7 @@ fn apply_chain_range(
             println!("existing_chunk_extra: {:#?}", existing_chunk_extra);
             println!("outcomes: {:#?}", apply_result.outcomes);
         }
+        println!("{},{}",height,chunk_extra.gas_used());
 
         chunk_gas_used_stats.add_u64(chunk_extra.gas_used());
         chunk_balance_burnt_stats.add_u128(chunk_extra.balance_burnt());

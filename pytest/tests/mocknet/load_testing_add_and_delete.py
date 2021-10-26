@@ -63,9 +63,9 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 if __name__ == '__main__':
     logger.info('Starting Load test.')
-    all_nodes = mocknet.get_nodes()
+    all_nodes = mocknet.get_nodes(pattern='mocknet4-mocknet-')
     random.shuffle(all_nodes)
-    assert len(all_nodes) > load_testing_add_and_delete_helper.NUM_NODES
+    assert len(all_nodes) >= load_testing_add_and_delete_helper.NUM_NODES, "%d %s" % (len(all_nodes),[node.instance_name for node in all_nodes])
     nodes = all_nodes[:load_testing_add_and_delete_helper.NUM_NODES]
     rpc_nodes = all_nodes[load_testing_add_and_delete_helper.NUM_NODES:]
     logger.info(
@@ -82,34 +82,23 @@ if __name__ == '__main__':
         mocknet.start_nodes(all_nodes)
         time.sleep(60)
 
-    archival_node = rpc_nodes[0]
+    archival_node = rpc_nodes[0] if rpc_nodes else all_nodes[-1]
     logger.info(f'Archival node: {archival_node.instance_name}')
     initial_validator_accounts = mocknet.list_validators(archival_node)
     test_passed = True
-
-    logger.info('Performing baseline block time measurement')
-    # We do not include tps here because there are no transactions on mocknet normally.
-    if '--skip_initial_sleep' not in sys.argv:
-        time.sleep(120)
-    baseline_measurement = mocknet.chain_measure_bps_and_tps(
-        archival_node=archival_node,
-        start_time=None,
-        end_time=None,
-        duration=120)
-    baseline_measurement['in_tps'] = 0.0
-    # quit test early if the baseline is poor.
-    assert baseline_measurement['bps'] > 1.0
-    logger.info(f'{baseline_measurement}')
-    logger.info('Baseline block time measurement complete')
 
     logger.info('Setting remote python environments.')
     mocknet.setup_python_environments(nodes, 'add_and_delete_state.wasm')
     logger.info('Starting transaction spamming scripts.')
     mocknet.start_load_test_helpers(nodes,
                                     'load_testing_add_and_delete_helper.py',
-                                    rpc_nodes=rpc_nodes)
+                                    rpc_nodes=rpc_nodes, get_node_key=True)
 
     initial_metrics = mocknet.get_metrics(archival_node)
+    logger.info(
+        f'Waiting for the skyward contract to be initialized for {load_testing_add_and_delete_helper.SKYWARD_INIT_TIME} seconds.'
+    )
+    time.sleep(load_testing_add_and_delete_helper.SKYWARD_INIT_TIME)
     logger.info(
         f'Waiting for contracts to be deployed for {load_testing_add_and_delete_helper.CONTRACT_DEPLOY_TIME} seconds.'
     )
