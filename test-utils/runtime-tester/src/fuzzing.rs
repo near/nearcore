@@ -179,7 +179,7 @@ impl TransactionConfig {
                 let receiver_account = scope.random_non_zero_account(u)?;
                 let beneficiary_id = {
                     if u.arbitrary::<bool>()? {
-                        scope.new_account()
+                        scope.new_account().usize_id()
                     } else {
                         scope.random_alive_account_usize_id(u)?
                     }
@@ -244,7 +244,7 @@ impl TransactionConfig {
             let receiver_account = {
                 let mut possible_receiver_accounts = vec![];
                 for account in &scope.accounts {
-                    if account.deployed_function != None {
+                    if account.deployed_contract != None {
                         possible_receiver_accounts.push(account);
                     }
                 }
