@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use actix::Addr;
@@ -640,7 +639,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
     }
 }
 
-impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
+impl TryFrom<Vec<crate::models::Operation>> for NearActions {
     type Error = crate::errors::ErrorKind;
 
     /// Convert Rosetta Operations to NEAR Actions.
@@ -907,7 +906,6 @@ impl std::convert::TryFrom<Vec<crate::models::Operation>> for NearActions {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
 
     use super::*;
 

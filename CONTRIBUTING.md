@@ -49,7 +49,7 @@ The `test plan` should describe in detail what tests are presented, and what cas
 ### After the PR is submitted
 
 1. We have a CI process configured to run all the sanity tests on each PR. If the CI fails on your PR, you need to fix it before it will be reviewed.
-2. Once the CI passes, you should expect the first feedback to appear within 48 hours. 
+2. Once the CI passes, you should expect the first feedback to appear within 48 hours.
    The reviewers will first review your tests, and make sure that they can convince themselves the test coverage is adequate before they even look into the change, so make sure you tested all the corner cases.
    If you would like to request review from a specific review, feel free to do so [through the github UI](https://docs.github.com/en/github/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/requesting-a-pull-request-review).
 3. Once you address all the comments, and your PR is accepted, we will take care of merging it.
@@ -61,11 +61,21 @@ If you want to propose an idea or a feature and work on it, create a new issue i
 
 You should expect someone to comment on the issue within 48 hours after it is created. If the proposal in the issue is accepted, you should then follow the process for `Working on current tasks` above.
 
-# Setting up the environment
+# Build Process
 
-We use nightly Rust features, so you will need nightly rust installed. If you use [rustup](https://rust-lang.github.io/rustup/index.html) the appropriate nightly is picked automatically from the `rust-toolchain` file.
+Nearcore is a reasonably standard Rust project, so `cargo test` most likely will just work.
+There are couple of specifics though:
 
-Building `nearcore` requires `libclang`, see [`bindgen` documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang) for installation instructions.
+* `nearcore` assumes UNIX-like environment.
+  You can compile and run it on Linux or Mac, but windows is not supported yet.
+* `nearcore` build process includes generating bindings to RocksDB via `bindgen`, which requires `libclang`.
+  See [`bindgen` documentation](https://rust-lang.github.io/rust-bindgen/requirements.html#clang) for installation instructions.
+* At the moment, `nearcore` only supports compiling for x86_64 architecture
+  (for technical reasons, we have to care about CPU architecture, and supporting one is easier).
+  To compile to x86_64 on Apple silicon, use `rustup set default-host x86_64-apple-darwin` command.
+  That is, cross-compilation sadly doesn't work at the time of writing, although the fix is in the pipeline.
+
+## Editors and IDEs
 
 Majority of NEAR developers use CLion with Rust plugin as their primary IDE.
 

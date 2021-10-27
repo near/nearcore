@@ -3,7 +3,7 @@ name = "near-test-contracts"
 version = "0.0.0"
 publish = false
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]

@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};

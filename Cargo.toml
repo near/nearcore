@@ -1,5 +1,4 @@
 [workspace]
-resolver = "2"
 members = [
     "core/chain-configs",
     "core/crypto",
@@ -28,7 +27,6 @@ members = [
     "chain/jsonrpc-adversarial-primitives",
     "chain/rosetta-rpc",
     "test-utils/actix-test-utils",
-    "test-utils/loadtester",
     "test-utils/runtime-tester",
     "test-utils/state-viewer",
     "test-utils/store-validator",
@@ -57,9 +55,6 @@ overflow-checks = true
 overflow-checks = true
 
 [profile.dev.package.hex]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.package.ring]
 opt-level = 3 # BLS library is too slow to use in debug
 
 [profile.dev.package.rand]

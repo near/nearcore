@@ -1,7 +1,6 @@
 use crate::runtime::config::RuntimeConfig;
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
-use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
