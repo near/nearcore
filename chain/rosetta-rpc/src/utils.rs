@@ -1,7 +1,7 @@
 use actix::Addr;
 use futures::StreamExt;
-use near_chain_configs::ProtocolConfigView;
 
+use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
