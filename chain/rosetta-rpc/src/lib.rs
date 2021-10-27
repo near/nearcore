@@ -334,7 +334,6 @@ async fn block_transaction_details(
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
 async fn account_balance(
-    _genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::AccountBalanceRequest>,
