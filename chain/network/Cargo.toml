@@ -3,7 +3,7 @@ name = "near-network"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 bytes = "1"

@@ -37,7 +37,7 @@ fn required_fields_error() -> crate::errors::ErrorKind {
     )
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for StakeOperation {
+impl TryFrom<crate::models::Operation> for StakeOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {

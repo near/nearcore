@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::convert::{AsRef, TryInto};
+use std::convert::AsRef;
 use std::sync::Arc;
 
 use actix::Addr;

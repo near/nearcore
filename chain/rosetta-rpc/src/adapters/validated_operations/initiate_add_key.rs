@@ -26,7 +26,7 @@ impl ValidatedOperation for InitiateAddKeyOperation {
     }
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for InitiateAddKeyOperation {
+impl TryFrom<crate::models::Operation> for InitiateAddKeyOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {
