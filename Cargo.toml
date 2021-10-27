@@ -57,9 +57,6 @@ overflow-checks = true
 [profile.dev.package.hex]
 opt-level = 3 # BLS library is too slow to use in debug
 
-[profile.dev.package.ring]
-opt-level = 3 # BLS library is too slow to use in debug
-
 [profile.dev.package.rand]
 opt-level = 3 # BLS library is too slow to use in debug
 
