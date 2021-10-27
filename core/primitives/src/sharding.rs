@@ -1089,7 +1089,12 @@ impl EncodedShardChunk {
         gas_limit: Gas,
         balance_burnt: Balance,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        #[cfg(feature = "protocol_feature_block_header_v3")] validator_proposals: Vec<
+            ValidatorStake,
+        >,
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))] validator_proposals: Vec<
+            ValidatorStakeV1,
+        >,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
