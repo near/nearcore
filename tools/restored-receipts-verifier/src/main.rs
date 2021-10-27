@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::io::Result;
-use std::iter::FromIterator;
 use std::path::Path;
 
 use clap::{App, Arg};

@@ -570,8 +570,6 @@ pub fn migrate_14_to_15(path: &Path) {
 }
 
 pub fn migrate_17_to_18(path: &Path) {
-    use std::convert::TryFrom;
-
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::types::validator_stake::ValidatorStakeV1;
     use near_primitives::types::{BlockHeight, EpochId};

@@ -5,7 +5,6 @@ use near_primitives::runtime::fees::{
     RuntimeFeesConfig, StorageUsageConfig,
 };
 use rand::{thread_rng, RngCore};
-use std::convert::TryInto;
 
 pub fn random_config() -> RuntimeConfig {
     let mut rng = thread_rng();

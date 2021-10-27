@@ -84,7 +84,7 @@ pub trait External {
     ///
     /// # Example
     /// ```
-    /// # use near_vm_logic::mocks::mock_external::{MockedExternal};
+    /// # use near_vm_logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_logic::{External, ValuePtr};
     ///
     /// # let mut external = MockedExternal::new();

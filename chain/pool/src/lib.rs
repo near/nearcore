@@ -203,7 +203,6 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryFrom;
     use std::sync::Arc;
 
     use rand::seq::SliceRandom;
