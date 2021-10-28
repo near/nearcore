@@ -2634,24 +2634,17 @@ version = "0.2.2"
 dependencies = [
  "actix",
  "actix-cors",
- "actix-http",
  "actix-web",
- "awc",
- "borsh 0.9.1",
  "easy-ext",
  "futures",
  "lazy_static",
- "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
- "near-crypto",
  "near-jsonrpc-adversarial-primitives",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",
- "near-logger-utils",
  "near-metrics",
  "near-network",
- "near-performance-metrics",
  "near-primitives",
  "near-rpc-error-macro",
  "prometheus",
@@ -2709,16 +2702,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-jsonrpc-test-utils"
+name = "near-jsonrpc-tests"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "awc",
+ "borsh 0.9.1",
+ "futures",
  "lazy_static",
+ "near-actix-test-utils",
  "near-chain-configs",
  "near-client",
+ "near-crypto",
  "near-jsonrpc",
+ "near-jsonrpc-primitives",
+ "near-logger-utils",
  "near-network",
  "near-primitives",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
