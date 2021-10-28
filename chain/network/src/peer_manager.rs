@@ -89,7 +89,9 @@ const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
 const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
-const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_secs(1);
+const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
+/// How often should we update the routing table
+const UPDATE_ROUTING_TABLE_INTERVAL: Duration = Duration::from_millis(1_000);
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -782,7 +784,7 @@ impl PeerManagerActor {
             self.scheduled_routing_table_update = true;
             near_performance_metrics::actix::run_later(
                 ctx,
-                Duration::from_millis(1000),
+                UPDATE_ROUTING_TABLE_INTERVAL,
                 |act, ctx2| {
                     act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
