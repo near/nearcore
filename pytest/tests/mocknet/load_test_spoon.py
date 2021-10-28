@@ -19,6 +19,8 @@ import argparse
 import random
 import sys
 import time
+import tempfile
+from rc import pmap
 
 sys.path.append('lib')
 
@@ -101,6 +103,7 @@ if __name__ == '__main__':
     random.shuffle(all_nodes)
     assert len(all_nodes) > num_nodes, 'Need at least one RPC node'
     validator_nodes = all_nodes[:num_nodes]
+    logger.info(f'validator_nodes: {validator_nodes}')
     rpc_nodes = all_nodes[num_nodes:]
     logger.info(
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
@@ -116,12 +119,15 @@ if __name__ == '__main__':
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            node_pks = pmap(lambda node: mocknet.get_node_keys(node, tmp_dir)[0], validator_nodes)
         mocknet.create_and_upload_genesis(validator_nodes,
                                           genesis_template_filename=None,
                                           rpc_nodes=rpc_nodes,
                                           chain_id=chain_id,
                                           update_genesis_on_machine=True,
-                                          epoch_length=epoch_length)
+                                          epoch_length=epoch_length,
+                                          node_pks=node_pks)
         mocknet.start_nodes(all_nodes)
         time.sleep(60)
 

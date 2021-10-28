@@ -21,8 +21,8 @@ from configured_logger import logger
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 7 * mocknet.NUM_ACCOUNTS
-TEST_TIMEOUT = 60 * 60
+CONTRACT_DEPLOY_TIME = 8 * mocknet.NUM_ACCOUNTS
+TEST_TIMEOUT = 12 * 60 * 60
 SKYWARD_INIT_TIME = 120
 
 
@@ -261,7 +261,7 @@ def get_test_accounts_from_args(argv):
         account.Account(key,
                         get_nonce_for_pk(key.account_id, key.pk),
                         base_block_hash, (rpc_node, RPC_PORT))
-        for key, rpc_node in zip(special_account_keys, itertools.cycle(rpc_nodes)):
+        for key, rpc_node in zip(special_account_keys, itertools.cycle(rpc_nodes))
     ]
 
     start_time = time.time()
@@ -295,8 +295,13 @@ def init_token2_account(account, i):
 
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "1000000000000000000"}}'
     logger.info( f'Calling function "ft_transfer" with arguments {s} on account {i}')
-    tx_res = get_token2_owner_account().send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT, 'ft_transfer', bytes(s, encoding='utf-8'), 1)
-    logger.info(f'{get_token2_owner_account().key.account_id} ft_transfer to {account.key.account_id} {tx_res}')
+    while True:
+        try:
+            tx_res = get_token2_owner_account().send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT, 'ft_transfer', bytes(s, encoding='utf-8'), 1)
+            logger.info(f'{get_token2_owner_account().key.account_id} ft_transfer to {account.key.account_id} {tx_res}')
+            break
+        except Exception as e:
+            logger.error(f'Cannot init token2 account')
 
 
 def wait_at_least_one_block():
@@ -342,8 +347,8 @@ def main(argv):
     )
     while time.time() - start_time < TEST_TIMEOUT:
         (total_tx_sent,
-         elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
-                                       elapsed_time, max_tps_per_node,
+         elapsed_time) = throttle_txns(send_skyward_transactions, total_tx_sent,
+                                       elapsed_time, 2*max_tps_per_node,
                                        node_account, test_accounts)
     logger.info('Stop the test')
 

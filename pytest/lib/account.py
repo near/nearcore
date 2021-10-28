@@ -33,12 +33,12 @@ class Account:
         }
         r = requests.post(f'http://{self.rpc_addr}:{self.rpc_port}',
                           json=j,
-                          timeout=10)
+                          timeout=30)
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
-        return self.json_rpc('broadcast_tx_commit',
-                             [base64.b64encode(signed_tx).decode('utf8')])
+        return self.json_rpc('broadcast_tx_async',
+                             [base64.b64encode(signed_tx).decode('utf-8')])
 
     def prep_tx(self):
         self.tx_timestamps.append(time.time())
@@ -66,7 +66,7 @@ class Account:
                                   deposit):
         self.prep_tx()
         tx = sign_function_call_tx(self.key, self.key.account_id, method_name,
-                                   args, int(3 * 10**14), 0, self.nonce,
+                                   args, 3 * 10**14, 0, self.nonce,
                                    self.base_block_hash)
         return self.send_tx(tx)
 
