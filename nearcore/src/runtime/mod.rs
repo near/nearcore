@@ -251,7 +251,10 @@ impl NightshadeRuntime {
 
     /// Create store of runtime configs for the given chain id.
     ///
-    /// Needed because historically testnet runtime config was different from other chains.
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
     fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
         match chain_id {
             "testnet" => {
