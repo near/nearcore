@@ -254,10 +254,6 @@ fn test_protocol_config_rpc() {
             intial_runtime_config.storage_amount_per_byte
         );
         assert_eq!(
-            config_response.config_view.runtime_config.storage_amount_per_byte,
-            10u128.pow(19)
-        );
-        assert_eq!(
             config_response.config_view.runtime_config,
             latest_runtime_config.as_ref().clone()
         );
