@@ -111,7 +111,7 @@ mod tests {
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            "2NGvpASXyKxPcqJDsJNgi9U4qiRt7Bww5Q4GzLjcGT6m",
+            "CmbWKajUaeK1U2owycf7tusLcVu26mrDSgJw3jz9jYie",
         ];
         let actual_hashes = CONFIGS
             .iter()
