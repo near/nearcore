@@ -3000,7 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "4.0.0-pre.2"
+version = "3.0.1"
 dependencies = [
  "borsh 0.9.1",
  "hex",
