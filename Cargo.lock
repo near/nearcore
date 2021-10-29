@@ -2823,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "near-pool"
-version = "0.1.0"
+version = "0.1.0-pre.1"
 dependencies = [
  "borsh 0.9.1",
  "near-crypto",
@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives"
-version = "0.1.0"
+version = "0.1.0-pre.1"
 dependencies = [
  "base64 0.13.0",
  "bencher",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.11.0",
  "borsh 0.9.1",
@@ -2949,7 +2949,7 @@ version = "0.1.0"
 
 [[package]]
 name = "near-store"
-version = "2.2.0"
+version = "0.1.0-pre.1"
 dependencies = [
  "bencher",
  "borsh 0.9.1",
