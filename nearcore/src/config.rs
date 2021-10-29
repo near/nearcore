@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -23,6 +24,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -572,6 +574,17 @@ impl Genesis {
         )
     }
 
+    pub fn test_free(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
+        let mut genesis = Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            vec![num_validator_seats],
+            ShardLayout::default(),
+        );
+        genesis.config.runtime_config = RuntimeConfig::free();
+        genesis
+    }
+
     pub fn test_sharded(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
@@ -800,8 +813,11 @@ fn generate_validator_key(account_id: AccountId, path: &Path) {
     signer.write_to_file(path);
 }
 
-lazy_static_include::lazy_static_include_bytes! {
-    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+pub fn mainnet_genesis() -> Genesis {
+    lazy_static_include::lazy_static_include_bytes! {
+        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
+    };
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -858,8 +874,7 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
-                .expect("Failed to deserialize MainNet genesis");
+            let genesis = mainnet_genesis();
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }

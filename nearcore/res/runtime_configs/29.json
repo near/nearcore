@@ -177,7 +177,7 @@
     }
   },
   "account_creation_config": {
-    "min_allowed_top_level_account_length": 0,
+    "min_allowed_top_level_account_length": 32,
     "registrar_account_id": "registrar"
   }
 }
