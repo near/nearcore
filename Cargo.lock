@@ -2396,7 +2396,7 @@ checksum = "0debeb9fcf88823ea64d64e4a815ab1643f33127d995978e099942ce38f25238"
 
 [[package]]
 name = "near-account-id"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "borsh 0.9.1",
  "serde",
@@ -2443,7 +2443,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain-configs"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "derive_more",
@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "near-chain-primitives"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "failure",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "near-chunks-primitives"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "near-chain-primitives",
 ]
@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "near-client-primitives"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actix",
  "chrono",
@@ -2561,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "near-crypto"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arrayref",
  "blake2",
@@ -2683,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "near-jsonrpc-primitives"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "actix",
  "lazy_static",
@@ -2733,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "near-metrics"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "lazy_static",
  "log",
@@ -2781,7 +2781,7 @@ dependencies = [
 
 [[package]]
 name = "near-network-primitives"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "actix",
  "borsh 0.9.1",
@@ -2863,7 +2863,7 @@ dependencies = [
 
 [[package]]
 name = "near-primitives-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64 0.11.0",
  "borsh 0.9.1",
@@ -2909,7 +2909,7 @@ dependencies = [
 
 [[package]]
 name = "near-rpc-error-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2920,7 +2920,7 @@ dependencies = [
 
 [[package]]
 name = "near-rpc-error-macro"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "near-rpc-error-core",
  "proc-macro2",
@@ -3000,7 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "near-vm-errors"
-version = "3.0.1"
+version = "3.1.0"
 dependencies = [
  "borsh 0.9.1",
  "hex",

@@ -1,6 +1,6 @@
 [package]
 name = "near-network-primitives"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 
@@ -13,7 +13,7 @@ serde = { version = "1", features = [ "derive" ] }
 strum = { version = "0.20", features = ["derive"] }
 tracing = "0.1.13"
 
-near-crypto = { path = "../../core/crypto", version = "0.1.1" }
+near-crypto = { path = "../../core/crypto", version = "0.2.0" }
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 
 [features]

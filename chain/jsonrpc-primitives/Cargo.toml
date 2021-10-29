@@ -1,6 +1,6 @@
 [package]
 name = "near-jsonrpc-primitives"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 
@@ -15,13 +15,13 @@ thiserror = "1.0"
 tracing = "0.1.13"
 uuid = { version = "~0.8", features = ["v4"] }
 
-near-chain-configs = { path = "../../core/chain-configs", version = "0.1.1" }
-near-client-primitives = { path = "../client-primitives", version = "0.1.1" }
-near-crypto = { path = "../../core/crypto", version = "0.1.1" }
-near-metrics = { path = "../../core/metrics", version = "0.1.1" }
+near-chain-configs = { path = "../../core/chain-configs", version = "0.2.0" }
+near-client-primitives = { path = "../client-primitives", version = "0.2.0" }
+near-crypto = { path = "../../core/crypto", version = "0.2.0" }
+near-metrics = { path = "../../core/metrics", version = "0.2.0" }
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
-near-primitives-core = { path = "../../core/primitives-core", version = "0.4.1" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.1" }
+near-primitives-core = { path = "../../core/primitives-core", version = "0.5.0" }
+near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.2.0" }
 
 [features]
 test_features = []

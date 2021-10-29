@@ -1,6 +1,6 @@
 [package]
 name = "near-primitives-core"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -22,7 +22,7 @@ serde_json = "1"
 sha2 = "0.9"
 lazy_static = "1.4"
 
-near-account-id = { path = "../account-id" }
+near-account-id = { path = "../account-id", version = "0.2.0" }
 
 [features]
 default = []

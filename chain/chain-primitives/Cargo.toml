@@ -1,6 +1,6 @@
 [package]
 name = "near-chain-primitives"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 
@@ -14,4 +14,4 @@ log = "0.4"
 thiserror = "1.0"
 
 near-primitives = { path = "../../core/primitives", version = "0.1.0" }
-near-crypto = { path = "../../core/crypto", version = "0.1.1" }
+near-crypto = { path = "../../core/crypto", version = "0.2.0" }
