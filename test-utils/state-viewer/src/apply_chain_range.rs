@@ -8,12 +8,14 @@ use near_chain::types::ApplyTransactionResult;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
+use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
+use near_primitives::receipt::Receipt;
 
 fn inc_and_report_progress(cnt: &AtomicU64) {
     let prev = cnt.fetch_add(1, Ordering::Relaxed);
@@ -42,6 +44,16 @@ fn old_outcomes(
         .collect()
 }
 
+fn delayed_receipts(
+    store: Arc<Store>,
+) -> Vec<Receipt> {
+    store
+        .iter(DBCol::ColReceipts)
+        .map(|(_key, value)| {
+            Receipt::try_from_slice(&value).expect("BorshDeserialize should not fail")
+        }).collect()
+}
+
 pub fn apply_chain_range(
     store: Arc<Store>,
     genesis: &Genesis,
@@ -65,6 +77,8 @@ pub fn apply_chain_range(
     let processed_blocks_cnt = AtomicU64::new(0);
     (start_height..=end_height).into_par_iter().for_each(|height| {
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
+        let delayed_receipts = delayed_receipts(store.clone());
+        println!("num_delayed_receipts: {}",delayed_receipts.len());
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(block_hash) => block_hash,
             Err(_) => {
