@@ -371,11 +371,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
         let has_records = !genesis.records.as_ref().is_empty();
-        let has_dump = {
-            let mut state_dump = home_dir.to_path_buf();
-            state_dump.push(STATE_DUMP_FILE);
-            state_dump.exists()
-        };
+        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
         if has_dump {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
