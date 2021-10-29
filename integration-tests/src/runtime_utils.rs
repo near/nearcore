@@ -8,6 +8,7 @@ use near_primitives::types::StateRoot;
 use near_store::test_utils::create_tries_complex;
 use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::GenesisExt;
+use node_runtime::config::RuntimeConfig;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -54,7 +55,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
             })
             .collect::<Vec<_>>(),
         &genesis,
-        &genesis.config.runtime_config,
+        &RuntimeConfig::test(),
         account_ids,
     );
     (runtime, tries, genesis_root)

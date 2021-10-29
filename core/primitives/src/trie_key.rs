@@ -192,7 +192,6 @@ impl TrieKey {
 // TODO: Remove once we switch to non-raw keys everywhere.
 pub mod trie_key_parsers {
     use super::*;
-    use std::convert::TryFrom;
 
     pub fn parse_public_key_from_access_key_key(
         raw_key: &[u8],

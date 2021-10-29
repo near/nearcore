@@ -1,5 +1,3 @@
-use std::convert::{TryFrom, TryInto};
-
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
 use near_primitives::serialize::BaseEncode;
@@ -535,7 +533,7 @@ impl Error {
     }
 }
 
-impl<T> std::convert::From<T> for Error
+impl<T> From<T> for Error
 where
     T: Into<crate::errors::ErrorKind>,
 {
