@@ -1,6 +1,5 @@
 use std::collections::btree_map;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::ops::Sub;
 use std::time::{Duration, Instant};
 
 use near_primitives::hash::CryptoHash;
@@ -117,7 +116,7 @@ impl RouteBackCache {
             self.remove_frequent();
 
             let now = Instant::now();
-            let remove_until = now.sub(self.evict_timeout);
+            let remove_until = now - self.evict_timeout;
 
             let mut remove_empty = vec![];
 

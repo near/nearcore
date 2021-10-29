@@ -1,5 +1,4 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
-use std::ops::Sub;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -580,10 +579,8 @@ impl RoutingTable {
 
                         if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
                             if cur_nonce == nonce {
-                                self.peer_last_time_reachable.insert(
-                                    peer_id.clone(),
-                                    Instant::now().sub(SAVE_PEERS_MAX_TIME),
-                                );
+                                self.peer_last_time_reachable
+                                    .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
                                 update
                                     .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
                             }
