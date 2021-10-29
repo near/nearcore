@@ -87,20 +87,18 @@ Refer to [this document](https://docs.nearprotocol.com/docs/contribution/nearcor
 
 # Release Schedule
 
-If a crate is to be published individually the following needs to be added to its `Cargo.toml`:
-
-```toml
-[package.metadata.workspaces]
-independent = true
-```
-
-This is required by [cargo-workspaces](https://github.com/pksunkara/cargo-workspaces) which is used to publish non-private crates in the nearcore workspace.
-
 Once your change ends up in master, it will be released with the rest of the changes by other contributors on the regular release schedules.
 
 On [betanet](https://docs.near.org/docs/concepts/networks#betanet) we run nightly build from master with all the nightly protocol feature enabled.
 Every six weeks, we stabilize some protocol features and make a release candidate for testnet.
 After the release candidate has been running on testnet for 2 weeks and no issue is observed, we stabilize and publish the release for mainnet.
+
+# Crate Publishing
+
+We have CI infrastructure put in place that automatically publishes all non-private crates in the workspace to crates.io. To have crates opt-out of this process and avoid being published, private crates should have the `publish = false` specification in their `Cargo.toml`.
+For non-private crates, releasing a new version should be as straightforward as - first ensuring it's not marked private, and then, bumping the version in its `Cargo.toml`. Once that change ends up in master, CI would diligently auto-publish that new version.
+
+Publishing of the crates in the workspace is managed by [cargo-workspaces](https://github.com/pksunkara/cargo-workspaces)
 
 ## Issue Labels
 
