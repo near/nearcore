@@ -1,5 +1,5 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{
@@ -106,11 +106,7 @@ impl TransactionConfig {
                 nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id.clone(),
-                signer: InMemorySigner::from_seed(
-                    signer_account.id.clone(),
-                    KeyType::ED25519,
-                    signer_account.id.as_ref(),
-                ),
+                signer: scope.full_access_signer(u, signer_account.usize_id())?,
                 actions: vec![Action::Transfer(TransferAction { deposit: amount })],
             })
         });
@@ -142,11 +138,7 @@ impl TransactionConfig {
             let signer_account = scope.random_account(u)?;
             let new_account = scope.new_account();
 
-            let signer = InMemorySigner::from_seed(
-                signer_account.id.clone(),
-                KeyType::ED25519,
-                signer_account.id.as_ref(),
-            );
+            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
             let new_public_key = InMemorySigner::from_seed(
                 new_account.id.clone(),
                 KeyType::ED25519,
@@ -175,8 +167,8 @@ impl TransactionConfig {
         // Delete Account
         if scope.num_alive_accounts() > 1 {
             options.push(|u, scope| {
-                let signer_account = scope.random_account(u)?;
-                let receiver_account = scope.random_non_zero_account(u)?;
+                let signer_account = scope.random_non_zero_account(u)?;
+                let receiver_account = signer_account.clone();
                 let beneficiary_id = {
                     if u.arbitrary::<bool>()? {
                         scope.new_account().usize_id()
@@ -185,11 +177,7 @@ impl TransactionConfig {
                     }
                 };
 
-                let signer = InMemorySigner::from_seed(
-                    signer_account.id.clone(),
-                    KeyType::ED25519,
-                    signer_account.id.as_ref(),
-                );
+                let signer = scope.full_access_signer(u, signer_account.usize_id())?;
 
                 scope.delete_account(receiver_account.usize_id());
 
@@ -217,11 +205,7 @@ impl TransactionConfig {
             let max_contract_id = scope.available_contracts.len() - 1;
             let contract_id = u.int_in_range::<usize>(0..=max_contract_id)?;
 
-            let signer = InMemorySigner::from_seed(
-                signer_account.id.clone(),
-                KeyType::ED25519,
-                signer_account.id.as_ref(),
-            );
+            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
 
             scope.deploy_contract(&signer_account, contract_id);
 
@@ -255,11 +239,11 @@ impl TransactionConfig {
                 }
             };
 
-            let signer = InMemorySigner::from_seed(
-                signer_account.id.clone(),
-                KeyType::ED25519,
-                signer_account.id.as_ref(),
-            );
+            let signer = scope.function_call_signer(
+                u,
+                signer_account.usize_id(),
+                &receiver_account.id.clone().into(),
+            )?;
 
             let mut receiver_functions = vec![];
             if let Some(contract_id) = receiver_account.deployed_contract {
@@ -304,19 +288,7 @@ impl TransactionConfig {
 
             let signer_account = scope.random_account(u)?;
 
-            let signer = {
-                let possible_signers = signer_account.full_access_keys();
-                if possible_signers.is_empty() {
-                    // this transaction will be invalid
-                    InMemorySigner::from_seed(
-                        signer_account.id.clone(),
-                        KeyType::ED25519,
-                        signer_account.id.as_ref(),
-                    )
-                } else {
-                    u.choose(&possible_signers)?.clone()
-                }
-            };
+            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
 
             Ok(TransactionConfig {
                 nonce,
@@ -518,6 +490,43 @@ impl Scope {
             public_key: signer.public_key,
             access_key: AccessKey { nonce, permission },
         })
+    }
+
+    pub fn full_access_signer(
+        &self,
+        u: &mut Unstructured,
+        account_idx: usize,
+    ) -> Result<InMemorySigner> {
+        let possible_signers = self.accounts[account_idx].full_access_keys();
+        if possible_signers.is_empty() {
+            // this transaction will be invalid
+            Ok(InMemorySigner::from_seed(
+                self.accounts[account_idx].id.clone(),
+                KeyType::ED25519,
+                self.accounts[account_idx].id.as_ref(),
+            ))
+        } else {
+            Ok(u.choose(&possible_signers)?.clone())
+        }
+    }
+
+    pub fn function_call_signer(
+        &self,
+        u: &mut Unstructured,
+        account_idx: usize,
+        receiver_id: &String,
+    ) -> Result<InMemorySigner> {
+        let possible_signers = self.accounts[account_idx].function_call_keys(receiver_id);
+        if possible_signers.is_empty() {
+            // this transaction will be invalid
+            Ok(InMemorySigner::from_seed(
+                self.accounts[account_idx].id.clone(),
+                KeyType::ED25519,
+                self.accounts[account_idx].id.as_ref(),
+            ))
+        } else {
+            Ok(u.choose(&possible_signers)?.clone())
+        }
     }
 }
 
