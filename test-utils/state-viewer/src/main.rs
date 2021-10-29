@@ -634,18 +634,19 @@ fn main() {
                 load_trie_stop_at_height(store, home_dir, &near_config, mode);
             let height = header.height();
             let home_dir = PathBuf::from(&home_dir);
+            let output_dir = home_dir.join("output");
 
-            let new_genesis =
-                state_dump(runtime, state_roots.clone(), header, &near_config.genesis.config);
+            let records_path = output_dir.join("records.json");
+            let new_near_config =
+                state_dump(runtime, state_roots.clone(), header, &near_config, &records_path);
 
-            let output_path = home_dir.join(Path::new("output.json"));
             println!(
                 "Saving state at {:?} @ {} into {}",
                 state_roots,
                 height,
-                output_path.display(),
+                output_dir.display(),
             );
-            new_genesis.to_file(&output_path);
+            new_near_config.save_to_dir(&output_dir);
         }
         ("chain", Some(args)) => {
             let start_index =
