@@ -1,7 +1,7 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::{
-    account::{AccessKey, AccessKeyPermission},
+    account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{
         Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
         FunctionCallAction, TransferAction,
@@ -297,6 +297,40 @@ impl TransactionConfig {
                 actions,
             })
         });
+
+        // Add key
+        options.push(|u, scope| {
+            let nonce = scope.nonce();
+
+            let signer_account = scope.random_account(u)?;
+
+            let signer = {
+                let possible_signers = signer_account.full_access_keys();
+                if possible_signers.is_empty() {
+                    // this transaction will be invalid
+                    InMemorySigner::from_seed(
+                        signer_account.id.clone(),
+                        KeyType::ED25519,
+                        signer_account.id.as_ref(),
+                    )
+                } else {
+                    u.choose(&possible_signers)?.clone()
+                }
+            };
+
+            Ok(TransactionConfig {
+                nonce,
+                signer_id: signer_account.id.clone(),
+                receiver_id: signer_account.id.clone(),
+                signer,
+                actions: vec![Action::AddKey(scope.add_new_key(
+                    u,
+                    signer_account.usize_id(),
+                    nonce,
+                )?)],
+            })
+        });
+
         let f = u.choose(&options)?;
         f(u, scope)
     }
@@ -321,6 +355,7 @@ pub struct Account {
     pub id: AccountId,
     pub balance: Balance,
     pub deployed_contract: Option<ContractId>,
+    pub keys: Vec<(InMemorySigner, AccessKey)>,
 }
 
 #[derive(Clone)]
@@ -453,6 +488,37 @@ impl Scope {
         let acc_id = receiver_account.usize_id();
         self.accounts[acc_id].deployed_contract = Some(contract_id);
     }
+
+    pub fn add_new_key(
+        &mut self,
+        u: &mut Unstructured,
+        account_id: usize,
+        nonce: Nonce,
+    ) -> Result<AddKeyAction> {
+        let permission = {
+            if u.arbitrary::<bool>()? {
+                AccessKeyPermission::FullAccess
+            } else {
+                AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: None,
+                    receiver_id: self.random_account(u)?.id.into(),
+                    method_names: vec![],
+                })
+            }
+        };
+        let signer = InMemorySigner::from_seed(
+            self.accounts[account_id].id.clone(),
+            KeyType::ED25519,
+            format!("test{}.{}", account_id, nonce).as_str(),
+        );
+        self.accounts[account_id]
+            .keys
+            .push((signer.clone(), AccessKey { nonce, permission: permission.clone() }));
+        Ok(AddKeyAction {
+            public_key: signer.public_key,
+            access_key: AccessKey { nonce, permission },
+        })
+    }
 }
 
 impl Account {
@@ -461,11 +527,44 @@ impl Account {
             id: AccountId::from_str(id.as_str()).expect("Invalid account_id"),
             balance: TESTING_INIT_BALANCE,
             deployed_contract: None,
+            keys: vec![(
+                InMemorySigner::from_seed(
+                    AccountId::from_str(id.as_str()).expect("Invalid account_id"),
+                    KeyType::ED25519,
+                    id.as_ref(),
+                ),
+                AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+            )],
         }
     }
 
     pub fn usize_id(&self) -> usize {
         self.id.as_ref()[4..].parse::<usize>().unwrap()
+    }
+
+    pub fn full_access_keys(&self) -> Vec<InMemorySigner> {
+        let mut full_access_keys = vec![];
+        for (signer, access_key) in &self.keys {
+            if access_key.permission == AccessKeyPermission::FullAccess {
+                full_access_keys.push(signer.clone());
+            }
+        }
+        full_access_keys
+    }
+
+    pub fn function_call_keys(&self, receiver_id: &String) -> Vec<InMemorySigner> {
+        let mut function_call_keys = vec![];
+        for (signer, access_key) in &self.keys {
+            match &access_key.permission {
+                AccessKeyPermission::FullAccess => function_call_keys.push(signer.clone()),
+                AccessKeyPermission::FunctionCall(function_call_permission) => {
+                    if function_call_permission.receiver_id == *receiver_id {
+                        function_call_keys.push(signer.clone())
+                    }
+                }
+            }
+        }
+        function_call_keys
     }
 }
 
