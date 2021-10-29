@@ -36,8 +36,8 @@ pwasm-utils = "0.12"
 parity-wasm = "0.41"
 wasmtime = { version = "0.25.0", default-features = false, optional = true }
 anyhow = { version = "1.0.19", optional = true }
-near-vm-logic = { path = "../near-vm-logic", version = "3.0.0", default-features = false, features = [] }
-near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
+near-vm-logic = { path = "../near-vm-logic", default-features = false, features = [] }
+near-vm-errors = { path = "../near-vm-errors" }
 near-primitives = { path = "../../core/primitives" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
 cached = "0.23.0"

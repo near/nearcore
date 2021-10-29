@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-errors"
-version = "3.0.0"
+version = "4.0.0-pre.2"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
