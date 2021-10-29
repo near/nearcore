@@ -32,10 +32,10 @@ primitive-types = "0.10"
 
 borsh = "0.9"
 
-near-primitives-core = { path = "../primitives-core" }
-near-crypto = { path = "../crypto" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
+near-primitives-core = { path = "../primitives-core", version = "0.4.1" }
+near-crypto = { path = "../crypto", version = "0.1.1" }
+near-vm-errors = { path = "../../runtime/near-vm-errors", version = "4.0.0-pre-2" }
+near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.1" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

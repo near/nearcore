@@ -13,8 +13,8 @@ serde = { version = "1", features = [ "derive" ] }
 strum = { version = "0.20", features = ["derive"] }
 tracing = "0.1.13"
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
+near-crypto = { path = "../../core/crypto", version = "0.1.1" }
+near-primitives = { path = "../../core/primitives", version = "0.1.0" }
 
 [features]
 test_features = []

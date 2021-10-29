@@ -5,4 +5,4 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
 
 [dependencies]
-near-chain-primitives = { path = "../chain-primitives" }
+near-chain-primitives = { path = "../chain-primitives", version = "0.1.1" }
