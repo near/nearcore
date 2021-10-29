@@ -97,7 +97,6 @@ total_supply = sum(initial_balances)
 logger.info("Initial balances: %s\nTotal supply: %s" %
             (initial_balances, total_supply))
 
-seen_boot_heights = set()
 sent_txs = False
 largest_height = 0
 
@@ -109,7 +108,6 @@ while True:
     status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
@@ -129,10 +127,6 @@ logger.info("stage 1 done")
 node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 node2.stop_checking_store()
 
-status = boot_node.get_status()
-new_height = status['sync_info']['latest_block_height']
-seen_boot_heights.add(new_height)
-
 while True:
     assert time.time() - started < TIMEOUT
 
@@ -141,16 +135,11 @@ while True:
     node2_syncing = status['sync_info']['syncing']
 
     status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
-
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
 
     if node2_height > TARGET_HEIGHT and not node2_syncing:
-        assert node2_height in seen_boot_heights, "%s not in %s" % (
-            node2_height, seen_boot_heights)
         break
 
     time.sleep(0.1)
@@ -215,7 +204,6 @@ ctx.nodes = [boot_node, node2, node3, node4, observer]
 ctx.act_to_val = [4, 4, 4, 4, 4]
 
 boot_node.kill()
-seen_boot_heights = set()
 sent_txs = False
 
 while True:
@@ -223,7 +211,6 @@ while True:
     status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
