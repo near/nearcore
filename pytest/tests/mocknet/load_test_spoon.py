@@ -120,7 +120,9 @@ if __name__ == '__main__':
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
         with tempfile.TemporaryDirectory() as tmp_dir:
-            node_pks = pmap(lambda node: mocknet.get_node_keys(node, tmp_dir)[0], validator_nodes)
+            node_pks = pmap(
+                lambda node: mocknet.get_node_keys(node, tmp_dir)[0],
+                validator_nodes)
         mocknet.create_and_upload_genesis(validator_nodes,
                                           genesis_template_filename=None,
                                           rpc_nodes=rpc_nodes,
@@ -147,21 +149,21 @@ if __name__ == '__main__':
     else:
         assert False, f'Unsupported --script={args.script}'
 
-
     if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')
         mocknet.start_load_test_helpers(validator_nodes,
-                                        script, rpc_nodes,
-                                        num_nodes, max_tps, get_node_key=True)
+                                        script,
+                                        rpc_nodes,
+                                        num_nodes,
+                                        max_tps,
+                                        get_node_key=True)
 
         initial_metrics = mocknet.get_metrics(archival_node)
         logger.info(
-            f'Waiting for contracts to be deployed for {deploy_time} seconds.'
-        )
+            f'Waiting for contracts to be deployed for {deploy_time} seconds.')
         time.sleep(deploy_time)
         logger.info(
-            f'Waiting for the loadtest to complete: {test_timeout} seconds'
-        )
+            f'Waiting for the loadtest to complete: {test_timeout} seconds')
         time.sleep(test_timeout)
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')

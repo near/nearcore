@@ -15,7 +15,7 @@ macro_rules! include_config {
 /// Protocol versions are given in increasing order. First one is always 0, so that each version is
 /// mapped to some config.
 static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
-    (0, include_config!("29_testnet.json")),
+    (0, include_config!("29.json")),
     (42, include_config!("42.json")),
     (48, include_config!("48.json")),
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]

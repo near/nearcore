@@ -64,14 +64,16 @@ def send_transfer(account, i, node_account):
     account.send_transfer_tx(dest_account_id)
 
 
-
 def function_call(account, i, node_account):
-    if random.randint(0,1) == 0:
+    if random.randint(0, 1) == 0:
         s = f'{{"token_account_id": "token2.near"}}'
         logger.info(
             f'Calling function "withdraw_token" with arguments {s} on account {i}'
         )
-        tx_res = account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT, 'withdraw_token', bytes(s, encoding='utf-8'), 0)
+        tx_res = account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT,
+                                                   'withdraw_token',
+                                                   bytes(s,
+                                                         encoding='utf-8'), 0)
         logger.info(f'Account {account.key.account_id} withdraw_token {tx_res}')
     else:
         s = '{"sale_id": 0, "amount": "1"}'
@@ -79,9 +81,11 @@ def function_call(account, i, node_account):
             f'Calling function "sale_deposit_in_token" with arguments {s} on account {i}'
         )
         tx_res = account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT,
-                                          'sale_deposit_in_token',
-                                          bytes(s, encoding='utf-8'), 1)
-        logger.info(f'Account {account.key.account_id} sale_deposit_in_token {tx_res}')
+                                                   'sale_deposit_in_token',
+                                                   bytes(s,
+                                                         encoding='utf-8'), 1)
+        logger.info(
+            f'Account {account.key.account_id} sale_deposit_in_token {tx_res}')
 
 
 def skyward_transaction(account, i, node_account, max_tps_per_node):
@@ -144,13 +148,15 @@ def get_account1_account():
     global special_accounts
     return special_accounts[3]
 
+
 def get_token2_owner_account():
     global special_accounts
     return special_accounts[4]
 
 
 def initialize_skyward_contract(node_account_id, pk, sk):
-    tx_res = get_skyward_account().send_deploy_contract_tx('/home/ubuntu/skyward.wasm')
+    tx_res = get_skyward_account().send_deploy_contract_tx(
+        '/home/ubuntu/skyward.wasm')
     logger.info(f'skyward deployment {tx_res}')
     tx_res = get_token1_account().send_deploy_contract_tx(
         '/home/ubuntu/fungible_token.wasm')
@@ -161,58 +167,62 @@ def initialize_skyward_contract(node_account_id, pk, sk):
 
     time.sleep(2)
     s = '{"skyward_token_id": "' + mocknet.SKYWARD_TOKEN_ACCOUNT + '", "skyward_vesting_schedule":[{"start_timestamp":0,"end_timestamp":1999999999,"amount":"99999999999"}], "listing_fee_near": "10000000000000000000000000", "w_near_token_id":"' + mocknet.MASTER_ACCOUNT + '"}'
-    tx_res = get_skyward_account().send_call_contract_tx('new', bytes(s,
-                                                             encoding='utf-8'))
+    tx_res = get_skyward_account().send_call_contract_tx(
+        'new', bytes(s, encoding='utf-8'))
     logger.info(f'skyward new {tx_res}')
 
     s = '{"owner_id": "' + mocknet.ACCOUNT1_ACCOUNT + '", "total_supply": "1000000000000000000000000000000000"}'
-    tx_res = get_account1_account().send_call_contract_raw_tx(mocknet.TOKEN1_ACCOUNT,
-                                                     'new_default_meta',
-                                                     bytes(s,
-                                                           encoding='utf-8'), 0)
+    tx_res = get_account1_account().send_call_contract_raw_tx(
+        mocknet.TOKEN1_ACCOUNT, 'new_default_meta', bytes(s, encoding='utf-8'),
+        0)
     logger.info(f'token1 new_default_meta {tx_res}')
 
     s = '{"owner_id": "' + mocknet.TOKEN2_OWNER_ACCOUNT + '", "total_supply": "1000000000000000000000000000000000"}'
-    tx_res = get_token2_owner_account().send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT, 'new_default_meta', bytes(s, encoding='utf-8'), 0)
+    tx_res = get_token2_owner_account().send_call_contract_raw_tx(
+        mocknet.TOKEN2_ACCOUNT, 'new_default_meta', bytes(s, encoding='utf-8'),
+        0)
     logger.info(f'token2 new_default_meta {tx_res}')
 
     time.sleep(2)
     s = '{"token_account_ids": ["' + mocknet.TOKEN1_ACCOUNT + '","' + mocknet.TOKEN2_ACCOUNT + '"]}'
-    tx_res = get_account1_account().send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT,
-                                                     'register_tokens',
-                                                     bytes(s, encoding='utf-8'),
-                                                     0.1 * 1e24)
+    tx_res = get_account1_account().send_call_contract_raw_tx(
+        mocknet.SKYWARD_ACCOUNT, 'register_tokens', bytes(s, encoding='utf-8'),
+        0.1 * 1e24)
     logger.info(f'account1 register_tokens {tx_res}')
 
     s = '{"account_id": "' + mocknet.SKYWARD_ACCOUNT + '"}'
-    tx_res = get_account1_account().send_call_contract_raw_tx(mocknet.TOKEN1_ACCOUNT,
-                                                     'storage_deposit',
-                                                     bytes(s, encoding='utf-8'), 1250000000000000000000) # 0.00125 * 1e24)
+    tx_res = get_account1_account().send_call_contract_raw_tx(
+        mocknet.TOKEN1_ACCOUNT, 'storage_deposit', bytes(s, encoding='utf-8'),
+        1250000000000000000000)  # 0.00125 * 1e24)
     logger.info(f'account1 storage_deposit skyward token1 {tx_res}')
 
     s = '{"account_id": "' + mocknet.SKYWARD_ACCOUNT + '"}'
-    tx_res = get_account1_account().send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT,
-                                                     'storage_deposit',
-                                                     bytes(s, encoding='utf-8'), 1250000000000000000000) # 0.00125 * 1e24)
+    tx_res = get_account1_account().send_call_contract_raw_tx(
+        mocknet.TOKEN2_ACCOUNT, 'storage_deposit', bytes(s, encoding='utf-8'),
+        1250000000000000000000)  # 0.00125 * 1e24)
     logger.info(f'account1 storage_deposit skyward token2 {tx_res}')
 
     time.sleep(2)
     s = '{"receiver_id": "' + mocknet.SKYWARD_ACCOUNT + '", "amount": "1000000000000000000000000000000", "memo": "Yolo for sale", "msg": "\\"AccountDeposit\\""}'
-    logger.info(f'Calling function "ft_transfer_call" with arguments {s} on account {get_account1_account().key.account_id} contract {mocknet.TOKEN1_ACCOUNT} deposit 1')
-    tx_res = get_account1_account().send_call_contract_raw_tx(mocknet.TOKEN1_ACCOUNT,
-                                      'ft_transfer_call',
-                                      bytes(s, encoding='utf-8'), 1)
+    logger.info(
+        f'Calling function "ft_transfer_call" with arguments {s} on account {get_account1_account().key.account_id} contract {mocknet.TOKEN1_ACCOUNT} deposit 1'
+    )
+    tx_res = get_account1_account().send_call_contract_raw_tx(
+        mocknet.TOKEN1_ACCOUNT, 'ft_transfer_call', bytes(s, encoding='utf-8'),
+        1)
     logger.info(f'account1 ft_transfer_call to skyward token1 {tx_res}')
 
     time.sleep(2)
     # Needs to be [7,30] days in the future.
     sale_start_timestamp = round(time.time() + 8 * 24 * 60 * 60)
-    s = '{"sale": {"title":"sale","out_tokens":[{"token_account_id":"' + mocknet.TOKEN1_ACCOUNT + '","balance":"500000000000000000000000000000"}], "in_token_account_id": "' + mocknet.TOKEN2_ACCOUNT + '", "start_time": "' + str(sale_start_timestamp) + '000000000", "duration": "3600000000000"}}'
-    logger.info( f'Calling function "sale_create" with arguments {s} on account {get_account1_account().key.account_id} for account {mocknet.SKYWARD_ACCOUNT}')
-    tx_res = get_account1_account().send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT,
-                                                     'sale_create',
-                                                     bytes(s, encoding='utf-8'),
-                                                     100 * 1e24)
+    s = '{"sale": {"title":"sale","out_tokens":[{"token_account_id":"' + mocknet.TOKEN1_ACCOUNT + '","balance":"500000000000000000000000000000"}], "in_token_account_id": "' + mocknet.TOKEN2_ACCOUNT + '", "start_time": "' + str(
+        sale_start_timestamp) + '000000000", "duration": "3600000000000"}}'
+    logger.info(
+        f'Calling function "sale_create" with arguments {s} on account {get_account1_account().key.account_id} for account {mocknet.SKYWARD_ACCOUNT}'
+    )
+    tx_res = get_account1_account().send_call_contract_raw_tx(
+        mocknet.SKYWARD_ACCOUNT, 'sale_create', bytes(s, encoding='utf-8'),
+        100 * 1e24)
     logger.info(f'account1 sale_create {tx_res}')
     time.sleep(2)
 
@@ -258,10 +268,10 @@ def get_test_accounts_from_args(argv):
     ]
     global special_accounts
     special_accounts = [
-        account.Account(key,
-                        get_nonce_for_pk(key.account_id, key.pk),
-                        base_block_hash, (rpc_node, RPC_PORT))
-        for key, rpc_node in zip(special_account_keys, itertools.cycle(rpc_nodes))
+        account.Account(key, get_nonce_for_pk(key.account_id,
+                                              key.pk), base_block_hash,
+                        (rpc_node, RPC_PORT)) for key, rpc_node in zip(
+                            special_account_keys, itertools.cycle(rpc_nodes))
     ]
 
     start_time = time.time()
@@ -280,13 +290,20 @@ def get_test_accounts_from_args(argv):
 
 def init_token2_account(account, i):
     s = f'{{"account_id": "{account.key.account_id}"}}'
-    tx_res = account.send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT, 'storage_deposit', bytes(s, encoding='utf-8'), 1250000000000000000000) # 0.00125 * 1e24)
+    tx_res = account.send_call_contract_raw_tx(
+        mocknet.TOKEN2_ACCOUNT, 'storage_deposit', bytes(s, encoding='utf-8'),
+        1250000000000000000000)  # 0.00125 * 1e24)
     logger.info(f'Account {account.key.account_id} storage_deposit {tx_res}')
 
     s = f'{{"token_account_id": "{mocknet.TOKEN2_ACCOUNT}"}}'
-    logger.info( f'Calling function "register_token" with arguments {s} on account {i}')
-    tx_res = account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT, 'register_token', bytes(s, encoding='utf-8'), 0.01 * 1e24)
-    logger.info(f'Account {account.key.account_id} register_token token2 {tx_res}')
+    logger.info(
+        f'Calling function "register_token" with arguments {s} on account {i}')
+    tx_res = account.send_call_contract_raw_tx(mocknet.SKYWARD_ACCOUNT,
+                                               'register_token',
+                                               bytes(s, encoding='utf-8'),
+                                               0.01 * 1e24)
+    logger.info(
+        f'Account {account.key.account_id} register_token token2 {tx_res}')
 
     # The next transaction depends on the previous transaction succeeded.
     # Sleeping for 1 second is the poor man's solution for waiting for that transaction to succeed.
@@ -294,11 +311,17 @@ def init_token2_account(account, i):
     wait_at_least_one_block()
 
     s = f'{{"receiver_id": "{account.key.account_id}", "amount": "1000000000000000000"}}'
-    logger.info( f'Calling function "ft_transfer" with arguments {s} on account {i}')
+    logger.info(
+        f'Calling function "ft_transfer" with arguments {s} on account {i}')
     while True:
         try:
-            tx_res = get_token2_owner_account().send_call_contract_raw_tx(mocknet.TOKEN2_ACCOUNT, 'ft_transfer', bytes(s, encoding='utf-8'), 1)
-            logger.info(f'{get_token2_owner_account().key.account_id} ft_transfer to {account.key.account_id} {tx_res}')
+            tx_res = get_token2_owner_account().send_call_contract_raw_tx(
+                mocknet.TOKEN2_ACCOUNT, 'ft_transfer', bytes(s,
+                                                             encoding='utf-8'),
+                1)
+            logger.info(
+                f'{get_token2_owner_account().key.account_id} ft_transfer to {account.key.account_id} {tx_res}'
+            )
             break
         except Exception as e:
             logger.error(f'Cannot init token2 account')
@@ -319,7 +342,8 @@ def wait_at_least_one_block():
 
 def main(argv):
     logger.info(argv)
-    (node_account, test_accounts, max_tps_per_node) = get_test_accounts_from_args(argv)
+    (node_account, test_accounts,
+     max_tps_per_node) = get_test_accounts_from_args(argv)
 
     start_time = time.time()
 
@@ -329,12 +353,12 @@ def main(argv):
     delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
-    assert(delay>=1)
+    assert (delay >= 1)
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         init_token2_account(account, i)
-        time.sleep(delay-1)
+        time.sleep(delay - 1)
     logger.info('Done deploying')
 
     global function_call_state
@@ -348,7 +372,7 @@ def main(argv):
     while time.time() - start_time < TEST_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_skyward_transactions, total_tx_sent,
-                                       elapsed_time, 2*max_tps_per_node,
+                                       elapsed_time, 2 * max_tps_per_node,
                                        node_account, test_accounts)
     logger.info('Stop the test')
 
