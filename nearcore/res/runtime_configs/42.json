@@ -1,5 +1,5 @@
 {
-  "storage_amount_per_byte": "100000000000000000000",
+  "storage_amount_per_byte": "10000000000000000000",
   "transaction_costs": {
     "action_receipt_creation_config": {
       "send_sir": 108059500000,

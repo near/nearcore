@@ -68,13 +68,19 @@ pub fn state_dump(
     // `total_supply` is expected to change due to the natural processes of burning tokens and
     // minting tokens every epoch.
     genesis_config.total_supply = get_initial_supply(&records);
-    genesis_config.shard_layout = runtime.get_shard_layout(last_block_header.epoch_id()).unwrap();
+    let shard_config = runtime.get_shard_config(last_block_header.epoch_id()).unwrap();
+    genesis_config.shard_layout = shard_config.shard_layout;
+    genesis_config.num_block_producer_seats_per_shard =
+        shard_config.num_block_producer_seats_per_shard;
+    genesis_config.avg_hidden_validator_seats_per_shard =
+        shard_config.avg_hidden_validator_seats_per_shard;
     Genesis::new(genesis_config, records.into())
 }
 
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
+    use std::iter::FromIterator;
     use std::path::Path;
     use std::sync::Arc;
 
@@ -84,7 +90,7 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
     use near_store::test_utils::create_test_store;
     use near_store::Store;
     use nearcore::config::GenesisExt;
@@ -92,23 +98,24 @@ mod test {
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::version::ProtocolFeature::SimpleNightshade;
+    use near_primitives::version::PROTOCOL_VERSION;
 
-    fn setup(epoch_length: NumBlocks) -> (Arc<Store>, Genesis, TestEnv) {
+    fn setup(
+        epoch_length: NumBlocks,
+        protocol_version: ProtocolVersion,
+        simple_nightshade_layout: Option<ShardLayout>,
+    ) -> (Arc<Store>, Genesis, TestEnv) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
+        genesis.config.protocol_version = protocol_version;
+        genesis.config.simple_nightshade_shard_layout = simple_nightshade_layout;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
@@ -144,7 +151,7 @@ mod test {
     #[test]
     fn test_dump_state_preserve_validators() {
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length);
+        let (store, genesis, mut env) = setup(epoch_length, PROTOCOL_VERSION, None);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -172,15 +179,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
@@ -191,7 +190,7 @@ mod test {
     #[test]
     fn test_dump_state_return_locked() {
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length);
+        let (store, genesis, mut env) = setup(epoch_length, PROTOCOL_VERSION, None);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -209,15 +208,7 @@ mod test {
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(
@@ -233,6 +224,38 @@ mod test {
         validate_genesis(&new_genesis);
     }
 
+    #[test]
+    fn test_dump_state_shard_upgrade() {
+        // hack here because protocol_feature_block_header_v3 and protocol_feature_chunk_only_producers are not compatible
+        // and sharding upgrade triggers that
+        if cfg!(feature = "nightly_protocol") {
+            return;
+        }
+        let epoch_length = 4;
+        let (store, genesis, mut env) = setup(
+            epoch_length,
+            SimpleNightshade.protocol_version() - 1,
+            Some(ShardLayout::v1_test()),
+        );
+        for i in 1..=2 * epoch_length + 1 {
+            env.produce_block(0, i);
+        }
+        let head = env.clients[0].chain.head().unwrap();
+        assert_eq!(
+            env.clients[0].runtime_adapter.get_shard_layout(&head.epoch_id).unwrap(),
+            ShardLayout::v1_test()
+        );
+        let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
+
+        let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
+        let new_genesis =
+            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        assert_eq!(new_genesis.config.shard_layout, ShardLayout::v1_test());
+        assert_eq!(new_genesis.config.num_block_producer_seats_per_shard, vec![2; 4]);
+        assert_eq!(new_genesis.config.avg_hidden_validator_seats_per_shard, vec![0; 4]);
+    }
+
     /// If the node does not track a shard, state dump will not give the correct result.
     #[test]
     #[should_panic(expected = "Trie node missing")]
@@ -246,7 +269,7 @@ mod test {
         let store1 = create_test_store();
         let store2 = create_test_store();
         let create_runtime = |store| -> NightshadeRuntime {
-            NightshadeRuntime::new(Path::new("."), store, &genesis, vec![], vec![], None, None)
+            NightshadeRuntime::test(Path::new("."), store, &genesis)
         };
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
@@ -297,15 +320,7 @@ mod test {
         genesis.config.num_block_producer_seats_per_shard = vec![2];
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
-        let nightshade_runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let nightshade_runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         let mut env = TestEnv::builder(chain_genesis)
@@ -339,15 +354,7 @@ mod test {
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
-        let runtime = NightshadeRuntime::new(
-            Path::new("."),
-            store.clone(),
-            &genesis,
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
         let new_genesis =
             state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
         assert_eq!(new_genesis.config.validators.len(), 2);
