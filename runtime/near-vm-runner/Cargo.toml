@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-runner"
-version = "2.2.0"
+version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
