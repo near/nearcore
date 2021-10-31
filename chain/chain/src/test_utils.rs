@@ -635,7 +635,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn add_validator_proposals(
+    fn on_new_block_header(
         &self,
         _block_header_info: BlockHeaderInfo,
     ) -> Result<StoreUpdate, Error> {

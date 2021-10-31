@@ -556,11 +556,9 @@ pub trait RuntimeAdapter: Send + Sync {
         next_epoch_info: EpochInfo,
     ) -> Result<(), Error>;
 
-    /// Add proposals for validators.
-    fn add_validator_proposals(
-        &self,
-        block_header_info: BlockHeaderInfo,
-    ) -> Result<StoreUpdate, Error>;
+    /// Update Epoch Manager state on processing a new block header.
+    fn on_new_block_header(&self, block_header_info: BlockHeaderInfo)
+        -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.

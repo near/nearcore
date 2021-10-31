@@ -1324,7 +1324,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map_err(|err| err.into())
     }
 
-    fn add_validator_proposals(
+    fn on_new_block_header(
         &self,
         block_header_info: BlockHeaderInfo,
     ) -> Result<StoreUpdate, Error> {
@@ -1334,7 +1334,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 || (block_header_info.proposals.is_empty()
                     && block_header_info.slashed_validators.is_empty())
         );
-        debug!(target: "runtime", "add validator proposals at block height {} {:?}", block_header_info.height, block_header_info.proposals);
+        debug!(target: "runtime", "new block header at height {} {:?}", block_header_info.height, block_header_info.proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         let block_info = BlockInfo::new(
@@ -2098,7 +2098,7 @@ mod test {
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
             runtime
-                .add_validator_proposals(BlockHeaderInfo {
+                .on_new_block_header(BlockHeaderInfo {
                     prev_hash: CryptoHash::default(),
                     hash: genesis_hash,
                     random_value: [0; 32].as_ref().try_into().unwrap(),
@@ -2165,7 +2165,7 @@ mod test {
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
             self.runtime
-                .add_validator_proposals(BlockHeaderInfo {
+                .on_new_block_header(BlockHeaderInfo {
                     prev_hash: self.head.last_block_hash,
                     hash: new_hash,
                     random_value: [0; 32].as_ref().try_into().unwrap(),
@@ -2631,7 +2631,7 @@ mod test {
             };
             new_env
                 .runtime
-                .add_validator_proposals(BlockHeaderInfo {
+                .on_new_block_header(BlockHeaderInfo {
                     prev_hash,
                     hash: cur_hash,
                     random_value: [0; 32].as_ref().try_into().unwrap(),
