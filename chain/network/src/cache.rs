@@ -1,12 +1,10 @@
 use std::collections::btree_map;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-
-use chrono::Utc;
+use std::time::{Duration, Instant};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 
-type Time = u64;
 type Size = u64;
 
 /// Cache to store route back messages.
@@ -48,12 +46,12 @@ pub struct RouteBackCache {
     /// Maximum number of records allowed in the cache.
     capacity: u64,
     /// Maximum time allowed before removing a record from the cache.
-    evict_timeout: u64,
+    evict_timeout: Duration,
     /// Minimum number of records to delete from offending peer when the cache is full.
     remove_frequent_min_size: u64,
     /// Main map from message hash to time where it was created + target peer
     /// Size: O(capacity)
-    main: HashMap<CryptoHash, (Time, PeerId)>,
+    main: HashMap<CryptoHash, (Instant, PeerId)>,
     /// Number of records allocated by each PeerId.
     /// The size is stored with negative sign, to order in PeerId in decreasing order.
     /// To avoid handling with negative number all sizes are added by capacity.
@@ -62,7 +60,7 @@ pub struct RouteBackCache {
     /// List of all hashes associated with each PeerId. Hashes within each PeerId
     /// are sorted by the time they arrived from older to newer.
     /// Size: O(capacity)
-    record_per_target: BTreeMap<PeerId, BTreeSet<(Time, CryptoHash)>>,
+    record_per_target: BTreeMap<PeerId, BTreeSet<(Instant, CryptoHash)>>,
 }
 
 impl RouteBackCache {
@@ -117,8 +115,8 @@ impl RouteBackCache {
         if self.is_full() {
             self.remove_frequent();
 
-            let now = Utc::now().timestamp_millis() as Time;
-            let remove_until = now.saturating_sub(self.evict_timeout);
+            let now = Instant::now();
+            let remove_until = now - self.evict_timeout;
 
             let mut remove_empty = vec![];
 
@@ -153,7 +151,7 @@ impl RouteBackCache {
         }
     }
 
-    pub fn new(capacity: u64, evict_timeout: u64, remove_frequent_min_size: u64) -> Self {
+    pub fn new(capacity: u64, evict_timeout: Duration, remove_frequent_min_size: u64) -> Self {
         assert!(capacity > 0);
 
         Self {
@@ -209,7 +207,7 @@ impl RouteBackCache {
 
         self.remove_evicted();
 
-        let now = Utc::now().timestamp_millis() as Time;
+        let now = Instant::now();
 
         self.main.insert(hash, (now, target.clone()));
 
@@ -265,7 +263,7 @@ mod test {
 
     #[test]
     fn simple() {
-        let mut cache = RouteBackCache::new(100, 1000000000, 1);
+        let mut cache = RouteBackCache::new(100, Duration::from_millis(1000000000), 1);
         let (peer0, hash0) = create_message(0);
 
         check_consistency(&cache);
@@ -281,7 +279,7 @@ mod test {
     /// Check record is removed after some timeout.
     #[test]
     fn evicted() {
-        let mut cache = RouteBackCache::new(1, 1, 1);
+        let mut cache = RouteBackCache::new(1, Duration::from_millis(1), 1);
         let (peer0, hash0) = create_message(0);
 
         cache.insert(hash0, peer0.clone());
@@ -296,7 +294,7 @@ mod test {
     /// Check element is removed after timeout triggered by insert at max capacity.
     #[test]
     fn insert_evicted() {
-        let mut cache = RouteBackCache::new(1, 1, 1);
+        let mut cache = RouteBackCache::new(1, Duration::from_millis(1), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
 
@@ -313,7 +311,7 @@ mod test {
     /// Check element is removed after insert because cache is at max capacity.
     #[test]
     fn insert_override() {
-        let mut cache = RouteBackCache::new(1, 1000000000, 1);
+        let mut cache = RouteBackCache::new(1, Duration::from_millis(1000000000), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
 
@@ -331,7 +329,7 @@ mod test {
     /// Check that old element from peer0 is removed, even while peer1 has more elements.
     #[test]
     fn prefer_evict() {
-        let mut cache = RouteBackCache::new(3, 1000, 1);
+        let mut cache = RouteBackCache::new(3, Duration::from_millis(100), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
         let (_, hash2) = create_message(2);
@@ -354,7 +352,7 @@ mod test {
     /// Check that older element from peer1 is removed, since evict timeout haven't passed yet.
     #[test]
     fn prefer_full() {
-        let mut cache = RouteBackCache::new(3, 100000, 1);
+        let mut cache = RouteBackCache::new(3, Duration::from_millis(100000), 1);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
         let (_, hash2) = create_message(2);
@@ -377,7 +375,7 @@ mod test {
     /// Check that older element from peer1 is removed, since evict timeout haven't passed yet.
     #[test]
     fn remove_all_frequent() {
-        let mut cache = RouteBackCache::new(3, 100000, 2);
+        let mut cache = RouteBackCache::new(3, Duration::from_millis(100000), 2);
         let (peer0, hash0) = create_message(0);
         let (peer1, hash1) = create_message(1);
         let (_, hash2) = create_message(2);
@@ -403,7 +401,7 @@ mod test {
     /// initial hashes should be present in the cache after the attack.
     #[test]
     fn poison_attack() {
-        let mut cache = RouteBackCache::new(17, 1000000, 1);
+        let mut cache = RouteBackCache::new(17, Duration::from_millis(1000000), 1);
         let mut ix = 0;
 
         let mut peers = vec![];

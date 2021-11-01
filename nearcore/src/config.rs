@@ -603,7 +603,7 @@ impl Genesis {
 
 #[derive(Clone)]
 pub struct NearConfig {
-    config: Config,
+    pub config: Config,
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     #[cfg(feature = "json_rpc")]
