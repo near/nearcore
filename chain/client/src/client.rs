@@ -506,8 +506,6 @@ impl Client {
             seen: to_timestamp(Utc::now()),
         })?;
 
-        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
-
         Ok(Some(block))
     }
 

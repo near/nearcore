@@ -64,16 +64,22 @@ impl EpochInfoAggregator {
                         validator_stats.expected += 1;
                     })
                     .or_insert(ValidatorStats { produced: 1, expected: 1 });
+                if let Some(me) = me {
+                    if me == epoch_info.validator_account_id(block_producer_id) {
+                        near_metrics::inc_counter(&metrics::BLOCK_EXPECTED_TOTAL);
+                        near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
+                    }
+                }
             } else {
                 entry
                     .and_modify(|validator_stats| {
                         validator_stats.expected += 1;
                     })
                     .or_insert(ValidatorStats { produced: 0, expected: 1 });
-            }
-            if let Some(me) = me {
-                if me == epoch_info.validator_account_id(block_producer_id) {
-                    near_metrics::inc_counter(&metrics::BLOCK_EXPECTED_TOTAL);
+                if let Some(me) = me {
+                    if me == epoch_info.validator_account_id(block_producer_id) {
+                        near_metrics::inc_counter(&metrics::BLOCK_EXPECTED_TOTAL);
+                    }
                 }
             }
         }

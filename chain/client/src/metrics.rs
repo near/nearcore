@@ -4,10 +4,6 @@ use near_metrics::{
 };
 
 lazy_static! {
-    pub static ref BLOCK_PRODUCED_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(
-        "near_block_produced_total",
-        "Total number of blocks produced since starting this node"
-    );
     pub static ref CHUNK_PRODUCED_TOTAL: near_metrics::Result<IntCounter> = try_create_int_counter(
         "near_chunk_produced_total",
         "Total number of chunks produced since starting this node"
