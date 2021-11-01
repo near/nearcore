@@ -21,7 +21,7 @@ from configured_logger import logger
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 8 * mocknet.NUM_ACCOUNTS
+CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
 TEST_TIMEOUT = 12 * 60 * 60
 SKYWARD_INIT_TIME = 120
 

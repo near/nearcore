@@ -86,7 +86,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip-load', default=False, action='store_true')
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
-    parser.add_argument('--script', default='add_and_delete', required=True)
+    parser.add_argument('--script', required=True)
 
     args = parser.parse_args()
 
