@@ -35,6 +35,7 @@ use near_chain_configs::GenesisConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_store::db::DBCol::ColEpochValidatorInfo;
 
+mod metrics;
 mod proposals;
 mod reward_calculator;
 #[cfg(feature = "protocol_feature_chunk_only_producers")]
@@ -278,6 +279,7 @@ impl EpochManager {
             version_tracker,
             ..
         } = self.get_and_update_epoch_info_aggregator(
+            &None,
             &last_block_info.epoch_id(),
             last_block_hash,
             false,
@@ -451,6 +453,7 @@ impl EpochManager {
 
     pub fn record_block_info(
         &mut self,
+        me: &Option<AccountId>,
         mut block_info: BlockInfo,
         rng_seed: RngSeed,
     ) -> Result<StoreUpdate, EpochError> {
@@ -567,6 +570,7 @@ impl EpochManager {
                 };
                 if let Some(last_block_hash) = last_block_hash {
                     let epoch_info_aggregator = self.get_and_update_epoch_info_aggregator(
+                        me,
                         block_info.epoch_id(),
                         last_block_hash,
                         false,
@@ -1022,7 +1026,8 @@ impl EpochManager {
                 )
             }
             ValidatorInfoIdentifier::BlockHash(ref h) => {
-                let aggregator = self.get_and_update_epoch_info_aggregator(&epoch_id, h, true)?;
+                let aggregator =
+                    self.get_and_update_epoch_info_aggregator(&None, &epoch_id, h, true)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
                     .enumerate()
@@ -1420,6 +1425,7 @@ impl EpochManager {
     /// from cache and invalidates the cache.
     pub fn get_and_update_epoch_info_aggregator(
         &mut self,
+        me: &Option<AccountId>,
         epoch_id: &EpochId,
         last_block_hash: &CryptoHash,
         copy_only: bool,
@@ -1462,7 +1468,7 @@ impl EpochManager {
                 overwrite = true;
                 break;
             }
-            new_aggregator.update(&block_info, &epoch_info, prev_height?);
+            new_aggregator.update(me, &block_info, &epoch_info, prev_height?);
             cur_hash = *block_info.prev_hash();
         }
         aggregator.merge(new_aggregator, overwrite);
@@ -1523,8 +1529,12 @@ mod tests {
             let validator_id = *epoch_info
                 .get_validator_id(account_id)
                 .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), epoch_id.clone()))?;
-            let aggregator =
-                self.get_and_update_epoch_info_aggregator(epoch_id, last_known_block_hash, true)?;
+            let aggregator = self.get_and_update_epoch_info_aggregator(
+                &None,
+                epoch_id,
+                last_known_block_hash,
+                true,
+            )?;
             Ok(aggregator
                 .block_tracker
                 .get(&validator_id)
@@ -2215,6 +2225,7 @@ mod tests {
 
         epoch_manager
             .record_block_info(
+                &None,
                 block_info(
                     h[0],
                     0,
@@ -2230,12 +2241,14 @@ mod tests {
             .unwrap();
         epoch_manager
             .record_block_info(
+                &None,
                 block_info(h[1], 1, 1, h[0], h[0], h[1], vec![true], total_supply),
                 rng_seed,
             )
             .unwrap();
         epoch_manager
             .record_block_info(
+                &None,
                 block_info(h[2], 2, 2, h[1], h[1], h[1], vec![true], total_supply),
                 rng_seed,
             )
@@ -2606,6 +2619,7 @@ mod tests {
             } else {
                 epoch_manager
                     .record_block_info(
+                        &None,
                         block_info(
                             *curr_block,
                             height,
@@ -2687,6 +2701,7 @@ mod tests {
                 let should_produce_chunk = expected_chunk_producer != 0;
                 epoch_manager
                     .record_block_info(
+                        &None,
                         block_info(
                             *curr_block,
                             height,
@@ -2771,14 +2786,16 @@ mod tests {
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..4, &[1, 3], &mut tracker);
 
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[3], true).unwrap();
+        let aggregator =
+            em.get_and_update_epoch_info_aggregator(&None, &epoch_id, &h[3], true).unwrap();
         assert_eq!(aggregator.block_tracker, tracker,);
 
         record_block_with_final_block_hash(&mut em, h[3], h[5], h[1], 5, vec![]);
 
         update_tracker(&epoch_info, 4..6, &[5], &mut tracker);
 
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], true).unwrap();
+        let aggregator =
+            em.get_and_update_epoch_info_aggregator(&None, &epoch_id, &h[5], true).unwrap();
         assert_eq!(aggregator.block_tracker, tracker,);
     }
 
@@ -2830,7 +2847,8 @@ mod tests {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..6, &[1, 3, 5], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
+        let aggregator =
+            em.get_and_update_epoch_info_aggregator(&None, &epoch_id, &h[5], false).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert_eq!(
             aggregator.all_proposals,
@@ -2882,7 +2900,8 @@ mod tests {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 1..6, &[1, 2, 5], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[5], false).unwrap();
+        let aggregator =
+            em.get_and_update_epoch_info_aggregator(&None, &epoch_id, &h[5], false).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert!(aggregator.all_proposals.is_empty());
     }
@@ -2932,7 +2951,8 @@ mod tests {
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
         let mut tracker = HashMap::new();
         update_tracker(&epoch_info, 5..8, &[7], &mut tracker);
-        let aggregator = em.get_and_update_epoch_info_aggregator(&epoch_id, &h[7], true).unwrap();
+        let aggregator =
+            em.get_and_update_epoch_info_aggregator(&None, &epoch_id, &h[7], true).unwrap();
         assert_eq!(aggregator.block_tracker, tracker);
         assert!(aggregator.all_proposals.is_empty());
     }
@@ -3062,6 +3082,7 @@ mod tests {
                     })
                     .collect();
                 em.record_block_info(
+                    &None,
                     block_info(
                         *curr_block,
                         height,
@@ -3077,6 +3098,7 @@ mod tests {
                 .unwrap();
             } else {
                 em.record_block_info(
+                    &None,
                     block_info(
                         *curr_block,
                         height,
@@ -3759,7 +3781,7 @@ mod tests {
         let mut block_info1 =
             block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         set_block_info_protocol_version(&mut block_info1, 0);
-        epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
+        epoch_manager.record_block_info(&None, block_info1, [0; 32]).unwrap();
         for i in 2..6 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
@@ -3817,7 +3839,7 @@ mod tests {
             } else {
                 set_block_info_protocol_version(&mut block_info, new_protocol_version);
             }
-            epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
+            epoch_manager.record_block_info(&None, block_info, [0; 32]).unwrap();
         }
         let epochs = vec![EpochId::default(), EpochId(h[2]), EpochId(h[4])];
         assert_eq!(
@@ -3894,7 +3916,7 @@ mod tests {
         let mut block_info1 =
             block_info(h[1], 1, 1, h[0], h[0], h[0], vec![], DEFAULT_TOTAL_SUPPLY);
         set_block_info_protocol_version(&mut block_info1, 0);
-        epoch_manager.record_block_info(block_info1, [0; 32]).unwrap();
+        epoch_manager.record_block_info(&None, block_info1, [0; 32]).unwrap();
         for i in 2..32 {
             record_block(&mut epoch_manager, h[i - 1], h[i], i as u64, vec![]);
         }
@@ -3950,7 +3972,7 @@ mod tests {
                     UPGRADABILITY_FIX_PROTOCOL_VERSION,
                 );
             }
-            epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
+            epoch_manager.record_block_info(&None, block_info, [0; 32]).unwrap();
         }
 
         let get_epoch_infos = |em: &mut EpochManager| -> Vec<EpochInfo> {
@@ -3976,7 +3998,7 @@ mod tests {
                 DEFAULT_TOTAL_SUPPLY,
             );
             set_block_info_protocol_version(&mut block_info, UPGRADABILITY_FIX_PROTOCOL_VERSION);
-            epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
+            epoch_manager.record_block_info(&None, block_info, [0; 32]).unwrap();
         }
 
         let epoch_infos = get_epoch_infos(&mut epoch_manager);
@@ -4016,6 +4038,7 @@ mod tests {
 
         epoch_manager
             .record_block_info(
+                &None,
                 block_info(h[5], 5, 1, h[1], h[2], h[1], vec![], DEFAULT_TOTAL_SUPPLY),
                 [0; 32],
             )

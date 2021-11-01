@@ -210,7 +210,9 @@ impl GenesisBuilder {
         let mut store_update = store.store_update();
 
         store_update.merge(
-            self.runtime.on_new_block_header(BlockHeaderInfo::new(&genesis.header(), 0)).unwrap(),
+            self.runtime
+                .on_new_block_header(&None, BlockHeaderInfo::new(&genesis.header(), 0))
+                .unwrap(),
         );
         store_update
             .save_block_header(genesis.header().clone())

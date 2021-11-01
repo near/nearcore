@@ -637,6 +637,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn on_new_block_header(
         &self,
+        _me: &Option<AccountId>,
         _block_header_info: BlockHeaderInfo,
     ) -> Result<StoreUpdate, Error> {
         Ok(self.store.store_update())

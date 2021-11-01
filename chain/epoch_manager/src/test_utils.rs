@@ -281,6 +281,7 @@ pub fn record_block_with_final_block_hash(
 ) {
     epoch_manager
         .record_block_info(
+            &None,
             BlockInfo::new(
                 cur_h,
                 height,
@@ -311,6 +312,7 @@ pub fn record_block_with_slashes(
 ) {
     epoch_manager
         .record_block_info(
+            &None,
             BlockInfo::new(
                 cur_h,
                 height,
@@ -398,5 +400,5 @@ pub fn block_info(
 }
 
 pub fn record_with_block_info(epoch_manager: &mut EpochManager, block_info: BlockInfo) {
-    epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+    epoch_manager.record_block_info(&None, block_info, [0; 32]).unwrap().commit().unwrap();
 }

@@ -1326,6 +1326,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn on_new_block_header(
         &self,
+        me: &Option<AccountId>,
         block_header_info: BlockHeaderInfo,
     ) -> Result<StoreUpdate, Error> {
         // Check that genesis block doesn't have any proposals.
@@ -1351,7 +1352,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_header_info.timestamp_nanosec,
         );
         let rng_seed = block_header_info.random_value.0;
-        epoch_manager.record_block_info(block_info, rng_seed).map_err(|err| err.into())
+        epoch_manager.record_block_info(me, block_info, rng_seed).map_err(|err| err.into())
     }
 
     fn apply_transactions_with_optional_storage_proof(
@@ -2098,20 +2099,23 @@ mod test {
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
             runtime
-                .on_new_block_header(BlockHeaderInfo {
-                    prev_hash: CryptoHash::default(),
-                    hash: genesis_hash,
-                    random_value: [0; 32].as_ref().try_into().unwrap(),
-                    height: 0,
-                    last_finalized_height: 0,
-                    last_finalized_block_hash: CryptoHash::default(),
-                    proposals: vec![],
-                    slashed_validators: vec![],
-                    chunk_mask: vec![],
-                    total_supply: genesis_total_supply,
-                    latest_protocol_version: genesis_protocol_version,
-                    timestamp_nanosec: 0,
-                })
+                .on_new_block_header(
+                    &None,
+                    BlockHeaderInfo {
+                        prev_hash: CryptoHash::default(),
+                        hash: genesis_hash,
+                        random_value: [0; 32].as_ref().try_into().unwrap(),
+                        height: 0,
+                        last_finalized_height: 0,
+                        last_finalized_block_hash: CryptoHash::default(),
+                        proposals: vec![],
+                        slashed_validators: vec![],
+                        chunk_mask: vec![],
+                        total_supply: genesis_total_supply,
+                        latest_protocol_version: genesis_protocol_version,
+                        timestamp_nanosec: 0,
+                    },
+                )
                 .unwrap()
                 .commit()
                 .unwrap();
@@ -2165,20 +2169,23 @@ mod test {
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
             self.runtime
-                .on_new_block_header(BlockHeaderInfo {
-                    prev_hash: self.head.last_block_hash,
-                    hash: new_hash,
-                    random_value: [0; 32].as_ref().try_into().unwrap(),
-                    height: self.head.height + 1,
-                    last_finalized_height: self.head.height.saturating_sub(1),
-                    last_finalized_block_hash: self.head.last_block_hash,
-                    proposals: self.last_proposals.clone(),
-                    slashed_validators: challenges_result,
-                    chunk_mask,
-                    total_supply: self.runtime.genesis_config.total_supply,
-                    latest_protocol_version: self.runtime.genesis_config.protocol_version,
-                    timestamp_nanosec: self.time + 10u64.pow(9),
-                })
+                .on_new_block_header(
+                    &None,
+                    BlockHeaderInfo {
+                        prev_hash: self.head.last_block_hash,
+                        hash: new_hash,
+                        random_value: [0; 32].as_ref().try_into().unwrap(),
+                        height: self.head.height + 1,
+                        last_finalized_height: self.head.height.saturating_sub(1),
+                        last_finalized_block_hash: self.head.last_block_hash,
+                        proposals: self.last_proposals.clone(),
+                        slashed_validators: challenges_result,
+                        chunk_mask,
+                        total_supply: self.runtime.genesis_config.total_supply,
+                        latest_protocol_version: self.runtime.genesis_config.protocol_version,
+                        timestamp_nanosec: self.time + 10u64.pow(9),
+                    },
+                )
                 .unwrap()
                 .commit()
                 .unwrap();
@@ -2631,20 +2638,23 @@ mod test {
             };
             new_env
                 .runtime
-                .on_new_block_header(BlockHeaderInfo {
-                    prev_hash,
-                    hash: cur_hash,
-                    random_value: [0; 32].as_ref().try_into().unwrap(),
-                    height: i,
-                    last_finalized_height: i.saturating_sub(2),
-                    last_finalized_block_hash: prev_hash,
-                    proposals: new_env.last_proposals,
-                    slashed_validators: vec![],
-                    chunk_mask: vec![true],
-                    total_supply: new_env.runtime.genesis_config.total_supply,
-                    latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
-                    timestamp_nanosec: new_env.time,
-                })
+                .on_new_block_header(
+                    &None,
+                    BlockHeaderInfo {
+                        prev_hash,
+                        hash: cur_hash,
+                        random_value: [0; 32].as_ref().try_into().unwrap(),
+                        height: i,
+                        last_finalized_height: i.saturating_sub(2),
+                        last_finalized_block_hash: prev_hash,
+                        proposals: new_env.last_proposals,
+                        slashed_validators: vec![],
+                        chunk_mask: vec![true],
+                        total_supply: new_env.runtime.genesis_config.total_supply,
+                        latest_protocol_version: new_env.runtime.genesis_config.protocol_version,
+                        timestamp_nanosec: new_env.time,
+                    },
+                )
                 .unwrap()
                 .commit()
                 .unwrap();

@@ -222,6 +222,7 @@ mod tests {
     ) {
         epoch_manager
             .record_block_info(
+                &None,
                 BlockInfo::new(
                     cur_h,
                     height,

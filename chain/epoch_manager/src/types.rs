@@ -12,7 +12,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 
-use crate::EpochManager;
+use crate::{metrics, EpochManager};
 
 pub type RngSeed = [u8; 32];
 
@@ -47,6 +47,7 @@ impl EpochInfoAggregator {
 
     pub fn update(
         &mut self,
+        me: &Option<AccountId>,
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
         prev_block_height: BlockHeight,
@@ -69,6 +70,11 @@ impl EpochInfoAggregator {
                         validator_stats.expected += 1;
                     })
                     .or_insert(ValidatorStats { produced: 0, expected: 1 });
+            }
+            if let Some(me) = me {
+                if me == epoch_info.validator_account_id(block_producer_id) {
+                    near_metrics::inc_counter(&metrics::BLOCK_EXPECTED_TOTAL);
+                }
             }
         }
 

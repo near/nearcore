@@ -557,8 +557,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Update Epoch Manager state on processing a new block header.
-    fn on_new_block_header(&self, block_header_info: BlockHeaderInfo)
-        -> Result<StoreUpdate, Error>;
+    fn on_new_block_header(
+        &self,
+        me: &Option<AccountId>,
+        block_header_info: BlockHeaderInfo,
+    ) -> Result<StoreUpdate, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.

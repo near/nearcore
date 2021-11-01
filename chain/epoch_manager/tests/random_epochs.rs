@@ -272,6 +272,7 @@ fn verify_proposals(epoch_manager: &mut EpochManager, block_infos: &Vec<BlockInf
             }
             let aggregator = epoch_manager
                 .get_and_update_epoch_info_aggregator(
+                    &None,
                     prev_block_info.epoch_id(),
                     block_info.prev_hash(),
                     true,
@@ -360,6 +361,7 @@ fn verify_block_stats(
         {
             let aggregator = epoch_manager
                 .get_and_update_epoch_info_aggregator(
+                    &None,
                     block_infos[i].epoch_id(),
                     &block_hashes[i],
                     true,
