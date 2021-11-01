@@ -153,8 +153,15 @@ def setup_python_environments(nodes, wasm_contract):
     pmap(lambda n: setup_python_environment(n, wasm_contract), nodes)
 
 
-def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes,
-                                  num_nodes, max_tps, leader_account_id, upk,
+def start_load_test_helper_script(script,
+                                  node_account_id,
+                                  pk,
+                                  sk,
+                                  rpc_nodes,
+                                  num_nodes,
+                                  max_tps,
+                                  leader_account_id,
+                                  upk,
                                   usk):
     s = '''
         cd {dir}
@@ -179,8 +186,7 @@ def start_load_test_helper(node,
                            pk,
                            sk,
                            rpc_nodes,
-                           num_nodes,
-                           max_tps,
+                           num_nodes, max_tps,
                            lead_account_id=None,
                            get_node_key=False):
     upk, usk = None, None
@@ -200,16 +206,11 @@ def start_load_test_helper(node,
     node.machine.run('bash',
                      input=start_load_test_helper_script(
                          script, node_account_name(node.instance_name), pk, sk,
-                         rpc_node_ips, num_nodes, max_tps, lead_account_id, upk,
-                         usk))
+                         rpc_node_ips, num_nodes, max_tps,
+                         lead_account_id, upk, usk))
 
 
-def start_load_test_helpers(nodes,
-                            script,
-                            rpc_nodes,
-                            num_nodes,
-                            max_tps,
-                            get_node_key=False):
+def start_load_test_helpers(nodes, script, rpc_nodes, num_nodes, max_tps, get_node_key=False):
     account = get_validator_account(nodes[0])
     pmap(
         lambda node: start_load_test_helper(node,
@@ -217,8 +218,7 @@ def start_load_test_helpers(nodes,
                                             account.pk,
                                             account.sk,
                                             rpc_nodes,
-                                            num_nodes,
-                                            max_tps,
+                                            num_nodes, max_tps,
                                             lead_account_id=account.account_id,
                                             get_node_key=get_node_key), nodes)
 
@@ -478,8 +478,7 @@ def create_and_upload_genesis(validator_nodes,
                               update_genesis_on_machine=False,
                               epoch_length=None,
                               node_pks=None):
-    logger.info(
-        f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
+    logger.info(f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
     assert chain_id
     if not epoch_length:
         epoch_length = 20000
@@ -509,9 +508,7 @@ def create_and_upload_genesis(validator_nodes,
             logger.info(
                 'Assuming that genesis_updater.py is available on the instances.'
             )
-            validator_node_names = [
-                node.instance_name for node in validator_nodes
-            ]
+            validator_node_names = [node.instance_name for node in validator_nodes]
             rpc_node_names = [node.instance_name for node in rpc_nodes]
             assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
             chain_id_in = chain_id.split('-spoon')[0]
@@ -536,8 +533,7 @@ def create_genesis_file(validator_node_names,
                         append=False,
                         epoch_length=None,
                         node_pks=None):
-    logger.info(
-        f'create_genesis_file: validator_node_names: {validator_node_names}')
+    logger.info(f'create_genesis_file: validator_node_names: {validator_node_names}')
     logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
@@ -583,26 +579,17 @@ def create_genesis_file(validator_node_names,
 
     master_balance = 10**7
     assert master_balance > 0
-    accounts_and_balances = [(TREASURY_ACCOUNT, TREASURY_BALANCE),
-                             (MASTER_ACCOUNT, master_balance),
-                             (SKYWARD_ACCOUNT, SKYWARD_CONTRACT_BALANCE),
-                             (TOKEN1_ACCOUNT, TOKEN1_BALANCE),
-                             (TOKEN2_ACCOUNT, TOKEN2_BALANCE),
-                             (TOKEN2_OWNER_ACCOUNT, TOKEN2_OWNER_BALANCE),
-                             (ACCOUNT1_ACCOUNT, ACCOUNT1_BALANCE)]
+    accounts_and_balances = [(TREASURY_ACCOUNT, TREASURY_BALANCE), (MASTER_ACCOUNT, master_balance), (SKYWARD_ACCOUNT, SKYWARD_CONTRACT_BALANCE), (TOKEN1_ACCOUNT, TOKEN1_BALANCE), (TOKEN2_ACCOUNT, TOKEN2_BALANCE), (TOKEN2_OWNER_ACCOUNT, TOKEN2_OWNER_BALANCE), (ACCOUNT1_ACCOUNT, ACCOUNT1_BALANCE)]
     accounts = {}
     for a in accounts_and_balances:
         accounts[a[0]] = a[1]
     seen_accounts = set()
     for record in genesis_config['records']:
-        if 'Account' in record and 'account_id' in record['Account'] and record[
-                'Account']['account_id'] in accounts:
+        if 'Account' in record and 'account_id' in record['Account'] and record['Account']['account_id'] in accounts:
             seen_accounts.add(record['Account']['account_id'])
-            if 'account' in record['Account'] and 'amount' in record['Account'][
-                    'account']:
-                record['Account']['account']['amount'] = str(
-                    accounts[record['Account']['account_id']])
-
+            if 'account' in record['Account'] and 'amount' in record['Account']['account']:
+                record['Account']['account']['amount'] = str(accounts[record['Account']['account_id']])
+    
     for (account_id, balance) in [(TREASURY_ACCOUNT, TREASURY_BALANCE),
                                   (MASTER_ACCOUNT, master_balance),
                                   (SKYWARD_ACCOUNT, SKYWARD_CONTRACT_BALANCE),
@@ -756,7 +743,6 @@ def get_node_addr(node, port, tmp_dir):
 
 def update_config_file(all_nodes, tmp_dir):
     first_node = all_nodes[0]
-
 
 def get_node_keys(node, tmp_dir):
     logger.info(f'get_node_keys from {node.instance_name}')
