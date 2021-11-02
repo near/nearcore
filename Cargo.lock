@@ -4484,6 +4484,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "rayon",
+ "serde",
  "serde_json",
  "tempfile",
  "testlib",

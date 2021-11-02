@@ -74,3 +74,11 @@ Flags:
 * `--height` gets the block header and chunk extras for a block at a certain height.
 * `--block` displays contents of the block itself, such as timestamp, outcome_root, challenges, and many more.
 * `--chunk` displays contents of the chunk, such as transactions and receipts.
+
+### `dump_state`
+
+Saves the current state of the network in a new genesis file.
+
+Flags:
+
+* `--height` takes state from the genesis up to and including the given height. By default, dumps all available state.
