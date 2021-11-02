@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Instant;
 
 use borsh::de::BorshDeserialize;
-use chrono::{DateTime, Duration, Utc};
 
 use near_crypto::Signature;
 use near_network::routing::{
@@ -28,14 +28,14 @@ struct RoutingTableTest {
     store: Arc<Store>,
     peers: Vec<PeerId>,
     rev_peers: HashMap<PeerId, usize>,
-    times: Vec<DateTime<Utc>>,
+    times: Vec<Instant>,
 }
 
 impl RoutingTableTest {
     fn new() -> Self {
         let me = random_peer_id();
         let store = create_test_store();
-        let now = Utc::now();
+        let now = Instant::now();
 
         Self {
             routing_table: RoutingTable::new(me.clone(), store.clone()),
@@ -43,16 +43,9 @@ impl RoutingTableTest {
             peers: vec![me.clone()],
             rev_peers: vec![(me, 0)].into_iter().collect(),
             times: vec![
-                now.checked_sub_signed(Duration::seconds((SAVE_PEERS_AFTER_TIME / 2) as i64))
-                    .unwrap(),
-                now.checked_sub_signed(Duration::seconds(
-                    ((SAVE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2) as i64,
-                ))
-                .unwrap(),
-                now.checked_sub_signed(Duration::seconds(
-                    (SAVE_PEERS_MAX_TIME * 3 / 2 - SAVE_PEERS_AFTER_TIME / 2) as i64,
-                ))
-                .unwrap(),
+                now - (SAVE_PEERS_AFTER_TIME / 2),
+                now - (SAVE_PEERS_AFTER_TIME + SAVE_PEERS_MAX_TIME) / 2,
+                now - (SAVE_PEERS_MAX_TIME * 3 / 2 - SAVE_PEERS_AFTER_TIME / 2),
             ],
         }
     }

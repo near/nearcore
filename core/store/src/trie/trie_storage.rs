@@ -11,7 +11,6 @@ use crate::trie::POISONED_LOCK_ERR;
 use crate::{ColState, StorageError, Store};
 use near_primitives::shard_layout::ShardUId;
 use std::cell::RefCell;
-use std::convert::TryFrom;
 use std::io::ErrorKind;
 
 #[derive(Clone)]

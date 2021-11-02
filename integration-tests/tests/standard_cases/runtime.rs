@@ -19,7 +19,8 @@ mod test {
             Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 1);
         add_test_contract(&mut genesis, &bob_account());
         // Set expensive state requirements and add alice more money.
-        genesis.config.runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
+        let mut runtime_config = RuntimeConfig::test();
+        runtime_config.storage_amount_per_byte = TESTING_INIT_BALANCE / 1000;
         match &mut genesis.records.as_mut()[0] {
             StateRecord::Account { account, .. } => {
                 account.set_amount(TESTING_INIT_BALANCE * 10000)
@@ -33,7 +34,7 @@ mod test {
             data_key: b"test".to_vec(),
             value: b"123".to_vec(),
         });
-        RuntimeNode::new_from_genesis(&alice_account(), genesis)
+        RuntimeNode::new_from_genesis_and_config(&alice_account(), genesis, runtime_config)
     }
 
     #[test]

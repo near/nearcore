@@ -3,7 +3,6 @@
 //! These types should only change when we cannot avoid this. Thus, when the counterpart internal
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::sync::Arc;
 
@@ -238,7 +237,7 @@ pub struct AccessKeyList {
     pub keys: Vec<AccessKeyInfoView>,
 }
 
-impl std::iter::FromIterator<AccessKeyInfoView> for AccessKeyList {
+impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     fn from_iter<I: IntoIterator<Item = AccessKeyInfoView>>(iter: I) -> Self {
         Self { keys: iter.into_iter().collect() }
     }

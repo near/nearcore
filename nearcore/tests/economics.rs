@@ -14,25 +14,31 @@ use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use testlib::fees_utils::FeeHelper;
 
+use near_primitives::types::EpochId;
 use primitive_types::U256;
 
-fn setup_env(f: &mut dyn FnMut(&mut Genesis) -> ()) -> (TestEnv, FeeHelper) {
+fn build_genesis() -> Genesis {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = 2;
+    genesis.config.num_blocks_per_year = 2;
+    genesis.config.protocol_reward_rate = Rational::new_raw(1, 10);
+    genesis.config.max_inflation_rate = Rational::new_raw(1, 10);
+    genesis.config.chunk_producer_kickout_threshold = 30;
+    genesis.config.online_min_threshold = Rational::new_raw(0, 1);
+    genesis.config.online_max_threshold = Rational::new_raw(1, 1);
+    genesis
+}
+
+fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store1 = create_test_store();
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    f(&mut genesis);
-    let fee_helper = FeeHelper::new(
-        genesis.config.runtime_config.transaction_costs.clone(),
-        genesis.config.min_gas_price,
-    );
-    let env = TestEnv::builder(ChainGenesis::from(&genesis))
+    TestEnv::builder(ChainGenesis::from(&genesis))
         .runtime_adapters(vec![Arc::new(nearcore::NightshadeRuntime::test(
             Path::new("."),
             store1,
             &genesis,
         )) as Arc<dyn RuntimeAdapter>])
-        .build();
-    (env, fee_helper)
+        .build()
 }
 
 /// Debug tool to show current balances.
@@ -64,15 +70,16 @@ fn calc_total_supply(env: &mut TestEnv) -> u128 {
 /// This combines Client & NightshadeRuntime to also test EpochManager.
 #[test]
 fn test_burn_mint() {
-    let (mut env, fee_helper) = setup_env(&mut |mut genesis| {
-        genesis.config.epoch_length = 2;
-        genesis.config.num_blocks_per_year = 2;
-        genesis.config.protocol_reward_rate = Rational::new_raw(1, 10);
-        genesis.config.max_inflation_rate = Rational::new_raw(1, 10);
-        genesis.config.chunk_producer_kickout_threshold = 30;
-        genesis.config.online_min_threshold = Rational::new_raw(0, 1);
-        genesis.config.online_max_threshold = Rational::new_raw(1, 1);
-    });
+    let genesis = build_genesis();
+    let mut env = setup_env(&genesis);
+    let transaction_costs = env.clients[0]
+        .runtime_adapter
+        .get_protocol_config(&EpochId::default())
+        .unwrap()
+        .runtime_config
+        .transaction_costs
+        .clone();
+    let fee_helper = FeeHelper::new(transaction_costs, genesis.config.min_gas_price);
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();

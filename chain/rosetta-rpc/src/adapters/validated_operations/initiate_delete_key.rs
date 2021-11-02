@@ -26,7 +26,7 @@ impl ValidatedOperation for InitiateDeleteKeyOperation {
     }
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for InitiateDeleteKeyOperation {
+impl TryFrom<crate::models::Operation> for InitiateDeleteKeyOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {

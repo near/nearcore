@@ -9,8 +9,6 @@ use near_primitives::types::AccountId;
 use near_vm_runner::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
