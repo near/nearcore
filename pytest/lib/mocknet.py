@@ -548,11 +548,11 @@ def create_genesis_file(validator_node_names,
         for record in genesis_config['records']:
             if 'Account' in record:
                 account = record['Account'].get('account', {})
-                locked = int(account.get('locked', str(0)))
+                locked = int(account.get('locked', 0))
                 if locked > 0:
-                    amount = int(account.get('amount', str(0)))
+                    amount = int(account.get('amount', 0))
                     account['amount'] = str(amount + locked)
-                    account['locked'] = str(0)
+                    account['locked'] = 0
 
     else:
         genesis_config['records'] = []
@@ -691,10 +691,9 @@ def create_genesis_file(validator_node_names,
 
     total_supply = 0
     for record in genesis_config['records']:
-        total_supply += int(
-            record.get('Account', {}).get('account', {}).get('locked', str(0)))
-        total_supply += int(
-            record.get('Account', {}).get('account', {}).get('amount', str(0)))
+        account = record.get('Account', {}).get('account', {})
+        total_supply += int(account.get('locked', 0))
+        total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
     genesis_config['protocol_version'] = 47
