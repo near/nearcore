@@ -21,7 +21,7 @@ from configured_logger import logger
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
+CONTRACT_DEPLOY_TIME = 12 * mocknet.NUM_ACCOUNTS
 TEST_TIMEOUT = 12 * 60 * 60
 SKYWARD_INIT_TIME = 120
 
@@ -210,7 +210,7 @@ def initialize_skyward_contract(node_account_id, pk, sk):
     time.sleep(2)
     # Needs to be [7,30] days in the future.
     sale_start_timestamp = round(time.time() + 8 * 24 * 60 * 60)
-    s = f'{{"sale": {"title":"sale","out_tokens":[{"token_account_id":"{mocknet.TOKEN1_ACCOUNT}","balance":"500000000000000000000000000000"}], "in_token_account_id": "{mocknet.TOKEN2_ACCOUNT}", "start_time": "{str(sale_start_timestamp)}000000000", "duration": "3600000000000"} }}'
+    s = f'{{"sale": {{"title":"sale","out_tokens":[{{"token_account_id":"{mocknet.TOKEN1_ACCOUNT}","balance":"500000000000000000000000000000"}}], "in_token_account_id": "{mocknet.TOKEN2_ACCOUNT}", "start_time": "{str(sale_start_timestamp)}000000000", "duration": "3600000000000"}} }}'
     logger.info(
         f'Calling function "sale_create" with arguments {s} on account {get_account1_account().key.account_id} for account {mocknet.SKYWARD_ACCOUNT}'
     )
@@ -339,7 +339,6 @@ def main(argv):
     (node_account, test_accounts,
      max_tps_per_node) = get_test_accounts_from_args(argv)
 
-    start_time = time.time()
 
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
@@ -347,12 +346,13 @@ def main(argv):
     delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
-    assert (delay >= 1)
+    start_time = time.time()
+    assert delay >= 1
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         init_token2_account(account, i)
-        time.sleep(delay - 1)
+        time.sleep(max(1.0, start_time + (i+1) * delay - time.time()))
     logger.info('Done deploying')
 
     # begin with only transfers for TPS measurement
@@ -360,6 +360,7 @@ def main(argv):
     logger.info(
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
+    start_time = time.time()
     while time.time() - start_time < TEST_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_skyward_transactions, total_tx_sent,

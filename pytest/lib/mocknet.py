@@ -22,7 +22,7 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
 NUM_SHARDS = 1
-NUM_ACCOUNTS = 26 * 5
+NUM_ACCOUNTS = 26 * 2
 PROJECT = 'near-mocknet'
 PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
@@ -578,7 +578,7 @@ def create_genesis_file(validator_node_names,
                 account = account_record.get('account', {})
                 account['amount'] = str(accounts[account_id])
 
-    for account_id, balance in accounts:
+    for account_id, balance in accounts.items():
         if account_id not in seen_accounts:
             genesis_config['records'].append({
                 'Account': {
@@ -713,9 +713,11 @@ def create_genesis_file(validator_node_names,
 
 
 def download_and_read_json(node, filename):
-    tmp_file = tempfile.NamedTemporaryFile(mode='r+')
+    tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
     node.machine.download(filename, tmp_file.name)
-    return json.load(tmp_file)
+    tmp_file.close()
+    with open(tmp_file.name, 'r') as f:
+        return json.load(f)
 
 
 def get_node_addr(node, port):
