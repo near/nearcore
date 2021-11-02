@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::fs::File;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -8,14 +11,12 @@ use near_chain::types::ApplyTransactionResult;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_primitives::borsh::maybestd::sync::Arc;
-use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
-use near_primitives::receipt::Receipt;
 
 fn inc_and_report_progress(cnt: &AtomicU64) {
     let prev = cnt.fetch_add(1, Ordering::Relaxed);
@@ -44,14 +45,14 @@ fn old_outcomes(
         .collect()
 }
 
-fn delayed_receipts(
-    store: Arc<Store>,
-) -> Vec<Receipt> {
-    store
-        .iter(DBCol::ColReceipts)
-        .map(|(_key, value)| {
-            Receipt::try_from_slice(&value).expect("BorshDeserialize should not fail")
-        }).collect()
+fn maybe_add_to_csv(csv_file_mutex: &Arc<Mutex<Option<&mut File>>>, s: &str) {
+    let csv_file_mutex = Arc::clone(csv_file_mutex);
+    let mut csv_file = csv_file_mutex.lock().unwrap();
+    let csv_file = csv_file.as_mut();
+    if let Some(csv_file) = csv_file {
+        let csv_file : &mut File = csv_file;
+        write!(csv_file, "{}\n", s).unwrap();
+    }
 }
 
 pub fn apply_chain_range(
@@ -61,7 +62,10 @@ pub fn apply_chain_range(
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
     runtime: NightshadeRuntime,
+    verbose_output: bool,
+    csv_file: Option<&mut File>,
 ) {
+    println!("{}", csv_file.is_some());
     let runtime_adapter: Arc<dyn RuntimeAdapter> = Arc::new(runtime);
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
@@ -73,12 +77,12 @@ pub fn apply_chain_range(
     );
 
     println!("Printing results including outcomes of applying receipts");
+    let csv_file_mutex = Arc::new(Mutex::new(csv_file));
+        maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,BlockPresent,ChunkPresent");
 
     let processed_blocks_cnt = AtomicU64::new(0);
-    (start_height..=end_height).into_par_iter().for_each(|height| {
+        (start_height..=end_height).into_par_iter().for_each(|height| {
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height);
-        let delayed_receipts = delayed_receipts(store.clone());
-        println!("num_delayed_receipts: {}",delayed_receipts.len());
         let block_hash = match chain_store.get_block_hash_by_height(height) {
             Ok(block_hash) => block_hash,
             Err(_) => {
@@ -90,14 +94,25 @@ pub fn apply_chain_range(
         let block = chain_store.get_block(&block_hash).unwrap().clone();
         let shard_uid =
             runtime_adapter.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
-        assert!(block.chunks().len()>0);
+        assert!(block.chunks().len() > 0);
         let mut existing_chunk_extra = None;
         let mut prev_chunk_extra = None;
+        let mut num_tx = 0;
+        let mut num_receipt = 0;
+        let chunk_present : bool;
+        let block_present : bool;
+
+        let block_author = runtime_adapter.get_block_producer(&block.header().epoch_id(), block.header().height()).unwrap();
+
         let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
-            println!("Skipping the genesis block #{}.", height);
+            if verbose_output {
+                println!("Skipping the genesis block #{}.", height);
+            }
             inc_and_report_progress(&processed_blocks_cnt);
             return;
         } else if block.chunks()[shard_id as usize].height_included() == height {
+            block_present = true;
+            chunk_present = true;
             let res_existing_chunk_extra = chain_store.get_chunk_extra(&block_hash, &shard_uid);
             assert!(res_existing_chunk_extra.is_ok(), "Can't get existing chunk extra for block #{}", height);
             existing_chunk_extra = Some(res_existing_chunk_extra.unwrap().clone());
@@ -109,7 +124,10 @@ pub fn apply_chain_range(
             let prev_block = match chain_store.get_block(&block.header().prev_hash()) {
                 Ok(prev_block) => prev_block.clone(),
                 Err(_) => {
-                    println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                    if verbose_output {
+                        println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                    }
+                    maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},,,{},,{},{}", height, block_hash, block_author, block.header().raw_timestamp(),block_present,chunk_present));
                     inc_and_report_progress(&processed_blocks_cnt);
                     return;
                 },
@@ -135,6 +153,8 @@ pub fn apply_chain_range(
                 )
                     .unwrap();
 
+            num_receipt = receipts.len();
+            num_tx = chunk.transactions().len();
             runtime_adapter
                 .apply_transactions(
                     shard_id,
@@ -156,6 +176,8 @@ pub fn apply_chain_range(
                 )
                 .unwrap()
         } else {
+            block_present = true;
+            chunk_present = false;
             let chunk_extra = chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
             prev_chunk_extra = Some(chunk_extra.clone());
 
@@ -194,15 +216,20 @@ pub fn apply_chain_range(
 
         match existing_chunk_extra {
             Some(existing_chunk_extra) => {
-                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+                if verbose_output {
+                    println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+                }
                 assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
             },
             None => {
                 assert!(prev_chunk_extra.is_some());
                 assert!(apply_result.outcomes.is_empty());
-                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+                if verbose_output {
+                    println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+                }
             },
         };
+        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},{},{},{},{},{},{}", height, block_hash, block_author, num_tx, num_receipt, block.header().raw_timestamp(), apply_result.total_gas_burnt, block_present, chunk_present));
         inc_and_report_progress(&processed_blocks_cnt);
     });
 
@@ -214,6 +241,7 @@ pub fn apply_chain_range(
 
 #[cfg(test)]
 mod test {
+    use std::io::{Seek,SeekFrom,Read};
     use std::path::Path;
     use std::sync::Arc;
 
@@ -302,7 +330,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime);
+        apply_chain_range(store, &genesis, None, None, 0, runtime, true, None);
     }
 
     #[test]
@@ -324,6 +352,24 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        apply_chain_range(store, &genesis, None, None, 0, runtime);
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        apply_chain_range(store, &genesis, None, None, 0, runtime, true, Some(file.as_file_mut()));
+        let mut csv = String::new();
+        file.as_file_mut().seek(SeekFrom::Start(0)).unwrap();
+        file.as_file_mut().read_to_string(&mut csv).unwrap();
+        let lines : Vec<&str> = csv.split("\n").collect();
+        assert!(lines[0].contains("Height"));
+        let mut has_tx = 0;
+        let mut no_tx = 0;
+        for line in &lines {
+            if line.contains(",test0,1,0,") {
+                has_tx+=1;
+            }
+            if line.contains(",test0,0,0,") {
+                no_tx+=1;
+            }
+        }
+        assert_eq!(has_tx,1,"{:#?}",lines);
+        assert_eq!(no_tx,8,"{:#?}",lines);
     }
 }
