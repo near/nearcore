@@ -22,7 +22,7 @@ from configured_logger import logger
 LOCAL_ADDR = '127.0.0.1'
 RPC_PORT = '3030'
 # We need to slowly deploy contracts, otherwise we stall out the nodes
-CONTRACT_DEPLOY_TIME = 7 * mocknet.NUM_ACCOUNTS
+CONTRACT_DEPLOY_TIME = 10 * mocknet.NUM_ACCOUNTS
 TEST_TIMEOUT = 24 * 60 * 60
 
 
@@ -45,6 +45,7 @@ def get_nonce_for_pk(account_id, pk, finality='optimistic'):
             "account_id": account_id,
             "finality": finality
         })
+    logger.info(f'get_nonce_for_pk {account_id}')
     assert access_keys['result']['keys'], account_id
     for k in access_keys['result']['keys']:
         if k['public_key'] == pk:
@@ -263,20 +264,21 @@ def main(argv):
     (node_account, test_accounts,
      max_tps_per_node) = get_test_accounts_from_args(argv)
 
-    start_time = time.time()
-
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
     delay = CONTRACT_DEPLOY_TIME / mocknet.NUM_ACCOUNTS
     logger.info(f'Start deploying, delay between deployments: {delay}')
 
+    time.sleep(random.random() * delay)
+    start_time = time.time()
+    assert delay >= 1
     init_ft(node_account)
     for i, account in enumerate(test_accounts):
         logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         init_ft_account(node_account, account, i)
-        time.sleep(delay)
+        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
 
     logger.info('Done deploying')
 
@@ -288,6 +290,7 @@ def main(argv):
     logger.info(
         f'Start the test, expected TPS {max_tps_per_node} over the next {TEST_TIMEOUT} seconds'
     )
+    start_time = time.time()
     while time.time() - start_time < TEST_TIMEOUT:
         (total_tx_sent,
          elapsed_time) = throttle_txns(send_random_transactions, total_tx_sent,
