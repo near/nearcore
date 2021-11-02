@@ -46,6 +46,17 @@ members = [
     "integration-tests",
 ]
 
+[workspace.metadata.workspaces]
+exclude = [
+  # v0.0.0 {
+    "neard",
+    "nearcore",
+    "integration-tests",
+    "chain/jsonrpc/jsonrpc-tests",
+    "runtime/near-test-contracts",
+  # }
+]
+
 [[workspace.metadata.workspaces.group]]
 name = "runtime"
 members = [
