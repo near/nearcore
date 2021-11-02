@@ -2,7 +2,7 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
-use near_vm_logic::{ReturnData, VMOutcome};
+use near_vm_logic::VMOutcome;
 
 use crate::cache::MockCompiledContractCache;
 use crate::tests::{
