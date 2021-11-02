@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt, str::FromStr};
+use std::{fmt, str::FromStr};
 
 mod error;
 

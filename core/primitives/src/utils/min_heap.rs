@@ -1,6 +1,5 @@
 use std::cmp::Reverse;
 use std::collections::binary_heap::{BinaryHeap, IntoIter};
-use std::iter::FromIterator;
 
 /// Wrapper around `BinaryHeap` to be default min heap instead of max heap.
 #[derive(Debug, Clone)]

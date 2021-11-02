@@ -3,7 +3,7 @@ name = "near-crypto"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 arrayref = "0.3"

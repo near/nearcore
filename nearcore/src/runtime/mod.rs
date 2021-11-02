@@ -62,7 +62,7 @@ use crate::shard_tracker::{ShardTracker, TrackedConfig};
 use crate::migrations::load_migration_data;
 use crate::NearConfig;
 use errors::FromStateViewerErrors;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{
     account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
@@ -146,27 +146,6 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn test_with_runtime_config_store(
-        home_dir: &Path,
-        store: Arc<Store>,
-        genesis: &Genesis,
-        runtime_config_store: RuntimeConfigStore,
-    ) -> Self {
-        Self::new(
-            home_dir,
-            store,
-            genesis,
-            TrackedConfig::new_empty(),
-            None,
-            None,
-            runtime_config_store,
-        )
-    }
-
-    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
-        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
-    }
-
     pub fn with_config(
         home_dir: &Path,
         store: Arc<Store>,
@@ -181,7 +160,7 @@ impl NightshadeRuntime {
             TrackedConfig::from_config(&config.client_config),
             trie_viewer_state_size_limit,
             max_gas_burnt_view,
-            RuntimeConfigStore::new(Some(&config.genesis.config.runtime_config)),
+            None,
         )
     }
 
@@ -192,8 +171,13 @@ impl NightshadeRuntime {
         tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
-        runtime_config_store: RuntimeConfigStore,
+        runtime_config_store: Option<RuntimeConfigStore>,
     ) -> Self {
+        let runtime_config_store = match runtime_config_store {
+            Some(store) => store,
+            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+        };
+
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
@@ -230,6 +214,27 @@ impl NightshadeRuntime {
         }
     }
 
+    pub fn test_with_runtime_config_store(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        runtime_config_store: RuntimeConfigStore,
+    ) -> Self {
+        Self::new(
+            home_dir,
+            store,
+            genesis,
+            TrackedConfig::new_empty(),
+            None,
+            None,
+            Some(runtime_config_store),
+        )
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
+    }
+
     fn get_epoch_height_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -242,6 +247,23 @@ impl NightshadeRuntime {
     pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
+    }
+
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
+    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config =
+                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                RuntimeConfigStore::new(Some(&genesis_runtime_config))
+            }
+            _ => RuntimeConfigStore::new(None),
+        }
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
@@ -283,6 +305,10 @@ impl NightshadeRuntime {
         let tries =
             ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
+        let runtime_config_store =
+            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
+        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
@@ -306,7 +332,7 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &genesis,
-                &genesis.config.runtime_config,
+                &runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
             ));
         }
@@ -345,11 +371,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
         let has_records = !genesis.records.as_ref().is_empty();
-        let has_dump = {
-            let mut state_dump = home_dir.to_path_buf();
-            state_dump.push(STATE_DUMP_FILE);
-            state_dump.exists()
-        };
+        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
         if has_dump {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
@@ -1797,18 +1819,20 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let mut config = self.genesis_config.clone();
-        config.protocol_version = protocol_version;
-        config.runtime_config = (**self.runtime_config_store.get_config(protocol_version)).clone();
+        let mut genesis_config = self.genesis_config.clone();
+        genesis_config.protocol_version = protocol_version;
         let shard_config = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
             epoch_manager.get_shard_config(epoch_id)?
         };
-        config.num_block_producer_seats_per_shard = shard_config.num_block_producer_seats_per_shard;
-        config.avg_hidden_validator_seats_per_shard =
+        genesis_config.num_block_producer_seats_per_shard =
+            shard_config.num_block_producer_seats_per_shard;
+        genesis_config.avg_hidden_validator_seats_per_shard =
             shard_config.avg_hidden_validator_seats_per_shard;
-        config.shard_layout = shard_config.shard_layout;
-        Ok(config)
+        genesis_config.shard_layout = shard_config.shard_layout;
+        let runtime_config =
+            self.runtime_config_store.get_config(protocol_version).as_ref().clone();
+        Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
     fn get_prev_epoch_id_from_prev_block(
@@ -1926,7 +1950,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeSet;
-    use std::convert::{TryFrom, TryInto};
 
     use num_rational::Rational;
 
@@ -1942,7 +1965,7 @@ mod test {
     };
     use near_store::create_store;
 
-    use crate::config::{mainnet_genesis, GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::get_store_path;
 
     use super::*;
@@ -2070,7 +2093,7 @@ mod test {
                 tracked_config,
                 None,
                 None,
-                RuntimeConfigStore::free(),
+                Some(RuntimeConfigStore::free()),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
@@ -3431,19 +3454,5 @@ mod test {
         env.step_default(vec![staking_transaction3]);
         assert_eq!(env.last_proposals.len(), 1);
         assert_eq!(env.last_proposals[0].stake(), 0);
-    }
-
-    #[test]
-    fn test_runtime_configs_similarity_mainnet() {
-        let genesis = mainnet_genesis();
-        let genesis_runtime_config = genesis.config.runtime_config;
-
-        let overridden_store = RuntimeConfigStore::new(Some(&genesis_runtime_config));
-        let store = RuntimeConfigStore::new(None);
-        for protocol_version in [29u32, 34u32, 42u32, 50u32].iter() {
-            let old_config = overridden_store.get_config(protocol_version.clone());
-            let new_config = store.get_config(protocol_version.clone());
-            assert_eq!(old_config, new_config);
-        }
     }
 }

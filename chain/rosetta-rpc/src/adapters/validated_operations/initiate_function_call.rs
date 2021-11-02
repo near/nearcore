@@ -26,7 +26,7 @@ impl ValidatedOperation for InitiateFunctionCallOperation {
     }
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for InitiateFunctionCallOperation {
+impl TryFrom<crate::models::Operation> for InitiateFunctionCallOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {

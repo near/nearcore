@@ -1,10 +1,8 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
-use std::ops::Sub;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cached::{Cached, SizedCache};
-use chrono;
 use conqueue::{QueueReceiver, QueueSender};
 #[cfg(feature = "test_features")]
 use serde::{Deserialize, Serialize};
@@ -37,7 +35,7 @@ use std::hash::{Hash, Hasher};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
-const ROUTE_BACK_CACHE_EVICT_TIMEOUT: u64 = 120_000; // 120 seconds
+const ROUTE_BACK_CACHE_EVICT_TIMEOUT: Duration = Duration::from_millis(120_000);
 const ROUTE_BACK_CACHE_REMOVE_BATCH: u64 = 100;
 const PING_PONG_CACHE_SIZE: usize = 1_000;
 const ROUND_ROBIN_MAX_NONCE_DIFFERENCE_ALLOWED: usize = 10;
@@ -45,8 +43,8 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
 /// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
 /// seconds will be removed from cache and persisted in disk.
-pub const SAVE_PEERS_MAX_TIME: u64 = 7_200;
-pub const SAVE_PEERS_AFTER_TIME: u64 = 3_600;
+pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_millis(7_200);
+pub const SAVE_PEERS_AFTER_TIME: Duration = Duration::from_millis(3_600);
 /// Graph implementation supports up to 128 peers.
 pub const MAX_NUM_PEERS: usize = 128;
 
@@ -392,7 +390,7 @@ pub struct RoutingTable {
     /// Hash of messages that requires routing back to respective previous hop.
     pub route_back: RouteBackCache,
     /// Last time a peer with reachable through active edges.
-    pub peer_last_time_reachable: HashMap<PeerId, chrono::DateTime<chrono::Utc>>,
+    pub peer_last_time_reachable: HashMap<PeerId, Instant>,
     /// Access to store on disk
     store: Arc<Store>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
@@ -581,11 +579,8 @@ impl RoutingTable {
 
                         if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
                             if cur_nonce == nonce {
-                                self.peer_last_time_reachable.insert(
-                                    peer_id.clone(),
-                                    chrono::Utc::now()
-                                        .sub(chrono::Duration::seconds(SAVE_PEERS_MAX_TIME as i64)),
-                                );
+                                self.peer_last_time_reachable
+                                    .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
                                 update
                                     .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
                             }
@@ -599,7 +594,7 @@ impl RoutingTable {
                 warn!(target: "network", "Error removing network component from store. {:?}", e);
             }
         } else {
-            self.peer_last_time_reachable.insert(peer_id.clone(), chrono::Utc::now());
+            self.peer_last_time_reachable.insert(peer_id.clone(), Instant::now());
         }
     }
 
@@ -751,15 +746,15 @@ impl RoutingTable {
         RoutingTableInfo { account_peers, peer_forwarding: self.peer_forwarding.clone() }
     }
 
-    fn try_save_edges(&mut self, force_pruning: bool, timeout: u64) -> Vec<Edge> {
-        let now = chrono::Utc::now();
+    fn try_save_edges(&mut self, force_pruning: bool, timeout: Duration) -> Vec<Edge> {
+        let now = Instant::now();
         let mut oldest_time = now;
         let to_save = self
             .peer_last_time_reachable
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.signed_duration_since(*last_time).num_seconds() >= timeout as i64 {
+                if now.duration_since(*last_time) >= timeout {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -769,9 +764,7 @@ impl RoutingTable {
 
         // Save nodes on disk and remove from memory only if elapsed time from oldest peer
         // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning
-            && now.signed_duration_since(oldest_time).num_seconds() < SAVE_PEERS_MAX_TIME as i64
-        {
+        if !force_pruning && now.duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
             return Vec::new();
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
@@ -813,7 +806,12 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(&mut self, can_save_edges: bool, force_pruning: bool, timeout: u64) -> Vec<Edge> {
+    pub fn update(
+        &mut self,
+        can_save_edges: bool,
+        force_pruning: bool,
+        timeout: Duration,
+    ) -> Vec<Edge> {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -823,7 +821,7 @@ impl RoutingTable {
 
         self.peer_forwarding = self.raw_graph.calculate_distance();
 
-        let now = chrono::Utc::now();
+        let now = Instant::now();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
