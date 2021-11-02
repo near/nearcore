@@ -8,7 +8,6 @@ use curve25519_dalek::constants::{
 use curve25519_dalek::traits::{Identity, VartimeMultiscalarMul};
 use rand_core::OsRng;
 use std::borrow::Borrow;
-use std::convert::TryFrom;
 use std::iter::once;
 use std::ops::{AddAssign, Deref, DerefMut, Sub};
 

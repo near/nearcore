@@ -3,13 +3,11 @@ name = "near-jsonrpc"
 version = "0.2.2"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
-awc = "3.0.0-beta.5"
 actix-web = "=4.0.0-beta.6"
-actix-http = "=3.0.0-beta.6"
 actix-cors = { git = "https://github.com/near/actix-extras.git", branch="actix-web-4-beta.6" }
 easy-ext = "0.2"
 tokio = { version = "1.1", features = ["full"] }
@@ -20,10 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 validator = "0.12"
 tracing = "0.1.13"
-borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-metrics = { path = "../../core/metrics" }
 near-client = { path = "../client" }
@@ -32,11 +28,6 @@ near-jsonrpc-client = { path = "client" }
 near-jsonrpc-primitives = { path = "../jsonrpc-primitives" }
 near-jsonrpc-adversarial-primitives = { path = "../jsonrpc-adversarial-primitives", optional = true }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
-near-performance-metrics = { path = "../../utils/near-performance-metrics" }
-
-[dev-dependencies]
-near-logger-utils = { path = "../../test-utils/logger" }
-near-actix-test-utils = { path = "../../test-utils/actix-test-utils" }
 
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]

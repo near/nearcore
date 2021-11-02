@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use actix::Addr;
 
 use near_primitives::views;
@@ -41,7 +39,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     },
                     prev_block_gas_price,
                     true,
-                    protocol_config.clone().protocol_version,
+                    protocol_config.protocol_version.clone(),
                 );
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),

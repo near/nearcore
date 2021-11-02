@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }

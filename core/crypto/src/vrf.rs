@@ -5,7 +5,6 @@ use curve25519_dalek::constants::{
 };
 use rand_core::OsRng;
 use std::borrow::Borrow;
-use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 
 #[derive(Copy, Clone)]
