@@ -150,14 +150,3 @@ steps:
   #  branches: "!master"
   #  artifact_paths:
   #  - "rainbow-bridge/logs/**/*.log"
-
-  - label: "cargo check nearcore library (without Cargo.lock)"
-    command: |
-      source ~/.cargo/env && set -eux
-      rm Cargo.lock
-      cd nearcore
-      RUSTFLAGS='-D warnings' cargo check
-
-    timeout: 30
-    agents:
-    - "distro=amazonlinux"
