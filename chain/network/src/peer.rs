@@ -371,8 +371,9 @@ impl Peer {
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
             self.receive_client_message(ctx, msg);
-        } else {
-            debug_assert!(false);
+        } else if cfg!(debug_assertions) {
+            panic!("expected (view) client message, got: {}",
+                   msg.msg_variant());
         }
     }
 
