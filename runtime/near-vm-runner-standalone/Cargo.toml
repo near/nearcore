@@ -44,6 +44,3 @@ protocol_feature_alt_bn128 = ["near-vm-logic/protocol_feature_alt_bn128", "near-
 protocol_feature_block_header_v3 = ["near-primitives/protocol_feature_block_header_v3"]
 nightly_protocol_features = ["nightly_protocol", "near-primitives/nightly_protocol_features", "protocol_feature_block_header_v3", "protocol_feature_alt_bn128"]
 nightly_protocol = ["near-primitives/nightly_protocol"]
-
-[package.metadata.workspaces]
-independent = true

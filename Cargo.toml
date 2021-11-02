@@ -46,6 +46,17 @@ members = [
     "integration-tests",
 ]
 
+[[workspace.metadata.workspaces.group]]
+name = "runtime"
+members = [
+    "runtime/near-vm-logic",
+    "runtime/near-vm-errors",
+    "runtime/near-vm-runner",
+    "runtime/near-vm-runner-standalone",
+    "runtime/runtime",
+    "runtime/runtime-params-estimator",
+]
+
 [patch.crates-io]
 
 [profile.release]

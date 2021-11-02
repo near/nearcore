@@ -78,6 +78,3 @@ nightly_protocol = ["near-primitives/nightly_protocol"]
 [package.metadata.cargo-udeps.ignore]
 # `no_cache` feature leads to an unused `cached` crate
 normal = ["cached"]
-
-[package.metadata.workspaces]
-independent = true
