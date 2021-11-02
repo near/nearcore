@@ -11,6 +11,7 @@ borsh = "0.9"
 clap = "2.33"
 tracing = "0.1"
 rayon = "1.5"
+tempfile = "3"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }

@@ -4485,6 +4485,7 @@ dependencies = [
  "node-runtime",
  "rayon",
  "serde_json",
+ "tempfile",
  "testlib",
  "tracing",
 ]
