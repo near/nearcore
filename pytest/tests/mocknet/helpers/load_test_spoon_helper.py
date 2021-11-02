@@ -264,7 +264,6 @@ def main(argv):
     (node_account, test_accounts,
      max_tps_per_node) = get_test_accounts_from_args(argv)
 
-
     # Ensure load testing contract is deployed to all accounts before
     # starting to send random transactions (ensures we do not try to
     # call the contract before it is deployed).
@@ -279,7 +278,7 @@ def main(argv):
         logger.info(f'Deploying contract for account {i}')
         account.send_deploy_contract_tx(mocknet.WASM_FILENAME)
         init_ft_account(node_account, account, i)
-        time.sleep(max(1.0, start_time + (i+1) * delay - time.time()))
+        time.sleep(max(1.0, start_time + (i + 1) * delay - time.time()))
 
     logger.info('Done deploying')
 
