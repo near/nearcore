@@ -295,12 +295,11 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.max_gas_burnt_view,
     ));
 
-    // We let view_client use a different runtime so there won't be cache access contention
-    // between view_client and client
+    // Make view_client use a different runtime so prevent it from blocking transaction processing
     // If they share the same runtime, they will use the same set of cache objects (epoch_manager/shard_tries).
     // Even though view_client only read from these caches, that will still block all other
     // accesses.
-    // A more long term solution would to make the cache's reads not blocking.
+    // A more long term solution would to make the caches not read-blocking.
     let view_client_runtime = Arc::new(NightshadeRuntime::with_config(
         home_dir,
         Arc::clone(&store),
