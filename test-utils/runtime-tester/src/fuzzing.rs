@@ -14,7 +14,6 @@ use byteorder::{ByteOrder, LittleEndian};
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
 use std::collections::HashSet;
-use std::iter::FromIterator;
 use std::mem::size_of;
 use std::str::FromStr;
 

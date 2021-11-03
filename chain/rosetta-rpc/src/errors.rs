@@ -8,7 +8,7 @@ pub(crate) enum ErrorKind {
     InternalError(String),
 }
 
-impl std::convert::From<actix::MailboxError> for ErrorKind {
+impl From<actix::MailboxError> for ErrorKind {
     fn from(err: actix::MailboxError) -> Self {
         Self::InternalError(format!(
             "Server seems to be under a heavy load thus reaching a limit of Actix queue: {}",
@@ -17,13 +17,13 @@ impl std::convert::From<actix::MailboxError> for ErrorKind {
     }
 }
 
-impl std::convert::From<tokio::time::error::Elapsed> for ErrorKind {
+impl From<tokio::time::error::Elapsed> for ErrorKind {
     fn from(_: tokio::time::error::Elapsed) -> Self {
         Self::Timeout("The operation timed out.".to_string())
     }
 }
 
-impl std::convert::From<near_client::TxStatusError> for ErrorKind {
+impl From<near_client::TxStatusError> for ErrorKind {
     fn from(err: near_client::TxStatusError) -> Self {
         match err {
             near_client::TxStatusError::ChainError(err) => Self::InternalInvariantError(format!(
@@ -51,7 +51,7 @@ impl std::convert::From<near_client::TxStatusError> for ErrorKind {
     }
 }
 
-impl std::convert::From<near_client_primitives::types::GetStateChangesError> for ErrorKind {
+impl From<near_client_primitives::types::GetStateChangesError> for ErrorKind {
     fn from(err: near_client_primitives::types::GetStateChangesError) -> Self {
         match err {
             near_client_primitives::types::GetStateChangesError::IOError { error_message } => {
