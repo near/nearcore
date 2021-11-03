@@ -11,6 +11,7 @@ use crate::tests::{
 };
 use crate::VMKind;
 
+#[track_caller]
 fn gas_and_error_match(
     outcome_and_error: (Option<VMOutcome>, Option<VMError>),
     expected_gas: Option<u64>,
