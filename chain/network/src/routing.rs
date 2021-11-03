@@ -43,8 +43,8 @@ const ROUND_ROBIN_NONCE_CACHE_SIZE: usize = 10_000;
 /// Routing table will clean edges if there is at least one node that is not reachable
 /// since `SAVE_PEERS_MAX_TIME` seconds. All peers disconnected since `SAVE_PEERS_AFTER_TIME`
 /// seconds will be removed from cache and persisted in disk.
-pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_millis(7_200);
-pub const SAVE_PEERS_AFTER_TIME: Duration = Duration::from_millis(3_600);
+pub const SAVE_PEERS_MAX_TIME: Duration = Duration::from_secs(7_200);
+pub const SAVE_PEERS_AFTER_TIME: Duration = Duration::from_secs(3_600);
 /// Graph implementation supports up to 128 peers.
 pub const MAX_NUM_PEERS: usize = 128;
 
