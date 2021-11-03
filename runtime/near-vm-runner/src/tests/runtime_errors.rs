@@ -20,8 +20,8 @@ fn gas_and_error_match(
     match expected_gas {
         Some(gas) => {
             let outcome = outcome_and_error.0.unwrap();
-            assert_eq!(outcome.used_gas, gas);
-            assert_eq!(outcome.burnt_gas, gas);
+            assert_eq!(outcome.used_gas, gas, "used gas differs");
+            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
         }
         None => assert!(outcome_and_error.0.is_none()),
     }
