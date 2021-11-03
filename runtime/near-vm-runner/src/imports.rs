@@ -64,7 +64,7 @@ macro_rules! wrapped_imports {
                     $(#[cfg(feature = $feature_name)])*
                     pub fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                         const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                        if IS_GAS {
+                        let _span = if IS_GAS {
                             None
                         } else {
                             Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
@@ -87,7 +87,7 @@ macro_rules! wrapped_imports {
                 $(#[cfg(feature = $feature_name)])*
                 pub fn $func(env: &NearWasmerEnv, $( $arg_name: $arg_type ),* ) -> VMResult<($( $returns ),*)> {
                     const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                    if IS_GAS {
+                    let _span = if IS_GAS {
                         None
                     } else {
                         Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
@@ -117,7 +117,7 @@ macro_rules! wrapped_imports {
                     #[cfg(all(feature = "wasmtime_vm" $(, feature = $feature_name)*))]
                     pub fn $func( $( $arg_name: rust2wasm!($arg_type) ),* ) -> VMResult<($( rust2wasm!($returns)),*)> {
                         const IS_GAS: bool = str_eq(stringify!($func), "gas");
-                        if IS_GAS {
+                        let _span =if IS_GAS {
                             None
                         } else {
                             Some(tracing::debug_span!(target: "host-function", stringify!($func)).entered())
