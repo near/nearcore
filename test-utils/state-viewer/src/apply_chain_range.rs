@@ -224,7 +224,7 @@ pub fn apply_chain_range(
             if delayed_indices.is_none() {
                 println!("no delayed_indices");
             } else {
-                println!("delayed_indices: {:#?}", delayed_indices.unwrap());
+                println!("delayed_indices: {:#?}", delayed_indices.as_ref().unwrap());
             }
 
         match existing_chunk_extra {
