@@ -80,7 +80,7 @@ pub fn apply_chain_range(
 
     println!("Printing results including outcomes of applying receipts");
     let csv_file_mutex = Arc::new(Mutex::new(csv_file));
-    maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,BlockPresent,ChunkPresent,#ProcessedDelayedReceipts");
+    maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,BlockPresent,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts");
 
     let processed_blocks_cnt = AtomicU64::new(0);
     (start_height..=end_height).into_par_iter().for_each(|height| {
@@ -129,7 +129,7 @@ pub fn apply_chain_range(
                         if verbose_output {
                             println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
                         }
-                        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},,,{},,{},{},0", height, block_hash, block_author, block.header().raw_timestamp(), block_present, chunk_present));
+                        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},,,{},,{},{},,", height, block_hash, block_author, block.header().raw_timestamp(), block_present, chunk_present));
                         inc_and_report_progress(&processed_blocks_cnt);
                         return;
                     },
@@ -242,7 +242,7 @@ pub fn apply_chain_range(
                 }
             },
         };
-        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},{},{},{},{},{},{},{}", height, block_hash, block_author, num_tx, num_receipt, block.header().raw_timestamp(), apply_result.total_gas_burnt, block_present, chunk_present, apply_result.processed_delayed_receipts.len()));
+        maybe_add_to_csv(&csv_file_mutex, &format!("{},{},{},{},{},{},{},{},{},{},{}", height, block_hash, block_author, num_tx, num_receipt, block.header().raw_timestamp(), apply_result.total_gas_burnt, block_present, chunk_present, apply_result.processed_delayed_receipts.len(), delayed_indices.map_or(0,|d|d.next_available_index-d.first_index)));
         inc_and_report_progress(&processed_blocks_cnt);
     });
 
