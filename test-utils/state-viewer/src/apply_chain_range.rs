@@ -216,16 +216,7 @@ pub fn apply_chain_range(
                 apply_result.total_balance_burnt,
             );
 
-            let mut epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config).unwrap();
-            let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
-            let state_update = runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
-            let delayed_indices = get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
-            if delayed_indices.is_none() {
-                println!("no delayed_indices");
-            } else {
-                println!("delayed_indices: {:#?}", delayed_indices.as_ref().unwrap());
-            }
+        let delayed_indices : Option<DelayedReceiptIndices>= None;
 
         match existing_chunk_extra {
             Some(existing_chunk_extra) => {
