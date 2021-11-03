@@ -66,7 +66,7 @@ struct NeardOpts {
     /// Verbose logging.
     #[clap(long)]
     verbose: Option<String>,
-    /// Directory for config and data (default "~/.near").
+    /// Directory for config and data.
     #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 }
