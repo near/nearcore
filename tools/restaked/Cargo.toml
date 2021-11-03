@@ -1,6 +1,6 @@
 [package]
 name = "restaked"
-version = "0.1.0"
+version = "0.5.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -10,9 +10,9 @@ clap = "2.33.0"
 log = "0.4"
 env_logger = "0.8"
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+near-jsonrpc-client = { path = "../../chain/jsonrpc/client", version = "0.5.0" }
 nearcore = { path = "../../nearcore" }
 
 integration-tests = { path = "../../integration-tests" }

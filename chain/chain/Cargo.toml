@@ -1,6 +1,6 @@
 [package]
 name = "near-chain"
-version = "0.1.0"
+version = "0.5.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -23,15 +23,15 @@ rayon = "1.5"
 
 borsh = "0.9"
 
-near-chain-configs = { path = "../../core/chain-configs" }
-near-chain-primitives = { path = "../chain-primitives" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-metrics = { path = "../../core/metrics" }
-near-pool = { path = "../pool" }
+near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
+near-chain-primitives = { path = "../chain-primitives", version = "0.5.0" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+near-store = { path = "../../core/store", version = "0.5.0" }
+near-metrics = { path = "../../core/metrics", version = "0.5.0" }
+near-pool = { path = "../pool", version = "0.5.0" }
 
-delay-detector = { path = "../../tools/delay_detector", optional = true}
+delay-detector = { path = "../../tools/delay_detector", optional = true, version = "0.5.0"}
 
 [dev-dependencies]
 near-logger-utils = {path = "../../test-utils/logger"}

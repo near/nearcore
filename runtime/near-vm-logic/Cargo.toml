@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-logic"
-version = "3.0.0"
+version = "3.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -23,10 +23,10 @@ serde = { version = "1", features = ["derive"] }
 sha2 = ">=0.8,<0.10"
 sha3 = ">=0.8,<0.10"
 
-near-crypto = { path = "../../core/crypto" }
-near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ] }
-near-primitives = { path = "../../core/primitives" }
-near-primitives-core = { path = "../../core/primitives-core", version = "0.4.0" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-account-id = { path = "../../core/account-id", features = [ "internal_unstable" ], version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+near-primitives-core = { path = "../../core/primitives-core", version = "0.5.0" }
 near-vm-errors = { path = "../near-vm-errors", version = "3.0.0" }
 
 bn = { package = "zeropool-bn", version = "0.5.9", features = [], optional = true }

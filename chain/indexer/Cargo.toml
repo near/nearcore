@@ -1,6 +1,6 @@
 [package]
 name = "near-indexer"
-version = "0.10.1"
+version = "0.5.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -16,8 +16,8 @@ serde_json = "1.0.55"
 tokio = { version = "1.1", features = ["time", "sync"] }
 
 nearcore = { path = "../../nearcore" }
-near-client = { path = "../client" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-node-runtime = { path = "../../runtime/runtime" }
+near-client = { path = "../client", version = "0.5.0" }
+near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+node-runtime = { path = "../../runtime/runtime", version = "3.1.0" }

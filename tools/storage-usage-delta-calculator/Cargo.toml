@@ -1,6 +1,6 @@
 [package]
 name = "storage-usage-delta-calculator"
-version = "0.1.0"
+version = "0.5.0"
 authors = ["Egor Kulikov <egor@near.org>"]
 publish = false
 edition = "2021"
@@ -12,6 +12,6 @@ serde_json = "1.0"
 log = "0.4"
 env_logger = "0.8"
 
-near-chain-configs = { path = "../../core/chain-configs" }
-near-primitives = { path = "../../core/primitives" }
-node-runtime = { path = "../../runtime/runtime" }
+near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+node-runtime = { path = "../../runtime/runtime", version = "3.1.0" }

@@ -1,6 +1,6 @@
 [package]
 name = "testlib"
-version = "0.1.0"
+version = "0.5.0"
 publish = false
 edition = "2021"
 
@@ -22,19 +22,19 @@ hex = "0.4"
 
 borsh = "0.9"
 
-near-actix-test-utils = { path = "../actix-test-utils" }
-near-logger-utils = { path = "../../test-utils/logger" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-vm-errors = { path = "../../runtime/near-vm-errors" }
-near-chain = { path = "../../chain/chain" }
-near-client = { path = "../../chain/client" }
-near-jsonrpc = { path = "../../chain/jsonrpc" }
-near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives" }
-near-network = { path = "../../chain/network" }
-near-jsonrpc-client = { path = "../../chain/jsonrpc/client" }
+near-actix-test-utils = { path = "../actix-test-utils", version = "0.5.0" }
+near-logger-utils = { path = "../../test-utils/logger", version = "0.5.0" }
+near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+near-store = { path = "../../core/store", version = "0.5.0" }
+near-vm-errors = { path = "../../runtime/near-vm-errors", version = "3.1.0" }
+near-chain = { path = "../../chain/chain", version = "0.5.0" }
+near-client = { path = "../../chain/client", version = "0.5.0" }
+near-jsonrpc = { path = "../../chain/jsonrpc", version = "0.5.0" }
+near-jsonrpc-primitives = { path = "../../chain/jsonrpc-primitives", version = "0.5.0" }
+near-network = { path = "../../chain/network", version = "0.5.0" }
+near-jsonrpc-client = { path = "../../chain/jsonrpc/client", version = "0.5.0" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
 [features]

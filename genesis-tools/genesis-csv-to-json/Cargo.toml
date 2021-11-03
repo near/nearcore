@@ -1,6 +1,6 @@
 [package]
 name = "genesis-csv-to-json"
-version = "0.1.0"
+version = "0.5.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -12,11 +12,11 @@ serde = { version = "1", features = ["derive"] }
 clap = "2.33.0"
 
 nearcore = { path = "../../nearcore" }
-near-chain-configs = { path = "../../core/chain-configs" }
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
-node-runtime = { path = "../../runtime/runtime" }
-near-network = { path = "../../chain/network" }
+near-chain-configs = { path = "../../core/chain-configs", version = "0.5.0" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }
+node-runtime = { path = "../../runtime/runtime", version = "3.1.0" }
+near-network = { path = "../../chain/network", version = "0.5.0" }
 
 [dev-dependencies]
 tempfile = "3"

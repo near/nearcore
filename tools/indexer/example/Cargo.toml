@@ -1,6 +1,6 @@
 [package]
 name = "indexer-example"
-version = "0.1.0"
+version = "0.5.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2021"
@@ -14,4 +14,4 @@ tokio = { version = "1.1", features = ["sync"] }
 tracing = "0.1.13"
 tracing-subscriber = "0.2.4"
 
-near-indexer = { path = "../../../chain/indexer" }
+near-indexer = { path = "../../../chain/indexer", version = "0.5.0" }

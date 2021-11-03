@@ -1,6 +1,6 @@
 [package]
 name = "near-pool"
-version = "0.1.0-pre.1"
+version = "0.5.0"
 license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
@@ -10,5 +10,5 @@ edition = "2021"
 rand = "0.7"
 borsh = "0.9"
 
-near-crypto = { path = "../../core/crypto" }
-near-primitives = { path = "../../core/primitives" }
+near-crypto = { path = "../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../core/primitives", version = "0.5.0" }

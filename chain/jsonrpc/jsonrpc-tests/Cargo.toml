@@ -14,13 +14,13 @@ borsh = "0.9"
 serde = "1"
 serde_json = "1"
 
-near-chain-configs = { path = "../../../core/chain-configs" }
-near-crypto = { path = "../../../core/crypto" }
-near-primitives = { path = "../../../core/primitives" }
-near-client = { path = "../../client" }
-near-network = { path = "../../network" }
-near-jsonrpc = { path = "../" }
-near-jsonrpc-primitives = { path = "../../jsonrpc-primitives" }
+near-chain-configs = { path = "../../../core/chain-configs", version = "0.5.0" }
+near-crypto = { path = "../../../core/crypto", version = "0.5.0" }
+near-primitives = { path = "../../../core/primitives", version = "0.5.0" }
+near-client = { path = "../../client", version = "0.5.0" }
+near-network = { path = "../../network", version = "0.5.0" }
+near-jsonrpc = { path = "../", version = "0.5.0" }
+near-jsonrpc-primitives = { path = "../../jsonrpc-primitives", version = "0.5.0" }
 
 [dev-dependencies]
 near-logger-utils = { path = "../../../test-utils/logger" }
