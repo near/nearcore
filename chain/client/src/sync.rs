@@ -1367,12 +1367,7 @@ mod test {
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
-        let item = mock_adapter.pop().unwrap();
-        let item = match item {
-            PeerMessageRequest::NetworkRequests(item) => item,
-            _ => panic!("expected NetworkRequests"),
-        };
-
+        let item = mock_adapter.pop().unwrap().as_network_requests();
         assert_eq!(
             item,
             NetworkRequests::BlockHeadersRequest {
@@ -1531,13 +1526,8 @@ mod test {
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
         let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
-        let ban_peer = if let PeerMessageRequest::NetworkRequests(ban_peer) = ban_peer {
-            ban_peer
-        } else {
-            panic!("expected  PeerMessageRequest::NetworkRequests");
-        };
 
-        if let NetworkRequests::BanPeer { .. } = ban_peer {
+        if let NetworkRequests::BanPeer { .. } = ban_peer.as_network_requests() {
             /* expected */
         } else {
             assert!(false);

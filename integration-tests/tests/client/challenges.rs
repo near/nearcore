@@ -441,12 +441,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let (_, tip) = client.process_block(block, Provenance::NONE);
     assert!(tip.is_err());
 
-    let last_message = env.network_adapters[0].pop().unwrap();
-    let last_message = if let PeerMessageRequest::NetworkRequests(item) = last_message {
-        item
-    } else {
-        panic!("expected PeerMessageRequest::NetworkRequests(");
-    };
+    let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
 
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(challenge, network_challenge);
