@@ -3,7 +3,7 @@
 /chain/ @bowenwang1996 @mzhangmzz
 /chain/client/src/view_client.rs @frol @khorolets @chefsale
 /chain/client-primitives/ @frol @khorolets @chefsale
-/chain/network/ @mfornet @bowenwang1996 @pmnoxx
+/chain/network/ @mm-near @bowenwang1996 @pmnoxx
 /chain/jsonrpc/ @frol @khorolets @chefsale
 /chain/jsonrpc-primitives/ @frol @khorolets @chefsale
 /chain/indexer/ @khorolets @frol
