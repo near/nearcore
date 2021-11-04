@@ -769,23 +769,23 @@ impl RoutingTable {
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
 
-        let component_nonce = self.component_nonce;
+        let old_component_nonce = self.component_nonce;
         self.component_nonce += 1;
 
         let mut update = self.store.store_update();
-        let _ = update.set_ser(ColLastComponentNonce, &[], &component_nonce);
+        let _ = update.set_ser(ColLastComponentNonce, &[], &self.component_nonce);
 
         for peer_id in to_save.iter() {
             let _ = update.set_ser(
                 ColPeerComponent,
                 Vec::from(peer_id.clone()).as_ref(),
-                &component_nonce,
+                &old_component_nonce,
             );
 
             self.peer_last_time_reachable.remove(peer_id);
         }
 
-        let component_nonce = index_to_bytes(component_nonce);
+        let component_nonce = index_to_bytes(old_component_nonce);
         let mut edges_to_remove = vec![];
 
         self.edges_info.retain(|(peer0, peer1), edge| {
