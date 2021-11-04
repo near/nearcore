@@ -78,7 +78,12 @@ impl GasCounter {
             ext_costs_config,
             fast_counter: FastGasCounter {
                 burnt_gas: 0,
-                gas_limit: min(max_gas_burnt, prepaid_gas),
+                gas_limit: if is_view {
+                    // Ignore prepaid gas limit and promises.
+                    max_gas_burnt
+                } else {
+                    min(max_gas_burnt, prepaid_gas)
+                },
                 opcode_cost: Gas::from(opcode_cost),
             },
             max_gas_burnt: max_gas_burnt,
@@ -112,7 +117,6 @@ impl GasCounter {
             // if max_gas_burnt == prepaid_gas we must use GasExceeded error.
             if new_burnt_gas > self.max_gas_burnt && self.max_gas_burnt != self.prepaid_gas {
                 self.fast_counter.burnt_gas = self.max_gas_burnt;
-                self.promises_gas = 0;
                 Err(HostError::GasLimitExceeded.into())
             } else {
                 self.fast_counter.burnt_gas = min(new_burnt_gas, self.prepaid_gas);
@@ -137,7 +141,6 @@ impl GasCounter {
             // if max_gas_burnt == prepaid_gas we must use GasExceeded error.
             if new_burnt_gas > self.max_gas_burnt && self.max_gas_burnt != self.prepaid_gas {
                 self.fast_counter.burnt_gas = self.max_gas_burnt;
-                self.promises_gas = 0;
                 Err(HostError::GasLimitExceeded.into())
             } else {
                 use std::cmp::min;
@@ -146,6 +149,7 @@ impl GasCounter {
                 // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
                 // no promises will be kept.
                 // TODO: consider making this change and fix tests/protocol!
+                assert!(self.prepaid_gas >= self.fast_counter.burnt_gas);
                 self.promises_gas = self.prepaid_gas - self.fast_counter.burnt_gas;
                 Err(HostError::GasExceeded.into())
             }
