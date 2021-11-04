@@ -54,7 +54,8 @@ use crate::types::{
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerMessageRequest,
     PeerMessageResponse, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping,
     Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
+    RoutedMessageFrom, SendMessage, SetRoutingTable, StateResponseInfo, StopMsg, SyncData,
+    Unregister,
 };
 #[cfg(feature = "test_features")]
 use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
@@ -1894,7 +1895,7 @@ impl Handler<GetRoutingTable> for PeerManagerActor {
 
 #[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
+impl Handler<SetRoutingTable> for PeerManagerActor {
     type Result = ();
 
     #[perf]
