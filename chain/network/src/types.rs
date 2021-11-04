@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::{Into, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::io;
@@ -480,6 +479,7 @@ pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
     pub disable_edge_propagation: Option<bool>,
     pub disable_edge_pruning: Option<bool>,
+    pub set_max_peers: Option<u64>,
 }
 
 #[cfg(feature = "test_features")]
@@ -638,7 +638,7 @@ pub enum NetworkRequests {
     ReceiptOutComeRequest(AccountId, CryptoHash),
 
     /// The following types of requests are used to trigger actions in the Peer Manager for testing.
-    /// Fetch current routing table.
+    /// (Unit tests) Fetch current routing table.
     FetchRoutingTable,
     /// Data to sync routing table from active peer.
     Sync {
@@ -649,9 +649,9 @@ pub enum NetworkRequests {
     RequestUpdateNonce(PeerId, EdgeInfo),
     ResponseUpdateNonce(Edge),
 
-    /// Start ping to `PeerId` with `nonce`.
+    /// (Unit tests) Start ping to `PeerId` with `nonce`.
     PingTo(usize, PeerId),
-    /// Fetch all received ping and pong so far.
+    /// (Unit tests) Fetch all received ping and pong so far.
     FetchPingPongInfo,
 
     /// A challenge to invalidate a block.
@@ -714,7 +714,7 @@ where
 pub enum NetworkResponses {
     NoResponse,
     RoutingTableInfo(RoutingTableInfo),
-    PingPongInfo { pings: HashMap<usize, Ping>, pongs: HashMap<usize, Pong> },
+    PingPongInfo { pings: HashMap<usize, (Ping, usize)>, pongs: HashMap<usize, (Pong, usize)> },
     BanPeer(ReasonForBan),
     EdgeUpdate(Box<Edge>),
     RouteNotFound,

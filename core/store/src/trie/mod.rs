@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;

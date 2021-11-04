@@ -1,5 +1,4 @@
 use std::cmp::Ordering::Greater;
-use std::convert::{TryFrom, TryInto};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{Deserialize, Serialize};
@@ -95,6 +94,15 @@ impl ShardLayout {
         })
     }
 
+    pub fn v1_test() -> Self {
+        ShardLayout::v1(
+            vec!["test0"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            vec!["abc", "foo"].into_iter().map(|s| s.parse().unwrap()).collect(),
+            Some(vec![vec![0, 1, 2, 3]]),
+            1,
+        )
+    }
+
     #[inline]
     pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         match self {
@@ -148,6 +156,10 @@ impl ShardLayout {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.fixed_shards.len() + v1.boundary_accounts.len() + 1) as NumShards,
         }
+    }
+
+    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
+        (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
     }
 }
 

@@ -3,7 +3,7 @@ name = "test-contract-rs"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
@@ -30,3 +30,4 @@ members = []
 [features]
 nightly_protocol_features = ["protocol_feature_alt_bn128"]
 protocol_feature_alt_bn128 = []
+base_protocol = []

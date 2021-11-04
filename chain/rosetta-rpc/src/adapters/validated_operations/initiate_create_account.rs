@@ -26,7 +26,7 @@ impl ValidatedOperation for InitiateCreateAccountOperation {
     }
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for InitiateCreateAccountOperation {
+impl TryFrom<crate::models::Operation> for InitiateCreateAccountOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {

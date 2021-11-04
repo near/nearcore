@@ -109,7 +109,7 @@ async def main():
             logger.info("Killing and restarting nodes")
             nodes[1].kill()
             nodes[0].kill()
-            nodes[0].start(None, None)
+            nodes[0].start()
             time.sleep(1)
 
 

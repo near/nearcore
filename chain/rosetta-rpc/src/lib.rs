@@ -1,4 +1,6 @@
-use std::convert::{AsRef, TryInto};
+#![doc = include_str!("../README.md")]
+
+use std::convert::AsRef;
 use std::sync::Arc;
 
 use actix::Addr;
@@ -332,7 +334,6 @@ async fn block_transaction_details(
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
 async fn account_balance(
-    genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::AccountBalanceRequest>,
@@ -368,6 +369,10 @@ async fn account_balance(
         .send(near_client::GetBlock(block_id.clone()))
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
+    let runtime_config =
+        crate::utils::query_protocol_config(block.header.hash, view_client_addr.get_ref())
+            .await?
+            .runtime_config;
 
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
@@ -381,10 +386,8 @@ async fn account_balance(
             Err(err) => return Err(err.into()),
         };
 
-    let account_balances = crate::utils::RosettaAccountBalances::from_account(
-        account_info,
-        &genesis.config.runtime_config,
-    );
+    let account_balances =
+        crate::utils::RosettaAccountBalances::from_account(account_info, &runtime_config);
 
     let balance = if let Some(sub_account) = account_identifier.sub_account {
         match sub_account.address {

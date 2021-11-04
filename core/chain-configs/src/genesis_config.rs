@@ -3,7 +3,6 @@
 //! NOTE: chain-configs is not the best place for `GenesisConfig` since it
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -16,11 +15,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Serializer;
 use sha2::digest::Digest;
 use smart_default::SmartDefault;
+use tracing::info;
 
 use crate::genesis_validate::validate_genesis;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig, ShardConfig};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::{
     hash::CryptoHash,
     runtime::config::RuntimeConfig,
@@ -71,7 +72,6 @@ fn default_num_chunk_only_producer_seats() -> u64 {
 }
 
 fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
-    #[cfg(feature = "protocol_feature_simple_nightshade")]
     return Some(ShardLayout::v1(
         vec![],
         vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]
@@ -81,8 +81,6 @@ fn default_simple_nightshade_shard_layout() -> Option<ShardLayout> {
         Some(vec![vec![0, 1, 2, 3]]),
         1,
     ));
-    #[cfg(not(feature = "protocol_feature_simple_nightshade"))]
-    None
 }
 
 #[derive(Debug, Clone, SmartDefault, Serialize, Deserialize)]
@@ -137,10 +135,6 @@ pub struct GenesisConfig {
     /// Gas price adjustment rate
     #[default(Rational::from_integer(0))]
     pub gas_price_adjustment_rate: Rational,
-    /// Runtime configuration (mostly economics constants).
-    /// TODO #4649: remove this field together with hacky default value setting
-    #[default(RuntimeConfig::test())]
-    pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Number of blocks for which a given transaction is valid
@@ -172,12 +166,6 @@ pub struct GenesisConfig {
     pub shard_layout: ShardLayout,
     #[serde(default = "default_simple_nightshade_shard_layout")]
     pub simple_nightshade_shard_layout: Option<ShardLayout>,
-    // For now we are skipping serialization/deserialization of the following
-    // fields. They are only needed with protocol_feature_chunk_only_producers,
-    // however the #[cfg(feature = "protocol_feature_chunk_only_producers")]
-    // attribute seems to not work with the serde default attribute, so I cannot
-    // ignore them in that way. When the feature is stabilized then the serde skip
-    // should be removed.
     #[cfg(feature = "protocol_feature_chunk_only_producers")]
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
@@ -226,8 +214,13 @@ impl From<&GenesisConfig> for EpochConfig {
 impl From<&GenesisConfig> for AllEpochConfig {
     fn from(genesis_config: &GenesisConfig) -> Self {
         let initial_epoch_config = EpochConfig::from(genesis_config);
-        let shard_config =
-            if let Some(shard_layout) = &genesis_config.simple_nightshade_shard_layout {
+        let shard_config = if let Some(shard_layout) =
+            &genesis_config.simple_nightshade_shard_layout
+        {
+            if genesis_config.protocol_version
+                < ProtocolFeature::SimpleNightshade.protocol_version()
+            {
+                info!(target: "genesis", "setting epoch config simple nightshade");
                 let num_shards = shard_layout.num_shards() as usize;
                 Some(ShardConfig {
                     num_block_producer_seats_per_shard: vec![
@@ -235,16 +228,21 @@ impl From<&GenesisConfig> for AllEpochConfig {
                         num_shards
                     ],
                     avg_hidden_validator_seats_per_shard: vec![
-                        genesis_config.avg_hidden_validator_seats_per_shard[0];
-                        num_shards
-                    ],
+                            genesis_config.avg_hidden_validator_seats_per_shard[0];
+                            num_shards
+                        ],
                     shard_layout: shard_layout.clone(),
                 })
             } else {
+                info!(target: "genesis", "no simple nightshade");
                 None
-            };
+            }
+        } else {
+            info!(target: "genesis", "no simple nightshade");
+            None
+        };
         let epoch_config = Self::new(initial_epoch_config.clone(), shard_config);
-        debug_assert_eq!(
+        assert_eq!(
             initial_epoch_config,
             epoch_config.for_protocol_version(genesis_config.protocol_version).clone()
         );
@@ -605,38 +603,43 @@ pub struct ProtocolConfigView {
     pub minimum_stake_divisor: u64,
 }
 
-// This may be subject to change
-pub type ProtocolConfig = GenesisConfig;
+pub struct ProtocolConfig {
+    pub genesis_config: GenesisConfig,
+    pub runtime_config: RuntimeConfig,
+}
 
 impl From<ProtocolConfig> for ProtocolConfigView {
-    fn from(config: ProtocolConfig) -> Self {
+    fn from(protocol_config: ProtocolConfig) -> Self {
+        let ProtocolConfig { genesis_config, runtime_config } = protocol_config;
+
         ProtocolConfigView {
-            protocol_version: config.protocol_version,
-            genesis_time: config.genesis_time,
-            chain_id: config.chain_id,
-            genesis_height: config.genesis_height,
-            num_block_producer_seats: config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: config.avg_hidden_validator_seats_per_shard,
-            dynamic_resharding: config.dynamic_resharding,
-            protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
-            epoch_length: config.epoch_length,
-            gas_limit: config.gas_limit,
-            min_gas_price: config.min_gas_price,
-            max_gas_price: config.max_gas_price,
-            block_producer_kickout_threshold: config.block_producer_kickout_threshold,
-            chunk_producer_kickout_threshold: config.chunk_producer_kickout_threshold,
-            online_min_threshold: config.online_min_threshold,
-            online_max_threshold: config.online_max_threshold,
-            gas_price_adjustment_rate: config.gas_price_adjustment_rate,
-            runtime_config: config.runtime_config,
-            transaction_validity_period: config.transaction_validity_period,
-            protocol_reward_rate: config.protocol_reward_rate,
-            max_inflation_rate: config.max_inflation_rate,
-            num_blocks_per_year: config.num_blocks_per_year,
-            protocol_treasury_account: config.protocol_treasury_account,
-            fishermen_threshold: config.fishermen_threshold,
-            minimum_stake_divisor: config.minimum_stake_divisor,
+            protocol_version: genesis_config.protocol_version,
+            genesis_time: genesis_config.genesis_time,
+            chain_id: genesis_config.chain_id,
+            genesis_height: genesis_config.genesis_height,
+            num_block_producer_seats: genesis_config.num_block_producer_seats,
+            num_block_producer_seats_per_shard: genesis_config.num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard: genesis_config
+                .avg_hidden_validator_seats_per_shard,
+            dynamic_resharding: genesis_config.dynamic_resharding,
+            protocol_upgrade_stake_threshold: genesis_config.protocol_upgrade_stake_threshold,
+            epoch_length: genesis_config.epoch_length,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            block_producer_kickout_threshold: genesis_config.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: genesis_config.chunk_producer_kickout_threshold,
+            online_min_threshold: genesis_config.online_min_threshold,
+            online_max_threshold: genesis_config.online_max_threshold,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            runtime_config,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            protocol_reward_rate: genesis_config.protocol_reward_rate,
+            max_inflation_rate: genesis_config.max_inflation_rate,
+            num_blocks_per_year: genesis_config.num_blocks_per_year,
+            protocol_treasury_account: genesis_config.protocol_treasury_account,
+            fishermen_threshold: genesis_config.fishermen_threshold,
+            minimum_stake_divisor: genesis_config.minimum_stake_divisor,
         }
     }
 }

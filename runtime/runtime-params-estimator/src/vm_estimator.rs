@@ -11,7 +11,6 @@ use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VM
 use nearcore::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
-use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,7 +42,7 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
+fn call(code: &ContractCode) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let config = VMConfig::default();
@@ -51,9 +50,8 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
 
     let promise_results = vec![];
 
-    let code = ContractCode::new(code.to_vec(), None);
     near_vm_runner::run(
-        &code,
+        code,
         "cpu_ram_soak_test",
         &mut fake_external,
         context,
@@ -68,7 +66,7 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
     // Call once for the warmup.
     let (outcome, _) = call(code);
     let outcome = outcome.unwrap();

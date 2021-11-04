@@ -689,6 +689,14 @@ impl StateSync {
         };
 
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
+        let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
+        if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
+            != chain.runtime_adapter.get_shard_layout(&epoch_id)?
+        {
+            error!("cannot sync to the first epoch after sharding upgrade");
+            panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
+        }
         let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
 
         for shard_id in tracking_shards {

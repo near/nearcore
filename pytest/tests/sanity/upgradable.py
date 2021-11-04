@@ -88,17 +88,22 @@ def test_upgrade() -> None:
     # Start 3 stable nodes and one current node.
     config = executables.stable.node_config()
     nodes = [
-        cluster.spin_up_node(config, executables.stable.root, node_dirs[0], 0,
-                             None, None)
+        cluster.spin_up_node(config, executables.stable.root, node_dirs[0], 0)
     ]
     for i in range(1, 3):
         nodes.append(
-            cluster.spin_up_node(config, executables.stable.root, node_dirs[i],
-                                 i, nodes[0].node_key.pk, nodes[0].addr()))
+            cluster.spin_up_node(config,
+                                 executables.stable.root,
+                                 node_dirs[i],
+                                 i,
+                                 boot_node=nodes[0]))
     config = executables.current.node_config()
     nodes.append(
-        cluster.spin_up_node(config, executables.current.root, node_dirs[3], 3,
-                             nodes[0].node_key.pk, nodes[0].addr()))
+        cluster.spin_up_node(config,
+                             executables.current.root,
+                             node_dirs[3],
+                             3,
+                             boot_node=nodes[0]))
 
     time.sleep(2)
 
@@ -125,7 +130,7 @@ def test_upgrade() -> None:
     for i in range(3):
         nodes[i].kill()
         nodes[i].binary_name = config['binary_name']
-        nodes[i].start(nodes[0].node_key.pk, nodes[0].addr())
+        nodes[i].start(boot_node=nodes[0])
 
     wait_for_blocks_or_timeout(nodes[3], 60, 120)
     status0 = nodes[0].get_status()

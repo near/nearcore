@@ -34,7 +34,12 @@ nodes = start_cluster(
     [["epoch_length", 10], ["num_block_producer_seats", 5],
      ["num_block_producer_seats_per_shard", [5]],
      ["chunk_producer_kickout_threshold", 80],
-     ["validators", 0, "amount", "110000000000000000000000000000000"],
+     ["shard_layout", {
+         "V0": {
+             "num_shards": 1,
+             "version": 1,
+         }
+     }], ["validators", 0, "amount", "110000000000000000000000000000000"],
      [
          "records", 0, "Account", "account", "locked",
          "110000000000000000000000000000000"
@@ -53,7 +58,7 @@ while node0_height < TARGET_HEIGHT:
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()
