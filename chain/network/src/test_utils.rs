@@ -281,7 +281,7 @@ impl MockPeerManagerAdapter {
     }
 }
 
-pub fn make_ibf_routing_pool() -> Addr<RoutingTableActor> {
+pub fn make_routing_table_actor() -> Addr<RoutingTableActor> {
     SyncArbiter::start(1, move || RoutingTableActor::default())
 }
 
@@ -291,7 +291,7 @@ pub fn make_peer_manager(
     port: u16,
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
-    ibf_routing_pool: Addr<RoutingTableActor>,
+    routing_table_addr: Addr<RoutingTableActor>,
 ) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
@@ -334,7 +334,7 @@ pub fn make_peer_manager(
             config,
             client_addr.recipient(),
             view_client_addr.recipient(),
-            ibf_routing_pool,
+            routing_table_addr,
         )
         .unwrap(),
         peer_id,

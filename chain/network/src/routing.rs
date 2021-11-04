@@ -436,7 +436,7 @@ impl RoutingTable {
         }
     }
 
-    fn peer_id(&self) -> &PeerId {
+    fn my_peer_id(&self) -> &PeerId {
         &self.raw_graph.source
     }
 
@@ -549,11 +549,11 @@ impl RoutingTable {
 
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
     fn touch(&mut self, peer_id: &PeerId) {
-        if peer_id == self.peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
+        if peer_id == self.my_peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
             return;
         }
 
-        let me = self.peer_id().clone();
+        let me = self.my_peer_id().clone();
 
         if let Ok(nonce) = self.component_nonce_from_peer(peer_id.clone()) {
             let mut update = self.store.store_update();

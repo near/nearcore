@@ -16,7 +16,7 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, make_ibf_routing_pool, open_port,
+    convert_boot_nodes, expected_routing_tables, make_routing_table_actor, open_port,
     peer_id_from_seed, BanPeerSignal, GetInfo, StopSignal, WaitOrTimeout,
 };
 
@@ -96,13 +96,13 @@ pub fn setup_network_node(
             adv.clone(),
         );
 
-        let ibf_routing_pool = make_ibf_routing_pool();
+        let routing_table_addr = make_routing_table_actor();
         PeerManagerActor::new(
             store.clone(),
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
-            ibf_routing_pool,
+            routing_table_addr,
         )
         .unwrap()
     });
