@@ -11,7 +11,6 @@ use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VM
 use nearcore::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
-use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;

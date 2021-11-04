@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt, str::FromStr};
+use std::{fmt, str::FromStr};
 
 mod error;
 
@@ -94,8 +94,7 @@ impl AccountId {
         // e.g. when `near` creates `aa.near`, it splits into `aa.` and `near`
         let (prefix, suffix) = self.0.split_at(self.len() - parent_account_id.len());
 
-        prefix.find('.') == Some(prefix.len() - 1)
-            && &suffix[..suffix.len()] == parent_account_id.as_ref()
+        prefix.find('.') == Some(prefix.len() - 1) && suffix == parent_account_id.as_ref()
     }
 
     /// Returns true if the account ID length is 64 characters and it's a hex representation.

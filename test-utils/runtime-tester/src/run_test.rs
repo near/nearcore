@@ -8,12 +8,14 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
+use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, Nonce};
+use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce};
 use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
 pub struct ScenarioResult<T, E> {
@@ -22,6 +24,7 @@ pub struct ScenarioResult<T, E> {
     /// If scenario was run with on-disk storage (i.e. `use_in_memory_store` was
     /// `false`, the home directory of the node.
     pub homedir: Option<tempfile::TempDir>,
+    pub env: TestEnv,
 }
 
 impl Scenario {
@@ -34,41 +37,36 @@ impl Scenario {
             self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect();
         let clients = vec![accounts[0].clone()];
         let genesis = Genesis::test(accounts, 1);
+        let mut runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
+        runtime_config.wasm_config.limit_config.max_total_prepaid_gas =
+            self.runtime_config.max_total_prepaid_gas;
+        let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
 
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
         } else {
-            let tempdir = match tempfile::tempdir() {
-                Err(err) => {
-                    return ScenarioResult {
-                        result: Err(Error::Other(format!(
-                            "failed to create temporary directory: {}",
-                            err
-                        ))),
-                        homedir: None,
-                    }
-                }
-                Ok(tempdir) => tempdir,
-            };
+            let tempdir = tempfile::tempdir()
+                .unwrap_or_else(|err| panic!("failed to create temporary directory: {}", err));
             let store = create_store(&nearcore::get_store_path(tempdir.path()));
             (Some(tempdir), store)
         };
 
-        let env = TestEnv::builder(ChainGenesis::from(&genesis))
+        let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test(
+            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
+                runtime_config_store,
             ))])
             .build();
 
-        let result = self.process_blocks(env);
-        ScenarioResult { result: result, homedir: tempdir }
+        let result = self.process_blocks(&mut env);
+        ScenarioResult { result: result, homedir: tempdir, env: env }
     }
 
-    fn process_blocks(&self, mut env: TestEnv) -> Result<RuntimeStats, Error> {
+    fn process_blocks(&self, env: &mut TestEnv) -> Result<RuntimeStats, Error> {
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
         let mut runtime_stats = RuntimeStats::default();
@@ -77,7 +75,9 @@ impl Scenario {
             let mut block_stats = BlockStats::at_height(block.height);
 
             for tx in &block.transactions {
-                env.clients[0].process_tx(tx.to_signed_transaction(&last_block), false, false);
+                let signed_tx = tx.to_signed_transaction(&last_block);
+                block_stats.tx_hashes.push(signed_tx.get_hash());
+                env.clients[0].process_tx(signed_tx, false, false);
             }
 
             let start_time = Instant::now();
@@ -99,6 +99,7 @@ impl Scenario {
 #[derive(Serialize, Deserialize)]
 pub struct Scenario {
     pub network_config: NetworkConfig,
+    pub runtime_config: RuntimeConfig,
     pub blocks: Vec<BlockConfig>,
     pub use_in_memory_store: bool,
 }
@@ -106,6 +107,11 @@ pub struct Scenario {
 #[derive(Serialize, Deserialize)]
 pub struct NetworkConfig {
     pub seeds: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RuntimeConfig {
+    pub max_total_prepaid_gas: Gas,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -132,6 +138,7 @@ pub struct RuntimeStats {
 pub struct BlockStats {
     pub height: u64,
     pub block_production_time: Duration,
+    pub tx_hashes: Vec<CryptoHash>,
 }
 
 impl std::fmt::Debug for Scenario {
@@ -161,7 +168,7 @@ impl TransactionConfig {
 
 impl BlockStats {
     fn at_height(height: BlockHeight) -> Self {
-        Self { height, block_production_time: Duration::default() }
+        Self { height, block_production_time: Duration::default(), tx_hashes: vec![] }
     }
 }
 

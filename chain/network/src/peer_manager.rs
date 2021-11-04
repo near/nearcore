@@ -62,13 +62,13 @@ use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
 use crate::types::{RoutingState, RoutingSyncV2, RoutingVersion2};
 
 /// How often to request peers from active peers.
-const REQUEST_PEERS_SECS: u64 = 60;
+const REQUEST_PEERS_SECS: Duration = Duration::from_millis(60_000);
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
 /// This number should be large to handle pair of nodes with high latency.
-const WAIT_ON_TRY_UPDATE_NONCE: u64 = 6_000;
+const WAIT_ON_TRY_UPDATE_NONCE: Duration = Duration::from_millis(6_000);
 /// If we see an edge between us and other peer, but this peer is not a current connection, wait this
 /// timeout and in case it didn't become an active peer, broadcast edge removal update.
-const WAIT_PEER_BEFORE_REMOVE: u64 = 6_000;
+const WAIT_PEER_BEFORE_REMOVE: Duration = Duration::from_millis(6_000);
 /// Maximum number an edge can increase between oldest known edge and new proposed edge.
 const EDGE_NONCE_BUMP_ALLOWED: u64 = 1_000;
 /// Ratio between consecutive attempts to establish connection with another peer.
@@ -87,9 +87,11 @@ const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOVED: Duration = Duration::from_millis(50);
+const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
-const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_secs(1);
+const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
+/// How often should we update the routing table
+const UPDATE_ROUTING_TABLE_INTERVAL: Duration = Duration::from_millis(1_000);
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -219,7 +221,7 @@ impl PeerManagerActor {
         ctx: &mut Context<PeerManagerActor>,
         can_save_edges: bool,
         force_pruning: bool,
-        timeout: u64,
+        timeout: Duration,
     ) {
         let edges_to_remove = self.routing_table.update(can_save_edges, force_pruning, timeout);
         self.routing_table_pool
@@ -292,7 +294,7 @@ impl PeerManagerActor {
                 }
             }
             new_edges.push(edge);
-            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOVED {
+            if start.elapsed() >= BROAD_CAST_EDGES_MAX_WORK_ALLOWED {
                 break;
             }
         }
@@ -751,7 +753,7 @@ impl PeerManagerActor {
         let mut requests = futures::stream::FuturesUnordered::new();
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
-            if active_peer.last_time_peer_requested.elapsed().as_secs() > REQUEST_PEERS_SECS {
+            if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_SECS {
                 active_peer.last_time_peer_requested = Instant::now();
                 requests.push(active_peer.addr.send(msg.clone()));
             }
@@ -782,7 +784,7 @@ impl PeerManagerActor {
             self.scheduled_routing_table_update = true;
             near_performance_metrics::actix::run_later(
                 ctx,
-                Duration::from_millis(1000),
+                UPDATE_ROUTING_TABLE_INTERVAL,
                 |act, ctx2| {
                     act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
@@ -834,7 +836,7 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            Duration::from_millis(WAIT_PEER_BEFORE_REMOVE),
+            WAIT_PEER_BEFORE_REMOVE,
             move |act, ctx| {
                 let other = edge.other(&act.peer_id).unwrap();
                 if !act.active_peers.contains_key(&other) {
@@ -876,7 +878,7 @@ impl PeerManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            Duration::from_millis(WAIT_ON_TRY_UPDATE_NONCE),
+            WAIT_ON_TRY_UPDATE_NONCE,
             move |act, _ctx| {
                 if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
                     if *cur_nonce == nonce {
@@ -1307,6 +1309,7 @@ impl PeerManagerActor {
 
     // Ping pong useful functions.
 
+    // for unit tests
     fn send_ping(&mut self, ctx: &mut Context<Self>, nonce: usize, target: PeerId) {
         let body =
             RoutedMessageBody::Ping(Ping { nonce: nonce as u64, source: self.peer_id.clone() });
@@ -1692,6 +1695,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
+            // For unit tests
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.info())
             }
@@ -1799,10 +1803,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     NetworkResponses::BanPeer(ReasonForBan::InvalidEdge)
                 }
             }
+            // For unit tests
             NetworkRequests::PingTo(nonce, target) => {
                 self.send_ping(ctx, nonce, target);
                 NetworkResponses::NoResponse
             }
+            // For unit tests
             NetworkRequests::FetchPingPongInfo => {
                 let (pings, pongs) = self.routing_table.fetch_ping_pong();
                 NetworkResponses::PingPongInfo { pings, pongs }
@@ -1861,6 +1867,9 @@ impl Handler<SetAdvOptions> for PeerManagerActor {
         if let Some(disable_edge_pruning) = msg.disable_edge_pruning {
             self.adv_disable_edge_pruning = disable_edge_pruning;
         }
+        if let Some(set_max_peers) = msg.set_max_peers {
+            self.config.max_num_peers = set_max_peers as u32;
+        }
         SetAdvOptionsResult {}
     }
 }
@@ -1898,7 +1907,7 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
         }
         if let Some(true) = msg.prune_edges {
             debug!(target: "network", "test_features prune_edges");
-            self.update_and_remove_edges(ctx, true, true, 2);
+            self.update_and_remove_edges(ctx, true, true, Duration::from_secs(2));
         }
     }
 }

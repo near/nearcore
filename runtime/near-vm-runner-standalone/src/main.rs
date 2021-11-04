@@ -1,11 +1,5 @@
-//! See package description.
-//! Usage example:
-//! ```bash
-//! cargo run --package near-vm-runner-standalone --bin near-vm-runner-standalone \
-//! -- --method-name=hello --wasm-file=/tmp/main.wasm
-//! ```
-//! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
-//! to provide custom context and VM config.
+#![doc = include_str!("../README.md")]
+
 mod script;
 
 use crate::script::Script;
@@ -108,7 +102,7 @@ struct CliArgs {
     protocol_version: Option<ProtocolVersion>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
     pub err: Option<String>,
@@ -172,14 +166,13 @@ fn main() {
     let (outcome, err) = results.outcomes.pop().unwrap();
 
     println!(
-        "{}",
-        serde_json::to_string(&StandaloneOutput {
+        "{:#?}",
+        StandaloneOutput {
             outcome: outcome.clone(),
             err: err.map(|it| it.to_string()),
             receipts: results.state.get_receipt_create_calls().clone(),
             state: State(results.state.fake_trie),
-        })
-        .unwrap()
+        }
     );
 
     match &outcome {

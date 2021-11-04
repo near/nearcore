@@ -51,7 +51,7 @@ for i in range(2, 4):
 logger.info("killing node 2 and 3")
 
 for i in range(2):
-    nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
+    nodes[i].start(boot_node=nodes[i])
     res = nodes[i].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
 
@@ -64,7 +64,7 @@ while fork2_height < FIRST_STEP_WAIT + SECOND_STEP_WAIT:
     time.sleep(0.9)
 
 for i in range(2, 4):
-    nodes[i].start(nodes[i].node_key.pk, nodes[i].addr())
+    nodes[i].start(boot_node=nodes[i])
     res = nodes[i].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
 

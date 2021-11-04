@@ -48,7 +48,7 @@ logger.info("Got to %s blocks, rebooting the first node" % BLOCKS)
 nodes[0].kill()
 nodes[0].reset_data()
 tracker = LogTracker(nodes[0])
-nodes[0].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[0].start(boot_node=nodes[1])
 time.sleep(3)
 
 while True:

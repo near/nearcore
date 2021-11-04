@@ -2,7 +2,7 @@
 name = "near-vm-errors"
 version = "3.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 categories = ["wasm"]
@@ -24,6 +24,7 @@ near-rpc-error-macro = { path = "../../tools/rpctypegen/macro", version = "0.1.0
 [features]
 dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_alt_bn128 = []
+protocol_feature_limit_contract_functions_number = []
 
 [package.metadata.workspaces]
 independent = true

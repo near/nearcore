@@ -4,7 +4,6 @@ use num_rational::Ratio;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::process;
 use std::sync::{Arc, Mutex};
 

@@ -1,7 +1,6 @@
 use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
@@ -39,7 +38,8 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards, ShardId,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -54,6 +54,7 @@ use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor}
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
 use near_chain::types::AcceptedBlock;
 use near_client_primitives::types::Error;
+use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::utils::MaybeValidated;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
@@ -1260,12 +1261,13 @@ impl TestEnv {
         TestEnvBuilder::new(chain_genesis)
     }
 
-    pub fn process_block_with_optional_catchup(
+    pub fn process_block_with_options(
         &mut self,
         id: usize,
         block: Block,
         provenance: Provenance,
         should_run_catchup: bool,
+        should_produce_chunk: bool,
     ) {
         let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
         assert!(result.is_ok(), "{:?}", result);
@@ -1274,10 +1276,11 @@ impl TestEnv {
             accepted_blocks.extend(more_accepted_blocks);
         }
         for accepted_block in accepted_blocks {
-            self.clients[id].on_block_accepted(
+            self.clients[id].on_block_accepted_with_optional_chunk_produce(
                 accepted_block.hash,
                 accepted_block.status,
                 accepted_block.provenance,
+                !should_produce_chunk,
             );
         }
     }
@@ -1285,7 +1288,7 @@ impl TestEnv {
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
-        self.process_block_with_optional_catchup(id, block, provenance, true);
+        self.process_block_with_options(id, block, provenance, true, true);
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1406,6 +1409,10 @@ impl TestEnv {
     /// specifically, returns validator id of the client’s validator signer.
     pub fn get_client_id(&self, idx: usize) -> &AccountId {
         self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    }
+
+    pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
+        self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
 }
 
