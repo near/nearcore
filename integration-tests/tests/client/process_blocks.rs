@@ -24,8 +24,8 @@ use near_client::test_utils::{
 use near_client::{Client, GetBlock, GetBlockWithMerkleTree};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::{wait_or_panic, MockNetworkAdapter};
-use near_network::types::{NetworkInfo, PeerChainInfoV2, ReasonForBan};
+use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
+use near_network::types::{NetworkInfo, PeerChainInfoV2, PeerMessageRequest, ReasonForBan};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo,
@@ -952,7 +952,7 @@ fn produce_blocks(client: &mut Client, num: u64) {
 fn test_process_invalid_tx() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.transaction_validity_period = 10;
     let mut client = setup_client(
@@ -1004,7 +1004,7 @@ fn test_process_invalid_tx() {
 fn test_time_attack() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
     let mut client = setup_client(
         store,
@@ -1036,7 +1036,7 @@ fn test_time_attack() {
 fn test_invalid_approvals() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let chain_genesis = ChainGenesis::test();
     let mut client = setup_client(
         store,
@@ -1089,7 +1089,7 @@ fn test_no_double_sign() {
 fn test_invalid_gas_price() {
     init_test_logger();
     let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
     let mut client = setup_client(
@@ -1284,7 +1284,7 @@ fn test_bad_chunk_mask() {
                 2,
                 Some(account_id.clone()),
                 false,
-                Arc::new(MockNetworkAdapter::default()),
+                Arc::new(MockPeerManagerAdapter::default()),
                 chain_genesis.clone(),
             )
         })
@@ -1677,7 +1677,9 @@ fn test_tx_forward_around_epoch_boundary() {
     env.clients[2].process_tx(tx, false, false);
     let mut accounts_to_forward = HashSet::new();
     for request in env.network_adapters[2].requests.read().unwrap().iter() {
-        if let NetworkRequests::ForwardTx(account_id, _) = request {
+        if let PeerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(account_id, _)) =
+            request
+        {
             accounts_to_forward.insert(account_id.clone());
         }
     }
@@ -1874,7 +1876,7 @@ fn test_incorrect_validator_key_produce_block() {
         config,
         chain_genesis,
         runtime_adapter,
-        Arc::new(MockNetworkAdapter::default()),
+        Arc::new(MockPeerManagerAdapter::default()),
         Some(signer),
         false,
     )
@@ -2907,11 +2909,14 @@ fn test_not_broadcast_block_on_accept() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .clients_count(2)
         .runtime_adapters(create_nightshade_runtimes(&genesis, 2))
-        .network_adapters(vec![Arc::new(MockNetworkAdapter::default()), network_adapter.clone()])
+        .network_adapters(vec![
+            Arc::new(MockPeerManagerAdapter::default()),
+            network_adapter.clone(),
+        ])
         .build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     for i in 0..2 {

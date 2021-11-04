@@ -22,7 +22,7 @@ use near_network::test_utils::{
 
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
-use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
+use near_network::types::{OutboundTcpConnect, PeerMessageRequest, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
@@ -226,10 +226,14 @@ impl StateMachine {
                             .pm_addr
                             .get(u)
                             .unwrap()
-                            .send(NetworkRequests::FetchRoutingTable)
+                            .send(PeerMessageRequest::NetworkRequests(
+                                NetworkRequests::FetchRoutingTable,
+                            ))
                             .map_err(|_| ())
                             .and_then(move |res| {
-                                if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                    res.as_network_response()
+                                {
                                     if expected_routing_tables(
                                         routing_table.peer_forwarding,
                                         expected,
@@ -261,10 +265,14 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(NetworkRequests::FetchRoutingTable)
+                                .send(PeerMessageRequest::NetworkRequests(
+                                    NetworkRequests::FetchRoutingTable,
+                                ))
                                 .map_err(|_| ())
                                 .and_then(move |res| {
-                                    if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                    if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                        res.as_network_response()
+                                    {
                                         if expected_known.into_iter().all(|validator| {
                                             routing_table.account_peers.contains_key(&validator)
                                         }) {
@@ -285,8 +293,11 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeout>,
                           _runner| {
                         let target = info.read().unwrap().peers_info[target].id.clone();
-                        let _ = info.read().unwrap().pm_addr[source]
-                            .do_send(NetworkRequests::PingTo(nonce, target));
+                        let _ = info.read().unwrap().pm_addr[source].do_send(
+                            PeerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
+                                nonce, target,
+                            )),
+                        );
                         flag.store(true, Ordering::Relaxed);
                     },
                 ));
@@ -354,10 +365,14 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(NetworkRequests::FetchPingPongInfo)
+                                .send(PeerMessageRequest::NetworkRequests(
+                                    NetworkRequests::FetchPingPongInfo,
+                                ))
                                 .map_err(|_| ())
                                 .and_then(move |res| {
-                                    if let NetworkResponses::PingPongInfo { pings, pongs } = res {
+                                    if let NetworkResponses::PingPongInfo { pings, pongs } =
+                                        res.as_network_response()
+                                    {
                                         let ping_ok = pings.len() == pings_expected.len()
                                             && pings_expected.into_iter().all(
                                                 |(nonce, source, count)| {
@@ -782,10 +797,12 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
                 info.pm_addr
                     .get(node_id)
                     .unwrap()
-                    .send(NetworkRequests::FetchRoutingTable)
+                    .send(PeerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
                     .map_err(|_| ())
                     .and_then(move |res| {
-                        if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                        if let NetworkResponses::RoutingTableInfo(routing_table) =
+                            res.as_network_response()
+                        {
                             if let Some(routes) = routing_table.peer_forwarding.get(&target_peer_id)
                             {
                                 if routes.contains(&target_peer_id) {

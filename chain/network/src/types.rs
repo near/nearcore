@@ -432,6 +432,7 @@ pub struct SendMessage {
 
 /// Actor message to consolidate potential new peer.
 /// Returns if connection should be kept or dropped.
+#[derive(Clone, Debug)]
 pub struct Consolidate {
     pub actor: Addr<Peer>,
     pub peer_info: PeerInfo,
@@ -532,7 +533,7 @@ pub enum PeerResponse {
 }
 
 /// Requesting peers from peer manager to communicate to a peer.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PeersRequest {}
 
 impl Message for PeersRequest {
@@ -540,10 +541,66 @@ impl Message for PeersRequest {
 }
 
 /// Received new peers from another peer.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PeerMessageRequest {
+    RoutedMessageFrom(RoutedMessageFrom),
+    NetworkRequests(NetworkRequests),
+    Consolidate(Consolidate),
+    PeersRequest(PeersRequest),
+}
+
+impl PeerMessageRequest {
+    pub fn as_network_requests(self) -> NetworkRequests {
+        if let PeerMessageRequest::NetworkRequests(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+}
+
+impl Message for PeerMessageRequest {
+    type Result = PeerMessageResponse;
+}
+
+#[derive(MessageResponse, Debug)]
+pub enum PeerMessageResponse {
+    RoutedMessageFrom(bool),
+    NetworkResponses(NetworkResponses),
+    ConsolidateResponse(ConsolidateResponse),
+    PeerRequestResult(PeerRequestResult),
+}
+
+impl PeerMessageResponse {
+    pub fn as_network_response(self) -> NetworkResponses {
+        if let PeerMessageResponse::NetworkResponses(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+
+    pub fn as_consolidate_response(self) -> ConsolidateResponse {
+        if let PeerMessageResponse::ConsolidateResponse(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+
+    pub fn as_peers_request_result(self) -> PeerRequestResult {
+        if let PeerMessageResponse::PeerRequestResult(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
 }
 
 // TODO(#1313): Use Box
@@ -833,37 +890,37 @@ impl Message for NetworkClientMessages {
 
 /// Adapter to break dependency of sub-components on the network requests.
 /// For tests use MockNetworkAdapter that accumulates the requests to network.
-pub trait NetworkAdapter: Sync + Send {
+pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>>;
+        msg: PeerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerMessageResponse, MailboxError>>;
 
-    fn do_send(&self, msg: NetworkRequests);
+    fn do_send(&self, msg: PeerMessageRequest);
 }
 
 pub struct NetworkRecipient {
-    network_recipient: RwLock<Option<Recipient<NetworkRequests>>>,
+    peer_manager_recipient: RwLock<Option<Recipient<PeerMessageRequest>>>,
 }
 
 unsafe impl Sync for NetworkRecipient {}
 
 impl NetworkRecipient {
     pub fn new() -> Self {
-        Self { network_recipient: RwLock::new(None) }
+        Self { peer_manager_recipient: RwLock::new(None) }
     }
 
-    pub fn set_recipient(&self, network_recipient: Recipient<NetworkRequests>) {
-        *self.network_recipient.write().unwrap() = Some(network_recipient);
+    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerMessageRequest>) {
+        *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
     }
 }
 
-impl NetworkAdapter for NetworkRecipient {
+impl PeerManagerAdapter for NetworkRecipient {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
-        self.network_recipient
+        msg: PeerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerMessageResponse, MailboxError>> {
+        self.peer_manager_recipient
             .read()
             .unwrap()
             .as_ref()
@@ -872,9 +929,9 @@ impl NetworkAdapter for NetworkRecipient {
             .boxed()
     }
 
-    fn do_send(&self, msg: NetworkRequests) {
+    fn do_send(&self, msg: PeerMessageRequest) {
         let _ = self
-            .network_recipient
+            .peer_manager_recipient
             .read()
             .unwrap()
             .as_ref()

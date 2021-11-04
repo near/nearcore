@@ -22,11 +22,12 @@ use near_primitives::utils::index_to_bytes;
 use near_store::test_utils::create_test_store;
 
 use crate::types::{
-    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo, ReasonForBan,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+    PeerMessageRequest, PeerMessageResponse, ReasonForBan,
 };
 use crate::{
-    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerManagerActor, RoutingTableActor,
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkResponses,
+    PeerManagerActor, PeerManagerAdapter, RoutingTableActor,
 };
 
 type ClientMock = Mocker<NetworkClientMessages>;
@@ -255,26 +256,26 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
 }
 
 #[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+pub struct MockPeerManagerAdapter {
+    pub requests: Arc<RwLock<VecDeque<PeerMessageRequest>>>,
 }
 
-impl NetworkAdapter for MockNetworkAdapter {
+impl PeerManagerAdapter for MockPeerManagerAdapter {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        msg: PeerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerMessageResponse, MailboxError>> {
         self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
+        future::ok(PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)).boxed()
     }
 
-    fn do_send(&self, msg: NetworkRequests) {
+    fn do_send(&self, msg: PeerMessageRequest) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
 
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
+impl MockPeerManagerAdapter {
+    pub fn pop(&self) -> Option<PeerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
 }

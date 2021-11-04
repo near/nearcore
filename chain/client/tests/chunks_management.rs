@@ -4,7 +4,7 @@ use near_chain::ChainGenesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_logger_utils::{init_integration_logger, init_test_logger};
-use near_network::types::PartialEncodedChunkRequestMsg;
+use near_network::types::{PartialEncodedChunkRequestMsg, PeerMessageRequest};
 use near_network::NetworkRequests;
 use near_primitives::hash::{hash, CryptoHash};
 #[cfg(feature = "protocol_feature_block_header_v3")]
@@ -45,6 +45,12 @@ fn test_request_chunk_restart() {
         client.chain.mut_store(),
     );
     let response = env.network_adapters[0].pop().unwrap();
+
+    let response = match response {
+        PeerMessageRequest::NetworkRequests(result) => result,
+        _ => panic!("expected PeerMessageRequest::NetworkRequests"),
+    };
+
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
         assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
     } else {

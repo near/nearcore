@@ -453,6 +453,7 @@ impl RoutedMessage {
 }
 
 /// Routed Message wrapped with previous sender of the message.
+#[derive(Clone, Debug)]
 pub struct RoutedMessageFrom {
     /// Routed messages.
     pub msg: RoutedMessage,
@@ -782,6 +783,11 @@ pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
 }
+
+/// Messages from Peer to PeerManager
+#[derive(Message, Debug)]
+#[rtype(result = "()")]
+pub enum PeerRequest {}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct KnownProducer {

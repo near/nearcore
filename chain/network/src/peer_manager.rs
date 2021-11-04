@@ -51,10 +51,10 @@ use crate::types::{
     FullPeerInfo, GetRoutingTable, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
     KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests,
     NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg,
-    SyncData, Unregister,
+    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerMessageRequest,
+    PeerMessageResponse, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping,
+    Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
+    RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
 };
 #[cfg(feature = "test_features")]
 use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
@@ -1469,12 +1469,12 @@ impl Actor for PeerManagerActor {
     }
 }
 
-impl Handler<NetworkRequests> for PeerManagerActor {
-    type Result = NetworkResponses;
-
-    #[perf]
-    fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
-        #[cfg(feature = "delay_detector")]
+impl PeerManagerActor {
+    fn handle_msg_network_requests(
+        &mut self,
+        msg: NetworkRequests,
+        ctx: &mut Context<Self>,
+    ) -> NetworkResponses {
         let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
         match msg {
             NetworkRequests::Block { block } => {
@@ -1975,11 +1975,12 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     }
 }
 
-impl Handler<Consolidate> for PeerManagerActor {
-    type Result = ConsolidateResponse;
-
-    #[perf]
-    fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+impl PeerManagerActor {
+    fn handle_msg_consolidate(
+        &mut self,
+        msg: Consolidate,
+        ctx: &mut Context<Self>,
+    ) -> ConsolidateResponse {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("consolidate".into());
 
@@ -2084,11 +2085,13 @@ impl Handler<Ban> for PeerManagerActor {
     }
 }
 
-impl Handler<PeersRequest> for PeerManagerActor {
-    type Result = PeerRequestResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle_msg_peers_request(
+        &mut self,
+        msg: PeersRequest,
+        _ctx: &mut Context<Self>,
+    ) -> PeerRequestResult {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers request".into());
         PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
@@ -2111,13 +2114,32 @@ impl Handler<PeersResponse> for PeerManagerActor {
     }
 }
 
-/// "Return" true if this message is for this peer and should be sent to the client.
-/// Otherwise try to route this message to the final receiver and return false.
-impl Handler<RoutedMessageFrom> for PeerManagerActor {
-    type Result = bool;
+impl Handler<PeerMessageRequest> for PeerManagerActor {
+    type Result = PeerMessageResponse;
 
     #[perf]
-    fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PeerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            PeerMessageRequest::RoutedMessageFrom(msg) => {
+                PeerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg, ctx))
+            }
+            PeerMessageRequest::NetworkRequests(msg) => {
+                PeerMessageResponse::NetworkResponses(self.handle_msg_network_requests(msg, ctx))
+            }
+            PeerMessageRequest::Consolidate(msg) => {
+                PeerMessageResponse::ConsolidateResponse(self.handle_msg_consolidate(msg, ctx))
+            }
+            PeerMessageRequest::PeersRequest(msg) => {
+                PeerMessageResponse::PeerRequestResult(self.handle_msg_peers_request(msg, ctx))
+            }
+        }
+    }
+}
+
+/// "Return" true if this message is for this peer and should be sent to the client.
+/// Otherwise try to route this message to the final receiver and return false.
+impl PeerManagerActor {
+    fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom, ctx: &mut Context<Self>) -> bool {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(
             format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into(),

@@ -325,6 +325,7 @@ impl ValidIBFLevel {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,

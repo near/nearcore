@@ -21,14 +21,14 @@ use near_chain::{
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::routing::EdgeInfo;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2,
+    PeerChainInfoV2, PeerMessageRequest,
 };
 use near_network::{
-    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
-    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
+    NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter,
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
@@ -72,7 +72,7 @@ pub fn setup(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
@@ -164,7 +164,7 @@ pub fn setup_only_view(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
 ) -> Addr<ViewClientActor> {
@@ -1049,7 +1049,7 @@ pub fn setup_client_with_runtime(
     num_validator_seats: NumSeats,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
@@ -1079,7 +1079,7 @@ pub fn setup_client(
     num_shards: NumShards,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
 ) -> Client {
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
@@ -1105,7 +1105,7 @@ pub fn setup_client(
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
-    pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
+    pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub clients: Vec<Client>,
     account_to_client_index: HashMap<AccountId, usize>,
 }
@@ -1116,7 +1116,7 @@ pub struct TestEnvBuilder {
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     runtime_adapters: Option<Vec<Arc<dyn RuntimeAdapter>>>,
-    network_adapters: Option<Vec<Arc<MockNetworkAdapter>>>,
+    network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
 }
 
 /// Builder for the [`TestEnv`] structure.
@@ -1176,7 +1176,7 @@ impl TestEnvBuilder {
     /// The vector must have the same number of elements as they are clients
     /// (one by default).  If that does not hold, [`Self::build`] method will
     /// panic.
-    pub fn network_adapters(mut self, adapters: Vec<Arc<MockNetworkAdapter>>) -> Self {
+    pub fn network_adapters(mut self, adapters: Vec<Arc<MockPeerManagerAdapter>>) -> Self {
         self.network_adapters = Some(adapters);
         self
     }
@@ -1307,10 +1307,12 @@ impl TestEnv {
         for network_adapter in network_adapters {
             // process partial encoded chunks
             while let Some(request) = network_adapter.pop() {
-                if let NetworkRequests::PartialEncodedChunkMessage {
-                    account_id,
-                    partial_encoded_chunk,
-                } = request
+                if let PeerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id,
+                        partial_encoded_chunk,
+                    },
+                ) = request
                 {
                     self.client(&account_id)
                         .process_partial_encoded_chunk(MaybeValidated::NotValidated(

@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::{
@@ -41,10 +42,10 @@ use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
     NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
-    PeerMessage, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
-    PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerMessage, PeerMessageRequest, PeerMessageResponse, PeerRequest, PeerResponse,
+    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
+    StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{
@@ -204,6 +205,11 @@ pub struct Peer {
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
 }
 
+impl Debug for Peer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?}", self.node_info)
+    }
+}
 impl Peer {
     pub fn new(
         node_info: PeerInfo,
@@ -878,7 +884,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 };
                 self.chain_info = handshake.chain_info.clone();
                 self.peer_manager_addr
-                    .send(Consolidate {
+                    .send(PeerMessageRequest::Consolidate(Consolidate {
                         actor: ctx.address(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
@@ -886,10 +892,10 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         this_edge_info: self.edge_info.clone(),
                         other_edge_info: handshake.edge_info.clone(),
                         peer_protocol_version: self.protocol_version,
-                    })
+                    }))
                     .into_actor(self)
                     .then(move |res, act, ctx| {
-                        match res {
+                        match res.map(|f|f.as_consolidate_response()) {
                             Ok(ConsolidateResponse::Accept(edge_info)) => {
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
@@ -953,8 +959,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
-                self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {
-                    if let Ok(peers) = res {
+                self.peer_manager_addr.send(PeerMessageRequest::PeersRequest(PeersRequest {})).into_actor(self).then(|res, act, _ctx| {
+                    if let Ok(peers) = res.map(|f|f.as_peers_request_result()) {
                         if !peers.peers.is_empty() {
                             debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
                             act.send_message(&PeerMessage::PeersResponse(peers.peers));
@@ -969,9 +975,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             }
             (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .peer_manager_addr
-                .send(NetworkRequests::RequestUpdateNonce(self.peer_id().unwrap(), edge_info))
+                .send(PeerMessageRequest::NetworkRequests(NetworkRequests::RequestUpdateNonce(
+                    self.peer_id().unwrap(),
+                    edge_info,
+                )))
                 .into_actor(self)
                 .then(|res, act, ctx| {
+                    let res = match res {
+                        Ok(PeerMessageResponse::NetworkResponses(val)) => Ok(val),
+                        Err(val) => Err(val),
+                        _ => panic!("expected RoutedMessageFrom"),
+                    };
+
                     match res {
                         Ok(NetworkResponses::EdgeUpdate(edge)) => {
                             act.send_message(&PeerMessage::ResponseUpdateNonce(*edge));
@@ -986,9 +1001,17 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
                 .peer_manager_addr
-                .send(NetworkRequests::ResponseUpdateNonce(edge))
+                .send(PeerMessageRequest::NetworkRequests(NetworkRequests::ResponseUpdateNonce(
+                    edge,
+                )))
                 .into_actor(self)
                 .then(|res, act, ctx| {
+                    let res = match res {
+                        Ok(PeerMessageResponse::NetworkResponses(val)) => Ok(val),
+                        Err(val) => Err(val),
+                        _ => panic!("expected RoutedMessageFrom"),
+                    };
+
                     match res {
                         Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
                             act.ban_peer(ctx, reason_for_ban);
@@ -999,15 +1022,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 })
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
-                self.peer_manager_addr
-                    .do_send(NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data });
+                self.peer_manager_addr.do_send(PeerMessageRequest::NetworkRequests(
+                    NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data },
+                ));
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
-                self.peer_manager_addr.do_send(NetworkRequests::IbfMessage {
-                    peer_id: self.peer_id().unwrap(),
-                    ibf_msg: ibf_message,
-                });
+                self.peer_manager_addr.do_send(PeerMessageRequest::NetworkRequests(
+                    NetworkRequests::IbfMessage {
+                        peer_id: self.peer_id().unwrap(),
+                        ibf_msg: ibf_message,
+                    },
+                ));
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
@@ -1017,12 +1043,18 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr
-                        .send(RoutedMessageFrom {
+                        .send(PeerMessageRequest::RoutedMessageFrom(RoutedMessageFrom {
                             msg: routed_message.clone(),
                             from: self.peer_id().unwrap(),
-                        })
+                        }))
                         .into_actor(self)
                         .then(move |res, act, ctx| {
+                            let res = match res {
+                                Ok(PeerMessageResponse::RoutedMessageFrom(val)) => Ok(val),
+                                Err(val) => Err(val),
+                                _ => panic!("expected RoutedMessageFrom"),
+                            };
+
                             if res.unwrap_or(false) {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
                             }
