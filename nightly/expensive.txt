@@ -25,10 +25,8 @@ expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted
 expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly_protocol,nightly_protocol_features
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold --features nightly_protocol,nightly_protocol_features
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
-# expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
+expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving --features nightly_protocol,nightly_protocol_features
 
 expensive integration-tests test_catchup test_catchup
 expensive integration-tests test_catchup test_catchup --features nightly_protocol,nightly_protocol_features
