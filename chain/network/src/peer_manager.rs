@@ -2133,6 +2133,9 @@ impl Handler<PeerMessageRequest> for PeerManagerActor {
             PeerMessageRequest::PeersResponse(msg) => {
                 PeerMessageResponse::PeersResponseResult(self.handle_msg_peers_response(msg, ctx))
             }
+            PeerMessageRequest::PeerRequest(msg) => {
+                PeerMessageResponse::PeerResponse(self.handle_msg_peer_request(msg, ctx))
+            }
         }
     }
 }
@@ -2173,11 +2176,12 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<PeerRequest> for PeerManagerActor {
-    type Result = PeerResponse;
-
-    #[perf]
-    fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
+impl PeerManagerActor {
+    fn handle_msg_peer_request(
+        &mut self,
+        msg: PeerRequest,
+        ctx: &mut Context<Self>,
+    ) -> PeerResponse {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
         match msg {

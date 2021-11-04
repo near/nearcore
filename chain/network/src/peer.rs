@@ -437,14 +437,16 @@ impl Peer {
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
                         let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
-                        act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                        act.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                            PeerRequest::RouteBack(body, msg_hash.unwrap()),
+                        ));
                     }
                     Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
                         let body =
                             Box::new(RoutedMessageBody::QueryResponse { query_id, response });
-                        act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(body, msg_hash.unwrap()));
+                        act.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                            PeerRequest::RouteBack(body, msg_hash.unwrap()),
+                        ));
                     }
                     Ok(NetworkViewClientResponses::StateResponse(state_response)) => {
                         let body = match *state_response {
@@ -455,8 +457,9 @@ impl Peer {
                                 RoutedMessageBody::VersionedStateResponse(state_response)
                             }
                         };
-                        act.peer_manager_addr
-                            .do_send(PeerRequest::RouteBack(Box::new(body), msg_hash.unwrap()));
+                        act.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                            PeerRequest::RouteBack(Box::new(body), msg_hash.unwrap()),
+                        ));
                     }
                     Ok(NetworkViewClientResponses::Block(block)) => {
                         // MOO need protocol version
@@ -627,9 +630,8 @@ impl Peer {
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
                 self.last_time_received_message_update = Instant::now();
-                self.peer_manager_addr.do_send(PeerRequest::ReceivedMessage(
-                    peer_id,
-                    self.last_time_received_message_update,
+                self.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                    PeerRequest::ReceivedMessage(peer_id, self.last_time_received_message_update),
                 ));
             }
         }
@@ -808,7 +810,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        self.peer_manager_addr.do_send(PeerRequest::UpdatePeerInfo(peer_info));
+                        self.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                            PeerRequest::UpdatePeerInfo(peer_info),
+                        ));
                     }
                 }
                 ctx.stop();
@@ -936,10 +940,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
 
                 self.peer_manager_addr
-                    .send(PeerRequest::UpdateEdge((self.peer_id().unwrap(), edge.next())))
+                    .send(PeerMessageRequest::PeerRequest(PeerRequest::UpdateEdge((
+                        self.peer_id().unwrap(),
+                        edge.next(),
+                    ))))
                     .into_actor(self)
                     .then(|res, act, ctx| {
-                        match res {
+                        match res.map(|f| f.as_peer_response()) {
                             Ok(PeerResponse::UpdatedEdge(edge_info)) => {
                                 act.edge_info = Some(edge_info);
                                 act.send_handshake(ctx);

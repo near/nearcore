@@ -514,7 +514,7 @@ pub struct Unregister {
 pub struct StopMsg {}
 
 /// Message from peer to peer manager
-#[derive(strum::AsRefStr)]
+#[derive(strum::AsRefStr, Clone, Debug)]
 pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
@@ -526,7 +526,7 @@ impl Message for PeerRequest {
     type Result = PeerResponse;
 }
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 pub enum PeerResponse {
     NoResponse,
     UpdatedEdge(EdgeInfo),
@@ -554,6 +554,7 @@ pub enum PeerMessageRequest {
     Consolidate(Consolidate),
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
+    PeerRequest(PeerRequest),
 }
 
 impl PeerMessageRequest {
@@ -585,6 +586,7 @@ pub enum PeerMessageResponse {
     ConsolidateResponse(ConsolidateResponse),
     PeerRequestResult(PeerRequestResult),
     PeersResponseResult(()),
+    PeerResponse(PeerResponse),
 }
 
 impl PeerMessageResponse {
@@ -614,6 +616,14 @@ impl PeerMessageResponse {
 
     pub fn as_peers_request_result(self) -> PeerRequestResult {
         if let PeerMessageResponse::PeerRequestResult(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+
+    pub fn as_peer_response(self) -> PeerResponse {
+        if let PeerMessageResponse::PeerResponse(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::NetworkRequests(");
