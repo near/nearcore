@@ -357,7 +357,7 @@ impl AccountOrPeerIdOrHash {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,

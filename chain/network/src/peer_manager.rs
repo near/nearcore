@@ -2173,23 +2173,6 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<RawRoutedMessage> for PeerManagerActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(
-            format!("raw routed message {}", strum::AsStaticRef::as_static(&msg.body)).into(),
-        );
-        if let AccountOrPeerIdOrHash::AccountId(target) = msg.target {
-            self.send_message_to_account(ctx, &target, msg.body);
-        } else {
-            self.send_message_to_peer(ctx, msg);
-        }
-    }
-}
-
 impl Handler<PeerRequest> for PeerManagerActor {
     type Result = PeerResponse;
 

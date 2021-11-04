@@ -14,7 +14,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkResponses, PeerMessageRequest, PeerMessageResponse, ReasonForBan,
+    AccountOrPeerIdOrHash, NetworkResponses, PeerMessageRequest, ReasonForBan,
 };
 use near_network::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
@@ -1541,8 +1541,10 @@ mod test {
         let mut requested_block_hashes = HashSet::new();
         let mut network_request = network_adapter.requests.write().unwrap();
         while let Some(request) = network_request.pop_back() {
-            match request.as_network_requests() {
-                NetworkRequests::BlockRequest { hash, .. } => {
+            match request {
+                PeerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                    hash, ..
+                }) => {
                     requested_block_hashes.insert(hash);
                 }
                 _ => panic!("unexpected network request {:?}", request),

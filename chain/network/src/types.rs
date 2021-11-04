@@ -564,6 +564,14 @@ impl PeerMessageRequest {
             panic!("expected PeerMessageRequest::NetworkRequests(");
         }
     }
+
+    pub fn as_network_requests_ref(&self) -> &NetworkRequests {
+        if let PeerMessageRequest::NetworkRequests(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
 }
 
 impl Message for PeerMessageRequest {
