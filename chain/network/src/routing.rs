@@ -785,7 +785,7 @@ impl RoutingTable {
         }
 
         let component_nonce = index_to_bytes(component_nonce);
-        let mut edges_to_remove = self
+        let edges_to_remove = self
             .edges_info
             .iter()
             .filter_map(|((peer0, peer1), edge)| {
