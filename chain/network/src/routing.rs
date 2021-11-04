@@ -618,7 +618,7 @@ impl RoutingTable {
     /// Add several edges to the current view of the network.
     /// These edges are assumed to be valid at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+    pub fn add_verified_edges_to_routing_table(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
         let mut result = Vec::with_capacity(edges.len() as usize);
@@ -795,7 +795,7 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(
+    pub fn recalculate_routing_table(
         &mut self,
         can_save_edges: bool,
         force_pruning: bool,

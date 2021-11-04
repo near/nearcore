@@ -223,7 +223,8 @@ impl PeerManagerActor {
         force_pruning: bool,
         timeout: Duration,
     ) {
-        let edges_to_remove = self.routing_table.update(can_save_edges, force_pruning, timeout);
+        let edges_to_remove =
+            self.routing_table.recalculate_routing_table(can_save_edges, force_pruning, timeout);
         self.routing_table_pool
             .send(RoutingTableMessages::RemoveEdges(edges_to_remove))
             .into_actor(self)
@@ -774,7 +775,8 @@ impl PeerManagerActor {
         ctx: &mut Context<Self>,
         edges: Vec<Edge>,
     ) -> bool {
-        let ProcessEdgeResult { new_edge, edges } = self.routing_table.process_edges(edges);
+        let ProcessEdgeResult { new_edge, edges } =
+            self.routing_table.add_verified_edges_to_routing_table(edges);
         self.routing_table_pool
             .send(RoutingTableMessages::AddEdges(edges))
             .into_actor(self)
