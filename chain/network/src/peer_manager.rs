@@ -1916,7 +1916,6 @@ impl PeerManagerActor {
     }
 }
 
-#[cfg(feature = "test_features")]
 impl PeerManagerActor {
     #[perf]
     fn handle_msg_get_peer_id(
