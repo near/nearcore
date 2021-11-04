@@ -1767,12 +1767,7 @@ mod test {
         // For the chunks that would otherwise be requested from self we expect a request to be
         // sent to any peer tracking shard
 
-        let msg = network_adapter.requests.read().unwrap()[0].clone();
-        let msg = match msg {
-            PeerMessageRequest::NetworkRequests(msg) => msg,
-            _ => panic!("expected PeerMessageRequest"),
-        };
-
+        let msg = network_adapter.requests.read().unwrap()[0].clone().as_network_requests();
         if let NetworkRequests::PartialEncodedChunkRequest { target, .. } = msg {
             assert!(target.account_id == None);
         } else {
