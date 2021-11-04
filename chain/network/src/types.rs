@@ -562,8 +562,13 @@ pub enum PeerMessageRequest {
     InboundTcpConnect(InboundTcpConnect),
     Unregister(Unregister),
     Ban(Ban),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     StartRoutingTableSync(StartRoutingTableSync),
+    #[cfg(feature = "test_features")]
     SetAdvOptions(SetAdvOptions),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     SetRoutingTable(SetRoutingTable),
     GetRoutingTable(GetRoutingTable),
 }
@@ -603,8 +608,13 @@ pub enum PeerMessageResponse {
     InboundTcpConnect(()),
     Unregister(()),
     Ban(()),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     StartRoutingTableSync(()),
+    #[cfg(feature = "test_features")]
     SetAdvOptions(()),
+    #[cfg(feature = "test_features")]
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     SetRoutingTable(()),
     GetRoutingTableResult(GetRoutingTableResult),
 }
