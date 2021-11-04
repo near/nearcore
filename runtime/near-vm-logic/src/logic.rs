@@ -18,7 +18,6 @@ use near_primitives_core::types::{
 };
 use near_vm_errors::InconsistentStateError;
 use near_vm_errors::{HostError, VMLogicError};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
 
@@ -2517,16 +2516,14 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct VMOutcome {
-    #[serde(with = "crate::serde_with::u128_dec_format")]
     pub balance: Balance,
     pub storage_usage: StorageUsage,
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
     pub used_gas: Gas,
     pub logs: Vec<String>,
-    #[serde(skip)]
     /// Data collected from making a contract call
     pub profile: ProfileData,
 }

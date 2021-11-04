@@ -449,8 +449,11 @@ mod tests {
             combined_trie_items.extend_from_slice(&trie_items);
             // check that items are split relatively evenly across all parts
             assert!(
-                trie_items.len() >= total_trie_items.len() / num_parts as usize / 2
-                    && trie_items.len() <= total_trie_items.len() / num_parts as usize * 2,
+                trie_items.len()
+                    >= (total_trie_items.len() / num_parts as usize / 2)
+                        .checked_sub(10)
+                        .unwrap_or_default()
+                    && trie_items.len() <= total_trie_items.len() / num_parts as usize * 2 + 10,
                 "part length {} avg length {}",
                 trie_items.len(),
                 total_trie_items.len() / num_parts as usize
