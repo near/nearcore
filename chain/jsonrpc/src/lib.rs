@@ -39,10 +39,10 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "test_features")]
 use near_network::routing::GetRoutingTableResult;
-use near_network::types::PeerMessageRequest;
 #[cfg(feature = "test_features")]
 use near_network::types::{
-    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
+    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
+    PeerMessageRequest, SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};

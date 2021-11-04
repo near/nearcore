@@ -16,7 +16,9 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::{AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash};
+    use near_network::types::{
+        AccountIdOrPeerTrackingShard, AccountOrPeerIdOrHash, PeerMessageRequest,
+    };
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::hash as hash_func;
     use near_primitives::hash::CryptoHash;
@@ -158,7 +160,8 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
-                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &PeerMessageRequest| {
+                    let msg = msg.as_network_requests_ref();
                     let account_from = "test3.3".parse().unwrap();
                     let account_to = "test1.1".parse().unwrap();
                     let source_shard_id = account_id_to_shard_id(&account_from, 4);
@@ -247,7 +250,7 @@ mod tests {
                                 }
                                 // Do not propagate any one parts, this will prevent any chunk from
                                 //    being included in the block
-                                return (NetworkResponses::NoResponse, false);
+                                return (NetworkResponses::NoResponse.into(), false);
                             }
                             if let NetworkRequests::StateRequestHeader {
                                 shard_id,
@@ -267,7 +270,7 @@ mod tests {
                                     {
                                         seen_hashes_with_state
                                             .insert(hash_func(&srs.try_to_vec().unwrap()));
-                                        return (NetworkResponses::NoResponse, false);
+                                        return (NetworkResponses::NoResponse.into(), false);
                                     }
                                 }
                             }
@@ -290,7 +293,7 @@ mod tests {
                                     {
                                         seen_hashes_with_state
                                             .insert(hash_func(&srs.try_to_vec().unwrap()));
-                                        return (NetworkResponses::NoResponse, false);
+                                        return (NetworkResponses::NoResponse.into(), false);
                                     }
                                 }
                             }
@@ -349,7 +352,7 @@ mod tests {
                             }
                         }
                     };
-                    (NetworkResponses::NoResponse, true)
+                    (NetworkResponses::NoResponse.into(), true)
                 }))),
             );
             *connectors.write().unwrap() = conn;
@@ -452,7 +455,8 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
-                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &PeerMessageRequest| {
+                    let msg = msg.as_network_requests_ref();
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
                     let mut phase = phase.write().unwrap();
                     match *phase {
@@ -465,7 +469,7 @@ mod tests {
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
                                 if block.header().height() == 1 {
-                                    return (NetworkResponses::NoResponse, false);
+                                    return (NetworkResponses::NoResponse.into(), false);
                                 }
                                 assert!(block.header().height() >= 2);
                                 assert!(block.header().height() <= height);
@@ -588,13 +592,13 @@ mod tests {
                                     if partial_encoded_chunk.header.height_created() == 14
                                         || partial_encoded_chunk.header.height_created() == 15
                                     {
-                                        return (NetworkResponses::NoResponse, false);
+                                        return (NetworkResponses::NoResponse.into(), false);
                                     }
                                 }
                             }
                         }
                     };
-                    (NetworkResponses::NoResponse, true)
+                    (NetworkResponses::NoResponse.into(), true)
                 }))),
             );
             *connectors.write().unwrap() = conn;
@@ -645,7 +649,8 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
-                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
+                Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &PeerMessageRequest| {
+                    let msg = msg.as_network_requests_ref();
                     let propagate = if let NetworkRequests::Block { block } = msg {
                         check_height(*block.hash(), block.header().height());
 
@@ -665,7 +670,7 @@ mod tests {
                         true
                     };
 
-                    (NetworkResponses::NoResponse, propagate)
+                    (NetworkResponses::NoResponse.into(), propagate)
                 }))),
             );
             *connectors.write().unwrap() = conn;
@@ -714,7 +719,8 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
-                    move |sender_account_id: AccountId, msg: &NetworkRequests| {
+                    move |sender_account_id: AccountId, msg: &PeerMessageRequest| {
+                        let msg = msg.as_network_requests_ref();
                         let mut grieving_chunk_hash = grieving_chunk_hash.write().unwrap();
                         let mut unaccepted_block_hash = unaccepted_block_hash.write().unwrap();
                         let mut phase = phase.write().unwrap();
@@ -741,7 +747,7 @@ mod tests {
                                             *grieving_chunk_hash =
                                                 partial_encoded_chunk.header.chunk_hash();
                                         } else {
-                                            return (NetworkResponses::NoResponse, false);
+                                            return (NetworkResponses::NoResponse.into(), false);
                                         }
                                     }
                                 }
@@ -767,7 +773,7 @@ mod tests {
                                     if request.chunk_hash == *grieving_chunk_hash {
                                         if account_id == &malicious_node {
                                             // holding grieving_chunk_hash by malicious node
-                                            return (NetworkResponses::NoResponse, false);
+                                            return (NetworkResponses::NoResponse.into(), false);
                                         }
                                     }
                                 } else if let NetworkRequests::PartialEncodedChunkRequest {
@@ -822,7 +828,7 @@ mod tests {
                                 }
                             }
                         };
-                        (NetworkResponses::NoResponse, true)
+                        (NetworkResponses::NoResponse.into(), true)
                     },
                 ))),
             );
@@ -884,7 +890,8 @@ mod tests {
                 vec![true; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
-                    move |sender_account_id: AccountId, msg: &NetworkRequests| {
+                    move |sender_account_id: AccountId, msg: &PeerMessageRequest| {
+                        let msg = msg.as_network_requests_ref();
                         let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();
                         let mut requested = requested.write().unwrap();
                         let mut responded = responded.write().unwrap();
@@ -964,7 +971,7 @@ mod tests {
                                 }
                             }
                         }
-                        (NetworkResponses::NoResponse, true)
+                        (NetworkResponses::NoResponse.into(), true)
                     },
                 ))),
             );

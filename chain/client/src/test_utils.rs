@@ -24,7 +24,7 @@ use near_network::routing::EdgeInfo;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2, PeerMessageRequest,
+    PeerChainInfoV2, PeerMessageRequest, PeerMessageResponse,
 };
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
@@ -57,7 +57,7 @@ use near_client_primitives::types::Error;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::utils::MaybeValidated;
 
-pub type NetworkMock = Mocker<PeerManagerActor>;
+pub type PeerManagerMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -233,12 +233,12 @@ pub fn setup_mock(
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
-    network_mock: Box<
+    peer_manager_mock: Box<
         dyn FnMut(
-            &NetworkRequests,
-            &mut Context<NetworkMock>,
+            &PeerMessageRequest,
+            &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
-        ) -> NetworkResponses,
+        ) -> PeerMessageResponse,
     >,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     setup_mock_with_validity_period_and_no_epoch_sync(
@@ -246,7 +246,7 @@ pub fn setup_mock(
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        network_mock,
+        peer_manager_mock,
         100,
     )
 }
@@ -256,12 +256,12 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
-    mut network_mock: Box<
+    mut peermanager_mock: Box<
         dyn FnMut(
-            &NetworkRequests,
-            &mut Context<NetworkMock>,
+            &PeerMessageRequest,
+            &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
-        ) -> NetworkResponses,
+        ) -> PeerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
@@ -290,9 +290,9 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     });
     let client_addr1 = client_addr.clone();
 
-    let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
-        let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
-        let resp = network_mock(msg, ctx, client_addr1.clone());
+    let network_actor = PeerManagerMock::mock(Box::new(move |msg, ctx| {
+        let msg = msg.downcast_ref::<PeerMessageRequest>().unwrap();
+        let resp = peermanager_mock(msg, ctx, client_addr1.clone());
         Box::new(Some(resp))
     }))
     .start();
@@ -470,8 +470,8 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
-    network_mock: Arc<
-        RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    peer_manager_mock: Arc<
+        RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
@@ -510,7 +510,7 @@ pub fn setup_mock_all_validators(
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
         let connectors2 = connectors.clone();
-        let network_mock1 = network_mock.clone();
+        let network_mock1 = peer_manager_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height1 = last_height.clone();
         let last_height2 = last_height.clone();
@@ -522,8 +522,8 @@ pub fn setup_mock_all_validators(
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
-            let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
-                let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+            let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
+                let msg = msg.downcast_ref::<PeerMessageRequest>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
                 let (resp, perform_default) = guard.deref_mut()(account_id.clone(), msg);
@@ -578,7 +578,7 @@ pub fn setup_mock_all_validators(
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
 
-                    match msg {
+                    match msg.as_network_requests_ref() {
                         NetworkRequests::Block { block } => {
                             if check_block_stats {
                                 let block_stats2 = &mut *block_stats1.write().unwrap();
@@ -1040,7 +1040,7 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        Box::new(|_, _, _| NetworkResponses::NoResponse),
+        Box::new(|_, _, _| PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)),
         transaction_validity_period,
     )
 }

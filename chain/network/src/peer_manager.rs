@@ -44,6 +44,8 @@ use crate::routing::{
 };
 
 use crate::edge_verifier::EdgeVerifier;
+#[cfg(feature = "test_features")]
+use crate::types::SetAdvOptions;
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
     FullPeerInfo, GetRoutingTable, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
@@ -54,8 +56,7 @@ use crate::types::{
     Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
     RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
 };
-#[cfg(feature = "test_features")]
-use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
+use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingState, RoutingSyncV2, RoutingVersion2};
 

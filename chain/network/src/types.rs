@@ -851,6 +851,12 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
+impl From<NetworkResponses> for PeerMessageResponse {
+    fn from(msg: NetworkResponses) -> Self {
+        PeerMessageResponse::NetworkResponses(msg)
+    }
+}
+
 impl<A, M> MessageResponse<A, M> for NetworkResponses
 where
     A: Actor,

@@ -16,6 +16,7 @@ use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
+use near_network::types::{PeerMessageRequest, PeerMessageResponse};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
@@ -59,8 +60,8 @@ fn repro_1183() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &NetworkRequests| {
-                if let NetworkRequests::Block { block } = msg {
+            Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &PeerMessageRequest| {
+                if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     let mut last_block = last_block.write().unwrap();
                     let mut delayed_one_parts = delayed_one_parts.write().unwrap();
 
@@ -126,17 +127,22 @@ fn repro_1183() {
                     if block.header().height() >= 25 {
                         System::current().stop();
                     }
-                    (NetworkResponses::NoResponse, false)
-                } else if let NetworkRequests::PartialEncodedChunkMessage { .. } = msg {
+                    (NetworkResponses::NoResponse.into(), false)
+                } else if let NetworkRequests::PartialEncodedChunkMessage { .. } =
+                    msg.as_network_requests_ref()
+                {
                     if thread_rng().gen_bool(0.5) {
-                        (NetworkResponses::NoResponse, true)
+                        (NetworkResponses::NoResponse.into(), true)
                     } else {
                         let msg2 = msg.clone();
-                        delayed_one_parts.write().unwrap().push(msg2);
-                        (NetworkResponses::NoResponse, false)
+                        delayed_one_parts
+                            .write()
+                            .unwrap()
+                            .push(msg2.as_network_requests_ref().clone());
+                        (NetworkResponses::NoResponse.into(), false)
                     }
                 } else {
-                    (NetworkResponses::NoResponse, true)
+                    (NetworkResponses::NoResponse.into(), true)
                 }
             }))),
         );
@@ -163,9 +169,9 @@ fn test_sync_from_achival_node() {
 
     run_actix(async move {
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &NetworkRequests| {
-            (NetworkResponses::NoResponse, true)
+            RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerMessageRequest| {
+            (NetworkResponses::NoResponse.into(), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
@@ -184,7 +190,8 @@ fn test_sync_from_achival_node() {
         );
         let mut block_counter = 0;
         *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &NetworkRequests| -> (NetworkResponses, bool) {
+            Box::new(move |_: _, msg: &PeerMessageRequest| -> (PeerMessageResponse, bool) {
+                let msg = msg.as_network_requests_ref();
                 if let NetworkRequests::Block { block } = msg {
                     let mut largest_height = largest_height.write().unwrap();
                     *largest_height = max(block.header().height(), *largest_height);
@@ -207,7 +214,7 @@ fn test_sync_from_achival_node() {
                             if block.header().height() <= 10 {
                                 blocks.write().unwrap().insert(*block.hash(), block.clone());
                             }
-                            (NetworkResponses::NoResponse, false)
+                            (NetworkResponses::NoResponse.into(), false)
                         }
                         NetworkRequests::Approval { approval_message } => {
                             for (i, (client, _)) in conns.clone().into_iter().enumerate() {
@@ -218,9 +225,9 @@ fn test_sync_from_achival_node() {
                                     ))
                                 }
                             }
-                            (NetworkResponses::NoResponse, false)
+                            (NetworkResponses::NoResponse.into(), false)
                         }
-                        _ => (NetworkResponses::NoResponse, true),
+                        _ => (NetworkResponses::NoResponse.into(), true),
                     }
                 } else {
                     if block_counter > 10 {
@@ -238,9 +245,9 @@ fn test_sync_from_achival_node() {
                             if block.header().height() <= 10 {
                                 block_counter += 1;
                             }
-                            (NetworkResponses::NoResponse, true)
+                            (NetworkResponses::NoResponse.into(), true)
                         }
-                        _ => (NetworkResponses::NoResponse, true),
+                        _ => (NetworkResponses::NoResponse.into(), true),
                     }
                 }
             });
@@ -259,9 +266,9 @@ fn test_long_gap_between_blocks() {
 
     run_actix(async move {
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &NetworkRequests| {
-            (NetworkResponses::NoResponse, true)
+            RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerMessageRequest| {
+            (NetworkResponses::NoResponse.into(), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
@@ -279,8 +286,8 @@ fn test_long_gap_between_blocks() {
             network_mock.clone(),
         );
         *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &NetworkRequests| -> (NetworkResponses, bool) {
-                match msg {
+            Box::new(move |_: _, msg: &PeerMessageRequest| -> (PeerMessageResponse, bool) {
+                match msg.as_network_requests_ref() {
                     NetworkRequests::Approval { approval_message } => {
                         actix::spawn(conns[1].1.send(GetBlock::latest()).then(move |res| {
                             let res = res.unwrap().unwrap();
@@ -290,16 +297,16 @@ fn test_long_gap_between_blocks() {
                             futures::future::ready(())
                         }));
                         if approval_message.approval.target_height < target_height {
-                            (NetworkResponses::NoResponse, false)
+                            (NetworkResponses::NoResponse.into(), false)
                         } else {
                             if approval_message.target.as_ref() == "test1" {
-                                (NetworkResponses::NoResponse, true)
+                                (NetworkResponses::NoResponse.into(), true)
                             } else {
-                                (NetworkResponses::NoResponse, false)
+                                (NetworkResponses::NoResponse.into(), false)
                             }
                         }
                     }
-                    _ => (NetworkResponses::NoResponse, true),
+                    _ => (NetworkResponses::NoResponse.into(), true),
                 }
             });
 
