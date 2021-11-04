@@ -668,9 +668,12 @@ impl Actor for Peer {
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
-                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id.clone(), ban_reason });
+                self.peer_manager_addr.do_send(PeerMessageRequest::Ban(Ban {
+                    peer_id: peer_info.id.clone(),
+                    ban_reason,
+                }));
             } else {
-                self.peer_manager_addr.do_send(Unregister {
+                self.peer_manager_addr.do_send(PeerMessageRequest::Unregister(Unregister {
                     peer_id: peer_info.id.clone(),
                     peer_type: self.peer_type,
                     // If the PeerActor is no longer in the Connecting state this means
@@ -680,7 +683,7 @@ impl Actor for Peer {
                     // each other, and after resolving the tie, a peer tries to remove the other
                     // peer from the active connection if it was added in the parallel connection.
                     remove_from_peer_store: self.peer_status != PeerStatus::Connecting,
-                })
+                }))
             }
         }
         Running::Stop

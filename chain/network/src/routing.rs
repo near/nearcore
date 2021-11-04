@@ -345,10 +345,6 @@ where
 
 #[derive(MessageResponse, Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
-pub struct SetAdvOptionsResult {}
-
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct GetRoutingTableResult {
     pub edges_info: Vec<SimpleEdge>,
 }

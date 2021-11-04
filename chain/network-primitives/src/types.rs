@@ -769,7 +769,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,

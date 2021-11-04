@@ -160,12 +160,12 @@ impl StateMachine {
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[target].clone();
                         actix::spawn(
-                            addr.send(SetAdvOptions {
+                            addr.send(PeerMessageRequest::SetAdvOptions(SetAdvOptions {
                                 disable_edge_signature_verification: None,
                                 disable_edge_propagation: None,
                                 disable_edge_pruning: None,
                                 set_max_peers: max_num_peers,
-                            })
+                            }))
                             .then(move |res| match res {
                                 Ok(_) => {
                                     flag.store(true, Ordering::Relaxed);

@@ -36,8 +36,6 @@ use rand::thread_rng;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
-#[cfg(feature = "test_features")]
-use crate::routing::SetAdvOptionsResult;
 use crate::{metrics, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
 use crate::routing::{
@@ -54,8 +52,7 @@ use crate::types::{
     PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerMessageRequest,
     PeerMessageResponse, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping,
     Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, SetRoutingTable, StateResponseInfo, StopMsg, SyncData,
-    Unregister,
+    RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
 };
 #[cfg(feature = "test_features")]
 use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
@@ -1844,12 +1841,13 @@ impl PeerManagerActor {
 
 #[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
-    type Result = ();
-
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: crate::types::StartRoutingTableSync, ctx: &mut Self::Context) {
+    fn handle_msg_start_routing_table_sync(
+        &mut self,
+        msg: crate::types::StartRoutingTableSync,
+        ctx: &mut Context<Self>,
+    ) {
         if let Some(active_peer) = self.active_peers.get(&msg.peer_id) {
             let addr = active_peer.addr.clone();
             self.initialize_routing_table_exchange(msg.peer_id, PeerType::Inbound, addr, ctx);
@@ -1858,11 +1856,9 @@ impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
 }
 
 #[cfg(feature = "test_features")]
-impl Handler<SetAdvOptions> for PeerManagerActor {
-    type Result = SetAdvOptionsResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: SetAdvOptions, _ctx: &mut Self::Context) -> SetAdvOptionsResult {
+    fn handle_msg_set_adv_options(&mut self, msg: SetAdvOptions, _ctx: &mut Context<Self>) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
             self.adv_disable_edge_propagation = disable_edge_propagation;
         }
@@ -1875,15 +1871,16 @@ impl Handler<SetAdvOptions> for PeerManagerActor {
         if let Some(set_max_peers) = msg.set_max_peers {
             self.config.max_num_peers = set_max_peers as u32;
         }
-        SetAdvOptionsResult {}
     }
 }
 
-impl Handler<GetRoutingTable> for PeerManagerActor {
-    type Result = GetRoutingTableResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: GetRoutingTable, _ctx: &mut Self::Context) -> GetRoutingTableResult {
+    fn handle_msg_get_routing_table(
+        &mut self,
+        msg: GetRoutingTable,
+        _ctx: &mut Context<Self>,
+    ) -> GetRoutingTableResult {
         GetRoutingTableResult {
             edges_info: self
                 .routing_table
@@ -1897,11 +1894,13 @@ impl Handler<GetRoutingTable> for PeerManagerActor {
 
 #[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl Handler<SetRoutingTable> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: crate::types::SetRoutingTable, ctx: &mut Self::Context) {
+    fn handle_msg_set_routing_table(
+        &mut self,
+        msg: crate::types::SetRoutingTable,
+        ctx: &mut Context<Self>,
+    ) {
         if let Some(add_edges) = msg.add_edges {
             debug!(target: "network", "test_features add_edges {}", add_edges.len());
             self.add_verified_edges_to_routing_table(ctx, add_edges);
@@ -2073,22 +2072,18 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<Unregister> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
+    fn handle_msg_unregister(&mut self, msg: Unregister, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("unregister".into());
         self.unregister_peer(ctx, msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 }
 
-impl Handler<Ban> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
+    fn handle_msg_ban(&mut self, msg: Ban, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("ban".into());
         self.ban_peer(ctx, &msg.peer_id, msg.ban_reason);
@@ -2153,6 +2148,29 @@ impl Handler<PeerMessageRequest> for PeerManagerActor {
             ),
             PeerMessageRequest::InboundTcpConnect(msg) => PeerMessageResponse::InboundTcpConnect(
                 self.handle_msg_inbound_tcp_connect(msg, ctx),
+            ),
+            PeerMessageRequest::Unregister(msg) => {
+                PeerMessageResponse::Unregister(self.handle_msg_unregister(msg, ctx))
+            }
+            PeerMessageRequest::Ban(msg) => PeerMessageResponse::Ban(self.handle_msg_ban(msg, ctx)),
+            #[cfg(feature = "test_features")]
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            PeerMessageRequest::StartRoutingTableSync(msg) => {
+                PeerMessageResponse::StartRoutingTableSync(
+                    self.handle_msg_start_routing_table_sync(msg, ctx),
+                )
+            }
+            #[cfg(feature = "test_features")]
+            PeerMessageRequest::SetAdvOptions(msg) => {
+                PeerMessageResponse::SetAdvOptions(self.handle_msg_set_adv_options(msg, ctx))
+            }
+            #[cfg(feature = "test_features")]
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            PeerMessageRequest::SetRoutingTable(msg) => {
+                PeerMessageResponse::SetRoutingTable(self.handle_msg_set_routing_table(msg, ctx))
+            }
+            PeerMessageRequest::GetRoutingTable(msg) => PeerMessageResponse::GetRoutingTableResult(
+                self.handle_msg_get_routing_table(msg, ctx),
             ),
         }
     }

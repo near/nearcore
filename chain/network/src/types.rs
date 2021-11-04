@@ -32,8 +32,6 @@ use near_primitives::views::QueryRequest;
 
 use crate::ibf::IbfBox;
 use crate::peer::Peer;
-#[cfg(feature = "test_features")]
-use crate::routing::SetAdvOptionsResult;
 use crate::routing::{
     Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
     ValidIBFLevel,
@@ -465,17 +463,20 @@ pub struct GetPeerIdResult {
     pub peer_id: PeerId,
 }
 
+#[derive(Debug)]
 pub struct GetRoutingTable {}
 
 impl Message for GetRoutingTable {
     type Result = GetRoutingTableResult;
 }
 
+#[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct StartRoutingTableSync {
     pub peer_id: PeerId,
 }
 
+#[derive(Clone, Debug)]
 #[cfg(feature = "test_features")]
 pub struct SetAdvOptions {
     pub disable_edge_signature_verification: Option<bool>,
@@ -486,7 +487,7 @@ pub struct SetAdvOptions {
 
 #[cfg(feature = "test_features")]
 impl Message for SetAdvOptions {
-    type Result = SetAdvOptionsResult;
+    type Result = ();
 }
 
 #[cfg(feature = "test_features")]
@@ -502,7 +503,7 @@ pub enum ConsolidateResponse {
 }
 
 /// Unregister message from Peer to PeerManager.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Unregister {
     pub peer_id: PeerId,
@@ -559,6 +560,12 @@ pub enum PeerMessageRequest {
     GetPeerId(GetPeerId),
     OutboundTcpConnect(OutboundTcpConnect),
     InboundTcpConnect(InboundTcpConnect),
+    Unregister(Unregister),
+    Ban(Ban),
+    StartRoutingTableSync(StartRoutingTableSync),
+    SetAdvOptions(SetAdvOptions),
+    SetRoutingTable(SetRoutingTable),
+    GetRoutingTable(GetRoutingTable),
 }
 
 impl PeerMessageRequest {
@@ -594,6 +601,12 @@ pub enum PeerMessageResponse {
     GetPeerIdResult(GetPeerIdResult),
     OutboundTcpConnect(()),
     InboundTcpConnect(()),
+    Unregister(()),
+    Ban(()),
+    StartRoutingTableSync(()),
+    SetAdvOptions(()),
+    SetRoutingTable(()),
+    GetRoutingTableResult(GetRoutingTableResult),
 }
 
 impl PeerMessageResponse {
@@ -639,6 +652,14 @@ impl PeerMessageResponse {
 
     pub fn as_peer_id_result(self) -> GetPeerIdResult {
         if let PeerMessageResponse::GetPeerIdResult(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+
+    pub fn as_get_routing_table_result(self) -> GetRoutingTableResult {
+        if let PeerMessageResponse::GetRoutingTableResult(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::NetworkRequests(");
@@ -983,7 +1004,7 @@ impl PeerManagerAdapter for NetworkRecipient {
     }
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct SetRoutingTable {
     pub add_edges: Option<Vec<Edge>>,
