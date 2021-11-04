@@ -1919,7 +1919,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_get_peer_id(
         &mut self,
-        _msg: GetPeerId,
+        msg: GetPeerId,
         _ctx: &mut Context<Self>,
     ) -> GetPeerIdResult {
         GetPeerIdResult { peer_id: self.peer_id.clone() }
