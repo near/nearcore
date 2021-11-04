@@ -97,7 +97,6 @@ fn test_limit_wasm_gas_after_attaching_gas() {
     logic.gas((op_limit / 2) as u32).expect_err("should fail with gas limit");
     let outcome = logic.outcome();
     assert_eq!(outcome.used_gas, limit);
-    eprintln!("lim {} burn {} use {} op_lim {}", limit, outcome.burnt_gas, outcome.used_gas, op_limit);
     assert!(outcome.burnt_gas > limit / 2);
     assert!(outcome.burnt_gas < limit);
 }
