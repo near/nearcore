@@ -1057,7 +1057,9 @@ impl PeerManagerActor {
                 }
 
                 self.outgoing_peers.insert(peer_info.id.clone());
-                ctx.notify(OutboundTcpConnect { peer_info });
+                ctx.notify(PeerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                    peer_info,
+                }));
             } else {
                 self.query_active_peers_for_more_peers(ctx);
             }
@@ -1423,7 +1425,9 @@ impl Actor for PeerManagerActor {
                                 < max_num_peers + LIMIT_PENDING_PEERS
                             {
                                 pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
-                                return future::ready(Some(InboundTcpConnect::new(conn)));
+                                return future::ready(Some(PeerMessageRequest::InboundTcpConnect(
+                                    InboundTcpConnect::new(conn),
+                                )));
                             }
                         }
 
@@ -1820,11 +1824,9 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<InboundTcpConnect> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
+    fn handle_msg_inbound_tcp_connect(&mut self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         {
             #[cfg(feature = "delay_detector")]
             let _d = DelayDetector::new("inbound tcp connect".into());
@@ -1927,11 +1929,13 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<OutboundTcpConnect> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
+    fn handle_msg_outbound_tcp_connect(
+        &mut self,
+        msg: OutboundTcpConnect,
+        ctx: &mut Context<Self>,
+    ) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("outbound tcp connect".into());
         debug!(target: "network", "Trying to connect to {}", msg.peer_info);
@@ -2144,6 +2148,12 @@ impl Handler<PeerMessageRequest> for PeerManagerActor {
             PeerMessageRequest::GetPeerId(msg) => {
                 PeerMessageResponse::GetPeerIdResult(self.handle_msg_get_peer_id(msg, ctx))
             }
+            PeerMessageRequest::OutboundTcpConnect(msg) => PeerMessageResponse::OutboundTcpConnect(
+                self.handle_msg_outbound_tcp_connect(msg, ctx),
+            ),
+            PeerMessageRequest::InboundTcpConnect(msg) => PeerMessageResponse::InboundTcpConnect(
+                self.handle_msg_inbound_tcp_connect(msg, ctx),
+            ),
         }
     }
 }

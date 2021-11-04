@@ -687,7 +687,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 }
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
@@ -702,7 +702,7 @@ impl InboundTcpConnect {
 }
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
-#[derive(Message)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection

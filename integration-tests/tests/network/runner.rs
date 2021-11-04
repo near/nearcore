@@ -187,8 +187,11 @@ impl StateMachine {
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[u].clone();
                         let peer_info = info.read().unwrap().peers_info[v].clone();
-                        actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(
-                            move |res| match res {
+                        actix::spawn(
+                            addr.send(PeerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                                peer_info,
+                            }))
+                            .then(move |res| match res {
                                 Ok(_) => {
                                     flag.store(true, Ordering::Relaxed);
                                     future::ready(())
@@ -196,8 +199,8 @@ impl StateMachine {
                                 Err(e) => {
                                     panic!("Error adding edge. {:?}", e);
                                 }
-                            },
-                        ));
+                            }),
+                        );
                     },
                 ));
             }

@@ -548,7 +548,7 @@ pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum PeerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
@@ -557,6 +557,8 @@ pub enum PeerMessageRequest {
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
     GetPeerId(GetPeerId),
+    OutboundTcpConnect(OutboundTcpConnect),
+    InboundTcpConnect(InboundTcpConnect),
 }
 
 impl PeerMessageRequest {
@@ -590,6 +592,8 @@ pub enum PeerMessageResponse {
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
     GetPeerIdResult(GetPeerIdResult),
+    OutboundTcpConnect(()),
+    InboundTcpConnect(()),
 }
 
 impl PeerMessageResponse {
