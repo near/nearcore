@@ -971,7 +971,8 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             }
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
-                self.peer_manager_addr.do_send(PeersResponse { peers });
+                self.peer_manager_addr
+                    .do_send(PeerMessageRequest::PeersResponse(PeersResponse { peers }));
             }
             (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .peer_manager_addr

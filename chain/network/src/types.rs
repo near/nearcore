@@ -541,7 +541,7 @@ impl Message for PeersRequest {
 }
 
 /// Received new peers from another peer.
-#[derive(Message, Debug)]
+#[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
 pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
@@ -553,6 +553,7 @@ pub enum PeerMessageRequest {
     NetworkRequests(NetworkRequests),
     Consolidate(Consolidate),
     PeersRequest(PeersRequest),
+    PeersResponse(PeersResponse),
 }
 
 impl PeerMessageRequest {
@@ -575,6 +576,7 @@ pub enum PeerMessageResponse {
     NetworkResponses(NetworkResponses),
     ConsolidateResponse(ConsolidateResponse),
     PeerRequestResult(PeerRequestResult),
+    PeersResponseResult(()),
 }
 
 impl PeerMessageResponse {

@@ -1475,6 +1475,7 @@ impl PeerManagerActor {
         msg: NetworkRequests,
         ctx: &mut Context<Self>,
     ) -> NetworkResponses {
+        #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
         match msg {
             NetworkRequests::Block { block } => {
@@ -2098,11 +2099,8 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<PeersResponse> for PeerManagerActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
+impl PeerManagerActor {
+    fn handle_msg_peers_response(&mut self, msg: PeersResponse, _ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers response".into());
         unwrap_or_error!(
@@ -2131,6 +2129,9 @@ impl Handler<PeerMessageRequest> for PeerManagerActor {
             }
             PeerMessageRequest::PeersRequest(msg) => {
                 PeerMessageResponse::PeerRequestResult(self.handle_msg_peers_request(msg, ctx))
+            }
+            PeerMessageRequest::PeersResponse(msg) => {
+                PeerMessageResponse::PeersResponseResult(self.handle_msg_peers_response(msg, ctx))
             }
         }
     }
