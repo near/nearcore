@@ -1989,12 +1989,7 @@ mod test {
             let mut forwards_count = 0;
             let mut requests_count = 0;
             fixture.mock_network.requests.read().unwrap().iter().for_each(|r| {
-                let r = match r {
-                    PeerMessageRequest::NetworkRequests(msg) => msg,
-                    _ => panic!("expected PeerMessageRequest::NetworkRequests"),
-                };
-
-                match r {
+                match r.as_network_requests() {
                     NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
                     NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
                     _ => (),
@@ -2070,12 +2065,7 @@ mod test {
             .unwrap()
             .iter()
             .find(|r| {
-                let r = match r {
-                    PeerMessageRequest::NetworkRequests(msg) => msg,
-                    _ => panic!("expected PeerMessageRequest::NetworkRequests"),
-                };
-
-                match r {
+                match r.as_network_requests() {
                     NetworkRequests::PartialEncodedChunkRequest { .. } => true,
                     _ => false,
                 }

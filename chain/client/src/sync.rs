@@ -1100,13 +1100,9 @@ impl StateSync {
                             NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
                         ))
                         .then(move |result| {
-                            let result = match result {
-                                Ok(PeerMessageResponse::NetworkResponses(val)) => Ok(val),
-                                Err(val) => Err(val),
-                                _ => panic!("expected RoutedMessageFrom"),
-                            };
-
-                            if let Ok(NetworkResponses::RouteNotFound) = result {
+                            if let Ok(NetworkResponses::RouteNotFound) =
+                                result.map(|f| f.as_network_response())
+                            {
                                 // Send a StateRequestHeader on the next iteration
                                 run_me.store(true, Ordering::SeqCst);
                             }
@@ -1147,13 +1143,9 @@ impl StateSync {
                                 },
                             ))
                             .then(move |result| {
-                                let result = match result {
-                                    Ok(PeerMessageResponse::NetworkResponses(val)) => Ok(val),
-                                    Err(val) => Err(val),
-                                    _ => panic!("expected RoutedMessageFrom"),
-                                };
-
-                                if let Ok(NetworkResponses::RouteNotFound) = result {
+                                if let Ok(NetworkResponses::RouteNotFound) =
+                                    result.map(|f| f.as_network_response())
+                                {
                                     // Send a StateRequestPart on the next iteration
                                     run_me.store(true, Ordering::SeqCst);
                                 }
@@ -1559,12 +1551,7 @@ mod test {
         let mut requested_block_hashes = HashSet::new();
         let mut network_request = network_adapter.requests.write().unwrap();
         while let Some(request) = network_request.pop_back() {
-            let request = match request {
-                PeerMessageRequest::NetworkRequests(result) => result,
-                _ => panic!("expected PeerMessageRequest::NetworkRequests"),
-            };
-
-            match request {
+            match request.as_network_requests() {
                 NetworkRequests::BlockRequest { hash, .. } => {
                     requested_block_hashes.insert(hash);
                 }

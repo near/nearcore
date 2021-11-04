@@ -580,6 +580,14 @@ pub enum PeerMessageResponse {
 }
 
 impl PeerMessageResponse {
+    pub fn as_routed_message_from(self) -> bool {
+        if let PeerMessageResponse::RoutedMessageFrom(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::RoutedMessageFrom(");
+        }
+    }
+
     pub fn as_network_response(self) -> NetworkResponses {
         if let PeerMessageResponse::NetworkResponses(item) = self {
             item

@@ -42,10 +42,10 @@ use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
     NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
-    PeerMessage, PeerMessageRequest, PeerMessageResponse, PeerRequest, PeerResponse,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
-    StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    PeerMessage, PeerMessageRequest, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus,
+    PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
+    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{
@@ -982,13 +982,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 )))
                 .into_actor(self)
                 .then(|res, act, ctx| {
-                    let res = match res {
-                        Ok(PeerMessageResponse::NetworkResponses(val)) => Ok(val),
-                        Err(val) => Err(val),
-                        _ => panic!("expected RoutedMessageFrom"),
-                    };
-
-                    match res {
+                    match res.map(|f| f.as_network_response()) {
                         Ok(NetworkResponses::EdgeUpdate(edge)) => {
                             act.send_message(&PeerMessage::ResponseUpdateNonce(*edge));
                         }
@@ -1007,13 +1001,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 )))
                 .into_actor(self)
                 .then(|res, act, ctx| {
-                    let res = match res {
-                        Ok(PeerMessageResponse::NetworkResponses(val)) => Ok(val),
-                        Err(val) => Err(val),
-                        _ => panic!("expected RoutedMessageFrom"),
-                    };
-
-                    match res {
+                    match res.map(|f| f.as_network_response()) {
                         Ok(NetworkResponses::BanPeer(reason_for_ban)) => {
                             act.ban_peer(ctx, reason_for_ban);
                         }
@@ -1050,13 +1038,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                         }))
                         .into_actor(self)
                         .then(move |res, act, ctx| {
-                            let res = match res {
-                                Ok(PeerMessageResponse::RoutedMessageFrom(val)) => Ok(val),
-                                Err(val) => Err(val),
-                                _ => panic!("expected RoutedMessageFrom"),
-                            };
-
-                            if res.unwrap_or(false) {
+                            if res.map(|f| f.as_routed_message_from()).unwrap_or(false) {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
                             }
                             actix::fut::ready(())
