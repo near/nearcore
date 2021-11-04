@@ -85,7 +85,7 @@ impl ScenarioBuilder {
     }
 
     /// Changes epoch_length
-    pub fn epoch_length(mut self, epoch_length: Gas) -> Self {
+    pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.scenario.runtime_config.epoch_length = epoch_length;
         self
     }
