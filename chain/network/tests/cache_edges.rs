@@ -168,7 +168,7 @@ impl RoutingTableTest {
 fn empty() {
     let mut test = RoutingTableTest::new();
     test.check(vec![], vec![], vec![]);
-    assert_eq!(test.routing_table.component_nonce, 0);
+    assert_eq!(test.routing_table.next_available_component_nonce, 0);
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn load_component_nonce_on_start() {
     test.set_times(vec![(1, 2)]);
     test.update_routing_table();
     let routing_table = RoutingTable::new(random_peer_id(), test.store.clone());
-    assert_eq!(routing_table.component_nonce, 1);
+    assert_eq!(routing_table.next_available_component_nonce, 1);
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn load_component_nonce_2_on_start() {
         vec![(1, 0), (2, 1)],
     );
     let routing_table = RoutingTable::new(random_peer_id(), test.store.clone());
-    assert_eq!(routing_table.component_nonce, 2);
+    assert_eq!(routing_table.next_available_component_nonce, 2);
 }
 
 #[test]

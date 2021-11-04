@@ -396,7 +396,7 @@ pub struct RoutingTable {
     /// Last nonce sent to each peer through pings.
     last_ping_nonce: SizedCache<PeerId, usize>,
     /// Last nonce used to store edges on disk.
-    pub component_nonce: u64,
+    pub next_available_component_nonce: u64,
 }
 
 #[derive(Debug)]
@@ -432,7 +432,7 @@ impl RoutingTable {
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            component_nonce,
+            next_available_component_nonce: component_nonce,
         }
     }
 
@@ -756,8 +756,8 @@ impl RoutingTable {
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
 
-        let component_nonce = self.component_nonce;
-        self.component_nonce += 1;
+        let component_nonce = self.next_available_component_nonce;
+        self.next_available_component_nonce += 1;
 
         let mut update = self.store.store_update();
         let _ = update.set_ser(ColLastComponentNonce, &[], &component_nonce);
