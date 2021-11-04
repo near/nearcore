@@ -10,7 +10,6 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_chain_configs::Genesis;
-use near_epoch_manager::EpochManager;
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -18,7 +17,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, ExecutionOutcomeWithI
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::{get, DBCol, ShardUId, Store};
+use near_store::{get, DBCol, Store};
 use nearcore::NightshadeRuntime;
 
 fn inc_and_report_progress(cnt: &AtomicU64) {
@@ -216,23 +215,15 @@ pub fn apply_chain_range(
                 apply_result.total_balance_burnt,
             );
 
-            let mut epoch_manager = EpochManager::new_from_genesis_config(store.clone(), &genesis.config).unwrap();
-            let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
             let state_update = runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());
             let delayed_indices = get::<DelayedReceiptIndices>(&state_update, &TrieKey::DelayedReceiptIndices).unwrap();
-            if delayed_indices.is_none() {
-                println!("no delayed_indices");
-            } else {
-                println!("delayed_indices: {:#?}", delayed_indices.as_ref().unwrap());
-            }
 
         match existing_chunk_extra {
             Some(existing_chunk_extra) => {
                 if verbose_output {
                     println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
                 }
-                // assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
+                assert_eq!(existing_chunk_extra, chunk_extra, "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(store.clone(), &apply_result.outcomes));
             },
             None => {
                 assert!(prev_chunk_extra.is_some());
