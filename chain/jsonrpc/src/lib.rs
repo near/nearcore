@@ -39,6 +39,7 @@ use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "test_features")]
 use near_network::routing::GetRoutingTableResult;
+use near_network::types::PeerMessageRequest;
 #[cfg(feature = "test_features")]
 use near_network::types::{
     GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
@@ -314,9 +315,12 @@ impl JsonRpcHandler {
                     )
                 }
                 "adv_get_peer_id" => {
-                    let response = self.peer_manager_addr.send(GetPeerId {}).await?;
+                    let response = self
+                        .peer_manager_addr
+                        .send(PeerMessageRequest::GetPeerId(GetPeerId {}))
+                        .await?;
                     Some(
-                        serde_json::to_value(response)
+                        serde_json::to_value(response.as_peer_id_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }

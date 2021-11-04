@@ -452,6 +452,7 @@ impl Message for Consolidate {
     type Result = ConsolidateResponse;
 }
 
+#[derive(Clone, Debug)]
 pub struct GetPeerId {}
 
 impl Message for GetPeerId {
@@ -555,6 +556,7 @@ pub enum PeerMessageRequest {
     PeersRequest(PeersRequest),
     PeersResponse(PeersResponse),
     PeerRequest(PeerRequest),
+    GetPeerId(GetPeerId),
 }
 
 impl PeerMessageRequest {
@@ -587,6 +589,7 @@ pub enum PeerMessageResponse {
     PeerRequestResult(PeerRequestResult),
     PeersResponseResult(()),
     PeerResponse(PeerResponse),
+    GetPeerIdResult(GetPeerIdResult),
 }
 
 impl PeerMessageResponse {
@@ -624,6 +627,14 @@ impl PeerMessageResponse {
 
     pub fn as_peer_response(self) -> PeerResponse {
         if let PeerMessageResponse::PeerResponse(item) = self {
+            item
+        } else {
+            panic!("expected PeerMessageRequest::NetworkRequests(");
+        }
+    }
+
+    pub fn as_peer_id_result(self) -> GetPeerIdResult {
+        if let PeerMessageResponse::GetPeerIdResult(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::NetworkRequests(");

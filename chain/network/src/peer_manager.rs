@@ -1470,6 +1470,7 @@ impl Actor for PeerManagerActor {
 }
 
 impl PeerManagerActor {
+    #[perf]
     fn handle_msg_network_requests(
         &mut self,
         msg: NetworkRequests,
@@ -1914,11 +1915,13 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
 }
 
 #[cfg(feature = "test_features")]
-impl Handler<GetPeerId> for PeerManagerActor {
-    type Result = GetPeerIdResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: GetPeerId, _ctx: &mut Self::Context) -> GetPeerIdResult {
+    fn handle_msg_get_peer_id(
+        &mut self,
+        _msg: GetPeerId,
+        _ctx: &mut Context<Self>,
+    ) -> GetPeerIdResult {
         GetPeerIdResult { peer_id: self.peer_id.clone() }
     }
 }
@@ -1977,6 +1980,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 }
 
 impl PeerManagerActor {
+    #[perf]
     fn handle_msg_consolidate(
         &mut self,
         msg: Consolidate,
@@ -2135,6 +2139,9 @@ impl Handler<PeerMessageRequest> for PeerManagerActor {
             }
             PeerMessageRequest::PeerRequest(msg) => {
                 PeerMessageResponse::PeerResponse(self.handle_msg_peer_request(msg, ctx))
+            }
+            PeerMessageRequest::GetPeerId(msg) => {
+                PeerMessageResponse::GetPeerIdResult(self.handle_msg_get_peer_id(msg, ctx))
             }
         }
     }
