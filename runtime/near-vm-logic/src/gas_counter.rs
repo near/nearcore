@@ -141,11 +141,11 @@ impl GasCounter {
             // See https://github.com/near/nearcore/issues/5148.
             // TODO: consider making this change!
             assert!(self.prepaid_gas >= self.fast_counter.burnt_gas);
-            self.promises_gas = self.prepaid_gas - self.fast_counter.burnt_gas;
+            self.promises_gas = min(self.prepaid_gas - self.fast_counter.burnt_gas, hard_burnt_limit - self.fast_counter.burnt_gas);
             HostError::GasExceeded.into()
         } else {
             self.fast_counter.burnt_gas = min(new_burnt_gas, self.max_gas_burnt);
-            self.promises_gas = 0;
+            self.promises_gas = min(new_used_gas - self.fast_counter.burnt_gas, self.prepaid_gas - self.fast_counter.burnt_gas);
             HostError::GasLimitExceeded.into()
         }
     }
