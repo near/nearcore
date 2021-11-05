@@ -16,7 +16,7 @@ use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
-use near_network::types::{PeerMessageRequest, PeerMessageResponse};
+use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
@@ -60,91 +60,94 @@ fn repro_1183() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: _, msg: &PeerMessageRequest| {
-                if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
-                    let mut last_block = last_block.write().unwrap();
-                    let mut delayed_one_parts = delayed_one_parts.write().unwrap();
+            Arc::new(RwLock::new(Box::new(
+                move |_account_id: _, msg: &PeerManagerMessageRequest| {
+                    if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
+                        let mut last_block = last_block.write().unwrap();
+                        let mut delayed_one_parts = delayed_one_parts.write().unwrap();
 
-                    if let Some(last_block) = last_block.clone() {
-                        for (client, _) in connectors1.write().unwrap().iter() {
-                            client.do_send(NetworkClientMessages::Block(
-                                last_block.clone(),
-                                PeerInfo::random().id,
-                                false,
-                            ))
-                        }
-                    }
-                    for delayed_message in delayed_one_parts.iter() {
-                        if let PartialEncodedChunkMessage {
-                            account_id,
-                            partial_encoded_chunk,
-                            ..
-                        } = delayed_message
-                        {
-                            for (i, name) in validators2.iter().flatten().enumerate() {
-                                if name == account_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::PartialEncodedChunk(
-                                            partial_encoded_chunk.clone().into(),
-                                        ),
-                                    );
-                                }
+                        if let Some(last_block) = last_block.clone() {
+                            for (client, _) in connectors1.write().unwrap().iter() {
+                                client.do_send(NetworkClientMessages::Block(
+                                    last_block.clone(),
+                                    PeerInfo::random().id,
+                                    false,
+                                ))
                             }
-                        } else {
-                            assert!(false);
                         }
-                    }
+                        for delayed_message in delayed_one_parts.iter() {
+                            if let PartialEncodedChunkMessage {
+                                account_id,
+                                partial_encoded_chunk,
+                                ..
+                            } = delayed_message
+                            {
+                                for (i, name) in validators2.iter().flatten().enumerate() {
+                                    if name == account_id {
+                                        connectors1.write().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::PartialEncodedChunk(
+                                                partial_encoded_chunk.clone().into(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            } else {
+                                assert!(false);
+                            }
+                        }
 
-                    let mut nonce_delta = 0;
-                    for from in ["test1", "test2", "test3", "test4"].iter() {
-                        for to in ["test1", "test2", "test3", "test4"].iter() {
-                            let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
-                            connectors1.write().unwrap()[account_id_to_shard_id(&from, 4) as usize]
-                                .0
-                                .do_send(NetworkClientMessages::Transaction {
-                                    transaction: SignedTransaction::send_money(
-                                        block.header().height() * 16 + nonce_delta,
-                                        from.clone(),
-                                        to,
-                                        &InMemorySigner::from_seed(
+                        let mut nonce_delta = 0;
+                        for from in ["test1", "test2", "test3", "test4"].iter() {
+                            for to in ["test1", "test2", "test3", "test4"].iter() {
+                                let (from, to) = (from.parse().unwrap(), to.parse().unwrap());
+                                connectors1.write().unwrap()
+                                    [account_id_to_shard_id(&from, 4) as usize]
+                                    .0
+                                    .do_send(NetworkClientMessages::Transaction {
+                                        transaction: SignedTransaction::send_money(
+                                            block.header().height() * 16 + nonce_delta,
                                             from.clone(),
-                                            KeyType::ED25519,
-                                            from.as_ref(),
+                                            to,
+                                            &InMemorySigner::from_seed(
+                                                from.clone(),
+                                                KeyType::ED25519,
+                                                from.as_ref(),
+                                            ),
+                                            1,
+                                            *block.header().prev_hash(),
                                         ),
-                                        1,
-                                        *block.header().prev_hash(),
-                                    ),
-                                    is_forwarded: false,
-                                    check_only: false,
-                                });
-                            nonce_delta += 1
+                                        is_forwarded: false,
+                                        check_only: false,
+                                    });
+                                nonce_delta += 1
+                            }
                         }
-                    }
 
-                    *last_block = Some(block.clone());
-                    *delayed_one_parts = vec![];
+                        *last_block = Some(block.clone());
+                        *delayed_one_parts = vec![];
 
-                    if block.header().height() >= 25 {
-                        System::current().stop();
-                    }
-                    (NetworkResponses::NoResponse.into(), false)
-                } else if let NetworkRequests::PartialEncodedChunkMessage { .. } =
-                    msg.as_network_requests_ref()
-                {
-                    if thread_rng().gen_bool(0.5) {
-                        (NetworkResponses::NoResponse.into(), true)
-                    } else {
-                        let msg2 = msg.clone();
-                        delayed_one_parts
-                            .write()
-                            .unwrap()
-                            .push(msg2.as_network_requests_ref().clone());
+                        if block.header().height() >= 25 {
+                            System::current().stop();
+                        }
                         (NetworkResponses::NoResponse.into(), false)
+                    } else if let NetworkRequests::PartialEncodedChunkMessage { .. } =
+                        msg.as_network_requests_ref()
+                    {
+                        if thread_rng().gen_bool(0.5) {
+                            (NetworkResponses::NoResponse.into(), true)
+                        } else {
+                            let msg2 = msg.clone();
+                            delayed_one_parts
+                                .write()
+                                .unwrap()
+                                .push(msg2.as_network_requests_ref().clone());
+                            (NetworkResponses::NoResponse.into(), false)
+                        }
+                    } else {
+                        (NetworkResponses::NoResponse.into(), true)
                     }
-                } else {
-                    (NetworkResponses::NoResponse.into(), true)
-                }
-            }))),
+                },
+            ))),
         );
         *connectors.write().unwrap() = conn;
 
@@ -169,8 +172,15 @@ fn test_sync_from_achival_node() {
 
     run_actix(async move {
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerMessageRequest| {
+            RwLock<
+                Box<
+                    dyn FnMut(
+                        AccountId,
+                        &PeerManagerMessageRequest,
+                    ) -> (PeerManagerMessageResponse, bool),
+                >,
+            >,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
             (NetworkResponses::NoResponse.into(), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -189,8 +199,8 @@ fn test_sync_from_achival_node() {
             network_mock.clone(),
         );
         let mut block_counter = 0;
-        *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &PeerMessageRequest| -> (PeerMessageResponse, bool) {
+        *network_mock.write().unwrap() = Box::new(
+            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 let msg = msg.as_network_requests_ref();
                 if let NetworkRequests::Block { block } = msg {
                     let mut largest_height = largest_height.write().unwrap();
@@ -250,7 +260,8 @@ fn test_sync_from_achival_node() {
                         _ => (NetworkResponses::NoResponse.into(), true),
                     }
                 }
-            });
+            },
+        );
 
         near_network::test_utils::wait_or_panic(20000);
     });
@@ -266,8 +277,15 @@ fn test_long_gap_between_blocks() {
 
     run_actix(async move {
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerMessageRequest| {
+            RwLock<
+                Box<
+                    dyn FnMut(
+                        AccountId,
+                        &PeerManagerMessageRequest,
+                    ) -> (PeerManagerMessageResponse, bool),
+                >,
+            >,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
             (NetworkResponses::NoResponse.into(), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
@@ -285,8 +303,8 @@ fn test_long_gap_between_blocks() {
             false,
             network_mock.clone(),
         );
-        *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &PeerMessageRequest| -> (PeerMessageResponse, bool) {
+        *network_mock.write().unwrap() = Box::new(
+            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Approval { approval_message } => {
                         actix::spawn(conns[1].1.send(GetBlock::latest()).then(move |res| {
@@ -308,7 +326,8 @@ fn test_long_gap_between_blocks() {
                     }
                     _ => (NetworkResponses::NoResponse.into(), true),
                 }
-            });
+            },
+        );
 
         near_network::test_utils::wait_or_panic(60000);
     });

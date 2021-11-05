@@ -26,7 +26,8 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
 use near_network::types::{
-    NetworkInfo, PeerChainInfoV2, PeerMessageRequest, PeerMessageResponse, ReasonForBan,
+    NetworkInfo, PeerChainInfoV2, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    ReasonForBan,
 };
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -230,7 +231,7 @@ fn produce_two_blocks() {
                         System::current().stop();
                     }
                 }
-                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
@@ -288,7 +289,7 @@ fn produce_blocks_with_tx() {
                         }
                     }
                 }
-                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         near_network::test_utils::wait_or_panic(5000);
@@ -327,7 +328,7 @@ fn receive_network_block() {
                         System::current().stop();
                     }
                 }
-                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
@@ -405,7 +406,7 @@ fn produce_block_with_approvals() {
                         assert!(false);
                     }
                 }
-                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
@@ -491,9 +492,16 @@ fn produce_block_with_approvals_arrived_early() {
     run_actix(async move {
         let mut approval_counter = 0;
         let network_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerMessageRequest| {
-            (PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
+            RwLock<
+                Box<
+                    dyn FnMut(
+                        AccountId,
+                        &PeerManagerMessageRequest,
+                    ) -> (PeerManagerMessageResponse, bool),
+                >,
+            >,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
         let (_, conns, _) = setup_mock_all_validators(
             validators.clone(),
@@ -510,8 +518,8 @@ fn produce_block_with_approvals_arrived_early() {
             false,
             network_mock.clone(),
         );
-        *network_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &PeerMessageRequest| -> (PeerMessageResponse, bool) {
+        *network_mock.write().unwrap() = Box::new(
+            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 let msg = msg.as_network_requests_ref();
                 match msg {
                     NetworkRequests::Block { block } => {
@@ -550,7 +558,8 @@ fn produce_block_with_approvals_arrived_early() {
                     }
                     _ => (NetworkResponses::NoResponse.into(), true),
                 }
-            });
+            },
+        );
 
         near_network::test_utils::wait_or_panic(10000);
     });
@@ -588,7 +597,7 @@ fn invalid_blocks_common(is_requested: bool) {
                     }
                     _ => {}
                 };
-                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         actix::spawn(view_client.send(GetBlockWithMerkleTree::latest()).then(move |res| {
@@ -715,9 +724,16 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
     run_actix(async move {
         let mut ban_counter = 0;
         let peer_manager_mock: Arc<
-            RwLock<Box<dyn FnMut(AccountId, &PeerMessageRequest) -> (PeerMessageResponse, bool)>>,
-        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerMessageRequest| {
-            (PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
+            RwLock<
+                Box<
+                    dyn FnMut(
+                        AccountId,
+                        &PeerManagerMessageRequest,
+                    ) -> (PeerManagerMessageResponse, bool),
+                >,
+            >,
+        > = Arc::new(RwLock::new(Box::new(|_: _, _: &PeerManagerMessageRequest| {
+            (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
         })));
 
         let (_, conns, _) = setup_mock_all_validators(
@@ -736,8 +752,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             peer_manager_mock.clone(),
         );
         let mut sent_bad_blocks = false;
-        *peer_manager_mock.write().unwrap() =
-            Box::new(move |_: _, msg: &PeerMessageRequest| -> (PeerMessageResponse, bool) {
+        *peer_manager_mock.write().unwrap() = Box::new(
+            move |_: _, msg: &PeerManagerMessageRequest| -> (PeerManagerMessageResponse, bool) {
                 match msg.as_network_requests_ref() {
                     NetworkRequests::Block { block } => {
                         if block.header().height() >= 4 && !sent_bad_blocks {
@@ -803,7 +819,9 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
 
                             return (
-                                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+                                PeerManagerMessageResponse::NetworkResponses(
+                                    NetworkResponses::NoResponse,
+                                ),
                                 false,
                             );
                         }
@@ -816,7 +834,12 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             }
                             System::current().stop();
                         }
-                        (PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
+                        (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        )
                     }
                     NetworkRequests::BanPeer { peer_id, ban_reason } => match mode {
                         InvalidBlockMode::InvalidHeader | InvalidBlockMode::IllFormed => {
@@ -826,7 +849,9 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                                 panic!("more bans than expected");
                             }
                             (
-                                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+                                PeerManagerMessageResponse::NetworkResponses(
+                                    NetworkResponses::NoResponse,
+                                ),
                                 true,
                             )
                         }
@@ -834,11 +859,13 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                             panic!("banning peer {:?} unexpectedly for {:?}", peer_id, ban_reason);
                         }
                     },
-                    _ => {
-                        (PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
-                    }
+                    _ => (
+                        PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+                        true,
+                    ),
                 }
-            });
+            },
+        );
 
         near_network::test_utils::wait_or_panic(20000);
     });
@@ -882,7 +909,7 @@ fn skip_block_production() {
                     }
                     _ => {}
                 };
-                PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
             }),
         );
         wait_or_panic(10000);
@@ -908,9 +935,9 @@ fn client_sync_headers() {
                     // TODO: check it requests correct hashes.
                     System::current().stop();
 
-                    PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+                    PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
                 }
-                _ => PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
+                _ => PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse),
             }),
         );
         client.do_send(NetworkClientMessages::NetworkInfo(NetworkInfo {
@@ -1690,8 +1717,10 @@ fn test_tx_forward_around_epoch_boundary() {
     env.clients[2].process_tx(tx, false, false);
     let mut accounts_to_forward = HashSet::new();
     for request in env.network_adapters[2].requests.read().unwrap().iter() {
-        if let PeerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(account_id, _)) =
-            request
+        if let PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ForwardTx(
+            account_id,
+            _,
+        )) = request
         {
             accounts_to_forward.insert(account_id.clone());
         }

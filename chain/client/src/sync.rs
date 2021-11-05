@@ -14,7 +14,7 @@ use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
 use near_network::types::{
-    AccountOrPeerIdOrHash, NetworkResponses, PeerMessageRequest, ReasonForBan,
+    AccountOrPeerIdOrHash, NetworkResponses, PeerManagerMessageRequest, ReasonForBan,
 };
 use near_network::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
@@ -273,7 +273,7 @@ impl HeaderSync {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
                                         peer.peer_info, peer.chain_info.height);
                                     self.network_adapter.do_send(
-                                        PeerMessageRequest::NetworkRequests(
+                                        PeerManagerMessageRequest::NetworkRequests(
                                             NetworkRequests::BanPeer {
                                                 peer_id: peer.peer_info.id.clone(),
                                                 ban_reason: ReasonForBan::HeightFraud,
@@ -318,7 +318,7 @@ impl HeaderSync {
     fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BlockHeadersRequest {
                     hashes: locator,
                     peer_id: peer.peer_info.id.clone(),
@@ -557,7 +557,7 @@ impl BlockSync {
         };
 
         if let Some(peer) = peer {
-            self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BlockRequest {
                     hash: request.hash,
                     peer_id: peer.peer_info.id.clone(),
@@ -1096,7 +1096,7 @@ impl StateSync {
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     self.network_adapter
-                        .send(PeerMessageRequest::NetworkRequests(
+                        .send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
                         ))
                         .then(move |result| {
@@ -1134,7 +1134,7 @@ impl StateSync {
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
                         self.network_adapter
-                            .send(PeerMessageRequest::NetworkRequests(
+                            .send(PeerManagerMessageRequest::NetworkRequests(
                                 NetworkRequests::StateRequestPart {
                                     shard_id,
                                     sync_hash,
@@ -1542,8 +1542,9 @@ mod test {
         let mut network_request = network_adapter.requests.write().unwrap();
         while let Some(request) = network_request.pop_back() {
             match request {
-                PeerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
-                    hash, ..
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                    hash,
+                    ..
                 }) => {
                     requested_block_hashes.insert(hash);
                 }

@@ -549,8 +549,11 @@ pub struct PeersResponse {
     pub peers: Vec<PeerInfo>,
 }
 
+/// List of all messages, which PeerManagerActor accepts through Actix. There is also another list
+/// which contains reply for each message to PeerManager.
+/// There is 1 to 1 mapping between an entry in `PeerManagerMessageRequest` and `PeerManagerMessageResponse`.
 #[derive(Debug)]
-pub enum PeerMessageRequest {
+pub enum PeerManagerMessageRequest {
     RoutedMessageFrom(RoutedMessageFrom),
     NetworkRequests(NetworkRequests),
     Consolidate(Consolidate),
@@ -573,9 +576,9 @@ pub enum PeerMessageRequest {
     GetRoutingTable(GetRoutingTable),
 }
 
-impl PeerMessageRequest {
+impl PeerManagerMessageRequest {
     pub fn as_network_requests(self) -> NetworkRequests {
-        if let PeerMessageRequest::NetworkRequests(item) = self {
+        if let PeerManagerMessageRequest::NetworkRequests(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::NetworkRequests(");
@@ -583,7 +586,7 @@ impl PeerMessageRequest {
     }
 
     pub fn as_network_requests_ref(&self) -> &NetworkRequests {
-        if let PeerMessageRequest::NetworkRequests(item) = self {
+        if let PeerManagerMessageRequest::NetworkRequests(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::NetworkRequests(");
@@ -591,12 +594,13 @@ impl PeerMessageRequest {
     }
 }
 
-impl Message for PeerMessageRequest {
-    type Result = PeerMessageResponse;
+impl Message for PeerManagerMessageRequest {
+    type Result = PeerManagerMessageResponse;
 }
 
+/// List of all replies to messages to PeerManager. See `PeerManagerMessageRequest` for more details.
 #[derive(MessageResponse, Debug)]
-pub enum PeerMessageResponse {
+pub enum PeerManagerMessageResponse {
     RoutedMessageFrom(bool),
     NetworkResponses(NetworkResponses),
     ConsolidateResponse(ConsolidateResponse),
@@ -619,9 +623,9 @@ pub enum PeerMessageResponse {
     GetRoutingTableResult(GetRoutingTableResult),
 }
 
-impl PeerMessageResponse {
+impl PeerManagerMessageResponse {
     pub fn as_routed_message_from(self) -> bool {
-        if let PeerMessageResponse::RoutedMessageFrom(item) = self {
+        if let PeerManagerMessageResponse::RoutedMessageFrom(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::RoutedMessageFrom(");
@@ -629,7 +633,7 @@ impl PeerMessageResponse {
     }
 
     pub fn as_network_response(self) -> NetworkResponses {
-        if let PeerMessageResponse::NetworkResponses(item) = self {
+        if let PeerManagerMessageResponse::NetworkResponses(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::NetworkResponses(");
@@ -637,7 +641,7 @@ impl PeerMessageResponse {
     }
 
     pub fn as_consolidate_response(self) -> ConsolidateResponse {
-        if let PeerMessageResponse::ConsolidateResponse(item) = self {
+        if let PeerManagerMessageResponse::ConsolidateResponse(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::ConsolidateResponse(");
@@ -645,7 +649,7 @@ impl PeerMessageResponse {
     }
 
     pub fn as_peers_request_result(self) -> PeerRequestResult {
-        if let PeerMessageResponse::PeerRequestResult(item) = self {
+        if let PeerManagerMessageResponse::PeerRequestResult(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::PeerRequestResult(");
@@ -653,7 +657,7 @@ impl PeerMessageResponse {
     }
 
     pub fn as_peer_response(self) -> PeerResponse {
-        if let PeerMessageResponse::PeerResponse(item) = self {
+        if let PeerManagerMessageResponse::PeerResponse(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::PeerResponse(");
@@ -661,7 +665,7 @@ impl PeerMessageResponse {
     }
 
     pub fn as_peer_id_result(self) -> GetPeerIdResult {
-        if let PeerMessageResponse::GetPeerIdResult(item) = self {
+        if let PeerManagerMessageResponse::GetPeerIdResult(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::GetPeerIdResult(");
@@ -669,7 +673,7 @@ impl PeerMessageResponse {
     }
 
     pub fn as_get_routing_table_result(self) -> GetRoutingTableResult {
-        if let PeerMessageResponse::GetRoutingTableResult(item) = self {
+        if let PeerManagerMessageResponse::GetRoutingTableResult(item) = self {
             item
         } else {
             panic!("expected PeerMessageRequest::GetRoutingTableResult(");
@@ -851,9 +855,9 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-impl From<NetworkResponses> for PeerMessageResponse {
+impl From<NetworkResponses> for PeerManagerMessageResponse {
     fn from(msg: NetworkResponses) -> Self {
-        PeerMessageResponse::NetworkResponses(msg)
+        PeerManagerMessageResponse::NetworkResponses(msg)
     }
 }
 
@@ -973,14 +977,14 @@ impl Message for NetworkClientMessages {
 pub trait PeerManagerAdapter: Sync + Send {
     fn send(
         &self,
-        msg: PeerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerMessageResponse, MailboxError>>;
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>>;
 
-    fn do_send(&self, msg: PeerMessageRequest);
+    fn do_send(&self, msg: PeerManagerMessageRequest);
 }
 
 pub struct NetworkRecipient {
-    peer_manager_recipient: RwLock<Option<Recipient<PeerMessageRequest>>>,
+    peer_manager_recipient: RwLock<Option<Recipient<PeerManagerMessageRequest>>>,
 }
 
 unsafe impl Sync for NetworkRecipient {}
@@ -990,7 +994,7 @@ impl NetworkRecipient {
         Self { peer_manager_recipient: RwLock::new(None) }
     }
 
-    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerMessageRequest>) {
+    pub fn set_recipient(&self, peer_manager_recipient: Recipient<PeerManagerMessageRequest>) {
         *self.peer_manager_recipient.write().unwrap() = Some(peer_manager_recipient);
     }
 }
@@ -998,8 +1002,8 @@ impl NetworkRecipient {
 impl PeerManagerAdapter for NetworkRecipient {
     fn send(
         &self,
-        msg: PeerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerMessageResponse, MailboxError>> {
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
         self.peer_manager_recipient
             .read()
             .unwrap()
@@ -1009,7 +1013,7 @@ impl PeerManagerAdapter for NetworkRecipient {
             .boxed()
     }
 
-    fn do_send(&self, msg: PeerMessageRequest) {
+    fn do_send(&self, msg: PeerManagerMessageRequest) {
         let _ = self
             .peer_manager_recipient
             .read()

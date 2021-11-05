@@ -22,7 +22,7 @@ use near_network::test_utils::{
 
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
-use near_network::types::{OutboundTcpConnect, PeerMessageRequest, ROUTED_MESSAGE_TTL};
+use near_network::types::{OutboundTcpConnect, PeerManagerMessageRequest, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
@@ -160,7 +160,7 @@ impl StateMachine {
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[target].clone();
                         actix::spawn(
-                            addr.send(PeerMessageRequest::SetAdvOptions(SetAdvOptions {
+                            addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
                                 disable_edge_signature_verification: None,
                                 disable_edge_propagation: None,
                                 disable_edge_pruning: None,
@@ -188,9 +188,9 @@ impl StateMachine {
                         let addr = info.read().unwrap().pm_addr[u].clone();
                         let peer_info = info.read().unwrap().peers_info[v].clone();
                         actix::spawn(
-                            addr.send(PeerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
-                                peer_info,
-                            }))
+                            addr.send(PeerManagerMessageRequest::OutboundTcpConnect(
+                                OutboundTcpConnect { peer_info },
+                            ))
                             .then(move |res| match res {
                                 Ok(_) => {
                                     flag.store(true, Ordering::Relaxed);
@@ -229,7 +229,7 @@ impl StateMachine {
                             .pm_addr
                             .get(u)
                             .unwrap()
-                            .send(PeerMessageRequest::NetworkRequests(
+                            .send(PeerManagerMessageRequest::NetworkRequests(
                                 NetworkRequests::FetchRoutingTable,
                             ))
                             .map_err(|_| ())
@@ -268,7 +268,7 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(PeerMessageRequest::NetworkRequests(
+                                .send(PeerManagerMessageRequest::NetworkRequests(
                                     NetworkRequests::FetchRoutingTable,
                                 ))
                                 .map_err(|_| ())
@@ -297,7 +297,7 @@ impl StateMachine {
                           _runner| {
                         let target = info.read().unwrap().peers_info[target].id.clone();
                         let _ = info.read().unwrap().pm_addr[source].do_send(
-                            PeerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
+                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
                                 nonce, target,
                             )),
                         );
@@ -368,7 +368,7 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(PeerMessageRequest::NetworkRequests(
+                                .send(PeerManagerMessageRequest::NetworkRequests(
                                     NetworkRequests::FetchPingPongInfo,
                                 ))
                                 .map_err(|_| ())
@@ -800,7 +800,9 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
                 info.pm_addr
                     .get(node_id)
                     .unwrap()
-                    .send(PeerMessageRequest::NetworkRequests(NetworkRequests::FetchRoutingTable))
+                    .send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::FetchRoutingTable,
+                    ))
                     .map_err(|_| ())
                     .and_then(move |res| {
                         if let NetworkResponses::RoutingTableInfo(routing_table) =

@@ -17,7 +17,7 @@ use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
     PeerManagerAdapter,
 };
-use near_network::types::{PartialEncodedChunkForwardMsg, PeerMessageRequest};
+use near_network::types::{PartialEncodedChunkForwardMsg, PeerManagerMessageRequest};
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::{BlockHeader, Tip};
@@ -535,7 +535,7 @@ impl ShardsManager {
                     },
                 };
 
-                self.peer_manager_adapter.do_send(PeerMessageRequest::NetworkRequests(
+                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkRequest { target, request },
                 ));
             } else {
@@ -929,7 +929,7 @@ impl ShardsManager {
 
         let response = PartialEncodedChunkResponseMsg { chunk_hash, parts, receipts };
 
-        self.peer_manager_adapter.do_send(PeerMessageRequest::NetworkRequests(
+        self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedChunkResponse { route_back, response },
         ));
     }
@@ -1374,7 +1374,7 @@ impl ShardsManager {
                 false,
             );
             if cares_about_shard {
-                self.peer_manager_adapter.do_send(PeerMessageRequest::NetworkRequests(
+                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkForward {
                         account_id: bp_account_id,
                         forward: forward.clone(),
@@ -1692,7 +1692,7 @@ impl ShardsManager {
                 );
 
             if Some(&to_whom) != self.me.as_ref() {
-                self.peer_manager_adapter.do_send(PeerMessageRequest::NetworkRequests(
+                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: to_whom.clone(),
                         partial_encoded_chunk,

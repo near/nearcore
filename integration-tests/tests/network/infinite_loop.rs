@@ -13,7 +13,7 @@ use near_network::test_utils::{
     convert_boot_nodes, make_ibf_routing_pool, open_port, GetInfo, WaitOrTimeout,
 };
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, PeerMessageRequest, SyncData,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
 };
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
@@ -129,7 +129,7 @@ fn test_infinite_loop() {
                 } else if state_value == 1 {
                     actix::spawn(
                         pm1.clone()
-                            .send(PeerMessageRequest::NetworkRequests(request1.clone()))
+                            .send(PeerManagerMessageRequest::NetworkRequests(request1.clone()))
                             .then(move |res| {
                                 assert!(res.is_ok());
                                 state1.store(2, Ordering::SeqCst);
@@ -144,7 +144,7 @@ fn test_infinite_loop() {
                 } else if state_value == 3 {
                     actix::spawn(
                         pm1.clone()
-                            .send(PeerMessageRequest::NetworkRequests(request1.clone()))
+                            .send(PeerManagerMessageRequest::NetworkRequests(request1.clone()))
                             .then(move |res| {
                                 assert!(res.is_ok());
                                 future::ready(())
@@ -152,7 +152,7 @@ fn test_infinite_loop() {
                     );
                     actix::spawn(
                         pm2.clone()
-                            .send(PeerMessageRequest::NetworkRequests(request2.clone()))
+                            .send(PeerManagerMessageRequest::NetworkRequests(request2.clone()))
                             .then(move |res| {
                                 assert!(res.is_ok());
                                 future::ready(())

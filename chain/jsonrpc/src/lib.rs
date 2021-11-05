@@ -42,7 +42,7 @@ use near_network::routing::GetRoutingTableResult;
 #[cfg(feature = "test_features")]
 use near_network::types::{
     GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
-    PeerMessageRequest, SetAdvOptions,
+    PeerManagerMessageRequest, SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
@@ -271,7 +271,7 @@ impl JsonRpcHandler {
                 "adv_set_options" => {
                     let params = parse_params::<SetAdvOptionsRequest>(params)?;
                     self.peer_manager_addr
-                        .send(PeerMessageRequest::SetAdvOptions(SetAdvOptions {
+                        .send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
                             disable_edge_signature_verification: params
                                 .disable_edge_signature_verification,
                             disable_edge_propagation: params.disable_edge_propagation,
@@ -288,7 +288,7 @@ impl JsonRpcHandler {
                 "adv_set_routing_table" => {
                     let request = SetRoutingTableRequest::parse(params)?;
                     self.peer_manager_addr
-                        .send(PeerMessageRequest::SetRoutingTable(SetRoutingTable {
+                        .send(PeerManagerMessageRequest::SetRoutingTable(SetRoutingTable {
                             add_edges: request.add_edges,
                             remove_edges: request.remove_edges,
                             prune_edges: request.prune_edges,
@@ -304,9 +304,9 @@ impl JsonRpcHandler {
                     let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
 
                     self.peer_manager_addr
-                        .send(PeerMessageRequest::StartRoutingTableSync(StartRoutingTableSync {
-                            peer_id: params.peer_id,
-                        }))
+                        .send(PeerManagerMessageRequest::StartRoutingTableSync(
+                            StartRoutingTableSync { peer_id: params.peer_id },
+                        ))
                         .await?;
                     Some(
                         serde_json::to_value(())
@@ -316,7 +316,7 @@ impl JsonRpcHandler {
                 "adv_get_peer_id" => {
                     let response = self
                         .peer_manager_addr
-                        .send(PeerMessageRequest::GetPeerId(GetPeerId {}))
+                        .send(PeerManagerMessageRequest::GetPeerId(GetPeerId {}))
                         .await?;
                     Some(
                         serde_json::to_value(response.as_peer_id_result())
@@ -326,7 +326,7 @@ impl JsonRpcHandler {
                 "adv_get_routing_table" => {
                     let result = self
                         .peer_manager_addr
-                        .send(PeerMessageRequest::GetRoutingTable(GetRoutingTable {}))
+                        .send(PeerManagerMessageRequest::GetRoutingTable(GetRoutingTable {}))
                         .await?;
                     Some(
                         serde_json::to_value(result.as_get_routing_table_result())

@@ -12,7 +12,7 @@ mod tests {
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::PeerMessageRequest;
+    use near_network::types::PeerManagerMessageRequest;
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::types::{AccountId, BlockHeight};
@@ -78,7 +78,7 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 false,
                 Arc::new(RwLock::new(Box::new(
-                    move |from_whom: AccountId, msg: &PeerMessageRequest| {
+                    move |from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                         let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                             all_blocks.write().unwrap();
                         let mut final_block_heights = final_block_heights.write().unwrap();

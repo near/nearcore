@@ -41,11 +41,11 @@ use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
-    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo, PeerManagerRequest,
-    PeerMessage, PeerMessageRequest, PeerRequest, PeerResponse, PeerStatsResult, PeerStatus,
-    PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan, RoutedMessage,
-    RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, Unregister,
-    UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
+    NetworkViewClientResponses, PeerChainInfo, PeerChainInfoV2, PeerInfo,
+    PeerManagerMessageRequest, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse,
+    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
+    ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
+    StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
 use crate::PeerManagerActor;
 use crate::{
@@ -437,14 +437,14 @@ impl Peer {
                 match res {
                     Ok(NetworkViewClientResponses::TxStatus(tx_result)) => {
                         let body = Box::new(RoutedMessageBody::TxStatusResponse(*tx_result));
-                        act.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                        act.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                             PeerRequest::RouteBack(body, msg_hash.unwrap()),
                         ));
                     }
                     Ok(NetworkViewClientResponses::QueryResponse { query_id, response }) => {
                         let body =
                             Box::new(RoutedMessageBody::QueryResponse { query_id, response });
-                        act.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                        act.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                             PeerRequest::RouteBack(body, msg_hash.unwrap()),
                         ));
                     }
@@ -457,7 +457,7 @@ impl Peer {
                                 RoutedMessageBody::VersionedStateResponse(state_response)
                             }
                         };
-                        act.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                        act.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                             PeerRequest::RouteBack(Box::new(body), msg_hash.unwrap()),
                         ));
                     }
@@ -630,7 +630,7 @@ impl Peer {
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
                 self.last_time_received_message_update = Instant::now();
-                self.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                self.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                     PeerRequest::ReceivedMessage(peer_id, self.last_time_received_message_update),
                 ));
             }
@@ -668,12 +668,12 @@ impl Actor for Peer {
         debug!(target: "network", "{:?}: Peer {} disconnected. {:?}", self.node_info.id, self.peer_info, self.peer_status);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if let PeerStatus::Banned(ban_reason) = self.peer_status {
-                self.peer_manager_addr.do_send(PeerMessageRequest::Ban(Ban {
+                self.peer_manager_addr.do_send(PeerManagerMessageRequest::Ban(Ban {
                     peer_id: peer_info.id.clone(),
                     ban_reason,
                 }));
             } else {
-                self.peer_manager_addr.do_send(PeerMessageRequest::Unregister(Unregister {
+                self.peer_manager_addr.do_send(PeerManagerMessageRequest::Unregister(Unregister {
                     peer_id: peer_info.id.clone(),
                     peer_type: self.peer_type,
                     // If the PeerActor is no longer in the Connecting state this means
@@ -813,7 +813,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     }
                     HandshakeFailureReason::InvalidTarget => {
                         debug!(target: "network", "Peer found was not what expected. Updating peer info with {:?}", peer_info);
-                        self.peer_manager_addr.do_send(PeerMessageRequest::PeerRequest(
+                        self.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                             PeerRequest::UpdatePeerInfo(peer_info),
                         ));
                     }
@@ -891,7 +891,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 };
                 self.chain_info = handshake.chain_info.clone();
                 self.peer_manager_addr
-                    .send(PeerMessageRequest::Consolidate(Consolidate {
+                    .send(PeerManagerMessageRequest::Consolidate(Consolidate {
                         actor: ctx.address(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
@@ -943,7 +943,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 }
 
                 self.peer_manager_addr
-                    .send(PeerMessageRequest::PeerRequest(PeerRequest::UpdateEdge((
+                    .send(PeerManagerMessageRequest::PeerRequest(PeerRequest::UpdateEdge((
                         self.peer_id().unwrap(),
                         edge.next(),
                     ))))
@@ -969,7 +969,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
-                self.peer_manager_addr.send(PeerMessageRequest::PeersRequest(PeersRequest {})).into_actor(self).then(|res, act, _ctx| {
+                self.peer_manager_addr.send(PeerManagerMessageRequest::PeersRequest(PeersRequest {})).into_actor(self).then(|res, act, _ctx| {
                     if let Ok(peers) = res.map(|f|f.as_peers_request_result()) {
                         if !peers.peers.is_empty() {
                             debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
@@ -982,14 +982,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr
-                    .do_send(PeerMessageRequest::PeersResponse(PeersResponse { peers }));
+                    .do_send(PeerManagerMessageRequest::PeersResponse(PeersResponse { peers }));
             }
             (_, PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .peer_manager_addr
-                .send(PeerMessageRequest::NetworkRequests(NetworkRequests::RequestUpdateNonce(
-                    self.peer_id().unwrap(),
-                    edge_info,
-                )))
+                .send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::RequestUpdateNonce(self.peer_id().unwrap(), edge_info),
+                ))
                 .into_actor(self)
                 .then(|res, act, ctx| {
                     match res.map(|f| f.as_network_response()) {
@@ -1006,9 +1005,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::ResponseUpdateNonce(edge)) => self
                 .peer_manager_addr
-                .send(PeerMessageRequest::NetworkRequests(NetworkRequests::ResponseUpdateNonce(
-                    edge,
-                )))
+                .send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::ResponseUpdateNonce(edge),
+                ))
                 .into_actor(self)
                 .then(|res, act, ctx| {
                     match res.map(|f| f.as_network_response()) {
@@ -1021,13 +1020,13 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                 })
                 .spawn(ctx),
             (_, PeerStatus::Ready, PeerMessage::RoutingTableSync(sync_data)) => {
-                self.peer_manager_addr.do_send(PeerMessageRequest::NetworkRequests(
+                self.peer_manager_addr.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::Sync { peer_id: self.peer_id().unwrap(), sync_data },
                 ));
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
-                self.peer_manager_addr.do_send(PeerMessageRequest::NetworkRequests(
+                self.peer_manager_addr.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::IbfMessage {
                         peer_id: self.peer_id().unwrap(),
                         ibf_msg: ibf_message,
@@ -1042,7 +1041,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr
-                        .send(PeerMessageRequest::RoutedMessageFrom(RoutedMessageFrom {
+                        .send(PeerManagerMessageRequest::RoutedMessageFrom(RoutedMessageFrom {
                             msg: routed_message.clone(),
                             from: self.peer_id().unwrap(),
                         }))

@@ -51,10 +51,11 @@ use crate::types::{
     FullPeerInfo, GetRoutingTable, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
     KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests,
     NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerMessageRequest,
-    PeerMessageResponse, PeerRequest, PeerResponse, PeerType, PeersRequest, PeersResponse, Ping,
-    Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody,
-    RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData, Unregister,
+    PeerIdOrHash, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
+    PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData,
+    Unregister,
 };
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -1055,7 +1056,7 @@ impl PeerManagerActor {
                 }
 
                 self.outgoing_peers.insert(peer_info.id.clone());
-                ctx.notify(PeerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
                     peer_info,
                 }));
             } else {
@@ -1423,9 +1424,11 @@ impl Actor for PeerManagerActor {
                                 < max_num_peers + LIMIT_PENDING_PEERS
                             {
                                 pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
-                                return future::ready(Some(PeerMessageRequest::InboundTcpConnect(
-                                    InboundTcpConnect::new(conn),
-                                )));
+                                return future::ready(Some(
+                                    PeerManagerMessageRequest::InboundTcpConnect(
+                                        InboundTcpConnect::new(conn),
+                                    ),
+                                ));
                             }
                         }
 
@@ -2116,62 +2119,80 @@ impl PeerManagerActor {
     }
 }
 
-impl Handler<PeerMessageRequest> for PeerManagerActor {
-    type Result = PeerMessageResponse;
+impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
+    type Result = PeerManagerMessageResponse;
 
     #[perf]
-    fn handle(&mut self, msg: PeerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         match msg {
-            PeerMessageRequest::RoutedMessageFrom(msg) => {
-                PeerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg, ctx))
+            PeerManagerMessageRequest::RoutedMessageFrom(msg) => {
+                PeerManagerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg, ctx))
             }
-            PeerMessageRequest::NetworkRequests(msg) => {
-                PeerMessageResponse::NetworkResponses(self.handle_msg_network_requests(msg, ctx))
+            PeerManagerMessageRequest::NetworkRequests(msg) => {
+                PeerManagerMessageResponse::NetworkResponses(
+                    self.handle_msg_network_requests(msg, ctx),
+                )
             }
-            PeerMessageRequest::Consolidate(msg) => {
-                PeerMessageResponse::ConsolidateResponse(self.handle_msg_consolidate(msg, ctx))
+            PeerManagerMessageRequest::Consolidate(msg) => {
+                PeerManagerMessageResponse::ConsolidateResponse(
+                    self.handle_msg_consolidate(msg, ctx),
+                )
             }
-            PeerMessageRequest::PeersRequest(msg) => {
-                PeerMessageResponse::PeerRequestResult(self.handle_msg_peers_request(msg, ctx))
+            PeerManagerMessageRequest::PeersRequest(msg) => {
+                PeerManagerMessageResponse::PeerRequestResult(
+                    self.handle_msg_peers_request(msg, ctx),
+                )
             }
-            PeerMessageRequest::PeersResponse(msg) => {
-                PeerMessageResponse::PeersResponseResult(self.handle_msg_peers_response(msg, ctx))
+            PeerManagerMessageRequest::PeersResponse(msg) => {
+                PeerManagerMessageResponse::PeersResponseResult(
+                    self.handle_msg_peers_response(msg, ctx),
+                )
             }
-            PeerMessageRequest::PeerRequest(msg) => {
-                PeerMessageResponse::PeerResponse(self.handle_msg_peer_request(msg, ctx))
+            PeerManagerMessageRequest::PeerRequest(msg) => {
+                PeerManagerMessageResponse::PeerResponse(self.handle_msg_peer_request(msg, ctx))
             }
-            PeerMessageRequest::GetPeerId(msg) => {
-                PeerMessageResponse::GetPeerIdResult(self.handle_msg_get_peer_id(msg, ctx))
+            PeerManagerMessageRequest::GetPeerId(msg) => {
+                PeerManagerMessageResponse::GetPeerIdResult(self.handle_msg_get_peer_id(msg, ctx))
             }
-            PeerMessageRequest::OutboundTcpConnect(msg) => PeerMessageResponse::OutboundTcpConnect(
-                self.handle_msg_outbound_tcp_connect(msg, ctx),
-            ),
-            PeerMessageRequest::InboundTcpConnect(msg) => PeerMessageResponse::InboundTcpConnect(
-                self.handle_msg_inbound_tcp_connect(msg, ctx),
-            ),
-            PeerMessageRequest::Unregister(msg) => {
-                PeerMessageResponse::Unregister(self.handle_msg_unregister(msg, ctx))
+            PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
+                PeerManagerMessageResponse::OutboundTcpConnect(
+                    self.handle_msg_outbound_tcp_connect(msg, ctx),
+                )
             }
-            PeerMessageRequest::Ban(msg) => PeerMessageResponse::Ban(self.handle_msg_ban(msg, ctx)),
+            PeerManagerMessageRequest::InboundTcpConnect(msg) => {
+                PeerManagerMessageResponse::InboundTcpConnect(
+                    self.handle_msg_inbound_tcp_connect(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::Unregister(msg) => {
+                PeerManagerMessageResponse::Unregister(self.handle_msg_unregister(msg, ctx))
+            }
+            PeerManagerMessageRequest::Ban(msg) => {
+                PeerManagerMessageResponse::Ban(self.handle_msg_ban(msg, ctx))
+            }
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            PeerMessageRequest::StartRoutingTableSync(msg) => {
-                PeerMessageResponse::StartRoutingTableSync(
+            PeerManagerMessageRequest::StartRoutingTableSync(msg) => {
+                PeerManagerMessageResponse::StartRoutingTableSync(
                     self.handle_msg_start_routing_table_sync(msg, ctx),
                 )
             }
             #[cfg(feature = "test_features")]
-            PeerMessageRequest::SetAdvOptions(msg) => {
-                PeerMessageResponse::SetAdvOptions(self.handle_msg_set_adv_options(msg, ctx))
+            PeerManagerMessageRequest::SetAdvOptions(msg) => {
+                PeerManagerMessageResponse::SetAdvOptions(self.handle_msg_set_adv_options(msg, ctx))
             }
             #[cfg(feature = "test_features")]
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-            PeerMessageRequest::SetRoutingTable(msg) => {
-                PeerMessageResponse::SetRoutingTable(self.handle_msg_set_routing_table(msg, ctx))
+            PeerManagerMessageRequest::SetRoutingTable(msg) => {
+                PeerManagerMessageResponse::SetRoutingTable(
+                    self.handle_msg_set_routing_table(msg, ctx),
+                )
             }
-            PeerMessageRequest::GetRoutingTable(msg) => PeerMessageResponse::GetRoutingTableResult(
-                self.handle_msg_get_routing_table(msg, ctx),
-            ),
+            PeerManagerMessageRequest::GetRoutingTable(msg) => {
+                PeerManagerMessageResponse::GetRoutingTableResult(
+                    self.handle_msg_get_routing_table(msg, ctx),
+                )
+            }
         }
     }
 }

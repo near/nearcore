@@ -8,7 +8,7 @@ use near_actix_test_utils::run_actix;
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, Query, ViewClientActor};
 use near_logger_utils::init_integration_logger;
-use near_network::types::PeerMessageRequest;
+use near_network::types::PeerManagerMessageRequest;
 use near_network::{NetworkResponses, PeerInfo};
 use near_primitives::types::BlockReference;
 use near_primitives::views::{QueryRequest, QueryResponseKind::ViewAccount};
@@ -45,9 +45,11 @@ fn test_keyvalue_runtime_balances() {
             vec![false; validators.iter().map(|x| x.len()).sum()],
             vec![true; validators.iter().map(|x| x.len()).sum()],
             false,
-            Arc::new(RwLock::new(Box::new(move |_account_id: _, _msg: &PeerMessageRequest| {
-                (NetworkResponses::NoResponse.into(), true)
-            }))),
+            Arc::new(RwLock::new(Box::new(
+                move |_account_id: _, _msg: &PeerManagerMessageRequest| {
+                    (NetworkResponses::NoResponse.into(), true)
+                },
+            ))),
         );
         *connectors.write().unwrap() = conn;
 
@@ -98,7 +100,7 @@ mod tests {
     use near_client::{ClientActor, Query, ViewClientActor};
     use near_crypto::{InMemorySigner, KeyType};
     use near_logger_utils::init_integration_logger;
-    use near_network::types::{PeerMessageRequest, PeerMessageResponse};
+    use near_network::types::{PeerManagerMessageRequest, PeerManagerMessageResponse};
     use near_network::{NetworkClientMessages, NetworkClientResponses, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
@@ -451,8 +453,13 @@ mod tests {
                 vec![false; validators.iter().map(|x| x.len()).sum()],
                 true,
                 Arc::new(RwLock::new(Box::new(
-                    move |_account_id: _, _msg: &PeerMessageRequest| {
-                        (PeerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
+                    move |_account_id: _, _msg: &PeerManagerMessageRequest| {
+                        (
+                            PeerManagerMessageResponse::NetworkResponses(
+                                NetworkResponses::NoResponse,
+                            ),
+                            true,
+                        )
                     },
                 ))),
             );

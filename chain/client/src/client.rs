@@ -22,7 +22,7 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_chunks::{ProcessPartialEncodedChunkResult, ShardsManager};
-use near_network::types::{PartialEncodedChunkResponseMsg, PeerMessageRequest};
+use near_network::types::{PartialEncodedChunkResponseMsg, PeerManagerMessageRequest};
 use near_network::{
     FullPeerInfo, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
     EPOCH_SYNC_PEER_TIMEOUT_MS, EPOCH_SYNC_REQUEST_TIMEOUT_MS,
@@ -192,7 +192,7 @@ impl Client {
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
-            self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
             self.last_time_head_progress_made = Instant::now();
@@ -675,7 +675,7 @@ impl Client {
             for body in challenges.write().unwrap().drain(..) {
                 let challenge = Challenge::produce(body, &**validator_signer);
                 self.challenges.insert(challenge.hash, challenge.clone());
-                self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::Challenge(challenge),
                 ));
             }
@@ -737,7 +737,7 @@ impl Client {
             match &result {
                 Err(e) => match e.kind() {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
-                        self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
                                 ChallengeBody::ChunkProofs(*chunk_proofs),
                                 &**validator_signer,
@@ -745,7 +745,7 @@ impl Client {
                         ));
                     }
                     near_chain::ErrorKind::InvalidChunkState(chunk_state) => {
-                        self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                             NetworkRequests::Challenge(Challenge::produce(
                                 ChallengeBody::ChunkState(*chunk_state),
                                 &**validator_signer,
@@ -783,7 +783,7 @@ impl Client {
 
     pub fn rebroadcast_block(&mut self, block: Block) {
         if self.rebroadcasted_blocks.cache_get(&block.hash()).is_none() {
-            self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
             self.rebroadcasted_blocks.cache_set(*block.hash(), ());
@@ -951,7 +951,7 @@ impl Client {
         } else {
             debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer.clone(), approval.target_height);
             let approval_message = ApprovalMessage::new(approval, next_block_producer);
-            self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Approval { approval_message },
             ));
         }
@@ -1418,7 +1418,7 @@ impl Client {
             );
 
             // Send message to network to actually forward transaction.
-            self.network_adapter.do_send(PeerMessageRequest::NetworkRequests(
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::ForwardTx(validator, tx.clone()),
             ));
         }
