@@ -395,7 +395,7 @@ pub struct RoutingTable {
     waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
     last_ping_nonce: SizedCache<PeerId, usize>,
-    /// First component nonce id that doesn't been used to. Used for creating new components.
+    /// First component nonce id that hasn't been used. Used for creating new components.
     pub next_available_component_nonce: u64,
 }
 
@@ -616,7 +616,7 @@ impl RoutingTable {
     }
 
     /// Add several edges to the current view of the network.
-    /// These edges are assumed to be valid at this point.
+    /// These edges are assumed to have their signature verified at this point.
     /// Return true if some of the edges contains new information to the network.
     pub fn add_verified_edges_to_routing_table(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
