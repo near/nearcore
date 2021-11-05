@@ -52,7 +52,7 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit * 2);
 
-    logic.gas(op_limit * 2).expect_err("should fail with gas limit");
+    logic.gas(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
@@ -66,7 +66,7 @@ fn test_cant_burn_more_than_prepaid_gas() {
     let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 2);
     let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
 
-    logic.gas(op_limit * 2).expect_err("should fail with gas limit");
+    logic.gas(op_limit * 3).expect_err("should fail with gas limit");
     let outcome = logic.outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
