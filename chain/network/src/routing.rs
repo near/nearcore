@@ -31,7 +31,6 @@ use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, WriteBytesExt};
 use near_crypto::{KeyType, SecretKey, Signature};
-use std::hash::{Hash, Hasher};
 
 const ANNOUNCE_ACCOUNT_CACHE_SIZE: usize = 10_000;
 const ROUTE_BACK_CACHE_SIZE: u64 = 100_000;
@@ -90,14 +89,6 @@ pub struct Edge {
     /// The bool says which party is removing the edge: false for Peer0, true for Peer1
     /// The signature from the party removing the edge.
     removal_info: Option<(bool, Signature)>,
-}
-
-impl Hash for Edge {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.peer0.0.try_to_vec().unwrap());
-        state.write(&self.peer1.0.try_to_vec().unwrap());
-        state.write_u64(self.nonce)
-    }
 }
 
 impl Edge {
