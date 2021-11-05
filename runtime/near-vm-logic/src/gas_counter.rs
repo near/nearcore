@@ -133,7 +133,9 @@ impl GasCounter {
     fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> VMLogicError {
         use std::cmp::min;
         if new_used_gas > self.prepaid_gas {
-            self.fast_counter.burnt_gas = min(new_burnt_gas, self.prepaid_gas);
+            // Ensure that contract never burn more than `max_gas_burnt`, even if paid for more.
+            let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
+            self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
             // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
             // no promises will be kept, but that would mean protocol change.
             // See https://github.com/near/nearcore/issues/5148.
