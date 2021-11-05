@@ -395,7 +395,7 @@ pub struct RoutingTable {
     waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
     last_ping_nonce: SizedCache<PeerId, usize>,
-    /// Last nonce used to store edges on disk.
+    /// First component nonce id that doesn't been used to. Used for creating new components.
     pub next_available_component_nonce: u64,
 }
 
