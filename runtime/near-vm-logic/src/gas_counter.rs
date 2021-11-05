@@ -114,14 +114,14 @@ impl GasCounter {
             self.promises_gas = new_promises_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas))
+            Err(self.process_gas_limit(new_burnt_gas, new_used_gas))
         }
     }
 
     #[inline(always)]
-    fn process_gas_limit(&mut self, new_burnt_gas: u64) -> VMLogicError {
-        if new_burnt_gas + self.promises_gas > self.prepaid_gas {
-            use std::cmp::min;
+    fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> VMLogicError {
+        use std::cmp::min;
+        if new_used_gas > self.prepaid_gas {
             self.fast_counter.burnt_gas = min(new_burnt_gas, self.prepaid_gas);
             // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
             // no promises will be kept, but that would mean protocol change.
@@ -131,7 +131,7 @@ impl GasCounter {
             self.promises_gas = self.prepaid_gas - self.fast_counter.burnt_gas;
             HostError::GasExceeded.into()
         } else {
-            self.fast_counter.burnt_gas = self.max_gas_burnt;
+            self.fast_counter.burnt_gas = min(new_burnt_gas, self.max_gas_burnt);
             self.promises_gas = 0;
             HostError::GasLimitExceeded.into()
         }
@@ -145,7 +145,7 @@ impl GasCounter {
             self.fast_counter.burnt_gas = new_burnt_gas;
             Ok(())
         } else {
-            Err(self.process_gas_limit(new_burnt_gas))
+            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas))
         }
     }
 
