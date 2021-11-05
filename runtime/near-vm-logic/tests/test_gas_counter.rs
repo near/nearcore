@@ -56,6 +56,7 @@ fn test_cant_burn_more_than_max_gas_burnt_gas() {
     let outcome = logic.outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
+    assert_eq!(outcome.used_gas, gas_limit * 2);
 }
 
 #[test]
@@ -70,6 +71,39 @@ fn test_cant_burn_more_than_prepaid_gas() {
     let outcome = logic.outcome();
 
     assert_eq!(outcome.burnt_gas, gas_limit);
+    assert_eq!(outcome.used_gas, gas_limit);
+}
+
+#[test]
+fn test_hit_max_gas_burnt_limit() {
+    let gas_limit = 10u64.pow(14);
+    let op_limit = op_limit(gas_limit);
+
+    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit);
+    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit * 3);
+
+    promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
+    logic.gas(op_limit * 2).expect_err("should fail with gas limit");
+    let outcome = logic.outcome();
+
+    assert_eq!(outcome.burnt_gas, gas_limit);
+    assert!(outcome.used_gas > gas_limit * 2);
+}
+
+#[test]
+fn test_hit_prepaid_gas_limit() {
+    let gas_limit = 10u64.pow(14);
+    let op_limit = op_limit(gas_limit);
+
+    let mut logic_builder = VMLogicBuilder::default().max_gas_burnt(gas_limit * 3);
+    let mut logic = logic_builder.build_with_prepaid_gas(gas_limit);
+
+    promise_create(&mut logic, b"rick.test", 0, gas_limit / 2).expect("should create a promise");
+    logic.gas(op_limit * 2).expect_err("should fail with gas limit");
+    let outcome = logic.outcome();
+
+    assert_eq!(outcome.burnt_gas, gas_limit);
+    assert_eq!(outcome.used_gas, gas_limit);
 }
 
 impl VMLogicBuilder {
