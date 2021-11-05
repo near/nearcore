@@ -2,7 +2,7 @@ use near_vm_errors::{
     CompilationError, FunctionCallError, HostError, MethodResolveError, PrepareError, VMError,
     WasmTrap,
 };
-use near_vm_logic::{ReturnData, VMOutcome};
+use near_vm_logic::VMOutcome;
 
 use crate::cache::MockCompiledContractCache;
 use crate::tests::{
@@ -11,16 +11,22 @@ use crate::tests::{
 };
 use crate::VMKind;
 
-fn vm_outcome_with_gas(gas: u64) -> VMOutcome {
-    VMOutcome {
-        balance: 4,
-        storage_usage: 12,
-        return_data: ReturnData::None,
-        burnt_gas: gas,
-        used_gas: gas,
-        logs: vec![],
-        profile: Default::default(),
+#[track_caller]
+fn gas_and_error_match(
+    outcome_and_error: (Option<VMOutcome>, Option<VMError>),
+    expected_gas: Option<u64>,
+    expected_error: Option<VMError>,
+) {
+    match expected_gas {
+        Some(gas) => {
+            let outcome = outcome_and_error.0.unwrap();
+            assert_eq!(outcome.used_gas, gas, "used gas differs");
+            assert_eq!(outcome.burnt_gas, gas, "burnt gas differs");
+        }
+        None => assert!(outcome_and_error.0.is_none()),
     }
+
+    assert_eq!(outcome_and_error.1, expected_error);
 }
 
 fn infinite_initializer_contract() -> Vec<u8> {
@@ -40,14 +46,10 @@ fn infinite_initializer_contract() -> Vec<u8> {
 #[test]
 fn test_infinite_initializer() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&infinite_initializer_contract(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(100000000000000)),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GasExceeded
-                )))
-            )
+            Some(100000000000000),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
 }
@@ -55,14 +57,12 @@ fn test_infinite_initializer() {
 #[test]
 fn test_infinite_initializer_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&infinite_initializer_contract(), "hello2", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodNotFound,
+            ))),
         );
     });
 }
@@ -82,9 +82,10 @@ fn simple_contract() -> Vec<u8> {
 #[test]
 fn test_simple_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "hello", vm_kind),
-            (Some(vm_outcome_with_gas(43032213)), None),
+            Some(43032213),
+            None,
         );
     });
 }
@@ -130,14 +131,12 @@ fn test_multiple_memories() {
 #[test]
 fn test_export_not_found() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "hello2", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodNotFound,
+            ))),
         );
     });
 }
@@ -145,14 +144,12 @@ fn test_export_not_found() {
 #[test]
 fn test_empty_method() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&simple_contract(), "", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodEmptyName
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodEmptyName,
+            ))),
         );
     });
 }
@@ -178,14 +175,10 @@ fn test_trap_contract() {
             // Restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&trap_contract(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(47105334)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    WasmTrap::Unreachable
-                )))
-            )
+            Some(47105334),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         )
     })
 }
@@ -213,14 +206,10 @@ fn test_trap_initializer() {
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&trap_initializer(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(47755584)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    WasmTrap::Unreachable
-                )))
-            )
+            Some(47755584),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(WasmTrap::Unreachable))),
         );
     });
 }
@@ -251,14 +240,12 @@ fn test_div_by_zero_contract() {
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&div_by_zero_contract(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(59758197)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    WasmTrap::IllegalArithmetic
-                )))
-            )
+            Some(59758197),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                WasmTrap::IllegalArithmetic,
+            ))),
         )
     })
 }
@@ -291,14 +278,12 @@ fn test_float_to_int_contract() {
             VMKind::Wasmtime => return,
         }
         for index in 0..=3 {
-            assert_eq!(
+            gas_and_error_match(
                 make_simple_contract_call_vm(&float_to_int_contract(index), "hello", vm_kind),
-                (
-                    Some(vm_outcome_with_gas(56985576)),
-                    Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                        WasmTrap::IllegalArithmetic
-                    )))
-                )
+                Some(56985576),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::IllegalArithmetic,
+                ))),
             )
         }
     })
@@ -332,14 +317,12 @@ fn test_indirect_call_to_null_contract() {
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&indirect_call_to_null_contract(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(57202326)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    WasmTrap::IndirectCallToNull
-                )))
-            )
+            Some(57202326),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                WasmTrap::IndirectCallToNull,
+            ))),
         )
     })
 }
@@ -376,18 +359,16 @@ fn test_indirect_call_to_wrong_signature_contract() {
             // Check if can restore, once get rid of Wasmer 0.x.
             VMKind::Wasmtime => return,
         }
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(
                 &indirect_call_to_wrong_signature_contract(),
                 "hello",
-                vm_kind
+                vm_kind,
             ),
-            (
-                Some(vm_outcome_with_gas(61970826)),
-                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                    WasmTrap::IncorrectCallIndirectSignature
-                )))
-            )
+            Some(61970826),
+            Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                WasmTrap::IncorrectCallIndirectSignature,
+            ))),
         )
     })
 }
@@ -407,14 +388,12 @@ fn wrong_signature_contract() -> Vec<u8> {
 #[test]
 fn test_wrong_signature_contract() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&wrong_signature_contract(), "hello", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodInvalidSignature
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodInvalidSignature,
+            ))),
         );
     });
 }
@@ -433,14 +412,12 @@ fn export_wrong_type() -> Vec<u8> {
 #[test]
 fn test_export_wrong_type() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&export_wrong_type(), "hello", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
-                    MethodResolveError::MethodNotFound
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::MethodResolveError(
+                MethodResolveError::MethodNotFound,
+            ))),
         );
     });
 }
@@ -461,14 +438,12 @@ fn guest_panic() -> Vec<u8> {
 #[test]
 fn test_guest_panic() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&guest_panic(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(315341445)),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GuestPanic { panic_msg: "explicit guest panic".to_string() }
-                )))
-            )
+            Some(315341445),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic {
+                panic_msg: "explicit guest panic".to_string(),
+            }))),
         );
     });
 }
@@ -491,14 +466,12 @@ fn test_stack_overflow() {
         // We only test trapping tests on Wasmer, as of version 0.17, when tests executed in parallel,
         // Wasmer signal handlers may catch signals thrown from the Wasmtime, and produce fake failing tests.
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 => assert_eq!(
+            VMKind::Wasmer0 | VMKind::Wasmer2 => gas_and_error_match(
                 make_simple_contract_call_vm(&stack_overflow(), "hello", vm_kind),
-                (
-                    Some(vm_outcome_with_gas(63226248177)),
-                    Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
-                        WasmTrap::Unreachable
-                    )))
-                )
+                Some(63226248177),
+                Some(VMError::FunctionCallError(FunctionCallError::WasmTrap(
+                    WasmTrap::Unreachable,
+                ))),
             ),
             VMKind::Wasmtime => {}
         }
@@ -527,14 +500,10 @@ fn memory_grow() -> Vec<u8> {
 #[test]
 fn test_memory_grow() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&memory_grow(), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(100000000000000)),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GasExceeded
-                )))
-            )
+            Some(100000000000000),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
 }
@@ -573,14 +542,12 @@ fn bad_import_func(env: &str) -> Vec<u8> {
 // Invalid import from "env" -> LinkError
 fn test_bad_import_1() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_global("wtf"), "hello", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Instantiate)
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Instantiate),
+            ))),
         )
     });
 }
@@ -588,14 +555,12 @@ fn test_bad_import_1() {
 #[test]
 fn test_bad_import_2() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_func("wtf"), "hello", vm_kind),
-            (
-                None,
-                Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
-                    CompilationError::PrepareError(PrepareError::Instantiate)
-                )))
-            )
+            None,
+            Some(VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::Instantiate),
+            ))),
         );
     });
 }
@@ -608,12 +573,10 @@ fn test_bad_import_3() {
             VMKind::Wasmtime => "\"incompatible import type for `env::input` specified\\ndesired signature was: Global(GlobalType { content: I32, mutability: Const })\\nsignatures available:\\n\\n  * Func(FuncType { sig: WasmFuncType { params: [I64], returns: [] } })\\n\"",
             VMKind::Wasmer2 => "Error while importing \"env\".\"input\": incompatible import type. Expected Global(GlobalType { ty: I32, mutability: Const }) but received Function(FunctionType { params: [I64], results: [] })",
         }.to_string();
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_global("env"), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(46500213)),
-                Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg }))
-            )
+            Some(46500213),
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg })),
         );
     });
 }
@@ -627,12 +590,10 @@ fn test_bad_import_4() {
             VMKind::Wasmer2 => "Error while importing \"env\".\"wtf\": unknown import. Expected Function(FunctionType { params: [], results: [] })",
         }
         .to_string();
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&bad_import_func("env"), "hello", vm_kind),
-            (
-                Some(vm_outcome_with_gas(45849963)),
-                Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg }))
-            )
+            Some(45849963),
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: msg })),
         );
     });
 }
@@ -653,19 +614,15 @@ fn some_initializer_contract() -> Vec<u8> {
 #[test]
 fn test_initializer_no_gas() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_with_gas_vm(
                 &some_initializer_contract(),
                 "hello",
                 0,
                 vm_kind,
             ),
-            (
-                Some(vm_outcome_with_gas(0)),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GasExceeded
-                )))
-            )
+            Some(0),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
 }
@@ -696,7 +653,9 @@ fn bad_many_imports() -> Vec<u8> {
 fn test_bad_many_imports() {
     with_vm_variants(|vm_kind: VMKind| {
         let result = make_simple_contract_call_vm(&bad_many_imports(), "hello", vm_kind);
-        assert_eq!(result.0, Some(vm_outcome_with_gas(299664213)));
+        let outcome = result.0.unwrap();
+        assert_eq!(outcome.used_gas, 299664213);
+        assert_eq!(outcome.burnt_gas, 299664213);
         if let Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg })) = result.1 {
             eprintln!("{}", msg);
             assert!(msg.len() < 1000, "Huge error message: {}", msg.len());
@@ -723,9 +682,10 @@ fn external_call_contract() -> Vec<u8> {
 #[test]
 fn test_external_call_ok() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
+        gas_and_error_match(
             make_simple_contract_call_vm(&external_call_contract(), "hello", vm_kind),
-            (Some(vm_outcome_with_gas(321582066)), None)
+            Some(321582066),
+            None,
         );
     });
 }
@@ -733,14 +693,10 @@ fn test_external_call_ok() {
 #[test]
 fn test_external_call_error() {
     with_vm_variants(|vm_kind: VMKind| {
-        assert_eq!(
-            make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind,),
-            (
-                Some(vm_outcome_with_gas(100)),
-                Some(VMError::FunctionCallError(FunctionCallError::HostError(
-                    HostError::GasExceeded
-                )))
-            )
+        gas_and_error_match(
+            make_simple_contract_call_with_gas_vm(&external_call_contract(), "hello", 100, vm_kind),
+            Some(100),
+            Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GasExceeded))),
         );
     });
 }
@@ -769,8 +725,7 @@ fn test_external_call_indirect() {
     with_vm_variants(|vm_kind: VMKind| {
         let (outcome, err) =
             make_simple_contract_call_vm(&external_indirect_call_contract(), "main", vm_kind);
-        assert_eq!(err, None);
-        assert_eq!(outcome, Some(vm_outcome_with_gas(334541937)));
+        gas_and_error_match((outcome, err), Some(334541937), None);
     });
 }
 
