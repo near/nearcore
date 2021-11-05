@@ -111,6 +111,12 @@ impl RoutingTableTest {
             let edge = res.unwrap();
             assert_eq!(edge.edge_type(), *edge_type);
         }
+        let active_edges = on_memory
+            .iter()
+            .filter_map(|x| if x.2 == EdgeType::Added { Some(1) } else { None })
+            .count();
+
+        assert_eq!(active_edges, self.routing_table.raw_graph.total_active_edges as usize);
         assert_eq!(on_memory.len(), self.routing_table.edges_info.len());
 
         // Check for peers on disk
