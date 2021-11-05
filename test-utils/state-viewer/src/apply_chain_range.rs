@@ -47,12 +47,9 @@ fn old_outcomes(
         .collect()
 }
 
-fn maybe_add_to_csv(csv_file_mutex: &Arc<Mutex<Option<&mut File>>>, s: &str) {
-    let csv_file_mutex = Arc::clone(csv_file_mutex);
+fn maybe_add_to_csv(csv_file_mutex: &Mutex<Option<&mut File>>, s: &str) {
     let mut csv_file = csv_file_mutex.lock().unwrap();
-    let csv_file = csv_file.as_mut();
-    if let Some(csv_file) = csv_file {
-        let csv_file: &mut File = csv_file;
+    if let Some(csv_file) = csv_file.as_mut() {
         write!(csv_file, "{}\n", s).unwrap();
     }
 }
