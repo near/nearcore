@@ -118,7 +118,18 @@ impl GasCounter {
         }
     }
 
-    #[inline(always)]
+    // Optimized version of above function for cases where no promises involved.
+    pub fn burn_gas(&mut self, value: Gas) -> Result<()> {
+        let new_burnt_gas =
+            self.fast_counter.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
+        if new_burnt_gas <= self.fast_counter.gas_limit {
+            self.fast_counter.burnt_gas = new_burnt_gas;
+            Ok(())
+        } else {
+            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas))
+        }
+    }
+
     fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> VMLogicError {
         use std::cmp::min;
         if new_used_gas > self.prepaid_gas {
@@ -134,18 +145,6 @@ impl GasCounter {
             self.fast_counter.burnt_gas = min(new_burnt_gas, self.max_gas_burnt);
             self.promises_gas = 0;
             HostError::GasLimitExceeded.into()
-        }
-    }
-
-    // Optimized version of above function for cases where no promises involved.
-    pub fn burn_gas(&mut self, value: Gas) -> Result<()> {
-        let new_burnt_gas =
-            self.fast_counter.burnt_gas.checked_add(value).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.fast_counter.gas_limit {
-            self.fast_counter.burnt_gas = new_burnt_gas;
-            Ok(())
-        } else {
-            Err(self.process_gas_limit(new_burnt_gas, new_burnt_gas + self.promises_gas))
         }
     }
 
