@@ -409,8 +409,8 @@ pub enum FindRouteError {
 
 impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
-        // Find greater nonce on disk and set `component_nonce` to this value.
-        let component_nonce = store
+        // Find greater nonce on disk and set `next_available_component_nonce` to this value.
+        let next_available_component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
@@ -432,7 +432,7 @@ impl RoutingTable {
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            next_available_component_nonce: component_nonce,
+            next_available_component_nonce,
         }
     }
 

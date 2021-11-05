@@ -405,8 +405,8 @@ impl PeerManagerActor {
         let target_peer_id = full_peer_info.peer_info.id.clone();
 
         let new_edge = Edge::new(
-            self.my_peer_id.clone(), // source
-            target_peer_id.clone(),  // target
+            self.my_peer_id.clone(),
+            target_peer_id.clone(),
             edge_info.nonce,
             edge_info.signature,
             full_peer_info.edge_info.signature.clone(),
