@@ -507,12 +507,7 @@ fn main() {
                         .required(false)
                         .takes_value(false),
                 )
-                .arg(
-                    Arg::with_name("csv_file")
-                        .long("csv_file")
-                        .required(false)
-                        .takes_value(true),
-                )
+                .arg(Arg::with_name("csv_file").long("csv_file").required(false).takes_value(true))
                 .help("apply blocks at a range of heights for a single shard"),
         )
         .subcommand(
@@ -689,7 +684,6 @@ fn main() {
             if let Some(filename) = csv_filename {
                 csv_file = Some(std::fs::File::create(filename).unwrap());
             }
-
 
             let runtime = NightshadeRuntime::with_config(
                 &home_dir,
