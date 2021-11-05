@@ -348,18 +348,18 @@ impl PeerManagerActor {
         addr: Addr<Peer>,
         ctx: &mut Context<Self>,
     ) {
-        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act2, ctx2| {
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
             if peer_type == PeerType::Inbound {
-                act2.routing_table_pool
+                act.routing_table_pool
                     .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
-                    .into_actor(act2)
-                    .map(move |response, act3, _ctx3| match response {
+                    .into_actor(act)
+                    .map(move |response, act, _ctx| match response {
                         Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
-                            act3.start_routing_table_syncv2(addr, seed)
+                            act.start_routing_table_syncv2(addr, seed)
                         }
                         _ => error!(target: "network", "expected AddIbfSetResponse"),
                     })
-                    .spawn(ctx2);
+                    .spawn(ctx);
             }
         });
     }
@@ -438,18 +438,18 @@ impl PeerManagerActor {
                 return;
             }
         );
-        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act2, ctx2| {
-            act2.routing_table_pool
+        near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
+            act.routing_table_pool
                 .send(RoutingTableMessages::RequestRoutingTable)
-                .into_actor(act2)
-                .map(move |response, act3, ctx3| match response {
+                .into_actor(act)
+                .map(move |response, act, ctx| match response {
                     Ok(RoutingTableMessagesResponse::RequestRoutingTableResponse {
                         edges_info: routing_table,
                     }) => {
-                        act3.send_sync(
+                        act.send_sync(
                             peer_type,
                             addr,
-                            ctx3,
+                            ctx,
                             target_peer_id.clone(),
                             new_edge,
                             routing_table,
@@ -457,7 +457,7 @@ impl PeerManagerActor {
                     }
                     _ => error!(target: "network", "expected AddIbfSetResponse"),
                 })
-                .spawn(ctx2);
+                .spawn(ctx);
         });
     }
 
@@ -788,18 +788,18 @@ impl PeerManagerActor {
             near_performance_metrics::actix::run_later(
                 ctx,
                 UPDATE_ROUTING_TABLE_INTERVAL,
-                |act2, ctx2| {
-                    act2.scheduled_routing_table_update = false;
+                |act, ctx| {
+                    act.scheduled_routing_table_update = false;
                     // We only want to save prune edges if there are no pending requests to EdgeVerifier
 
                     #[cfg(feature = "test_features")]
-                    let cond = act2.edge_verifier_requests_in_progress == 0
-                        && !act2.adv_disable_edge_pruning;
+                    let cond = act.edge_verifier_requests_in_progress == 0
+                        && !act.adv_disable_edge_pruning;
                     #[cfg(not(feature = "test_features"))]
-                    let cond = act2.edge_verifier_requests_in_progress == 0;
+                    let cond = act.edge_verifier_requests_in_progress == 0;
 
-                    act2.update_routing_table_and_prune_edges(
-                        ctx2,
+                    act.update_routing_table_and_prune_edges(
+                        ctx,
                         cond,
                         false,
                         SAVE_PEERS_AFTER_TIME,
@@ -2295,7 +2295,7 @@ impl PeerManagerActor {
         self.routing_table_pool
             .send(RoutingTableMessages::ProcessIbfMessage { peer_id: peer_id.clone(), ibf_msg })
             .into_actor(self)
-            .map(move |response, _act2: &mut PeerManagerActor, _ctx2| match response {
+            .map(move |response, _act: &mut PeerManagerActor, _ctx| match response {
                 Ok(RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                     ibf_msg: response_ibf_msg,
                 }) => {
