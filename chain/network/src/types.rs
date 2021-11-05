@@ -632,7 +632,7 @@ impl PeerMessageResponse {
         if let PeerMessageResponse::NetworkResponses(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkRequests(");
+            panic!("expected PeerMessageRequest::NetworkResponses(");
         }
     }
 
@@ -640,7 +640,7 @@ impl PeerMessageResponse {
         if let PeerMessageResponse::ConsolidateResponse(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkRequests(");
+            panic!("expected PeerMessageRequest::ConsolidateResponse(");
         }
     }
 
@@ -648,7 +648,7 @@ impl PeerMessageResponse {
         if let PeerMessageResponse::PeerRequestResult(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkRequests(");
+            panic!("expected PeerMessageRequest::PeerRequestResult(");
         }
     }
 
@@ -656,7 +656,7 @@ impl PeerMessageResponse {
         if let PeerMessageResponse::PeerResponse(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkRequests(");
+            panic!("expected PeerMessageRequest::PeerResponse(");
         }
     }
 
@@ -664,7 +664,7 @@ impl PeerMessageResponse {
         if let PeerMessageResponse::GetPeerIdResult(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkRequests(");
+            panic!("expected PeerMessageRequest::GetPeerIdResult(");
         }
     }
 
@@ -672,7 +672,7 @@ impl PeerMessageResponse {
         if let PeerMessageResponse::GetRoutingTableResult(item) = self {
             item
         } else {
-            panic!("expected PeerMessageRequest::NetworkRequests(");
+            panic!("expected PeerMessageRequest::GetRoutingTableResult(");
         }
     }
 }
