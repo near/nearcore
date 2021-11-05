@@ -13,7 +13,7 @@ use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardU
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::ProtocolVersion;
+use near_primitives::types::{BlockHeight, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::QueryRequest;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus};
@@ -176,6 +176,55 @@ impl TestShardUpgradeEnv {
         let block = self.env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         for account_id in accounts {
             check_account(&mut self.env, account_id, &block)
+        }
+    }
+
+    fn check_next_block_with_new_chunk(&mut self, height: BlockHeight) {
+        let block = self.env.clients[0].chain.get_block_by_height(height).unwrap().clone();
+        let block_hash = block.hash();
+        let num_shards = block.chunks().len();
+        for shard_id in 0..num_shards {
+            let mut last_block_hash_with_empty_chunk = match self.env.clients[0]
+                .chain
+                .get_next_block_hash_with_new_chunk(block_hash, shard_id as ShardId)
+                .unwrap()
+            {
+                Some((new_block_hash, target_shard_id)) => {
+                    let new_block =
+                        self.env.clients[0].chain.get_block(&new_block_hash).unwrap().clone();
+                    let chunks = new_block.chunks();
+                    // check that the target chunk in the new block is not empty
+                    assert_eq!(
+                        chunks.get(target_shard_id as usize).unwrap().height_included(),
+                        new_block.header().height(),
+                    );
+                    if chunks.len() == num_shards {
+                        assert_eq!(target_shard_id, shard_id as ShardId);
+                    }
+                    new_block.header().prev_hash().clone()
+                }
+                None => self.env.clients[0].chain.head().unwrap().last_block_hash.clone(),
+            };
+            // check that the target chunks in all prev blocks are empty
+            while &last_block_hash_with_empty_chunk != block_hash {
+                let last_block = self.env.clients[0]
+                    .chain
+                    .get_block(&last_block_hash_with_empty_chunk)
+                    .unwrap()
+                    .clone();
+                let chunks = last_block.chunks();
+                if chunks.len() == num_shards {
+                    assert_ne!(
+                        chunks.get(shard_id).unwrap().height_included(),
+                        last_block.header().height()
+                    );
+                } else {
+                    for chunk in chunks.iter() {
+                        assert_ne!(chunk.height_included(), last_block.header().height());
+                    }
+                }
+                last_block_hash_with_empty_chunk = last_block.header().prev_hash().clone();
+            }
         }
     }
 
@@ -606,11 +655,19 @@ fn test_shard_layout_upgrade_missing_chunks(p_missing: f64) {
 
     for _ in 3..3 * epoch_length {
         test_env.step(p_missing);
+        let last_height = test_env.env.clients[0].chain.head().unwrap().height;
+        for height in last_height - 3..=last_height {
+            test_env.check_next_block_with_new_chunk(height);
+        }
     }
 
     // make sure all included transactions finished processing
     for _ in 3 * epoch_length..5 * epoch_length {
         test_env.step(0.);
+        let last_height = test_env.env.clients[0].chain.head().unwrap().height;
+        for height in last_height - 3..=last_height {
+            test_env.check_next_block_with_new_chunk(height);
+        }
     }
 
     let successful_txs = test_env.check_tx_outcomes(true, vec![2 * epoch_length + 1]);

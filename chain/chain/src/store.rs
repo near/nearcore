@@ -233,13 +233,6 @@ pub trait ChainStoreAccess {
     /// Get destination shard id for receipt id.
     fn get_shard_id_for_receipt_id(&mut self, receipt_id: &CryptoHash) -> Result<&ShardId, Error>;
 
-    /// For a given block and a given shard, get the next block hash where a new chunk for the shard is included.
-    fn get_next_block_hash_with_new_chunk(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<Option<&CryptoHash>, Error>;
-
     fn get_last_block_with_new_chunk(
         &mut self,
         shard_id: ShardId,
@@ -1068,20 +1061,6 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_next_block_hash_with_new_chunk(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_id: u64,
-    ) -> Result<Option<&CryptoHash>, Error> {
-        read_with_cache(
-            &*self.store,
-            ColNextBlockWithNewChunk,
-            &mut self.next_block_with_new_chunk,
-            &get_block_shard_id(block_hash, shard_id),
-        )
-        .map_err(|e| e.into())
-    }
-
     fn get_last_block_with_new_chunk(
         &mut self,
         shard_id: u64,
@@ -1557,20 +1536,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(shard_id)
         } else {
             self.chain_store.get_shard_id_for_receipt_id(receipt_id)
-        }
-    }
-
-    fn get_next_block_hash_with_new_chunk(
-        &mut self,
-        block_hash: &CryptoHash,
-        shard_id: u64,
-    ) -> Result<Option<&CryptoHash>, Error> {
-        if let Some(hash) =
-            self.chain_store_cache_update.next_block_with_new_chunk.get(&(*block_hash, shard_id))
-        {
-            Ok(Some(hash))
-        } else {
-            self.chain_store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
         }
     }
 

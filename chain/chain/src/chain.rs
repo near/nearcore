@@ -2542,8 +2542,46 @@ impl Chain {
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<Option<&CryptoHash>, Error> {
-        self.store.get_next_block_hash_with_new_chunk(block_hash, shard_id)
+    ) -> Result<Option<(CryptoHash, ShardId)>, Error> {
+        let mut block_hash = block_hash.clone();
+        let mut epoch_id = self.get_block_header(&block_hash)?.epoch_id().clone();
+        let mut shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
+        let mut shard_ids = vec![shard_id];
+
+        while let Ok(next_block_hash) = self.store.get_next_block_hash(&block_hash) {
+            let next_block_hash = next_block_hash.clone();
+            let next_epoch_id = self.get_block_header(&next_block_hash)?.epoch_id().clone();
+            if next_epoch_id != epoch_id {
+                let next_shard_layout = self.runtime_adapter.get_shard_layout(&next_epoch_id)?;
+                if next_shard_layout != shard_layout {
+                    shard_ids = shard_ids
+                        .into_iter()
+                        .flat_map(|id| {
+                            next_shard_layout.get_split_shards(id).unwrap_or_else(|| {
+                                panic!("invalid shard layout {:?} because it does not contain split shards for parent shard {}", next_shard_layout, id)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .map(|shard_uid| shard_uid.shard_id())
+                        .collect();
+
+                    shard_layout = next_shard_layout;
+                }
+                epoch_id = next_epoch_id;
+            }
+            block_hash = next_block_hash;
+
+            let block = self.get_block(&block_hash)?;
+            let chunks = block.chunks();
+            for &shard_id in shard_ids.iter() {
+                if chunks[shard_id as usize].height_included() == block.header().height() {
+                    return Ok(Some((block_hash, shard_id)));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Returns underlying ChainStore.
