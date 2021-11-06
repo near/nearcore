@@ -49,22 +49,16 @@ impl Into<io::Error> for DBError {
 #[derive(PartialEq, Debug, Copy, Clone, EnumIter, BorshDeserialize, BorshSerialize, Hash, Eq)]
 pub enum DBCol {
     /// Column to indicate which version of database this is.
-    /// Rows:
-    ///    - single row ("VERSION")
-    /// Content type:
-    ///    - The version of the database (u32), serialized as JSON.
+    /// - *Rows*: single row [VERSION_KEY]
+    /// - *Content type*: The version of the database (u32), serialized as JSON.
     ColDbVersion = 0,
-    // Column that store Misc cells.
-    /// Rows:
-    ///     - multiple, for example "GENESIS_JSON_HASH", "HEAD_KEY" etc.
-    /// Content type:
-    ///     - cell specific.
+    /// Column that store Misc cells.
+    /// - *Rows*: multiple, for example "GENESIS_JSON_HASH", "HEAD_KEY", [LATEST_KNOWN_KEY] etc.
+    /// - *Content type*: cell specific.
     ColBlockMisc = 1,
-    // Column that stores Block content. 
-    // Rows:
-    //    - block hash
-    // Content type:
-    //    - near_primitives::Block
+    /// Column that stores Block content. 
+    /// - *Rows*: block hash
+    /// - *Content type*: [near_primitives::block::Block]
     ColBlock = 2,
     ColBlockHeader = 3,
     ColBlockHeight = 4,
@@ -100,23 +94,17 @@ pub enum DBCol {
     ColNextBlockWithNewChunk = 28,
     ColLastBlockWithNewChunk = 29,
     /// Network related: Map each saved peer on disk with its component id (a.k.a. nonce).
-    /// Rows:
-    ///   - peer_id
-    /// Column type:
-    ///   - u64
+    /// - *Rows*: peer_id
+    /// - *Column type*:  u64
     ColPeerComponent = 30,
     /// Network related: Map component id  (a.k.a. nonce) with all edges in this component. 
     /// These are all the edges that were purged and persisted to disk at the same time.
-    /// Rows:
-    ///   - nonce
-    /// Column type:
-    ///   - Vec<routing::Edge>
+    /// - *Rows*: nonce
+    /// - *Column type*: `Vec<near_network::routing::Edge>` 
     ColComponentEdges = 31,
     /// Network related: Biggest component id (a.k.a nonce) used. 
-    /// Rows:
-    ///    - single row (empty row name)
-    /// Column type:
-    ///    - u64
+    /// - *Rows*: single row (empty row name)
+    /// - *Column type*: u64
     ColLastComponentNonce = 32,
     /// Map if transactions (key is transaction hash)
     ColTransactions = 33,
