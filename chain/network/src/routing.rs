@@ -589,7 +589,6 @@ impl RoutingTable {
         }
     }
 
-    #[cfg(feature = "test_features")]
     pub fn remove_edges(&mut self, edges: &Vec<Edge>) {
         for edge in edges.iter() {
             let key = (edge.peer0.clone(), edge.peer1.clone());
@@ -777,16 +776,18 @@ impl RoutingTable {
         }
 
         let component_nonce = index_to_bytes(component_nonce);
-        let mut edges_to_remove = vec![];
-
-        self.edges_info.retain(|(peer0, peer1), edge| {
-            if to_save.contains(peer0) || to_save.contains(peer1) {
-                edges_to_remove.push(edge.clone());
-                false
-            } else {
-                true
-            }
-        });
+        let edges_to_remove = self
+            .edges_info
+            .iter()
+            .filter_map(|((peer0, peer1), edge)| {
+                if to_save.contains(peer0) || to_save.contains(peer1) {
+                    Some(edge.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        self.remove_edges(&edges_to_remove);
 
         let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
