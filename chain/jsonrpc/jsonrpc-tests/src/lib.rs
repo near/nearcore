@@ -1,5 +1,3 @@
-#[cfg(feature = "test_features")]
-use actix::Actor;
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use serde_json::json;
@@ -9,9 +7,9 @@ use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_jsonrpc_primitives::message::{from_slice, Message};
-use near_network::test_utils::open_port;
 #[cfg(feature = "test_features")]
-use near_network::test_utils::{make_peer_manager, make_routing_table_actor};
+use near_network::test_utils::make_peer_manager_routing_table_addr_pair;
+use near_network::test_utils::open_port;
 use near_primitives::types::NumBlocks;
 
 lazy_static::lazy_static! {
@@ -48,17 +46,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     let addr = format!("127.0.0.1:{}", open_port());
 
     #[cfg(feature = "test_features")]
-    let routing_table_addr = make_routing_table_actor();
-    #[cfg(feature = "test_features")]
-    let peer_manager_addr = make_peer_manager(
-        "test2",
-        open_port(),
-        vec![("test1", open_port())],
-        10,
-        routing_table_addr.clone(),
-    )
-    .0
-    .start();
+    let (peer_manager_addr, routing_table_addr) = make_peer_manager_routing_table_addr_pair();
 
     start_http(
         RpcConfig::new(&addr),

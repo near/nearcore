@@ -7,6 +7,7 @@ use std::time::Duration;
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, System};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt, TryFutureExt};
+use tracing::debug;
 
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::KeyValueRuntime;
@@ -16,13 +17,16 @@ use near_client::{start_client, start_view_client};
 use near_crypto::KeyType;
 use near_logger_utils::init_test_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, make_routing_table_actor, open_port,
-    peer_id_from_seed, BanPeerSignal, GetInfo, StopSignal, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, peer_id_from_seed, BanPeerSignal,
+    GetInfo, StopSignal, WaitOrTimeout,
 };
 
+use near_network::routing_table_actor::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
-use near_network::types::{OutboundTcpConnect, PeerManagerMessageRequest, ROUTED_MESSAGE_TTL};
+use near_network::types::{
+    OutboundTcpConnect, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
+};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
@@ -96,7 +100,9 @@ pub fn setup_network_node(
             adv.clone(),
         );
 
-        let routing_table_addr = make_routing_table_actor();
+        let routing_table_addr =
+            start_routing_table_actor(config.public_key.clone().into(), store.clone());
+
         PeerManagerActor::new(
             store.clone(),
             config,
@@ -204,52 +210,55 @@ impl StateMachine {
                     },
                 ));
             }
-            Action::CheckRoutingTable(u, expected) => self.actions.push(Box::new(
-                move |info: SharedRunningInfo,
-                      flag: Arc<AtomicBool>,
-                      _ctx: &mut Context<WaitOrTimeout>,
-                      _runner| {
-                    let expected = expected
-                        .clone()
-                        .into_iter()
-                        .map(|(target, routes)| {
-                            (
-                                info.read().unwrap().peers_info[target].id.clone(),
-                                routes
-                                    .into_iter()
-                                    .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
-                                    .collect(),
-                            )
-                        })
-                        .collect();
-
-                    actix::spawn(
-                        info.read()
-                            .unwrap()
-                            .pm_addr
-                            .get(u)
-                            .unwrap()
-                            .send(PeerManagerMessageRequest::NetworkRequests(
-                                NetworkRequests::FetchRoutingTable,
-                            ))
-                            .map_err(|_| ())
-                            .and_then(move |res| {
-                                if let NetworkResponses::RoutingTableInfo(routing_table) =
-                                    res.as_network_response()
-                                {
-                                    if expected_routing_tables(
-                                        routing_table.peer_forwarding,
-                                        expected,
-                                    ) {
-                                        flag.store(true, Ordering::Relaxed);
-                                    }
-                                }
-                                future::ok(())
+            Action::CheckRoutingTable(u, expected) => {
+                debug!(target: "network", "Action::CheckRoutingTable {} {:?}", u, expected);
+                self.actions.push(Box::new(
+                    move |info: SharedRunningInfo,
+                          flag: Arc<AtomicBool>,
+                          _ctx: &mut Context<WaitOrTimeout>,
+                          _runner| {
+                        let expected = expected
+                            .clone()
+                            .into_iter()
+                            .map(|(target, routes)| {
+                                (
+                                    info.read().unwrap().peers_info[target].id.clone(),
+                                    routes
+                                        .into_iter()
+                                        .map(|hop| info.read().unwrap().peers_info[hop].id.clone())
+                                        .collect(),
+                                )
                             })
-                            .map(drop),
-                    );
-                },
-            )),
+                            .collect();
+
+                        actix::spawn(
+                            info.read()
+                                .unwrap()
+                                .pm_addr
+                                .get(u)
+                                .unwrap()
+                                .send(PeerManagerMessageRequest::NetworkRequests(
+                                    NetworkRequests::FetchRoutingTable,
+                                ))
+                                .map_err(|_| ())
+                                .and_then(move |res: PeerManagerMessageResponse| {
+                                    if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                        res.as_network_response()
+                                    {
+                                        if expected_routing_tables(
+                                            (routing_table.peer_forwarding).clone(),
+                                            expected,
+                                        ) {
+                                            flag.store(true, Ordering::Relaxed);
+                                        }
+                                    }
+                                    future::ok(())
+                                })
+                                .map(drop),
+                        );
+                    },
+                ))
+            }
             Action::CheckAccountId(source, known_validators) => {
                 self.actions.push(Box::new(
                     move |info: SharedRunningInfo,

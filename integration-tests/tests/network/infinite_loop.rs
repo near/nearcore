@@ -9,9 +9,9 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
-use near_network::test_utils::{
-    convert_boot_nodes, make_routing_table_actor, open_port, GetInfo, WaitOrTimeout,
-};
+
+use near_network::routing_table_actor::start_routing_table_actor;
+use near_network::test_utils::{convert_boot_nodes, open_port, GetInfo, WaitOrTimeout};
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
 };
@@ -61,7 +61,11 @@ pub fn make_peer_manager(
         }
     }))
     .start();
-    let routing_table_addr = make_routing_table_actor();
+
+    let net_config = NetworkConfig::from_seed(seed, port);
+    let routing_table_addr =
+        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+
     let peer_id = config.public_key.clone().into();
     (
         PeerManagerActor::new(

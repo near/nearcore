@@ -13,6 +13,7 @@ use near_chain::ChainGenesis;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_network::routing_table_actor::start_routing_table_actor;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::start_rosetta_rpc;
@@ -35,7 +36,6 @@ use crate::migrations::{
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use near_network::test_utils::make_routing_table_actor;
 
 pub mod append_only_map;
 pub mod config;
@@ -344,7 +344,8 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify();
     let network_config = config.network_config;
-    let routing_table_addr = make_routing_table_actor();
+    let routing_table_addr =
+        start_routing_table_actor(network_config.public_key.clone().into(), store.clone());
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
     let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {

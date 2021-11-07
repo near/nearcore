@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use actix::dev::MessageResponse;
-use actix::{Actor, Handler, Message, SyncContext, System};
+use actix::{Actor, Addr, Context, Handler, Message, System};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use tracing::error;
 
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
+use near_store::Store;
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::ibf::{Ibf, IbfBox};
@@ -51,7 +53,7 @@ impl Handler<StopMsg> for RoutingTableActor {
 }
 
 impl Actor for RoutingTableActor {
-    type Context = SyncContext<Self>;
+    type Context = Context<Self>;
 }
 
 #[derive(Debug)]
@@ -119,6 +121,16 @@ impl RoutingTableActor {
         let (known, unknown_edges) = self.split_edges_for_peer(&peer_id, &edge_hashes);
 
         (known, unknown_edges, unknown_edges_count)
+    }
+}
+
+impl RoutingTableActor {
+    pub fn new(_my_peer_id: PeerId, _store: Arc<Store>) -> Self {
+        Self {
+            edges_info: Default::default(),
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            peer_ibf_set: Default::default(),
+        }
     }
 }
 
@@ -308,4 +320,8 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
             }
         }
     }
+}
+
+pub fn start_routing_table_actor(peer_id: PeerId, store: Arc<Store>) -> Addr<RoutingTableActor> {
+    RoutingTableActor::new(peer_id, store).start()
 }

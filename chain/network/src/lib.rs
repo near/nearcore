@@ -20,7 +20,7 @@ mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
 pub mod routing;
-mod routing_table_actor;
+pub mod routing_table_actor;
 pub mod test_utils;
 pub mod types;
 pub mod utils;
