@@ -22,7 +22,7 @@ use near_network::test_utils::{
 
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
-use near_network::types::{OutboundTcpConnect, ROUTED_MESSAGE_TTL};
+use near_network::types::{OutboundTcpConnect, PeerManagerMessageRequest, ROUTED_MESSAGE_TTL};
 use near_network::utils::blacklist_from_iter;
 use near_network::{
     NetworkConfig, NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
@@ -160,12 +160,12 @@ impl StateMachine {
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[target].clone();
                         actix::spawn(
-                            addr.send(SetAdvOptions {
+                            addr.send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
                                 disable_edge_signature_verification: None,
                                 disable_edge_propagation: None,
                                 disable_edge_pruning: None,
                                 set_max_peers: max_num_peers,
-                            })
+                            }))
                             .then(move |res| match res {
                                 Ok(_) => {
                                     flag.store(true, Ordering::Relaxed);
@@ -187,8 +187,11 @@ impl StateMachine {
                           _runner| {
                         let addr = info.read().unwrap().pm_addr[u].clone();
                         let peer_info = info.read().unwrap().peers_info[v].clone();
-                        actix::spawn(addr.send(OutboundTcpConnect { peer_info }).then(
-                            move |res| match res {
+                        actix::spawn(
+                            addr.send(PeerManagerMessageRequest::OutboundTcpConnect(
+                                OutboundTcpConnect { peer_info },
+                            ))
+                            .then(move |res| match res {
                                 Ok(_) => {
                                     flag.store(true, Ordering::Relaxed);
                                     future::ready(())
@@ -196,8 +199,8 @@ impl StateMachine {
                                 Err(e) => {
                                     panic!("Error adding edge. {:?}", e);
                                 }
-                            },
-                        ));
+                            }),
+                        );
                     },
                 ));
             }
@@ -226,10 +229,14 @@ impl StateMachine {
                             .pm_addr
                             .get(u)
                             .unwrap()
-                            .send(NetworkRequests::FetchRoutingTable)
+                            .send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::FetchRoutingTable,
+                            ))
                             .map_err(|_| ())
                             .and_then(move |res| {
-                                if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                    res.as_network_response()
+                                {
                                     if expected_routing_tables(
                                         routing_table.peer_forwarding,
                                         expected,
@@ -261,10 +268,14 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(NetworkRequests::FetchRoutingTable)
+                                .send(PeerManagerMessageRequest::NetworkRequests(
+                                    NetworkRequests::FetchRoutingTable,
+                                ))
                                 .map_err(|_| ())
                                 .and_then(move |res| {
-                                    if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                                    if let NetworkResponses::RoutingTableInfo(routing_table) =
+                                        res.as_network_response()
+                                    {
                                         if expected_known.into_iter().all(|validator| {
                                             routing_table.account_peers.contains_key(&validator)
                                         }) {
@@ -285,8 +296,11 @@ impl StateMachine {
                           _ctx: &mut Context<WaitOrTimeout>,
                           _runner| {
                         let target = info.read().unwrap().peers_info[target].id.clone();
-                        let _ = info.read().unwrap().pm_addr[source]
-                            .do_send(NetworkRequests::PingTo(nonce, target));
+                        let _ = info.read().unwrap().pm_addr[source].do_send(
+                            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::PingTo(
+                                nonce, target,
+                            )),
+                        );
                         flag.store(true, Ordering::Relaxed);
                     },
                 ));
@@ -354,10 +368,14 @@ impl StateMachine {
                                 .pm_addr
                                 .get(source)
                                 .unwrap()
-                                .send(NetworkRequests::FetchPingPongInfo)
+                                .send(PeerManagerMessageRequest::NetworkRequests(
+                                    NetworkRequests::FetchPingPongInfo,
+                                ))
                                 .map_err(|_| ())
                                 .and_then(move |res| {
-                                    if let NetworkResponses::PingPongInfo { pings, pongs } = res {
+                                    if let NetworkResponses::PingPongInfo { pings, pongs } =
+                                        res.as_network_response()
+                                    {
                                         let ping_ok = pings.len() == pings_expected.len()
                                             && pings_expected.into_iter().all(
                                                 |(nonce, source, count)| {
@@ -782,10 +800,14 @@ pub fn check_direct_connection(node_id: usize, target_id: usize) -> ActionFn {
                 info.pm_addr
                     .get(node_id)
                     .unwrap()
-                    .send(NetworkRequests::FetchRoutingTable)
+                    .send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::FetchRoutingTable,
+                    ))
                     .map_err(|_| ())
                     .and_then(move |res| {
-                        if let NetworkResponses::RoutingTableInfo(routing_table) = res {
+                        if let NetworkResponses::RoutingTableInfo(routing_table) =
+                            res.as_network_response()
+                        {
                             if let Some(routes) = routing_table.peer_forwarding.get(&target_peer_id)
                             {
                                 if routes.contains(&target_peer_id) {

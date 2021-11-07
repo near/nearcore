@@ -36,8 +36,6 @@ use rand::thread_rng;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::{PeerStore, TrustLevel};
-#[cfg(feature = "test_features")]
-use crate::routing::SetAdvOptionsResult;
 use crate::{metrics, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
 use crate::routing::{
@@ -46,18 +44,20 @@ use crate::routing::{
 };
 
 use crate::edge_verifier::EdgeVerifier;
+#[cfg(feature = "test_features")]
+use crate::types::SetAdvOptions;
 use crate::types::{
     AccountOrPeerIdOrHash, Ban, BlockedPorts, Consolidate, ConsolidateResponse, EdgeList,
     FullPeerInfo, GetRoutingTable, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
     KnownProducer, NetworkClientMessages, NetworkConfig, NetworkInfo, NetworkRequests,
     NetworkResponses, NetworkViewClientMessages, NetworkViewClientResponses, OutboundTcpConnect,
-    PeerIdOrHash, PeerInfo, PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg,
-    SyncData, Unregister,
+    PeerIdOrHash, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse,
+    PeerManagerRequest, PeerMessage, PeerRequest, PeerResponse, PeerType, PeersRequest,
+    PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, RoutedMessageFrom, SendMessage, StateResponseInfo, StopMsg, SyncData,
+    Unregister,
 };
-#[cfg(feature = "test_features")]
-use crate::types::{GetPeerId, GetPeerIdResult, SetAdvOptions};
+use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingState, RoutingSyncV2, RoutingVersion2};
 
@@ -1056,7 +1056,9 @@ impl PeerManagerActor {
                 }
 
                 self.outgoing_peers.insert(peer_info.id.clone());
-                ctx.notify(OutboundTcpConnect { peer_info });
+                ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect {
+                    peer_info,
+                }));
             } else {
                 self.query_active_peers_for_more_peers(ctx);
             }
@@ -1422,7 +1424,11 @@ impl Actor for PeerManagerActor {
                                 < max_num_peers + LIMIT_PENDING_PEERS
                             {
                                 pending_incoming_connections_counter.fetch_add(1, Ordering::SeqCst);
-                                return future::ready(Some(InboundTcpConnect::new(conn)));
+                                return future::ready(Some(
+                                    PeerManagerMessageRequest::InboundTcpConnect(
+                                        InboundTcpConnect::new(conn),
+                                    ),
+                                ));
                             }
                         }
 
@@ -1469,11 +1475,13 @@ impl Actor for PeerManagerActor {
     }
 }
 
-impl Handler<NetworkRequests> for PeerManagerActor {
-    type Result = NetworkResponses;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_msg_network_requests(
+        &mut self,
+        msg: NetworkRequests,
+        ctx: &mut Context<Self>,
+    ) -> NetworkResponses {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("network request {}", msg.as_ref()).into());
         match msg {
@@ -1817,11 +1825,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
     }
 }
 
-impl Handler<InboundTcpConnect> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
+    fn handle_msg_inbound_tcp_connect(&mut self, msg: InboundTcpConnect, ctx: &mut Context<Self>) {
         {
             #[cfg(feature = "delay_detector")]
             let _d = DelayDetector::new("inbound tcp connect".into());
@@ -1839,12 +1845,13 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
 
 #[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
-    type Result = ();
-
-    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: crate::types::StartRoutingTableSync, ctx: &mut Self::Context) {
+    fn handle_msg_start_routing_table_sync(
+        &mut self,
+        msg: crate::types::StartRoutingTableSync,
+        ctx: &mut Context<Self>,
+    ) {
         if let Some(active_peer) = self.active_peers.get(&msg.peer_id) {
             let addr = active_peer.addr.clone();
             self.initialize_routing_table_exchange(msg.peer_id, PeerType::Inbound, addr, ctx);
@@ -1853,11 +1860,9 @@ impl Handler<crate::types::StartRoutingTableSync> for PeerManagerActor {
 }
 
 #[cfg(feature = "test_features")]
-impl Handler<SetAdvOptions> for PeerManagerActor {
-    type Result = SetAdvOptionsResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: SetAdvOptions, _ctx: &mut Self::Context) -> SetAdvOptionsResult {
+    fn handle_msg_set_adv_options(&mut self, msg: SetAdvOptions, _ctx: &mut Context<Self>) {
         if let Some(disable_edge_propagation) = msg.disable_edge_propagation {
             self.adv_disable_edge_propagation = disable_edge_propagation;
         }
@@ -1870,15 +1875,16 @@ impl Handler<SetAdvOptions> for PeerManagerActor {
         if let Some(set_max_peers) = msg.set_max_peers {
             self.config.max_num_peers = set_max_peers as u32;
         }
-        SetAdvOptionsResult {}
     }
 }
 
-impl Handler<GetRoutingTable> for PeerManagerActor {
-    type Result = GetRoutingTableResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: GetRoutingTable, _ctx: &mut Self::Context) -> GetRoutingTableResult {
+    fn handle_msg_get_routing_table(
+        &mut self,
+        msg: GetRoutingTable,
+        _ctx: &mut Context<Self>,
+    ) -> GetRoutingTableResult {
         GetRoutingTableResult {
             edges_info: self
                 .routing_table
@@ -1892,11 +1898,13 @@ impl Handler<GetRoutingTable> for PeerManagerActor {
 
 #[cfg(feature = "test_features")]
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: crate::types::SetRoutingTable, ctx: &mut Self::Context) {
+    fn handle_msg_set_routing_table(
+        &mut self,
+        msg: crate::types::SetRoutingTable,
+        ctx: &mut Context<Self>,
+    ) {
         if let Some(add_edges) = msg.add_edges {
             debug!(target: "network", "test_features add_edges {}", add_edges.len());
             self.add_verified_edges_to_routing_table(ctx, add_edges);
@@ -1912,21 +1920,24 @@ impl Handler<crate::types::SetRoutingTable> for PeerManagerActor {
     }
 }
 
-#[cfg(feature = "test_features")]
-impl Handler<GetPeerId> for PeerManagerActor {
-    type Result = GetPeerIdResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: GetPeerId, _ctx: &mut Self::Context) -> GetPeerIdResult {
+    fn handle_msg_get_peer_id(
+        &mut self,
+        msg: GetPeerId,
+        _ctx: &mut Context<Self>,
+    ) -> GetPeerIdResult {
         GetPeerIdResult { peer_id: self.peer_id.clone() }
     }
 }
 
-impl Handler<OutboundTcpConnect> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
+    fn handle_msg_outbound_tcp_connect(
+        &mut self,
+        msg: OutboundTcpConnect,
+        ctx: &mut Context<Self>,
+    ) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("outbound tcp connect".into());
         debug!(target: "network", "Trying to connect to {}", msg.peer_info);
@@ -1975,11 +1986,13 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     }
 }
 
-impl Handler<Consolidate> for PeerManagerActor {
-    type Result = ConsolidateResponse;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+    fn handle_msg_consolidate(
+        &mut self,
+        msg: Consolidate,
+        ctx: &mut Context<Self>,
+    ) -> ConsolidateResponse {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("consolidate".into());
 
@@ -2062,44 +2075,39 @@ impl Handler<Consolidate> for PeerManagerActor {
     }
 }
 
-impl Handler<Unregister> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
+    fn handle_msg_unregister(&mut self, msg: Unregister, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("unregister".into());
         self.unregister_peer(ctx, msg.peer_id, msg.peer_type, msg.remove_from_peer_store);
     }
 }
 
-impl Handler<Ban> for PeerManagerActor {
-    type Result = ();
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
+    fn handle_msg_ban(&mut self, msg: Ban, ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("ban".into());
         self.ban_peer(ctx, &msg.peer_id, msg.ban_reason);
     }
 }
 
-impl Handler<PeersRequest> for PeerManagerActor {
-    type Result = PeerRequestResult;
-
+impl PeerManagerActor {
     #[perf]
-    fn handle(&mut self, msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle_msg_peers_request(
+        &mut self,
+        msg: PeersRequest,
+        _ctx: &mut Context<Self>,
+    ) -> PeerRequestResult {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers request".into());
         PeerRequestResult { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
     }
 }
 
-impl Handler<PeersResponse> for PeerManagerActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
+impl PeerManagerActor {
+    fn handle_msg_peers_response(&mut self, msg: PeersResponse, _ctx: &mut Context<Self>) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("peers response".into());
         unwrap_or_error!(
@@ -2111,13 +2119,88 @@ impl Handler<PeersResponse> for PeerManagerActor {
     }
 }
 
-/// "Return" true if this message is for this peer and should be sent to the client.
-/// Otherwise try to route this message to the final receiver and return false.
-impl Handler<RoutedMessageFrom> for PeerManagerActor {
-    type Result = bool;
+impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
+    type Result = PeerManagerMessageResponse;
 
     #[perf]
-    fn handle(&mut self, msg: RoutedMessageFrom, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            PeerManagerMessageRequest::RoutedMessageFrom(msg) => {
+                PeerManagerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg, ctx))
+            }
+            PeerManagerMessageRequest::NetworkRequests(msg) => {
+                PeerManagerMessageResponse::NetworkResponses(
+                    self.handle_msg_network_requests(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::Consolidate(msg) => {
+                PeerManagerMessageResponse::ConsolidateResponse(
+                    self.handle_msg_consolidate(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::PeersRequest(msg) => {
+                PeerManagerMessageResponse::PeerRequestResult(
+                    self.handle_msg_peers_request(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::PeersResponse(msg) => {
+                PeerManagerMessageResponse::PeersResponseResult(
+                    self.handle_msg_peers_response(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::PeerRequest(msg) => {
+                PeerManagerMessageResponse::PeerResponse(self.handle_msg_peer_request(msg, ctx))
+            }
+            PeerManagerMessageRequest::GetPeerId(msg) => {
+                PeerManagerMessageResponse::GetPeerIdResult(self.handle_msg_get_peer_id(msg, ctx))
+            }
+            PeerManagerMessageRequest::OutboundTcpConnect(msg) => {
+                PeerManagerMessageResponse::OutboundTcpConnect(
+                    self.handle_msg_outbound_tcp_connect(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::InboundTcpConnect(msg) => {
+                PeerManagerMessageResponse::InboundTcpConnect(
+                    self.handle_msg_inbound_tcp_connect(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::Unregister(msg) => {
+                PeerManagerMessageResponse::Unregister(self.handle_msg_unregister(msg, ctx))
+            }
+            PeerManagerMessageRequest::Ban(msg) => {
+                PeerManagerMessageResponse::Ban(self.handle_msg_ban(msg, ctx))
+            }
+            #[cfg(feature = "test_features")]
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            PeerManagerMessageRequest::StartRoutingTableSync(msg) => {
+                PeerManagerMessageResponse::StartRoutingTableSync(
+                    self.handle_msg_start_routing_table_sync(msg, ctx),
+                )
+            }
+            #[cfg(feature = "test_features")]
+            PeerManagerMessageRequest::SetAdvOptions(msg) => {
+                PeerManagerMessageResponse::SetAdvOptions(self.handle_msg_set_adv_options(msg, ctx))
+            }
+            #[cfg(feature = "test_features")]
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            PeerManagerMessageRequest::SetRoutingTable(msg) => {
+                PeerManagerMessageResponse::SetRoutingTable(
+                    self.handle_msg_set_routing_table(msg, ctx),
+                )
+            }
+            PeerManagerMessageRequest::GetRoutingTable(msg) => {
+                PeerManagerMessageResponse::GetRoutingTableResult(
+                    self.handle_msg_get_routing_table(msg, ctx),
+                )
+            }
+        }
+    }
+}
+
+/// "Return" true if this message is for this peer and should be sent to the client.
+/// Otherwise try to route this message to the final receiver and return false.
+impl PeerManagerActor {
+    fn handle_msg_routed_from(&mut self, msg: RoutedMessageFrom, ctx: &mut Context<Self>) -> bool {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(
             format!("routed message from {}", strum::AsStaticRef::as_static(&msg.msg.body)).into(),
@@ -2150,28 +2233,12 @@ impl Handler<RoutedMessageFrom> for PeerManagerActor {
     }
 }
 
-impl Handler<RawRoutedMessage> for PeerManagerActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
-        #[cfg(feature = "delay_detector")]
-        let _d = DelayDetector::new(
-            format!("raw routed message {}", strum::AsStaticRef::as_static(&msg.body)).into(),
-        );
-        if let AccountOrPeerIdOrHash::AccountId(target) = msg.target {
-            self.send_message_to_account(ctx, &target, msg.body);
-        } else {
-            self.send_message_to_peer(ctx, msg);
-        }
-    }
-}
-
-impl Handler<PeerRequest> for PeerManagerActor {
-    type Result = PeerResponse;
-
-    #[perf]
-    fn handle(&mut self, msg: PeerRequest, ctx: &mut Self::Context) -> Self::Result {
+impl PeerManagerActor {
+    fn handle_msg_peer_request(
+        &mut self,
+        msg: PeerRequest,
+        ctx: &mut Context<Self>,
+    ) -> PeerResponse {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new(format!("peer request {}", msg.as_ref()).into());
         match msg {

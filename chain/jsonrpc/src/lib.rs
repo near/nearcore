@@ -41,7 +41,8 @@ use near_metrics::{Encoder, TextEncoder};
 use near_network::routing::GetRoutingTableResult;
 #[cfg(feature = "test_features")]
 use near_network::types::{
-    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
+    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
+    PeerManagerMessageRequest, SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
@@ -269,34 +270,32 @@ impl JsonRpcHandler {
                 "adv_check_store" => Some(self.adv_check_store(params).await),
                 "adv_set_options" => {
                     let params = parse_params::<SetAdvOptionsRequest>(params)?;
-                    let result = self
-                        .peer_manager_addr
-                        .send(SetAdvOptions {
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
                             disable_edge_signature_verification: params
                                 .disable_edge_signature_verification,
                             disable_edge_propagation: params.disable_edge_propagation,
                             disable_edge_pruning: params.disable_edge_pruning,
                             set_max_peers: None,
-                        })
+                        }))
                         .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
                     let request = SetRoutingTableRequest::parse(params)?;
-                    let result = self
-                        .peer_manager_addr
-                        .send(SetRoutingTable {
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::SetRoutingTable(SetRoutingTable {
                             add_edges: request.add_edges,
                             remove_edges: request.remove_edges,
                             prune_edges: request.prune_edges,
-                        })
+                        }))
                         .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
@@ -304,26 +303,33 @@ impl JsonRpcHandler {
                 "adv_start_routing_table_syncv2" => {
                     let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
 
-                    let result = self
-                        .peer_manager_addr
-                        .send(StartRoutingTableSync { peer_id: params.peer_id })
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::StartRoutingTableSync(
+                            StartRoutingTableSync { peer_id: params.peer_id },
+                        ))
                         .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_peer_id" => {
-                    let response = self.peer_manager_addr.send(GetPeerId {}).await?;
+                    let response = self
+                        .peer_manager_addr
+                        .send(PeerManagerMessageRequest::GetPeerId(GetPeerId {}))
+                        .await?;
                     Some(
-                        serde_json::to_value(response)
+                        serde_json::to_value(response.as_peer_id_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_routing_table" => {
-                    let result = self.peer_manager_addr.send(GetRoutingTable {}).await?;
+                    let result = self
+                        .peer_manager_addr
+                        .send(PeerManagerMessageRequest::GetRoutingTable(GetRoutingTable {}))
+                        .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(result.as_get_routing_table_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
