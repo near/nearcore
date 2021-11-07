@@ -10,7 +10,7 @@ use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, make_ibf_routing_pool, open_port, GetInfo, WaitOrTimeout,
+    convert_boot_nodes, make_routing_table_actor, open_port, GetInfo, WaitOrTimeout,
 };
 use near_network::types::{
     NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
@@ -61,7 +61,7 @@ pub fn make_peer_manager(
         }
     }))
     .start();
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let routing_table_addr = make_routing_table_actor();
     let peer_id = config.public_key.clone().into();
     (
         PeerManagerActor::new(
@@ -69,7 +69,7 @@ pub fn make_peer_manager(
             config,
             client_addr.recipient(),
             view_client_addr.recipient(),
-            ibf_routing_pool,
+            routing_table_addr,
         )
         .unwrap(),
         peer_id,

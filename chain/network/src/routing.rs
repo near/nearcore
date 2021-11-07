@@ -395,8 +395,8 @@ pub struct RoutingTable {
     waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
     last_ping_nonce: SizedCache<PeerId, usize>,
-    /// Last nonce used to store edges on disk.
-    pub component_nonce: u64,
+    /// First component nonce id that hasn't been used. Used for creating new components.
+    pub next_available_component_nonce: u64,
 }
 
 #[derive(Debug)]
@@ -409,8 +409,8 @@ pub enum FindRouteError {
 
 impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
-        // Find greater nonce on disk and set `component_nonce` to this value.
-        let component_nonce = store
+        // Find greater nonce on disk and set `next_available_component_nonce` to this value.
+        let next_available_component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
@@ -432,11 +432,11 @@ impl RoutingTable {
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            component_nonce,
+            next_available_component_nonce,
         }
     }
 
-    fn peer_id(&self) -> &PeerId {
+    fn my_peer_id(&self) -> &PeerId {
         &self.raw_graph.source
     }
 
@@ -549,11 +549,11 @@ impl RoutingTable {
 
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
     fn touch(&mut self, peer_id: &PeerId) {
-        if peer_id == self.peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
+        if peer_id == self.my_peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
             return;
         }
 
-        let me = self.peer_id().clone();
+        let me = self.my_peer_id().clone();
 
         if let Ok(nonce) = self.component_nonce_from_peer(peer_id.clone()) {
             let mut update = self.store.store_update();
@@ -616,9 +616,9 @@ impl RoutingTable {
     }
 
     /// Add several edges to the current view of the network.
-    /// These edges are assumed to be valid at this point.
+    /// These edges are assumed to have their signature verified at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+    pub fn add_verified_edges_to_routing_table(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
         let mut result = Vec::with_capacity(edges.len() as usize);
@@ -756,8 +756,8 @@ impl RoutingTable {
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
 
-        let component_nonce = self.component_nonce;
-        self.component_nonce += 1;
+        let component_nonce = self.next_available_component_nonce;
+        self.next_available_component_nonce += 1;
 
         let mut update = self.store.store_update();
         let _ = update.set_ser(ColLastComponentNonce, &[], &component_nonce);
@@ -795,7 +795,7 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(
+    pub fn recalculate_routing_table(
         &mut self,
         can_save_edges: bool,
         force_pruning: bool,

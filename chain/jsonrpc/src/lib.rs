@@ -232,7 +232,7 @@ struct JsonRpcHandler {
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<PeerManagerActor>,
     #[cfg(feature = "test_features")]
-    ibf_routing_pool: Addr<RoutingTableActor>,
+    routing_table_addr: Addr<RoutingTableActor>,
 }
 
 impl JsonRpcHandler {
@@ -335,7 +335,7 @@ impl JsonRpcHandler {
                 }
                 "adv_get_routing_table_new" => {
                     let result = self
-                        .ibf_routing_pool
+                        .routing_table_addr
                         .send(RoutingTableMessages::RequestRoutingTable)
                         .await?;
 
@@ -1342,7 +1342,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "test_features")] ibf_routing_pool: Addr<RoutingTableActor>,
+    #[cfg(feature = "test_features")] routing_table_addr: Addr<RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
@@ -1361,7 +1361,7 @@ pub fn start_http(
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
-                ibf_routing_pool: ibf_routing_pool.clone(),
+                routing_table_addr: routing_table_addr.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

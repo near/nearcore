@@ -6,20 +6,20 @@ use near_performance_metrics_macros::perf;
 
 use crate::types::{EdgeList, StopMsg};
 
-pub(crate) struct EdgeVerifier {}
+pub(crate) struct EdgeVerifierActor {}
 
-impl Actor for EdgeVerifier {
+impl Actor for EdgeVerifierActor {
     type Context = SyncContext<Self>;
 }
 
-impl Handler<StopMsg> for EdgeVerifier {
+impl Handler<StopMsg> for EdgeVerifierActor {
     type Result = ();
     fn handle(&mut self, _: StopMsg, _ctx: &mut Self::Context) -> Self::Result {
         System::current().stop();
     }
 }
 
-impl Handler<EdgeList> for EdgeVerifier {
+impl Handler<EdgeList> for EdgeVerifierActor {
     type Result = bool;
 
     #[perf]
