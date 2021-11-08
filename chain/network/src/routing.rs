@@ -1105,6 +1105,9 @@ mod test {
 
         assert_eq!(graph.contains_edge(&node0, &node1), false);
         assert_eq!(graph.contains_edge(&node1, &node0), false);
+
+        assert_eq!(0, graph.total_active_edges() as usize);
+        assert_eq!(0, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1121,6 +1124,9 @@ mod test {
             graph.calculate_distance(),
             vec![(node0.clone(), vec![node0.clone()])],
         ));
+
+        assert_eq!(1, graph.total_active_edges() as usize);
+        assert_eq!(2, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1135,6 +1141,9 @@ mod test {
         graph.add_edge(nodes[1].clone(), nodes[2].clone());
 
         assert!(expected_routing_tables(graph.calculate_distance(), vec![]));
+
+        assert_eq!(2, graph.total_active_edges() as usize);
+        assert_eq!(4, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1157,6 +1166,9 @@ mod test {
                 (nodes[2].clone(), vec![nodes[0].clone()]),
             ],
         ));
+
+        assert_eq!(3, graph.total_active_edges() as usize);
+        assert_eq!(6, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1180,6 +1192,9 @@ mod test {
                 (nodes[2].clone(), vec![nodes[0].clone(), nodes[1].clone()]),
             ],
         ));
+
+        assert_eq!(5, graph.total_active_edges() as usize);
+        assert_eq!(10, graph.compute_total_active_edges() as usize);
     }
 
     /// Test the following graph
@@ -1223,5 +1238,8 @@ mod test {
         }
 
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
+
+        assert_eq!(22, graph.total_active_edges() as usize);
+        assert_eq!(44, graph.compute_total_active_edges() as usize);
     }
 }
