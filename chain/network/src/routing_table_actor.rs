@@ -115,7 +115,8 @@ impl RoutingTableActor {
         }
     }
 
-    /// `add_verified_edge` add edges that have already been verified.
+    /// `add_verified_edge` adds edges, for which we already that theirs signatures
+    /// are valid (`signature0`, `signature`).
     fn add_verified_edge(&mut self, edge: Edge) -> bool {
         let key = edge.get_pair();
         if !self.is_edge_newer(&key, edge.nonce) {
