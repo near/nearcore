@@ -188,15 +188,22 @@ impl RoutingTableActor {
                             continue;
                         }
 
-                        // We remove mapping from `peer_id` to component_nonce else if
-                        // the mapping from `peer_id`, that we store in DB, points to the current nonce.
+                        // `edge = (peer_id, other_peer_id)` belongs to component that we loaded from database.
                         if let Ok(cur_nonce) = self.component_nonce_from_peer(peer_id.clone()) {
+                            // If `peer_id` belongs to current component
                             if cur_nonce == component_nonce {
+                                // Mark it as reachable and delete from database.
                                 self.peer_last_time_reachable
                                     .insert(peer_id.clone(), Instant::now() - SAVE_PEERS_MAX_TIME);
                                 update
                                     .delete(ColPeerComponent, Vec::from(peer_id.clone()).as_ref());
+                            } else {
+                                warn!("We expected `peer_id` to belong to component {}, but it belongs to {}",
+                                       component_nonce, cur_nonce);
                             }
+                        } else {
+                            warn!("We expected `peer_id` to belong to a component {}, but it doesn't belong anywhere",
+                                       component_nonce);
                         }
                     }
                     self.add_verified_edge(edge);
@@ -524,6 +531,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     edges_to_remove: edges_removed
                         .iter()
                         .filter(|p| p.contains_peer(&self.my_peer_id()))
+                        .cloned()
                         .collect(),
                     peer_forwarding: self.peer_forwarding.clone(),
                 }
