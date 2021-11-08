@@ -126,6 +126,7 @@ impl RoutingTableActor {
 
 impl RoutingTableActor {
     pub fn new(_my_peer_id: PeerId, _store: Arc<Store>) -> Self {
+        // Those areguments are for future use, will be used when we merge #5089
         Self {
             edges_info: Default::default(),
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
