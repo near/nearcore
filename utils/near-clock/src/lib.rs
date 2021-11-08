@@ -42,6 +42,7 @@ pub fn now() -> NearClock {
     })
 }
 
+// TODO: Add other methods that `SystemTime` has.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct NearClock {
     time: SystemTime,
@@ -63,6 +64,7 @@ impl NearClock {
     }
 }
 
+// TODO: Add other methods that `Duration` has.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct NearDuration {
     duration: Duration,
@@ -78,7 +80,6 @@ impl NearDuration {
     }
 }
 
-// Notice that the implementation uses the associated type `Output`.
 impl Sub for NearClock {
     type Output = NearDuration;
 
@@ -104,7 +105,7 @@ mod tests {
         let near_time2 = near_time.clone();
         sleep(Duration::from_secs(1));
 
-        thread::spawn(move || {
+        let _ = thread::spawn(move || {
             set_time_override(time_override);
 
             mock_time(near_time2);
