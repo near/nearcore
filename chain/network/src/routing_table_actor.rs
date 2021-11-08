@@ -32,8 +32,8 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Prune {
-    Allow,
-    Force,
+    PruneOncePerHour,
+    PruneNow,
     Disable,
 }
 
@@ -49,7 +49,7 @@ pub enum Prune {
 ///   - store removed edges to disk
 ///   - we currently don't store active edges to disk
 pub struct RoutingTableActor {
-    /// Data structure with all edges.
+    /// Data structure with all edges. It's guaranteed that `peer.0` < `peer.1`.
     pub edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -240,7 +240,7 @@ impl RoutingTableActor {
 
         let edges_to_remove = if prune != Prune::Disable {
             self.prune_unreachable_edges_and_save_to_db(
-                prune == Prune::Force,
+                prune == Prune::PruneNow,
                 prune_edges_not_reachable_for,
             )
         } else {
