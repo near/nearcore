@@ -20,7 +20,7 @@ use near_store::{
     StoreUpdate,
 };
 
-use crate::routing::cache::RouteBackCache;
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::stats::metrics;
 use crate::PeerInfo;
 use crate::{
