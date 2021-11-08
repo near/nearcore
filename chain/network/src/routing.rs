@@ -437,7 +437,7 @@ impl RoutingTable {
     }
 
     fn my_peer_id(&self) -> &PeerId {
-        &self.raw_graph.source
+        &self.raw_graph.my_peer_id
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -876,23 +876,34 @@ pub struct RoutingTableInfo {
     pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
 }
 
+/// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
+/// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
+/// to that are on the shortest path between us as destination `peer`.
 #[derive(Clone)]
 pub struct Graph {
-    pub source: PeerId,
+    /// peer_id of current peer
+    my_peer_id: PeerId,
+    /// `id` as integer corresponding to `my_peer_id`
     source_id: u32,
+    /// Mapping from `PeerId` to `id`
     p2id: HashMap<PeerId, u32>,
+    /// List of existing `PeerId`s
     id2p: Vec<PeerId>,
-    pub used: Vec<bool>,
-    pub unused: Vec<u32>,
+    /// Which ids are currently in use
+    used: Vec<bool>,
+    /// List of unused peer ids
+    unused: Vec<u32>,
+    /// Compressed adjacency table, we use 32 bit integer as ids instead of using full `PeerId`.
     adjacency: Vec<Vec<u32>>,
 
-    pub total_active_edges: u64,
+    /// Total number of edges used for stats.
+    total_active_edges: u64,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
         let mut res = Self {
-            source: source.clone(),
+            my_peer_id: source.clone(),
             source_id: 0,
             p2id: HashMap::default(),
             id2p: Vec::default(),
@@ -907,6 +918,14 @@ impl Graph {
         res.used.push(true);
 
         res
+    }
+
+    pub fn total_active_edges(&self) -> u64 {
+        self.total_active_edges
+    }
+
+    pub fn compute_total_active_edges(&self) -> u64 {
+        self.adjacency.iter().map(|x| x.len() as u64).sum()
     }
 
     fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
