@@ -30,7 +30,7 @@ use near_primitives::version::{
 };
 use near_primitives::views::QueryRequest;
 
-use crate::peer_actor::PeerActor;
+use crate::peer::peer_actor::PeerActor;
 use crate::routing::ibf::IbfBox;
 use crate::routing::routing::{
     Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,

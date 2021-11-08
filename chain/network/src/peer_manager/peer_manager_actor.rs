@@ -33,8 +33,8 @@ use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use rand::thread_rng;
 
-use crate::peer_actor::PeerActor;
-use crate::peer_store::{PeerStore, TrustLevel};
+use crate::peer::peer_actor::PeerActor;
+use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
 use crate::routing::codec::Codec;
 use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
