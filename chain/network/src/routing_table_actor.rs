@@ -54,7 +54,8 @@ pub struct RoutingTableActor {
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     pub peer_ibf_set: IbfPeerSet,
-    /// Current view of the network. Nodes are Peers and edges are active connections.
+    /// Current view of the network represented by undirected graph.
+    /// Nodes are Peers and edges are active connections.
     pub raw_graph: Graph,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
