@@ -14,7 +14,7 @@ use near_client::test_utils::{create_chunk, create_chunk_with_transactions, run_
 use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::NetworkRequests;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
@@ -108,9 +108,9 @@ fn test_verify_block_double_sign_challenge() {
 
     let (_, result) = env.clients[0].process_block(b2, Provenance::SYNC);
     assert!(result.is_ok());
-    let mut last_message = env.network_adapters[0].pop().unwrap();
+    let mut last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
     if let NetworkRequests::Block { .. } = last_message {
-        last_message = env.network_adapters[0].pop().unwrap();
+        last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
     }
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(network_challenge, valid_challenge);
@@ -440,7 +440,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     let (_, tip) = client.process_block(block, Provenance::NONE);
     assert!(tip.is_err());
 
-    let last_message = env.network_adapters[0].pop().unwrap();
+    let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
+
     if let NetworkRequests::Challenge(network_challenge) = last_message {
         assert_eq!(challenge, network_challenge);
     } else {
@@ -499,17 +500,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     env.process_block(1, block.clone(), Provenance::NONE);
 
     // At this point we should create a challenge and send it out.
-    let last_message = env.network_adapters[0].pop().unwrap();
-    if let NetworkRequests::Challenge(Challenge {
-        body: ChallengeBody::ChunkProofs(chunk_proofs),
-        ..
-    }) = last_message.clone()
-    {
-        assert_eq!(chunk_proofs.chunk, MaybeEncodedShardChunk::Encoded(chunk));
-    } else {
-        assert!(false);
-    }
-
+    let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
     // The other client processes challenge and invalidates the chain.
     if let NetworkRequests::Challenge(challenge) = last_message {
         assert_eq!(env.clients[1].chain.head().unwrap().height, 2);
@@ -629,7 +620,7 @@ fn test_challenge_in_different_epoch() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = 3;
     //    genesis.config.validator_kickout_threshold = 10;
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let runtime1 = Arc::new(nearcore::NightshadeRuntime::test(
         Path::new("."),
         create_test_store(),
@@ -682,7 +673,13 @@ fn test_challenge_in_different_epoch() {
         }
         let len = network_adapter.requests.write().unwrap().len();
         for _ in 0..len {
-            match network_adapter.requests.write().unwrap().pop_front() {
+            match network_adapter
+                .requests
+                .write()
+                .unwrap()
+                .pop_front()
+                .map(|f| f.as_network_requests())
+            {
                 Some(NetworkRequests::Challenge(_)) => {
                     panic!("Unexpected challenge");
                 }

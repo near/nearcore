@@ -19,14 +19,14 @@ use crate::routing::Edge;
 use crate::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{PartialSync, RoutingState, RoutingVersion2};
+use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};
 
 /// Actor that maintains routing table information.
 /// TODO (PIOTR, #4859) Finish moving routing table computation to new thread.
 #[derive(Default)]
 pub struct RoutingTableActor {
     /// Data structures with all edges.
-    edges: HashMap<(PeerId, PeerId), Edge>,
+    edges_info: HashMap<(PeerId, PeerId), Edge>,
     /// Data structure used for exchanging routing tables.
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     pub peer_ibf_set: IbfPeerSet,
@@ -68,6 +68,10 @@ pub enum RoutingTableMessages {
         peer_id: PeerId,
         ibf_msg: RoutingVersion2,
     },
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    StartRoutingTableSync {
+        seed: u64,
+    },
 }
 
 impl Message for RoutingTableMessages {
@@ -88,6 +92,8 @@ pub enum RoutingTableMessagesResponse {
     RequestRoutingTableResponse {
         edges_info: Vec<Edge>,
     },
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    StartRoutingTableSyncResponse(PeerMessage),
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -129,7 +135,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                         let se = edge.to_simple_edge();
                         self.peer_ibf_set.add_edge(&se);
                     }
-                    self.edges.insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
+                    self.edges_info.insert((edge.peer0.clone(), edge.peer1.clone()), edge.clone());
                 }
                 RoutingTableMessagesResponse::Empty
             }
@@ -138,18 +144,30 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                     self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
 
-                    self.edges.remove(&(edge.peer0.clone(), edge.peer1.clone()));
+                    self.edges_info.remove(&(edge.peer0.clone(), edge.peer1.clone()));
                 }
                 RoutingTableMessagesResponse::Empty
             }
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            RoutingTableMessages::StartRoutingTableSync { seed } => {
+                RoutingTableMessagesResponse::StartRoutingTableSyncResponse(
+                    PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(RoutingVersion2 {
+                        known_edges: self.edges_info.len() as u64,
+                        seed,
+                        edges: Default::default(),
+                        routing_state: RoutingState::InitializeIbf,
+                    })),
+                )
+            }
             RoutingTableMessages::RequestRoutingTable => {
                 RoutingTableMessagesResponse::RequestRoutingTableResponse {
-                    edges_info: self.edges.iter().map(|(_k, v)| v.clone()).collect(),
+                    edges_info: self.edges_info.iter().map(|(_k, v)| v.clone()).collect(),
                 }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             RoutingTableMessages::AddPeerIfMissing(peer_id, ibf_set) => {
-                let seed = self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges);
+                let seed =
+                    self.peer_ibf_set.add_peer(peer_id.clone(), ibf_set, &mut self.edges_info);
                 RoutingTableMessagesResponse::AddPeerResponse { seed }
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -174,14 +192,14 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
 
                             let edges_for_peer = edges_for_peer
                                 .iter()
-                                .filter_map(|x| self.edges.get(&x.key()).cloned())
+                                .filter_map(|x| self.edges_info.get(&x.key()).cloned())
                                 .collect();
                             // Prepare message
                             let ibf_msg = if unknown_edges_count == 0
                                 && unknown_edge_hashes.len() > 0
                             {
                                 RoutingVersion2 {
-                                    known_edges: self.edges.len() as u64,
+                                    known_edges: self.edges_info.len() as u64,
                                     seed,
                                     edges: edges_for_peer,
                                     routing_state: RoutingState::RequestMissingEdges(
@@ -190,7 +208,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                 }
                             } else if unknown_edges_count == 0 && unknown_edge_hashes.len() == 0 {
                                 RoutingVersion2 {
-                                    known_edges: self.edges.len() as u64,
+                                    known_edges: self.edges_info.len() as u64,
                                     seed,
                                     edges: edges_for_peer,
                                     routing_state: RoutingState::Done,
@@ -199,7 +217,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                 if let Some(new_ibf_level) = partial_sync.ibf_level.inc() {
                                     let ibf_vec = ibf_set.get_ibf_vec(new_ibf_level);
                                     RoutingVersion2 {
-                                        known_edges: self.edges.len() as u64,
+                                        known_edges: self.edges_info.len() as u64,
                                         seed,
                                         edges: edges_for_peer,
                                         routing_state: RoutingState::PartialSync(PartialSync {
@@ -209,9 +227,13 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                                     }
                                 } else {
                                     RoutingVersion2 {
-                                        known_edges: self.edges.len() as u64,
+                                        known_edges: self.edges_info.len() as u64,
                                         seed,
-                                        edges: self.edges.iter().map(|x| x.1.clone()).collect(),
+                                        edges: self
+                                            .edges_info
+                                            .iter()
+                                            .map(|x| x.1.clone())
+                                            .collect(),
                                         routing_state: RoutingState::RequestAllEdges,
                                     }
                                 }
@@ -228,14 +250,14 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                         self.peer_ibf_set.add_peer(
                             peer_id.clone(),
                             Some(ibf_msg.seed),
-                            &mut self.edges,
+                            &mut self.edges_info,
                         );
                         if let Some(ibf_set) = self.peer_ibf_set.get(&peer_id) {
                             let seed = ibf_set.get_seed();
                             let ibf_vec = ibf_set.get_ibf_vec(MIN_IBF_LEVEL);
                             RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                                 ibf_msg: Some(RoutingVersion2 {
-                                    known_edges: self.edges.len() as u64,
+                                    known_edges: self.edges_info.len() as u64,
                                     seed,
                                     edges: Default::default(),
                                     routing_state: RoutingState::PartialSync(PartialSync {
@@ -256,11 +278,11 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
 
                         let edges_for_peer = edges_for_peer
                             .iter()
-                            .filter_map(|x| self.edges.get(&x.key()).cloned())
+                            .filter_map(|x| self.edges_info.get(&x.key()).cloned())
                             .collect();
 
                         let ibf_msg = RoutingVersion2 {
-                            known_edges: self.edges.len() as u64,
+                            known_edges: self.edges_info.len() as u64,
                             seed,
                             edges: edges_for_peer,
                             routing_state: RoutingState::Done,
@@ -272,9 +294,9 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     RoutingState::RequestAllEdges => {
                         RoutingTableMessagesResponse::ProcessIbfMessageResponse {
                             ibf_msg: Some(RoutingVersion2 {
-                                known_edges: self.edges.len() as u64,
+                                known_edges: self.edges_info.len() as u64,
                                 seed: ibf_msg.seed,
-                                edges: self.edges.iter().map(|x| x.1.clone()).collect(),
+                                edges: self.edges_info.iter().map(|x| x.1.clone()).collect(),
                                 routing_state: RoutingState::Done,
                             }),
                         }
