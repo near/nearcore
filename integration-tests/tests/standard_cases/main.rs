@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 mod rpc;
@@ -23,6 +22,7 @@ use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use integration_tests::node::Node;
 use integration_tests::user::User;
+use near_primitives::runtime::config::RuntimeConfig;
 use testlib::fees_utils::FeeHelper;
 use testlib::runtime_utils::{
     alice_account, bob_account, eve_dot_alice_account, x_dot_y_dot_alice_account,
@@ -33,7 +33,7 @@ const FUNCTION_CALL_AMOUNT: Balance = TESTING_INIT_BALANCE / 10;
 
 fn fee_helper(node: &impl Node) -> FeeHelper {
     FeeHelper::new(
-        node.genesis().config.runtime_config.transaction_costs.clone(),
+        RuntimeConfig::test().transaction_costs.clone(),
         node.genesis().config.min_gas_price,
     )
 }

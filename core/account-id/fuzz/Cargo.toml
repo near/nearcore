@@ -4,7 +4,7 @@ name = "near-account-id-fuzz"
 version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true

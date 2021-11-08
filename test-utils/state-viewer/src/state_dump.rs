@@ -1,19 +1,26 @@
 use std::collections::HashMap;
+use std::fs;
+use std::fs::File;
+use std::path::Path;
+
+use serde::ser::{SerializeSeq, Serializer};
 
 use near_chain::RuntimeAdapter;
-use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig};
+use near_chain_configs::Genesis;
 use near_primitives::block::BlockHeader;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountInfo, StateRoot};
 use near_store::TrieIterator;
+use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
 
 pub fn state_dump(
     runtime: NightshadeRuntime,
     state_roots: Vec<StateRoot>,
     last_block_header: BlockHeader,
-    genesis_config: &GenesisConfig,
-) -> Genesis {
+    near_config: &NearConfig,
+    records_path: &Path,
+) -> NearConfig {
     println!(
         "Generating genesis from state data of #{} / {}",
         last_block_header.height(),
@@ -35,7 +42,16 @@ pub fn state_dump(
         })
         .collect::<HashMap<_, _>>();
 
-    let mut records = vec![];
+    let mut total_supply = 0;
+
+    let mut records_path_dir = records_path.to_path_buf();
+    records_path_dir.pop();
+    fs::create_dir_all(&records_path_dir)
+        .unwrap_or_else(|_| panic!("Failed to create directory {}", records_path_dir.display()));
+    let records_file = File::create(&records_path).unwrap();
+    let mut ser = serde_json::Serializer::new(records_file);
+    let mut seq = ser.serialize_seq(None).unwrap();
+
     for (shard_id, state_root) in state_roots.iter().enumerate() {
         let trie =
             runtime.get_trie_for_shard(shard_id as u64, last_block_header.prev_hash()).unwrap();
@@ -44,18 +60,22 @@ pub fn state_dump(
             let (key, value) = item.unwrap();
             if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
                 if let StateRecord::Account { account_id, account } = &mut sr {
+                    total_supply += account.amount() + account.locked();
                     if account.locked() > 0 {
                         let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
                         account.set_amount(account.amount() + account.locked() - stake);
                         account.set_locked(stake);
                     }
                 }
-                records.push(sr);
+                seq.serialize_element(&sr).unwrap();
             }
         }
     }
+    seq.end().unwrap();
 
-    let mut genesis_config = genesis_config.clone();
+    let mut near_config = near_config.clone();
+
+    let mut genesis_config = near_config.genesis.config.clone();
     genesis_config.genesis_height = genesis_height;
     genesis_config.validators = validators
         .into_iter()
@@ -67,20 +87,24 @@ pub fn state_dump(
     genesis_config.protocol_version = last_block_header.latest_protocol_version();
     // `total_supply` is expected to change due to the natural processes of burning tokens and
     // minting tokens every epoch.
-    genesis_config.total_supply = get_initial_supply(&records);
+    genesis_config.total_supply = total_supply;
     let shard_config = runtime.get_shard_config(last_block_header.epoch_id()).unwrap();
     genesis_config.shard_layout = shard_config.shard_layout;
     genesis_config.num_block_producer_seats_per_shard =
         shard_config.num_block_producer_seats_per_shard;
     genesis_config.avg_hidden_validator_seats_per_shard =
         shard_config.avg_hidden_validator_seats_per_shard;
-    Genesis::new(genesis_config, records.into())
+    near_config.genesis = Genesis::new_with_path(genesis_config, records_path.to_path_buf());
+    // Record only the filename of the records file.
+    // Otherwise the absolute path is stored making it impossible to copy the dumped state to actually use it.
+    near_config.config.genesis_records_file =
+        Some(records_path.file_name().unwrap().to_str().unwrap().to_string());
+    near_config
 }
 
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
-    use std::iter::FromIterator;
     use std::path::Path;
     use std::sync::Arc;
 
@@ -88,25 +112,28 @@ mod test {
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::transaction::SignedTransaction;
+    use near_primitives::types::AccountId;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion};
+    use near_primitives::version::ProtocolFeature::SimpleNightshade;
+    use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
     use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
+    use nearcore::config::{Config, NearConfig};
     use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
-    use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::version::ProtocolFeature::SimpleNightshade;
-    use near_primitives::version::PROTOCOL_VERSION;
+    use near_primitives::validator_signer::InMemoryValidatorSigner;
 
     fn setup(
         epoch_length: NumBlocks,
         protocol_version: ProtocolVersion,
         simple_nightshade_layout: Option<ShardLayout>,
-    ) -> (Arc<Store>, Genesis, TestEnv) {
+    ) -> (Arc<Store>, Genesis, TestEnv, NearConfig) {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.num_block_producer_seats = 2;
@@ -123,7 +150,22 @@ mod test {
             .validator_seats(2)
             .runtime_adapters(vec![Arc::new(nightshade_runtime)])
             .build();
-        (store, genesis, env)
+
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis.clone(),
+            KeyFile {
+                account_id: AccountId::test_account(),
+                public_key: PublicKey::empty(KeyType::ED25519),
+                secret_key: SecretKey::from_random(KeyType::ED25519),
+            },
+            Some(Arc::new(InMemoryValidatorSigner::from_random(
+                AccountId::test_account(),
+                KeyType::ED25519,
+            ))),
+        );
+
+        (store, genesis, env, near_config)
     }
 
     /// Produces blocks, avoiding the potential failure where the client is not the
@@ -151,7 +193,7 @@ mod test {
     #[test]
     fn test_dump_state_preserve_validators() {
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -180,8 +222,15 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_near_config = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &near_config,
+            &records_file.path().to_path_buf(),
+        );
+        let new_genesis = new_near_config.genesis;
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }
@@ -190,7 +239,7 @@ mod test {
     #[test]
     fn test_dump_state_return_locked() {
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(epoch_length, PROTOCOL_VERSION, None);
+        let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, None);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
         let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
         let tx = SignedTransaction::stake(
@@ -205,12 +254,21 @@ mod test {
         for i in 1..=epoch_length + 1 {
             env.produce_block(0, i);
         }
+
         let head = env.clients[0].chain.head().unwrap();
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_near_config = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &near_config,
+            &records_file.path().to_path_buf(),
+        );
+        let new_genesis = new_near_config.genesis;
         assert_eq!(
             new_genesis
                 .config
@@ -232,7 +290,7 @@ mod test {
             return;
         }
         let epoch_length = 4;
-        let (store, genesis, mut env) = setup(
+        let (store, genesis, mut env, near_config) = setup(
             epoch_length,
             SimpleNightshade.protocol_version() - 1,
             Some(ShardLayout::v1_test()),
@@ -249,8 +307,16 @@ mod test {
 
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_near_config = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &near_config,
+            &records_file.path().to_path_buf(),
+        );
+        let new_genesis = new_near_config.genesis;
+
         assert_eq!(new_genesis.config.shard_layout, ShardLayout::v1_test());
         assert_eq!(new_genesis.config.num_block_producer_seats_per_shard, vec![2; 4]);
         assert_eq!(new_genesis.config.avg_hidden_validator_seats_per_shard, vec![0; 4]);
@@ -302,13 +368,34 @@ mod test {
             }
             blocks.push(block);
         }
+
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis.clone(),
+            KeyFile {
+                account_id: AccountId::test_account(),
+                public_key: PublicKey::empty(KeyType::ED25519),
+                secret_key: SecretKey::from_random(KeyType::ED25519),
+            },
+            Some(Arc::new(InMemoryValidatorSigner::from_random(
+                AccountId::test_account(),
+                KeyType::ED25519,
+            ))),
+        );
+
         let last_block = blocks.pop().unwrap();
         let state_roots =
             last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect::<Vec<_>>();
         let runtime2 = create_runtime(store2);
 
-        let _ =
-            state_dump(runtime2, state_roots.clone(), last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let _ = state_dump(
+            runtime2,
+            state_roots.clone(),
+            last_block.header().clone(),
+            &near_config,
+            &records_file.path().to_path_buf(),
+        );
     }
 
     #[test]
@@ -341,6 +428,19 @@ mod test {
 
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
+        let near_config = NearConfig::new(
+            Config::default(),
+            genesis.clone(),
+            KeyFile {
+                account_id: AccountId::test_account(),
+                public_key: PublicKey::empty(KeyType::ED25519),
+                secret_key: SecretKey::from_random(KeyType::ED25519),
+            },
+            Some(Arc::new(InMemoryValidatorSigner::from_random(
+                AccountId::test_account(),
+                KeyType::ED25519,
+            ))),
+        );
         let head = env.clients[0].chain.head().unwrap();
         let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
@@ -355,8 +455,16 @@ mod test {
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap().clone();
         let state_roots = last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
         let runtime = NightshadeRuntime::test(Path::new("."), store.clone(), &genesis);
-        let new_genesis =
-            state_dump(runtime, state_roots, last_block.header().clone(), &genesis.config);
+        let records_file = tempfile::NamedTempFile::new().unwrap();
+        let new_near_config = state_dump(
+            runtime,
+            state_roots,
+            last_block.header().clone(),
+            &near_config,
+            &records_file.path().to_path_buf(),
+        );
+        let new_genesis = new_near_config.genesis;
+
         assert_eq!(new_genesis.config.validators.len(), 2);
         validate_genesis(&new_genesis);
     }

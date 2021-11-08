@@ -47,6 +47,7 @@ steps:
       # TODO(near-ops#645): Remove pip install once yapf is bundled in the image.
       python3 -m pip install --user yapf
       if ! python3 -m yapf -pdr pytest scripts; then
+          set +x
           echo 'Some of the Python files are not correctly formatted; please run'
           echo '    python3 -m pip install -U yapf'
           echo '    python3 -m yapf -pir pytest scripts'
@@ -55,6 +56,7 @@ steps:
       rm target/rpc_errors_schema.json
       RUSTFLAGS='-D warnings' cargo check -p near-jsonrpc --features dump_errors_schema
       if ! git --no-pager diff --no-index chain/jsonrpc/res/rpc_errors_schema.json target/rpc_errors_schema.json; then
+          set +x
           echo 'The RPC errors schema reflects outdated typing structure; please run'
           echo '    ./chain/jsonrpc/build_errors_schema.sh'
           exit 1
@@ -150,14 +152,3 @@ steps:
   #  branches: "!master"
   #  artifact_paths:
   #  - "rainbow-bridge/logs/**/*.log"
-
-  - label: "cargo check nearcore library (without Cargo.lock)"
-    command: |
-      source ~/.cargo/env && set -eux
-      rm Cargo.lock
-      cd nearcore
-      RUSTFLAGS='-D warnings' cargo check
-
-    timeout: 30
-    agents:
-    - "distro=amazonlinux"

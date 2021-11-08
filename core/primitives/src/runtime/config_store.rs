@@ -1,7 +1,6 @@
 use crate::runtime::config::RuntimeConfig;
 use crate::types::ProtocolVersion;
 use std::collections::BTreeMap;
-use std::iter::FromIterator;
 use std::ops::Bound;
 use std::sync::Arc;
 
@@ -22,6 +21,8 @@ static CONFIGS: &[(ProtocolVersion, &[u8])] = &[
     #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
     (123, include_config!("123.json")),
 ];
+
+pub static INITIAL_TESTNET_CONFIG: &[u8] = include_config!("29_testnet.json");
 
 /// Stores runtime config for each protocol version where it was updated.
 #[derive(Debug)]
@@ -56,13 +57,18 @@ impl RuntimeConfigStore {
     }
 
     /// Constructs test store.
+    pub fn with_one_config(runtime_config: RuntimeConfig) -> Self {
+        Self { store: BTreeMap::from_iter([(0, Arc::new(runtime_config))].iter().cloned()) }
+    }
+
+    /// Constructs test store.
     pub fn test() -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::test()))].iter().cloned()) }
+        Self::with_one_config(RuntimeConfig::test())
     }
 
     /// Constructs store with a single config with zero costs.
     pub fn free() -> Self {
-        Self { store: BTreeMap::from_iter([(0, Arc::new(RuntimeConfig::free()))].iter().cloned()) }
+        Self::with_one_config(RuntimeConfig::free())
     }
 
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
@@ -112,7 +118,7 @@ mod tests {
             "BdCfuR4Gb5qgr2nhxUgGyDHesuhZg3Az5D3sEwQdQCvC",
             "2AUtULBkjrfzTepo6zFFMp4ShtiKgjpoUjoyRXLpcxiw",
             #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
-            "2NGvpASXyKxPcqJDsJNgi9U4qiRt7Bww5Q4GzLjcGT6m",
+            "CmbWKajUaeK1U2owycf7tusLcVu26mrDSgJw3jz9jYie",
         ];
         let actual_hashes = CONFIGS
             .iter()

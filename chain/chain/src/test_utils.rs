@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1403,7 +1402,6 @@ impl ChainGenesis {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
     use std::time::Instant;
 
     use borsh::BorshSerialize;

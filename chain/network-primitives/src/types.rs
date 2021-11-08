@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::convert::{Into, TryFrom};
 use std::fmt;
 use std::fmt::{Debug, Error, Formatter};
 use std::hash::Hash;
@@ -358,7 +357,7 @@ impl AccountOrPeerIdOrHash {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct RawRoutedMessage {
     pub target: AccountOrPeerIdOrHash,
@@ -454,6 +453,7 @@ impl RoutedMessage {
 }
 
 /// Routed Message wrapped with previous sender of the message.
+#[derive(Clone, Debug)]
 pub struct RoutedMessageFrom {
     /// Routed messages.
     pub msg: RoutedMessage,
@@ -687,7 +687,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
 }
 
 /// Actor message that holds the TCP stream from an inbound TCP connection
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct InboundTcpConnect {
     /// Tcp stream of the inbound connections
@@ -702,7 +702,7 @@ impl InboundTcpConnect {
 }
 
 /// Actor message to request the creation of an outbound TCP connection to a peer.
-#[derive(Message)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result = "()")]
 pub struct OutboundTcpConnect {
     /// Peer information of the outbound connection
@@ -769,7 +769,7 @@ pub enum ReasonForBan {
 
 /// Banning signal sent from Peer instance to PeerManager
 /// just before Peer instance is stopped.
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct Ban {
     pub peer_id: PeerId,
@@ -783,6 +783,11 @@ pub enum PeerManagerRequest {
     BanPeer(ReasonForBan),
     UnregisterPeer,
 }
+
+/// Messages from Peer to PeerManager
+#[derive(Message, Debug)]
+#[rtype(result = "()")]
+pub enum PeerRequest {}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct KnownProducer {

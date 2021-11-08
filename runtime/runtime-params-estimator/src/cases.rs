@@ -1,9 +1,9 @@
+use near_primitives::contract::ContractCode;
 use near_primitives::types::Gas;
 use num_rational::Ratio;
 use rand::{Rng, SeedableRng};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::process;
 use std::sync::{Arc, Mutex};
 
@@ -617,7 +617,11 @@ pub fn run(mut config: Config, only_compile: bool) -> CostTable {
     }
 
     let contract_compile_costs = compute_compile_cost_vm(config.metric, config.vm_kind, false);
-    let wasm_instr_cost = ratio_to_gas(config.metric, cost_per_op(config.metric, &CODE_1M));
+    let wasm_instr_cost = {
+        let code = ContractCode::new(CODE_1M.to_vec(), None);
+        let ratio = cost_per_op(config.metric, &code);
+        ratio_to_gas(config.metric, ratio)
+    };
 
     let mut cost_table = measurements_to_costs(m, contract_compile_costs, wasm_instr_cost);
 
