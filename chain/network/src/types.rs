@@ -3,7 +3,6 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::io;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, MailboxError, Message, Recipient};
@@ -14,6 +13,7 @@ use serde::Serialize;
 use strum::AsStaticStr;
 
 use conqueue::QueueSender;
+use near_clock::NearClock;
 pub use near_network_primitives::types::*;
 
 use near_primitives::block::{Approval, ApprovalMessage, Block, BlockHeader, GenesisId};
@@ -521,7 +521,7 @@ pub enum PeerRequest {
     UpdateEdge((PeerId, u64)),
     RouteBack(Box<RoutedMessageBody>, CryptoHash),
     UpdatePeerInfo(PeerInfo),
-    ReceivedMessage(PeerId, Instant),
+    ReceivedMessage(PeerId, NearClock),
 }
 
 impl Message for PeerRequest {

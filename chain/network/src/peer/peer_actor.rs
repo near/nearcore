@@ -17,6 +17,7 @@ use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_clock::NearClock;
 use near_crypto::Signature;
 use near_metrics;
 use near_network_primitives::types::PeerIdOrHash;
@@ -190,7 +191,7 @@ pub struct PeerActor {
     /// Edge information needed to build the real edge. This is relevant for handshake.
     edge_info: Option<EdgeInfo>,
     /// Last time an update of received message was sent to PeerManager
-    last_time_received_message_update: Instant,
+    last_time_received_message_update: NearClock,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     /// How many transactions we have received since the last block message
@@ -241,7 +242,7 @@ impl PeerActor {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
-            last_time_received_message_update: Instant::now(),
+            last_time_received_message_update: NearClock::now(),
             network_metrics,
             txns_since_last_block,
             peer_counter,
@@ -628,7 +629,7 @@ impl PeerActor {
             if self.last_time_received_message_update.elapsed()
                 > UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             {
-                self.last_time_received_message_update = Instant::now();
+                self.last_time_received_message_update = NearClock::now();
                 self.peer_manager_addr.do_send(PeerManagerMessageRequest::PeerRequest(
                     PeerRequest::ReceivedMessage(peer_id, self.last_time_received_message_update),
                 ));

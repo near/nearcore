@@ -15,6 +15,7 @@ tracing = "0.1.13"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
+near-clock = { path = "../../utils/near-clock" }
 
 [features]
 test_features = []

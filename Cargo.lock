@@ -2791,6 +2791,7 @@ dependencies = [
  "actix",
  "borsh 0.9.1",
  "chrono",
+ "near-clock",
  "near-crypto",
  "near-primitives",
  "serde",

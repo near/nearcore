@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{atomic::AtomicUsize, Arc};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
@@ -23,6 +23,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
+use near_clock::{NearClock, NearDuration};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -63,7 +64,7 @@ use crate::types::{GetPeerId, GetPeerIdResult};
 use crate::types::{RoutingSyncV2, RoutingVersion2};
 
 /// How often to request peers from active peers.
-const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
+const REQUEST_PEERS_INTERVAL: NearDuration = NearDuration::from_millis(60_000);
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
 /// This number should be large to handle pair of nodes with high latency.
 const WAIT_ON_TRY_UPDATE_NONCE: Duration = Duration::from_millis(6_000);
@@ -88,7 +89,7 @@ const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
+const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: NearDuration = NearDuration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
 /// How often should we update the routing table
@@ -111,11 +112,11 @@ struct ActivePeer {
     /// Number of bytes we've sent to the peer.
     sent_bytes_per_sec: u64,
     /// Last time requested peers.
-    last_time_peer_requested: Instant,
+    last_time_peer_requested: NearClock,
     /// Last time we received a message from this peer.
-    last_time_received_message: Instant,
+    last_time_received_message: NearClock,
     /// Time where the connection was established.
-    connection_established_time: Instant,
+    connection_established_time: NearClock,
     /// Who started connection. Inbound (other) or Outbound (us).
     peer_type: PeerType,
 }
@@ -260,7 +261,7 @@ impl PeerManagerActor {
     fn broadcast_edges_trigger(&mut self, ctx: &mut Context<PeerManagerActor>) {
         let me = self.my_peer_id.clone();
 
-        let start = Instant::now();
+        let start = NearClock::now();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             if let Some(cur_edge) =
@@ -428,9 +429,9 @@ impl PeerManagerActor {
                 full_peer_info,
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
-                last_time_peer_requested: Instant::now(),
-                last_time_received_message: Instant::now(),
-                connection_established_time: Instant::now(),
+                last_time_peer_requested: NearClock::now(),
+                last_time_received_message: NearClock::now(),
+                connection_established_time: NearClock::now(),
                 peer_type,
             },
         );
@@ -495,7 +496,7 @@ impl PeerManagerActor {
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = NearClock::now();
             }
 
             if peer_type == PeerType::Outbound {
@@ -765,7 +766,7 @@ impl PeerManagerActor {
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = NearClock::now();
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
@@ -989,7 +990,8 @@ impl PeerManagerActor {
             .active_peers
             .iter()
             .filter_map(|(peer_id, active)| {
-                if active.last_time_received_message.elapsed() < self.config.peer_recent_time_window
+                if active.last_time_received_message.elapsed().to_std()
+                    < self.config.peer_recent_time_window
                 {
                     Some((peer_id.clone(), active.connection_established_time))
                 } else {
@@ -1000,7 +1002,7 @@ impl PeerManagerActor {
 
         // Sort by established time
         recent_connections.sort_by(|(_, established_time_a), (_, established_time_b)| {
-            established_time_a.cmp(established_time_b)
+            established_time_a.cmp(&established_time_b)
         });
 
         // Take remaining peers

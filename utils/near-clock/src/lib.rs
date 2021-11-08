@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -10,7 +10,7 @@ thread_local! {
 
 pub fn mock_time(new_time: NearClock) {
     TIME_OVERRIDE.with(|time_override| {
-        let ns = new_time.duration_since(UNIX_EPOCH);
+        let ns = new_time.duration_since(&UNIX_EPOCH);
         time_override.borrow().store(ns.as_millis() as u64, Ordering::SeqCst)
     });
 }
@@ -43,7 +43,7 @@ pub fn now() -> NearClock {
 }
 
 // TODO: Add other methods that `SystemTime` has.
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NearClock {
     time: SystemTime,
 }
@@ -57,15 +57,19 @@ impl NearClock {
         now()
     }
 
-    pub fn duration_since(&self, rhs: NearClock) -> NearDuration {
+    pub fn duration_since(&self, rhs: &NearClock) -> NearDuration {
         NearDuration {
             duration: self.time.duration_since(rhs.time).unwrap_or(Duration::from_millis(0)),
         }
     }
+
+    pub fn elapsed(&self) -> NearDuration {
+        NearClock::now().duration_since(self)
+    }
 }
 
 // TODO: Add other methods that `Duration` has.
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
 pub struct NearDuration {
     duration: Duration,
 }
@@ -79,8 +83,16 @@ impl NearDuration {
         self.duration.as_millis()
     }
 
-    pub fn from_millis(ns: u64) -> NearDuration {
+    pub fn as_secs(&self) -> u64 {
+        self.duration.as_secs()
+    }
+
+    pub const fn from_millis(ns: u64) -> NearDuration {
         Self { duration: Duration::from_millis(ns) }
+    }
+
+    pub const fn from_secs(ns: u64) -> NearDuration {
+        Self { duration: Duration::from_secs(ns) }
     }
 }
 
@@ -99,6 +111,15 @@ impl Sub for NearClock {
         let duration = self.time.duration_since(other.time).unwrap_or(Duration::from_millis(0));
 
         NearDuration { duration }
+    }
+}
+
+impl Mul<u32> for NearDuration {
+    // The multiplication of rational numbers is a closed operation.
+    type Output = Self;
+
+    fn mul(self, rhs: u32) -> Self {
+        Self { duration: self.duration * rhs }
     }
 }
 
