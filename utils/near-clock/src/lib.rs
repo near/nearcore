@@ -118,8 +118,6 @@ mod tests {
             set_time_override(time_override);
 
             mock_time(near_time2);
-
-            // some work here
         })
         .join();
 
