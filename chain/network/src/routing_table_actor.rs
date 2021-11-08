@@ -62,7 +62,7 @@ pub struct RoutingTableActor {
     pub peer_last_time_reachable: HashMap<PeerId, Instant>,
     /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
     /// them in components. We remove all of those edges from memory, and save them to database,
-    /// If any of them were to be reachable again, we would re-add them.
+    /// If any of them become reachable again, we re-add whole component.
     ///
     /// To store components, we have following column in the DB.
     /// ColLastComponentNonce -> stores component_nonce: u64, which is the lowest nonce that
