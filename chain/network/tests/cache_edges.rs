@@ -118,7 +118,7 @@ impl RoutingTableTest {
 
         assert_eq!(active_edges, self.routing_table.raw_graph.total_active_edges() as usize);
         assert_eq!(
-            2 * active_edges,
+            active_edges,
             self.routing_table.raw_graph.compute_total_active_edges() as usize
         );
         assert_eq!(on_memory.len(), self.routing_table.edges_info.len());
