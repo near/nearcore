@@ -218,7 +218,7 @@ impl RoutingTableActor {
     ///
     /// # Returns
     /// List of edges removed.
-    pub fn recalculate_routing_table(
+    pub fn recalculate_routing_table_and_maybe_prune_edges(
         &mut self,
         prune: Prune,
         prune_edges_after: Duration,
@@ -504,14 +504,17 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 )
             }
             RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_after } => {
-                let edges_to_remove = if self.needs_routing_table_recalculation {
-                    self.recalculate_routing_table(prune, prune_edges_after)
+                let edges_removed = if self.needs_routing_table_recalculation {
+                    self.recalculate_routing_table_and_maybe_prune_edges(prune, prune_edges_after)
                 } else {
                     Vec::new()
                 };
                 self.needs_routing_table_recalculation = false;
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
-                    edges_to_remove,
+                    edges_to_remove: edges_removed
+                        .iter()
+                        .filter(|p| p.contains_peer(&self.my_peer_id()))
+                        .collect(),
                     peer_forwarding: self.peer_forwarding.clone(),
                 }
             }
