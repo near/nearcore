@@ -134,14 +134,16 @@ impl GasCounter {
         use std::cmp::min;
         if new_used_gas > self.prepaid_gas {
             // Ensure that contract never burn more than `max_gas_burnt`, even if paid for more.
-            let hard_used_limit = min(self.prepaid_gas, self.max_gas_burnt);
-            self.fast_counter.burnt_gas = min(new_burnt_gas, hard_used_limit);
+            let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
+            self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
             // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
             // no promises will be kept, but that would mean protocol change.
             // See https://github.com/near/nearcore/issues/5148.
             // TODO: consider making this change!
-            assert!(hard_used_limit >= self.fast_counter.burnt_gas);
-            self.promises_gas = hard_used_limit - self.fast_counter.burnt_gas;
+            assert!(hard_burnt_limit >= self.fast_counter.burnt_gas);
+            let used_gas_limit = min(self.prepaid_gas, new_used_gas);
+            assert!(used_gas_limit >= self.fast_counter.burnt_gas);
+            self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
             HostError::GasExceeded.into()
         } else {
             self.fast_counter.burnt_gas = min(new_burnt_gas, self.max_gas_burnt);
