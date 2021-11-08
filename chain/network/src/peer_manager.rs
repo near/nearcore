@@ -59,7 +59,7 @@ use crate::types::{
 };
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{RoutingState, RoutingSyncV2, RoutingVersion2};
+use crate::types::{RoutingSyncV2, RoutingVersion2};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
@@ -353,9 +353,9 @@ impl PeerManagerActor {
                 act.routing_table_pool
                     .send(RoutingTableMessages::AddPeerIfMissing(peer_id, None))
                     .into_actor(act)
-                    .map(move |response, act, _ctx| match response {
+                    .map(move |response, act, ctx| match response {
                         Ok(RoutingTableMessagesResponse::AddPeerResponse { seed }) => {
-                            act.start_routing_table_syncv2(addr, seed)
+                            act.start_routing_table_syncv2(ctx, addr, seed)
                         }
                         _ => error!(target: "network", "expected AddIbfSetResponse"),
                     })
@@ -364,15 +364,17 @@ impl PeerManagerActor {
         });
     }
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-    fn start_routing_table_syncv2(&self, addr: Addr<Peer>, seed: u64) {
-        let _ = addr.do_send(SendMessage {
-            message: PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(RoutingVersion2 {
-                known_edges: self.routing_table.get_edges_len(),
-                seed,
-                edges: Default::default(),
-                routing_state: RoutingState::InitializeIbf,
-            })),
-        });
+    fn start_routing_table_syncv2(&self, ctx: &mut Context<Self>, addr: Addr<Peer>, seed: u64) {
+        self.routing_table_pool
+            .send(RoutingTableMessages::StartRoutingTableSync { seed })
+            .into_actor(self)
+            .map(move |response, _act, _ctx| match response {
+                Ok(RoutingTableMessagesResponse::StartRoutingTableSyncResponse(response)) => {
+                    let _ = addr.do_send(SendMessage { message: response });
+                }
+                _ => error!(target: "network", "expected StartRoutingTableSyncResponse"),
+            })
+            .spawn(ctx);
     }
 
     /// Register a direct connection to a new peer. This will be called after successfully
