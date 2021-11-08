@@ -511,6 +511,8 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 };
                 self.needs_routing_table_recalculation = false;
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
+                    // PeerManager maintains list of local edges. We will notify `PeerManager`
+                    // to remove those edges.
                     edges_to_remove: edges_removed
                         .iter()
                         .filter(|p| p.contains_peer(&self.my_peer_id()))
