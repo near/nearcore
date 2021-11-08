@@ -11,7 +11,7 @@ thread_local! {
 pub fn mock_time(new_time: NearClock) {
     TIME_OVERRIDE.with(|time_override| {
         let ns = new_time.duration_since(&UNIX_EPOCH);
-        time_override.borrow().store(ns.as_millis() as u64, Ordering::SeqCst)
+        time_override.borrow().store(ns.as_nanos() as u64, Ordering::SeqCst)
     });
 }
 
@@ -37,7 +37,7 @@ pub fn now() -> NearClock {
         if time_override == 0 {
             NearClock { time: SystemTime::now() }
         } else {
-            NearClock { time: SystemTime::UNIX_EPOCH + Duration::from_millis(time_override) }
+            NearClock { time: SystemTime::UNIX_EPOCH + Duration::from_nanos(time_override) }
         }
     })
 }
@@ -85,6 +85,14 @@ impl NearDuration {
 
     pub fn as_secs(&self) -> u64 {
         self.duration.as_secs()
+    }
+
+    pub fn as_nanos(&self) -> u128 {
+        self.duration.as_nanos() as u128
+    }
+
+    pub const fn from_nanos(ns: u64) -> NearDuration {
+        Self { duration: Duration::from_nanos(ns) }
     }
 
     pub const fn from_millis(ns: u64) -> NearDuration {
