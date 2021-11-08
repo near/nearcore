@@ -125,14 +125,16 @@ impl Mul<u32> for NearDuration {
 
 #[cfg(test)]
 mod tests {
-    use crate::{get_time_override, mock_time, set_time_override, NearClock, NearDuration};
+    use crate::{
+        get_time_override, mock_time, set_time_override, NearClock, NearDuration, UNIX_EPOCH,
+    };
     use std::thread;
 
     #[test]
     fn test_mock_override() {
         let time_override = get_time_override();
 
-        let near_time = NearClock::now() + NearDuration::from_millis(1000);
+        let near_time = UNIX_EPOCH + NearDuration::from_millis(1000);
         let near_time2 = near_time.clone();
 
         let _ = thread::spawn(move || {
