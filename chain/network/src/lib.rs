@@ -4,8 +4,8 @@ pub use routing_table_actor::{
     RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
 };
 pub use types::{
-    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig,
-    NetworkRecipient, NetworkRequests, NetworkResponses, PeerInfo,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRecipient,
+    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerAdapter,
 };
 
 mod cache;

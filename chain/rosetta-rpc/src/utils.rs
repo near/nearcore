@@ -1,6 +1,7 @@
 use actix::Addr;
 use futures::StreamExt;
 
+use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
 
@@ -404,6 +405,18 @@ pub(crate) async fn query_access_key(
             "queried ViewAccessKey, but received something else.".to_string(),
         )),
     }
+}
+
+pub(crate) async fn query_protocol_config(
+    block_hash: near_primitives::hash::CryptoHash,
+    view_client_addr: &Addr<ViewClientActor>,
+) -> Result<ProtocolConfigView, crate::errors::ErrorKind> {
+    view_client_addr
+        .send(near_client::GetProtocolConfig(near_primitives::types::BlockReference::from(
+            near_primitives::types::BlockId::Hash(block_hash),
+        )))
+        .await?
+        .map_err(|err| crate::errors::ErrorKind::NotFound(err.to_string()))
 }
 
 /// This is a helper to ensure that all the values you try to assign are the

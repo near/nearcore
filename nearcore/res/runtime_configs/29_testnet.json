@@ -1,5 +1,5 @@
 {
-  "storage_amount_per_byte": "10000000000000000000",
+  "storage_amount_per_byte": "100000000000000000000",
   "transaction_costs": {
     "action_receipt_creation_config": {
       "send_sir": 108059500000,
@@ -8,14 +8,14 @@
     },
     "data_receipt_creation_config": {
       "base_cost": {
-        "send_sir": 36486732312,
-        "send_not_sir": 36486732312,
-        "execution": 36486732312
+        "send_sir": 4697339419375,
+        "send_not_sir": 4697339419375,
+        "execution": 4697339419375
       },
       "cost_per_byte": {
-        "send_sir": 17212011,
-        "send_not_sir": 17212011,
-        "execution": 17212011
+        "send_sir": 59357464,
+        "send_not_sir": 59357464,
+        "execution": 59357464
       }
     },
     "action_creation_config": {
@@ -120,7 +120,7 @@
       "keccak512_byte": 36649701,
       "ripemd160_base": 853675086,
       "ripemd160_block": 680107584,
-      "ecrecover_base": 278821988457,
+      "ecrecover_base": 3365369625000,
       "log_base": 3543313050,
       "log_byte": 13198791,
       "storage_write_base": 64196736000,
@@ -151,7 +151,7 @@
       "validator_total_stake_base": 911834726400
     },
     "grow_mem_cost": 1,
-    "regular_op_cost": 2207874,
+    "regular_op_cost": 3856371,
     "limit_config": {
       "max_gas_burnt": 200000000000000,
       "max_gas_burnt_view": 200000000000000,
@@ -173,12 +173,11 @@
       "max_length_storage_key": 4194304,
       "max_length_storage_value": 4194304,
       "max_promises_per_function_call_action": 1024,
-      "max_number_input_data_dependencies": 128,
-      "max_functions_number_per_contract": 10000
+      "max_number_input_data_dependencies": 128
     }
   },
   "account_creation_config": {
-    "min_allowed_top_level_account_length": 32,
+    "min_allowed_top_level_account_length": 0,
     "registrar_account_id": "registrar"
   }
 }

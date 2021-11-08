@@ -85,7 +85,8 @@ async def main():
 
             try:
                 response = await asyncio.wait_for(conn0.recv(predicate), 5)
-            except concurrent.futures._base.TimeoutError:
+            except (concurrent.futures._base.TimeoutError,
+                    asyncio.exceptions.TimeoutError):
                 response = None
 
             if response is not None:

@@ -19,10 +19,13 @@ import argparse
 import random
 import sys
 import time
+import tempfile
+from rc import pmap
 
 sys.path.append('lib')
 
 from helpers import load_test_spoon_helper
+from helpers import load_testing_add_and_delete_helper
 import mocknet
 import data
 
@@ -83,6 +86,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip-load', default=False, action='store_true')
     parser.add_argument('--skip-setup', default=False, action='store_true')
     parser.add_argument('--skip-restart', default=False, action='store_true')
+    parser.add_argument('--script', required=True)
 
     args = parser.parse_args()
 
@@ -99,6 +103,7 @@ if __name__ == '__main__':
     random.shuffle(all_nodes)
     assert len(all_nodes) > num_nodes, 'Need at least one RPC node'
     validator_nodes = all_nodes[:num_nodes]
+    logger.info(f'validator_nodes: {validator_nodes}')
     rpc_nodes = all_nodes[num_nodes:]
     logger.info(
         f'Starting Load of {chain_id} test using {len(validator_nodes)} validator nodes and {len(rpc_nodes)} RPC nodes.'
@@ -114,12 +119,15 @@ if __name__ == '__main__':
         # Make sure nodes are running by restarting them.
         mocknet.stop_nodes(all_nodes)
         time.sleep(10)
+        node_pks = pmap(lambda node: mocknet.get_node_keys(node)[0],
+                        validator_nodes)
         mocknet.create_and_upload_genesis(validator_nodes,
                                           genesis_template_filename=None,
                                           rpc_nodes=rpc_nodes,
                                           chain_id=chain_id,
                                           update_genesis_on_machine=True,
-                                          epoch_length=epoch_length)
+                                          epoch_length=epoch_length,
+                                          node_pks=node_pks)
         mocknet.start_nodes(all_nodes)
         time.sleep(60)
 
@@ -131,21 +139,34 @@ if __name__ == '__main__':
     logger.info(f'initial_validator_accounts: {initial_validator_accounts}')
     test_passed = True
 
+    script, deploy_time, test_timeout = (None, None, None)
+    if args.script == 'skyward':
+        script = 'load_testing_add_and_delete_helper.py'
+        deploy_time = load_testing_add_and_delete_helper.CONTRACT_DEPLOY_TIME
+        test_timeout = load_testing_add_and_delete_helper.TEST_TIMEOUT
+    elif args.script == 'add_and_delete':
+        script = 'load_test_spoon_helper.py'
+        deploy_time = load_test_spoon_helper.CONTRACT_DEPLOY_TIME
+        test_timeout = load_test_spoon_helper.TEST_TIMEOUT
+    else:
+        assert False, f'Unsupported --script={args.script}'
+
     if not args.skip_load:
         logger.info('Starting transaction spamming scripts.')
         mocknet.start_load_test_helpers(validator_nodes,
-                                        'load_test_spoon_helper.py', rpc_nodes,
-                                        num_nodes, max_tps)
+                                        script,
+                                        rpc_nodes,
+                                        num_nodes,
+                                        max_tps,
+                                        get_node_key=True)
 
         initial_metrics = mocknet.get_metrics(archival_node)
         logger.info(
-            f'Waiting for contracts to be deployed for {load_test_spoon_helper.CONTRACT_DEPLOY_TIME} seconds.'
-        )
-        time.sleep(load_test_spoon_helper.CONTRACT_DEPLOY_TIME)
+            f'Waiting for contracts to be deployed for {deploy_time} seconds.')
+        time.sleep(deploy_time)
         logger.info(
-            f'Waiting for the loadtest to complete: {load_test_spoon_helper.TEST_TIMEOUT} seconds'
-        )
-        time.sleep(load_test_spoon_helper.TEST_TIMEOUT)
+            f'Waiting for the loadtest to complete: {test_timeout} seconds')
+        time.sleep(test_timeout)
         final_metrics = mocknet.get_metrics(archival_node)
         logger.info('All transaction types results:')
         all_tx_measurement = measure_tps_bps(validator_nodes,
