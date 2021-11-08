@@ -437,7 +437,7 @@ impl RoutingTable {
     }
 
     fn my_peer_id(&self) -> &PeerId {
-        &self.raw_graph.source
+        &self.raw_graph.my_peer_id
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -876,23 +876,36 @@ pub struct RoutingTableInfo {
     pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
 }
 
+/// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
+/// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
+/// to that are on the shortest path between us as destination `peer`.
 #[derive(Clone)]
 pub struct Graph {
-    pub source: PeerId,
+    /// peer_id of current peer
+    my_peer_id: PeerId,
+    /// `id` as integer corresponding to `my_peer_id`.
+    /// We use u32 to reduce both improve performance, and reduce memory usage.
     source_id: u32,
+    /// Mapping from `PeerId` to `id`
     p2id: HashMap<PeerId, u32>,
+    /// List of existing `PeerId`s
     id2p: Vec<PeerId>,
-    pub used: Vec<bool>,
-    pub unused: Vec<u32>,
+    /// Which ids are currently in use
+    used: Vec<bool>,
+    /// List of unused peer ids
+    unused: Vec<u32>,
+    /// Compressed adjacency table, we use 32 bit integer as ids instead of using full `PeerId`.
+    /// This is undirected graph, we store edges in both directions.
     adjacency: Vec<Vec<u32>>,
 
-    pub total_active_edges: u64,
+    /// Total number of edges used for stats.
+    total_active_edges: u64,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
         let mut res = Self {
-            source: source.clone(),
+            my_peer_id: source.clone(),
             source_id: 0,
             p2id: HashMap::default(),
             id2p: Vec::default(),
@@ -907,6 +920,17 @@ impl Graph {
         res.used.push(true);
 
         res
+    }
+
+    pub fn total_active_edges(&self) -> u64 {
+        self.total_active_edges
+    }
+
+    // Compute number of active edges. We divide by 2 to remove duplicates.
+    pub fn compute_total_active_edges(&self) -> u64 {
+        let result: u64 = self.adjacency.iter().map(|x| x.len() as u64).sum();
+        assert_eq!(result % 2, 0);
+        result / 2
     }
 
     fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
@@ -1086,6 +1110,9 @@ mod test {
 
         assert_eq!(graph.contains_edge(&node0, &node1), false);
         assert_eq!(graph.contains_edge(&node1, &node0), false);
+
+        assert_eq!(0, graph.total_active_edges() as usize);
+        assert_eq!(0, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1102,6 +1129,9 @@ mod test {
             graph.calculate_distance(),
             vec![(node0.clone(), vec![node0.clone()])],
         ));
+
+        assert_eq!(1, graph.total_active_edges() as usize);
+        assert_eq!(1, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1116,6 +1146,9 @@ mod test {
         graph.add_edge(nodes[1].clone(), nodes[2].clone());
 
         assert!(expected_routing_tables(graph.calculate_distance(), vec![]));
+
+        assert_eq!(2, graph.total_active_edges() as usize);
+        assert_eq!(2, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1138,6 +1171,9 @@ mod test {
                 (nodes[2].clone(), vec![nodes[0].clone()]),
             ],
         ));
+
+        assert_eq!(3, graph.total_active_edges() as usize);
+        assert_eq!(3, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1161,6 +1197,9 @@ mod test {
                 (nodes[2].clone(), vec![nodes[0].clone(), nodes[1].clone()]),
             ],
         ));
+
+        assert_eq!(5, graph.total_active_edges() as usize);
+        assert_eq!(5, graph.compute_total_active_edges() as usize);
     }
 
     /// Test the following graph
@@ -1204,5 +1243,8 @@ mod test {
         }
 
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
+
+        assert_eq!(22, graph.total_active_edges() as usize);
+        assert_eq!(22, graph.compute_total_active_edges() as usize);
     }
 }

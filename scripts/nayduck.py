@@ -16,6 +16,7 @@ organisation on GitHub to authenticate (<https://github.com/orgs/near/people>).
 The source code for NayDuck itself is at <https://github.com/near/nayduck>.
 """
 
+import getpass
 import json
 import os
 import pathlib
@@ -166,7 +167,7 @@ def __read_tests(
 def github_auth(code_path: pathlib.Path):
     print('Go to the following link in your browser:\n\n{}/login/cli\n'.format(
         NAYDUCK_BASE_HREF))
-    code = input('Enter authorisation code: ')
+    code = getpass.getpass('Enter authorisation code: ')
     code_path.parent.mkdir(parents=True, exist_ok=True)
     code_path.write_text(code)
     return code
