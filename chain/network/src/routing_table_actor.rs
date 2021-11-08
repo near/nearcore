@@ -159,7 +159,7 @@ impl RoutingTableActor {
 
         // Update metrics after edge update
         near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
-        near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges as i64);
+        near_metrics::set_gauge(&metrics::EDGE_ACTIVE, self.raw_graph.total_active_edges() as i64);
 
         edges
     }
@@ -219,7 +219,7 @@ impl RoutingTableActor {
     }
 
     fn my_peer_id(&self) -> &PeerId {
-        &self.raw_graph.source
+        &self.raw_graph.my_peer_id()
     }
 
     /// Recalculate routing table and update list of reachable peers.
