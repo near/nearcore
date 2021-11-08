@@ -883,7 +883,8 @@ pub struct RoutingTableInfo {
 pub struct Graph {
     /// peer_id of current peer
     my_peer_id: PeerId,
-    /// `id` as integer corresponding to `my_peer_id`
+    /// `id` as integer corresponding to `my_peer_id`.
+    /// We use u32 to reduce both improve performance, and reduce memory usage.
     source_id: u32,
     /// Mapping from `PeerId` to `id`
     p2id: HashMap<PeerId, u32>,
@@ -894,6 +895,7 @@ pub struct Graph {
     /// List of unused peer ids
     unused: Vec<u32>,
     /// Compressed adjacency table, we use 32 bit integer as ids instead of using full `PeerId`.
+    /// This is undirected graph, we store edges in both directions.
     adjacency: Vec<Vec<u32>>,
 
     /// Total number of edges used for stats.
