@@ -20,9 +20,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use metrics::NetworkMetrics;
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -33,17 +33,18 @@ use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use rand::thread_rng;
 
-use crate::codec::Codec;
-use crate::peer::Peer;
+use crate::peer_actor::PeerActor;
 use crate::peer_store::{PeerStore, TrustLevel};
-use crate::{metrics, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
+use crate::routing::codec::Codec;
+use crate::{RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse};
 
-use crate::routing::{
+use crate::routing::routing::{
     Edge, EdgeInfo, EdgeType, EdgeVerifierHelper, GetRoutingTableResult, PeerRequestResult,
     ProcessEdgeResult, RoutingTable, SimpleEdge, MAX_NUM_PEERS, SAVE_PEERS_AFTER_TIME,
 };
 
-use crate::edge_verifier::EdgeVerifierActor;
+use crate::routing::edge_verifier_actor::EdgeVerifierActor;
+use crate::stats::metrics;
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
 use crate::types::{
@@ -103,7 +104,7 @@ macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
 
 /// Contains information relevant to an active peer.
 struct ActivePeer {
-    addr: Addr<Peer>,
+    addr: Addr<PeerActor>,
     full_peer_info: FullPeerInfo,
     /// Number of bytes we've received from the peer.
     received_bytes_per_sec: u64,
@@ -345,7 +346,7 @@ impl PeerManagerActor {
         &mut self,
         peer_id: PeerId,
         peer_type: PeerType,
-        addr: Addr<Peer>,
+        addr: Addr<PeerActor>,
         ctx: &mut Context<Self>,
     ) {
         near_performance_metrics::actix::run_later(ctx, WAIT_FOR_SYNC_DELAY, move |act, ctx| {
@@ -389,7 +390,7 @@ impl PeerManagerActor {
         full_peer_info: FullPeerInfo,
         edge_info: EdgeInfo,
         peer_type: PeerType,
-        addr: Addr<Peer>,
+        addr: Addr<PeerActor>,
         peer_protocol_version: ProtocolVersion,
         ctx: &mut Context<Self>,
     ) {
@@ -467,7 +468,7 @@ impl PeerManagerActor {
     fn send_sync(
         &mut self,
         peer_type: PeerType,
-        addr: Addr<Peer>,
+        addr: Addr<PeerActor>,
         ctx: &mut Context<PeerManagerActor>,
         target_peer_id: PeerId,
         new_edge: Edge,
@@ -645,11 +646,11 @@ impl PeerManagerActor {
         let peer_counter = self.peer_counter.clone();
         peer_counter.fetch_add(1, Ordering::SeqCst);
 
-        Peer::start_in_arbiter(&arbiter.handle(), move |ctx| {
+        PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-            Peer::add_stream(
+            PeerActor::add_stream(
                 FramedRead::new(read, Codec::new())
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
@@ -662,7 +663,7 @@ impl PeerManagerActor {
                 ctx,
             );
 
-            Peer::new(
+            PeerActor::new(
                 PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
                 peer_info,
@@ -2290,7 +2291,7 @@ impl PeerManagerActor {
         ctx: &mut Context<PeerManagerActor>,
         peer_id: &PeerId,
         mut ibf_msg: RoutingVersion2,
-        addr: Addr<Peer>,
+        addr: Addr<PeerActor>,
     ) {
         let mut edges: Vec<Edge> = Vec::new();
         swap(&mut edges, &mut ibf_msg.edges);

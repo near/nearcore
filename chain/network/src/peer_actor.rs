@@ -35,9 +35,10 @@ use near_primitives::version::{
 };
 use near_rust_allocator_proxy::allocator::get_tid;
 
-use crate::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
-use crate::rate_counter::RateCounter;
-use crate::routing::{Edge, EdgeInfo};
+use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::routing::routing::{Edge, EdgeInfo};
+use crate::stats::metrics::{self, NetworkMetrics};
+use crate::stats::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason, HandshakeV2,
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkViewClientMessages,
@@ -47,11 +48,8 @@ use crate::types::{
     ReasonForBan, RoutedMessage, RoutedMessageBody, RoutedMessageFrom, SendMessage,
     StateResponseInfo, Unregister, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE,
 };
+use crate::NetworkResponses;
 use crate::PeerManagerActor;
-use crate::{
-    metrics::{self, NetworkMetrics},
-    NetworkResponses,
-};
 
 type WriteHalf = tokio::io::WriteHalf<tokio::net::TcpStream>;
 
@@ -160,7 +158,7 @@ impl Tracker {
     }
 }
 
-pub struct Peer {
+pub struct PeerActor {
     /// This node's id and address (either listening or socket address).
     pub node_info: PeerInfo,
     /// Peer address from connection.
@@ -205,12 +203,13 @@ pub struct Peer {
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
 }
 
-impl Debug for Peer {
+impl Debug for PeerActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{:?}", self.node_info)
     }
 }
-impl Peer {
+
+impl PeerActor {
     pub fn new(
         node_info: PeerInfo,
         peer_addr: SocketAddr,
@@ -226,7 +225,7 @@ impl Peer {
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
     ) -> Self {
-        Peer {
+        PeerActor {
             node_info,
             peer_addr,
             peer_info: peer_info.into(),
@@ -287,7 +286,7 @@ impl Peer {
         };
     }
 
-    fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
+    fn fetch_client_chain_info(&mut self, ctx: &mut Context<PeerActor>) {
         ctx.wait(
             self.view_client_addr
                 .send(NetworkViewClientMessages::GetChainInfo)
@@ -306,7 +305,7 @@ impl Peer {
         );
     }
 
-    fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
+    fn send_handshake(&mut self, ctx: &mut Context<PeerActor>) {
         if self.peer_id().is_none() {
             error!(target: "network", "Sending handshake to an unknown peer");
             return;
@@ -357,7 +356,7 @@ impl Peer {
             .spawn(ctx);
     }
 
-    fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
+    fn ban_peer(&mut self, ctx: &mut Context<PeerActor>, ban_reason: ReasonForBan) {
         warn!(target: "network", "Banning peer {} for {:?}", self.peer_info, ban_reason);
         self.peer_status = PeerStatus::Banned(ban_reason);
         // On stopping Banned signal will be sent to PeerManager
@@ -372,7 +371,7 @@ impl Peer {
         self.peer_info.as_ref().as_ref().map(|peer_info| peer_info.id.clone())
     }
 
-    fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+    fn receive_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         if msg.is_view_client_message() {
             self.receive_view_client_message(ctx, msg);
         } else if msg.is_client_message() {
@@ -382,7 +381,7 @@ impl Peer {
         }
     }
 
-    fn receive_view_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+    fn receive_view_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         let mut msg_hash = None;
         let view_client_message = match msg {
             PeerMessage::Routed(message) => {
@@ -490,7 +489,7 @@ impl Peer {
     }
 
     /// Process non handshake/peer related messages.
-    fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+    fn receive_client_message(&mut self, ctx: &mut Context<PeerActor>, msg: PeerMessage) {
         near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
@@ -638,8 +637,8 @@ impl Peer {
     }
 }
 
-impl Actor for Peer {
-    type Context = Context<Peer>;
+impl Actor for PeerActor {
+    type Context = Context<PeerActor>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
         near_metrics::inc_gauge(&metrics::PEER_CONNECTIONS_TOTAL);
@@ -694,9 +693,9 @@ impl Actor for Peer {
     }
 }
 
-impl WriteHandler<io::Error> for Peer {}
+impl WriteHandler<io::Error> for PeerActor {}
 
-impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
+impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
     #[perf]
     fn handle(&mut self, msg: Result<Vec<u8>, ReasonForBan>, ctx: &mut Self::Context) {
         let msg = match msg {
@@ -1065,7 +1064,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for Peer {
     }
 }
 
-impl Handler<SendMessage> for Peer {
+impl Handler<SendMessage> for PeerActor {
     type Result = ();
 
     #[perf]
@@ -1076,7 +1075,7 @@ impl Handler<SendMessage> for Peer {
     }
 }
 
-impl Handler<Arc<SendMessage>> for Peer {
+impl Handler<Arc<SendMessage>> for PeerActor {
     type Result = ();
 
     #[perf]
@@ -1087,7 +1086,7 @@ impl Handler<Arc<SendMessage>> for Peer {
     }
 }
 
-impl Handler<QueryPeerStats> for Peer {
+impl Handler<QueryPeerStats> for PeerActor {
     type Result = PeerStatsResult;
 
     #[perf]
@@ -1107,7 +1106,7 @@ impl Handler<QueryPeerStats> for Peer {
     }
 }
 
-impl Handler<PeerManagerRequest> for Peer {
+impl Handler<PeerManagerRequest> for PeerActor {
     type Result = ();
 
     #[perf]

@@ -5,7 +5,7 @@ use std::time::Instant;
 use borsh::de::BorshDeserialize;
 
 use near_crypto::Signature;
-use near_network::routing::{
+use near_network::routing::routing::{
     Edge, EdgeType, RoutingTable, SAVE_PEERS_AFTER_TIME, SAVE_PEERS_MAX_TIME,
 };
 use near_network::test_utils::random_peer_id;

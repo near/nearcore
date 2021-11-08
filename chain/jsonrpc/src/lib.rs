@@ -38,7 +38,7 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "test_features")]
-use near_network::routing::GetRoutingTableResult;
+use near_network::routing::routing::GetRoutingTableResult;
 #[cfg(feature = "test_features")]
 use near_network::types::{
     GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
