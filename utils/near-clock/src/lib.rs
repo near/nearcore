@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::ops::Sub;
+use std::ops::{Add, Sub};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -78,6 +78,18 @@ impl NearDuration {
     pub fn as_millis(&self) -> u128 {
         self.duration.as_millis()
     }
+
+    pub fn from_millis(ns: u64) -> NearDuration {
+        Self { duration: Duration::from_millis(ns) }
+    }
+}
+
+impl Add<NearDuration> for NearClock {
+    type Output = Self;
+
+    fn add(self, other: NearDuration) -> Self {
+        Self { time: self.time + other.duration }
+    }
 }
 
 impl Sub for NearClock {
@@ -92,18 +104,15 @@ impl Sub for NearClock {
 
 #[cfg(test)]
 mod tests {
-    use crate::{get_time_override, mock_time, now, set_time_override, NearClock};
+    use crate::{get_time_override, mock_time, set_time_override, NearClock, NearDuration};
     use std::thread;
-    use std::thread::sleep;
-    use std::time::Duration;
 
     #[test]
     fn test_mock_override() {
         let time_override = get_time_override();
 
-        let near_time = now();
+        let near_time = NearClock::now() + NearDuration::from_millis(1000);
         let near_time2 = near_time.clone();
-        sleep(Duration::from_secs(1));
 
         let _ = thread::spawn(move || {
             set_time_override(time_override);
