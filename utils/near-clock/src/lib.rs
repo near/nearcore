@@ -27,6 +27,10 @@ pub fn get_time_override() -> Arc<AtomicU64> {
     TIME_OVERRIDE.with(|x| x.borrow().clone())
 }
 
+pub fn set_time_override(new_time_override: Arc<AtomicU64>) {
+    TIME_OVERRIDE.with(|x| *x.borrow_mut() = new_time_override);
+}
+
 pub fn now() -> NearClock {
     TIME_OVERRIDE.with(|time_override| {
         let time_override = time_override.borrow().load(Ordering::SeqCst);
@@ -38,6 +42,7 @@ pub fn now() -> NearClock {
     })
 }
 
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct NearClock {
     time: SystemTime,
 }
@@ -47,6 +52,10 @@ impl NearClock {
         NearClock { time: system_time }
     }
 
+    pub fn now() -> NearClock {
+        now()
+    }
+
     pub fn duration_since(&self, rhs: NearClock) -> NearDuration {
         NearDuration {
             duration: self.time.duration_since(rhs.time).unwrap_or(Duration::from_millis(0)),
@@ -54,6 +63,7 @@ impl NearClock {
     }
 }
 
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct NearDuration {
     duration: Duration,
 }
@@ -76,5 +86,33 @@ impl Sub for NearClock {
         let duration = self.time.duration_since(other.time).unwrap_or(Duration::from_millis(0));
 
         NearDuration { duration }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{get_time_override, mock_time, now, set_time_override, NearClock};
+    use std::thread;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    #[test]
+    fn test_mock_override() {
+        let time_override = get_time_override();
+
+        let near_time = now();
+        let near_time2 = near_time.clone();
+        sleep(Duration::from_secs(1));
+
+        thread::spawn(move || {
+            set_time_override(time_override);
+
+            mock_time(near_time2);
+
+            // some work here
+        })
+        .join();
+
+        assert_eq!(NearClock::now(), near_time);
     }
 }
