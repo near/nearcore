@@ -61,7 +61,7 @@ pub struct RoutingTableActor {
     /// Last time a peer was reachable through active edges.
     pub peer_last_time_reachable: HashMap<PeerId, Instant>,
     /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
-    /// them in components. We remove all of those edges from memory, and save them do database,
+    /// them in components. We remove all of those edges from memory, and save them to database,
     /// If any of them were to be reachable again, we would re-add them.
     ///
     /// To store components, we have following column in the DB.
