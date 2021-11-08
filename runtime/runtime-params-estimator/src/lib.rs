@@ -70,6 +70,7 @@ use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{ExtCosts, VMConfig};
 use num_rational::Ratio;
 use rand::Rng;
+use vm_estimator::compute_compile_cost_vm;
 
 use crate::cost_table::format_gas;
 use crate::estimator_context::{EstimatorContext, TestBed};
@@ -411,21 +412,15 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
     total_cost - base_cost
 }
 
+/// For deploy costs, the cost is the sum two components:
+///   * database-related costs which we measure by deploying a contract with
+///     dummy payload
+///   * cost of contract compilation, which we estimate using linear regression
+///     on some real contracts.
 fn action_deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
-    if let Some(cost) = ctx.cached.action_deploy_contract_base.clone() {
-        return cost;
-    }
-
-    let total_cost = {
-        let code = read_resource("test-contract/res/smallest_contract.wasm");
-        deploy_contract_cost(ctx, code)
-    };
-
-    let base_cost = action_sir_receipt_creation(ctx);
-
-    let cost = total_cost - base_cost;
-    ctx.cached.action_deploy_contract_base = Some(cost.clone());
-    cost
+    let (compilation_base_cost, _) = compilation_cost_base_per_byte(ctx);
+    let base_cost = deploy_contract_base(ctx);
+    base_cost + compilation_base_cost
 }
 fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     let total_cost = {
@@ -437,11 +432,28 @@ fn action_deploy_contract_per_byte(ctx: &mut EstimatorContext) -> GasCost {
         deploy_contract_cost(ctx, code)
     };
 
-    let base_cost = action_deploy_contract_base(ctx);
+    let (_, compilation_per_byte_cost) = compilation_cost_base_per_byte(ctx);
+    let base_cost = deploy_contract_base(ctx);
 
     let bytes_per_transaction = 1024 * 1024;
 
-    (total_cost - base_cost) / bytes_per_transaction
+    (total_cost - base_cost) / bytes_per_transaction + compilation_per_byte_cost
+}
+fn deploy_contract_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = ctx.cached.deploy_contract_base.clone() {
+        return cost;
+    }
+
+    let total_cost = {
+        let code = read_resource("test-contract/res/smallest_contract.wasm");
+        deploy_contract_cost(ctx, code)
+    };
+
+    let base_cost = action_sir_receipt_creation(ctx);
+
+    let cost = total_cost - base_cost;
+    ctx.cached.deploy_contract_base = Some(cost.clone());
+    cost
 }
 fn deploy_contract_cost(ctx: &mut EstimatorContext, code: Vec<u8>) -> GasCost {
     let test_bed = ctx.test_bed();
@@ -454,6 +466,22 @@ fn deploy_contract_cost(ctx: &mut EstimatorContext, code: Vec<u8>) -> GasCost {
         tb.transaction_from_actions(sender, receiver, actions)
     };
     transaction_cost(test_bed, &mut make_transaction)
+}
+fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
+    if let Some(base_byte_cost) = ctx.cached.compile_cost_base_per_byte.clone() {
+        return base_byte_cost;
+    }
+
+    let verbose = false;
+    let (base, byte) = compute_compile_cost_vm(ctx.config.metric, ctx.config.vm_kind, verbose);
+
+    let base_byte_cost = (
+        GasCost::from_raw(base.into(), ctx.config.metric),
+        GasCost::from_raw(byte.into(), ctx.config.metric),
+    );
+
+    ctx.cached.compile_cost_base_per_byte = Some(base_byte_cost.clone());
+    base_byte_cost
 }
 
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
