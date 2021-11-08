@@ -324,8 +324,10 @@ where
 
     let took = now.elapsed();
 
-    let peak_memory =
-        ByteSize::b((current_thread_peak_memory_usage() - initial_memory_usage) as u64);
+    let peak_memory = ByteSize::b(
+        (max(initial_memory_usage, current_thread_peak_memory_usage()) - initial_memory_usage)
+            as u64,
+    );
 
     if peak_memory >= ByteSize::b(MEMORY_LIMIT) {
         warn!(
