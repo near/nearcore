@@ -393,6 +393,9 @@ pub enum RoutingTableMessages {
     // Remove edges. (Will be removed soon).
     RemoveEdges(Vec<Edge>),
     // Add verified edges to routing table actor and update stats.
+    // Each edge contains signature of both peers.
+    // We say that the edge is "verified" if and only if we checked that the `signature0` and
+    // `signature1` is valid.
     AddVerifiedEdges {
         edges: Vec<Edge>,
     },
