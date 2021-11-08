@@ -279,7 +279,7 @@ impl RoutingTableActor {
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
-        let old_component_nonce = self.next_available_component_nonce;
+        let current_component_nonce = self.next_available_component_nonce;
         self.next_available_component_nonce += 1;
 
         let mut update = self.store.store_update();
@@ -292,13 +292,13 @@ impl RoutingTableActor {
             let _ = update.set_ser(
                 ColPeerComponent,
                 Vec::from(peer_id.clone()).as_ref(),
-                &old_component_nonce,
+                &current_component_nonce,
             );
 
             self.peer_last_time_reachable.remove(peer_id);
         }
 
-        let component_nonce = index_to_bytes(old_component_nonce);
+        let component_nonce = index_to_bytes(current_component_nonce);
         let edges_to_remove = self
             .edges_info
             .iter()
