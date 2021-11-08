@@ -30,17 +30,21 @@ use near_store::{Store, StoreUpdate};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// `Prune` enum is to specify how often should we prune edges.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Prune {
+    /// Prune once per hour - default.
     PruneOncePerHour,
+    /// Prune right now - for testing purposes.
     PruneNow,
+    /// Don't prune at all.
     Disable,
 }
 
 /// RoutingTableActor that maintains routing table information. We currently have only one
 /// instance of this actor.
 ///
-/// We store following information
+/// We store the following information
 ///   - list of all known edges
 ///   - helper data structure for exchanging routing table
 ///   - routing information (where a message should be send to reach given peer)
