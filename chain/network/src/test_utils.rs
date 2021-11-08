@@ -19,9 +19,11 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
+#[cfg(feature = "test_features")]
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 
+#[cfg(feature = "test_features")]
 use crate::routing_table_actor::start_routing_table_actor;
 use crate::types::{
     NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
@@ -283,7 +285,9 @@ impl MockPeerManagerAdapter {
     }
 }
 
-#[allow(dead_code)]
+// Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
+// for each of them.
+#[cfg(feature = "test_features")]
 pub fn make_peer_manager_routing_table_addr_pair(
 ) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
     let seed = "test2";
