@@ -363,6 +363,7 @@ impl PeerManagerActor {
             }
         });
     }
+
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     fn start_routing_table_syncv2(&self, ctx: &mut Context<Self>, addr: Addr<Peer>, seed: u64) {
         self.routing_table_addr
