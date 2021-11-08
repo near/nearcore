@@ -58,7 +58,7 @@ pub struct RoutingTableActor {
     pub raw_graph: Graph,
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: Arc<HashMap<PeerId, Vec<PeerId>>>,
-    /// Last time a peer was reachable through with active edges.
+    /// Last time a peer was reachable through active edges.
     pub peer_last_time_reachable: HashMap<PeerId, Instant>,
     /// Everytime a group of peers becomes unreachable at the same time; We store edges belonging to
     /// them in components. We remove all of those edges from memory, and save them do database,
