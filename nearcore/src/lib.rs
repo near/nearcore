@@ -35,7 +35,7 @@ use crate::migrations::{
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use near_network::test_utils::make_ibf_routing_pool;
+use near_network::test_utils::make_routing_table_actor;
 
 pub mod append_only_map;
 pub mod config;
@@ -344,12 +344,18 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify();
     let network_config = config.network_config;
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let routing_table_addr = make_routing_table_actor();
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let ibf_routing_pool2 = ibf_routing_pool.clone();
+    let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(store, network_config, client_actor1, view_client1, ibf_routing_pool)
-            .unwrap()
+        PeerManagerActor::new(
+            store,
+            network_config,
+            client_actor1,
+            view_client1,
+            routing_table_addr,
+        )
+        .unwrap()
     });
 
     #[cfg(feature = "json_rpc")]
@@ -362,7 +368,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             #[cfg(feature = "test_features")]
             network_actor.clone(),
             #[cfg(feature = "test_features")]
-            ibf_routing_pool2,
+            routing_table_addr2,
         ));
     }
 

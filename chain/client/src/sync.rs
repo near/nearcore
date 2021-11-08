@@ -13,8 +13,10 @@ use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
+use near_network::types::{
+    AccountOrPeerIdOrHash, NetworkResponses, PeerManagerMessageRequest, ReasonForBan,
+};
+use near_network::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -64,7 +66,7 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
 // TODO #3488
 #[allow(dead_code)]
 pub struct EpochSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Datastructure to keep track of when the last request to each peer was made.
     /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
     /// interval, thus there's no point in requesting more frequently.
@@ -104,7 +106,7 @@ pub struct EpochSync {
 
 impl EpochSync {
     pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         genesis_epoch_id: EpochId,
         genesis_next_epoch_id: EpochId,
         first_epoch_block_producers: Vec<ValidatorStake>,
@@ -135,7 +137,7 @@ impl EpochSync {
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     history_locator: Vec<(BlockHeight, CryptoHash)>,
     prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
     syncing_peer: Option<FullPeerInfo>,
@@ -149,7 +151,7 @@ pub struct HeaderSync {
 
 impl HeaderSync {
     pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         initial_timeout: TimeDuration,
         progress_timeout: TimeDuration,
         stall_ban_timeout: TimeDuration,
@@ -270,10 +272,14 @@ impl HeaderSync {
                                 {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
                                         peer.peer_info, peer.chain_info.height);
-                                    self.network_adapter.do_send(NetworkRequests::BanPeer {
-                                        peer_id: peer.peer_info.id.clone(),
-                                        ban_reason: ReasonForBan::HeightFraud,
-                                    });
+                                    self.network_adapter.do_send(
+                                        PeerManagerMessageRequest::NetworkRequests(
+                                            NetworkRequests::BanPeer {
+                                                peer_id: peer.peer_info.id.clone(),
+                                                ban_reason: ReasonForBan::HeightFraud,
+                                            },
+                                        ),
+                                    );
                                     // This peer is fraudulent, let's skip this beat and wait for
                                     // the next one when this peer is not in the list anymore.
                                     self.syncing_peer = None;
@@ -312,10 +318,12 @@ impl HeaderSync {
     fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.do_send(NetworkRequests::BlockHeadersRequest {
-                hashes: locator,
-                peer_id: peer.peer_info.id.clone(),
-            });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockHeadersRequest {
+                    hashes: locator,
+                    peer_id: peer.peer_info.id.clone(),
+                },
+            ));
             return Some(peer);
         }
         None
@@ -400,7 +408,7 @@ pub struct BlockSyncRequest {
 
 /// Helper to track block syncing.
 pub struct BlockSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     last_request: Option<BlockSyncRequest>,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
@@ -410,7 +418,7 @@ pub struct BlockSync {
 
 impl BlockSync {
     pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
     ) -> Self {
@@ -549,10 +557,12 @@ impl BlockSync {
         };
 
         if let Some(peer) = peer {
-            self.network_adapter.do_send(NetworkRequests::BlockRequest {
-                hash: request.hash,
-                peer_id: peer.peer_info.id.clone(),
-            });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockRequest {
+                    hash: request.hash,
+                    peer_id: peer.peer_info.id.clone(),
+                },
+            ));
         }
 
         self.last_request = Some(request);
@@ -597,7 +607,7 @@ impl PendingRequestStatus {
 
 /// Helper to track state sync.
 pub struct StateSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
 
     state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
@@ -616,7 +626,7 @@ pub struct StateSync {
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, timeout: TimeDuration) -> Self {
+    pub fn new(network_adapter: Arc<dyn PeerManagerAdapter>, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
             state_sync_time: Default::default(),
@@ -1086,9 +1096,13 @@ impl StateSync {
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     self.network_adapter
-                        .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
+                        .send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                        ))
                         .then(move |result| {
-                            if let Ok(NetworkResponses::RouteNotFound) = result {
+                            if let Ok(NetworkResponses::RouteNotFound) =
+                                result.map(|f| f.as_network_response())
+                            {
                                 // Send a StateRequestHeader on the next iteration
                                 run_me.store(true, Ordering::SeqCst);
                             }
@@ -1120,14 +1134,18 @@ impl StateSync {
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
                         self.network_adapter
-                            .send(NetworkRequests::StateRequestPart {
-                                shard_id,
-                                sync_hash,
-                                part_id: part_id as u64,
-                                target: target.clone(),
-                            })
+                            .send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::StateRequestPart {
+                                    shard_id,
+                                    sync_hash,
+                                    part_id: part_id as u64,
+                                    target: target.clone(),
+                                },
+                            ))
                             .then(move |result| {
-                                if let Ok(NetworkResponses::RouteNotFound) = result {
+                                if let Ok(NetworkResponses::RouteNotFound) =
+                                    result.map(|f| f.as_network_response())
+                                {
                                     // Send a StateRequestPart on the next iteration
                                     run_me.store(true, Ordering::SeqCst);
                                 }
@@ -1266,7 +1284,7 @@ mod test {
     use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
-    use near_network::test_utils::MockNetworkAdapter;
+    use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
@@ -1304,7 +1322,7 @@ mod test {
     /// Starts two chains that fork of genesis and checks that they can sync heaaders to the longest.
     #[test]
     fn test_sync_headers_fork() {
-        let mock_adapter = Arc::new(MockNetworkAdapter::default());
+        let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             mock_adapter.clone(),
             TimeDuration::from_secs(10),
@@ -1348,8 +1366,10 @@ mod test {
             .is_ok());
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
+
+        let item = mock_adapter.pop().unwrap().as_network_requests();
         assert_eq!(
-            mock_adapter.pop().unwrap(),
+            item,
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()
@@ -1368,7 +1388,7 @@ mod test {
     /// adjusted for time passed)
     #[test]
     fn test_slow_header_sync() {
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let highest_height = 1000;
 
         // Setup header_sync with expectation of 25 headers/second
@@ -1506,7 +1526,8 @@ mod test {
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
         let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
-        if let NetworkRequests::BanPeer { .. } = ban_peer {
+
+        if let NetworkRequests::BanPeer { .. } = ban_peer.as_network_requests() {
             /* expected */
         } else {
             assert!(false);
@@ -1515,13 +1536,16 @@ mod test {
 
     /// Helper function for block sync tests
     fn collect_hashes_from_network_adapter(
-        network_adapter: Arc<MockNetworkAdapter>,
+        network_adapter: Arc<MockPeerManagerAdapter>,
     ) -> HashSet<CryptoHash> {
         let mut requested_block_hashes = HashSet::new();
         let mut network_request = network_adapter.requests.write().unwrap();
         while let Some(request) = network_request.pop_back() {
             match request {
-                NetworkRequests::BlockRequest { hash, .. } => {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                    hash,
+                    ..
+                }) => {
                     requested_block_hashes.insert(hash);
                 }
                 _ => panic!("unexpected network request {:?}", request),
@@ -1546,7 +1570,7 @@ mod test {
 
     #[test]
     fn test_block_sync() {
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
         let mut chain_genesis = ChainGenesis::test();
@@ -1588,7 +1612,7 @@ mod test {
 
     #[test]
     fn test_block_sync_archival() {
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
         let mut chain_genesis = ChainGenesis::test();

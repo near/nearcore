@@ -44,7 +44,8 @@ fn test_request_chunk_restart() {
         CryptoHash::default(),
         client.chain.mut_store(),
     );
-    let response = env.network_adapters[0].pop().unwrap();
+    let response = env.network_adapters[0].pop().unwrap().as_network_requests();
+
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
         assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
     } else {
