@@ -2560,6 +2560,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-clock"
+version = "0.1.0"
+
+[[package]]
 name = "near-crypto"
 version = "0.1.0"
 dependencies = [
@@ -2759,6 +2763,7 @@ dependencies = [
  "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
+ "near-clock",
  "near-crypto",
  "near-logger-utils",
  "near-metrics",
