@@ -19,7 +19,7 @@ use crate::routing::Edge;
 use crate::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::types::{PartialSync, RoutingState, RoutingVersion2};
+use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};
 
 /// Actor that maintains routing table information.
 /// TODO (PIOTR, #4859) Finish moving routing table computation to new thread.
@@ -68,6 +68,10 @@ pub enum RoutingTableMessages {
         peer_id: PeerId,
         ibf_msg: RoutingVersion2,
     },
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    StartRoutingTableSync {
+        seed: u64,
+    },
 }
 
 impl Message for RoutingTableMessages {
@@ -88,6 +92,8 @@ pub enum RoutingTableMessagesResponse {
     RequestRoutingTableResponse {
         edges_info: Vec<Edge>,
     },
+    #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+    StartRoutingTableSyncResponse(PeerMessage),
 }
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
@@ -141,6 +147,17 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     self.edges_info.remove(&(edge.peer0.clone(), edge.peer1.clone()));
                 }
                 RoutingTableMessagesResponse::Empty
+            }
+            #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+            RoutingTableMessages::StartRoutingTableSync { seed } => {
+                RoutingTableMessagesResponse::StartRoutingTableSyncResponse(
+                    PeerMessage::RoutingTableSyncV2(RoutingSyncV2::Version2(RoutingVersion2 {
+                        known_edges: self.edges_info.len() as u64,
+                        seed,
+                        edges: Default::default(),
+                        routing_state: RoutingState::InitializeIbf,
+                    })),
+                )
             }
             RoutingTableMessages::RequestRoutingTable => {
                 RoutingTableMessagesResponse::RequestRoutingTableResponse {
