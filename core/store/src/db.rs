@@ -106,7 +106,9 @@ pub enum DBCol {
     /// - *Rows*: single row (empty row name)
     /// - *Column type*: u64
     ColLastComponentNonce = 32,
-    /// Map if transactions (key is transaction hash)
+    /// Map of transactions (key is transaction hash)
+    /// - *Rows*: transaction hash
+    /// 
     ColTransactions = 33,
     ColChunkPerHeightShard = 34,
     /// Changes to key-values that we have recorded.
