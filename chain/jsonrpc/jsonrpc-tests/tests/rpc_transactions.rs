@@ -15,8 +15,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
 use near_primitives::views::FinalExecutionStatus;
 
-#[macro_use]
-pub mod test_utils;
+use near_jsonrpc_tests::{self as test_utils, test_with_client};
 
 /// Test sending transaction via json rpc without waiting.
 #[test]

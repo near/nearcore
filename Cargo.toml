@@ -22,7 +22,7 @@ members = [
     "chain/indexer",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
-    "chain/jsonrpc/test-utils",
+    "chain/jsonrpc/jsonrpc-tests",
     "chain/jsonrpc-primitives",
     "chain/jsonrpc-adversarial-primitives",
     "chain/rosetta-rpc",

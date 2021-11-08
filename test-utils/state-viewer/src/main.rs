@@ -501,6 +501,13 @@ fn main() {
                         .default_value("0")
                         .takes_value(true),
                 )
+                .arg(
+                    Arg::with_name("verbose_output")
+                        .long("verbose_output")
+                        .required(false)
+                        .takes_value(false),
+                )
+                .arg(Arg::with_name("csv_file").long("csv_file").required(false).takes_value(true))
                 .help("apply blocks at a range of heights for a single shard"),
         )
         .subcommand(
@@ -634,18 +641,19 @@ fn main() {
                 load_trie_stop_at_height(store, home_dir, &near_config, mode);
             let height = header.height();
             let home_dir = PathBuf::from(&home_dir);
+            let output_dir = home_dir.join("output");
 
-            let new_genesis =
-                state_dump(runtime, state_roots.clone(), header, &near_config.genesis.config);
+            let records_path = output_dir.join("records.json");
+            let new_near_config =
+                state_dump(runtime, state_roots.clone(), header, &near_config, &records_path);
 
-            let output_path = home_dir.join(Path::new("output.json"));
             println!(
                 "Saving state at {:?} @ {} into {}",
                 state_roots,
                 height,
-                output_path.display(),
+                output_dir.display(),
             );
-            new_genesis.to_file(&output_path);
+            new_near_config.save_to_dir(&output_dir);
         }
         ("chain", Some(args)) => {
             let start_index =
@@ -670,6 +678,12 @@ fn main() {
             let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap());
             let shard_id =
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+            let verbose_output = args.is_present("verbose_output");
+            let csv_filename = args.value_of("csv_file");
+            let mut csv_file = None;
+            if let Some(filename) = csv_filename {
+                csv_file = Some(std::fs::File::create(filename).unwrap());
+            }
 
             let runtime = NightshadeRuntime::with_config(
                 &home_dir,
@@ -685,6 +699,8 @@ fn main() {
                 end_index,
                 shard_id,
                 runtime,
+                verbose_output,
+                csv_file.as_mut(),
             );
         }
         ("view_chain", Some(args)) => {

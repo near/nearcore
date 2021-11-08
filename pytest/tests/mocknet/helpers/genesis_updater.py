@@ -16,7 +16,7 @@ from configured_logger import logger
 
 def main(argv):
     logger.info(argv)
-    assert len(argv) == 8
+    assert len(argv) == 9
 
     genesis_filename_in = argv[1]
     genesis_filename_out = argv[2]
@@ -29,6 +29,9 @@ def main(argv):
         rpc_node_names = argv[5].split(',')
     done_filename = argv[6]
     epoch_length = int(argv[7])
+    node_pks = None
+    if argv[8]:
+        node_pks = argv[8].split(',')
 
     assert genesis_filename_in
     assert genesis_filename_out
@@ -36,14 +39,17 @@ def main(argv):
     assert validator_node_names
     assert done_filename
     assert epoch_length
+    assert node_pks
+    assert rpc_node_names
 
     mocknet.create_genesis_file(validator_node_names,
                                 genesis_filename_in,
                                 genesis_filename_out,
-                                rpc_node_names,
-                                chain_id,
+                                rpc_node_names=rpc_node_names,
+                                chain_id=chain_id,
                                 append=True,
-                                epoch_length=epoch_length)
+                                epoch_length=epoch_length,
+                                node_pks=node_pks)
 
     pathlib.Path(done_filename).write_text('DONE')
 

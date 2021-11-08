@@ -21,13 +21,20 @@ KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
 NODE_SSH_KEY_PATH = None
 NODE_USERNAME = 'ubuntu'
-NUM_SHARDS = 4
-NUM_ACCOUNTS = 26 * 10
+NUM_SHARDS = 1
+NUM_ACCOUNTS = 26 * 2
 PROJECT = 'near-mocknet'
-PUBLIC_KEY = "ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN"
+PUBLIC_KEY = 'ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN'
 TX_OUT_FILE = '/home/ubuntu/tx_events'
 WASM_FILENAME = 'simple_contract.wasm'
-CHAIN_ID = 'mocknet'
+
+MASTER_ACCOUNT = 'near'
+SKYWARD_ACCOUNT = 'skyward.near'
+SKYWARD_TOKEN_ACCOUNT = 'token.skyward.near'
+TOKEN1_ACCOUNT = 'token1.near'
+TOKEN2_ACCOUNT = 'token2.near'
+TOKEN2_OWNER_ACCOUNT = 'account.token2.near'
+ACCOUNT1_ACCOUNT = 'account1.near'
 
 TMUX_STOP_SCRIPT = '''
 while tmux has-session -t near; do
@@ -102,15 +109,12 @@ def load_testing_account_id(node_account_id, i):
     NUM_LETTERS = 26
     letter = i % NUM_LETTERS
     num = i // NUM_LETTERS
-    return "%s%02d_%s" % (chr(ord('a') + letter), num, node_account_id)
+    return '%s%02d_%s' % (chr(ord('a') + letter), num, node_account_id)
 
 
 def get_validator_account(node):
-    validator_key_file = tempfile.NamedTemporaryFile(
-        mode='r+', delete=False, suffix='.mocknet.loadtest.validator_key')
-    node.machine.download('/home/ubuntu/.near/validator_key.json',
-                          validator_key_file.name)
-    return Key.from_json_file(validator_key_file.name)
+    return Key.from_json(
+        download_and_read_json(node, '/home/ubuntu/.near/validator_key.json'))
 
 
 def list_validators(node):
@@ -129,12 +133,7 @@ def setup_python_environment(node, wasm_contract):
     m.upload(wasm_contract,
              os.path.join(PYTHON_DIR, WASM_FILENAME),
              switch_user='ubuntu')
-    m.upload('tests/mocknet/helpers/load_test_spoon_helper.py',
-             PYTHON_DIR,
-             switch_user='ubuntu')
-    m.upload('tests/mocknet/helpers/genesis_updater.py',
-             PYTHON_DIR,
-             switch_user='ubuntu')
+    m.upload('tests/mocknet/helpers/*.py', PYTHON_DIR, switch_user='ubuntu')
     m.run('bash', input=INSTALL_PYTHON_REQUIREMENTS)
     logger.info(f'{m.name} python setup complete')
 
@@ -144,10 +143,11 @@ def setup_python_environments(nodes, wasm_contract):
 
 
 def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes,
-                                  num_nodes, max_tps):
-    return '''
+                                  num_nodes, max_tps, leader_account_id, upk,
+                                  usk):
+    s = '''
         cd {dir}
-        nohup ./venv/bin/python {script} {node_account_id} {pk} {sk} {rpc_nodes} {num_nodes} {max_tps} 1> load_test.out 2> load_test.err < /dev/null &
+        nohup ./venv/bin/python {script} {node_account_id} {pk} {sk} {rpc_nodes} {num_nodes} {max_tps} {leader_account_id} {upk} {usk} 1>load_test.out 2>load_test.err < /dev/null &
     '''.format(dir=shlex.quote(PYTHON_DIR),
                script=shlex.quote(script),
                node_account_id=shlex.quote(node_account_id),
@@ -155,24 +155,55 @@ def start_load_test_helper_script(script, node_account_id, pk, sk, rpc_nodes,
                sk=shlex.quote(sk),
                rpc_nodes=shlex.quote(rpc_nodes),
                num_nodes=shlex.quote(str(num_nodes)),
-               max_tps=shlex.quote(str(max_tps)))
+               max_tps=shlex.quote(str(max_tps)),
+               leader_account_id=shlex.quote(leader_account_id),
+               upk=shlex.quote(upk),
+               usk=shlex.quote(usk))
+    logger.info(f'Starting load test helper: {s}')
+    return s
 
 
-def start_load_test_helper(node, script, pk, sk, rpc_nodes, num_nodes, max_tps):
+def start_load_test_helper(node,
+                           script,
+                           pk,
+                           sk,
+                           rpc_nodes,
+                           num_nodes,
+                           max_tps,
+                           lead_account_id=None,
+                           get_node_key=False):
+    upk, usk = None, None
+    if get_node_key:
+        node_key_json = download_and_read_json(
+            node, '/home/ubuntu/.near/node_key.json')
+        upk = node_key_json['public_key']
+        usk = node_key_json['secret_key']
     logger.info(f'Starting load_test_helper on {node.instance_name}')
     rpc_node_ips = ','.join([rpc_node.ip for rpc_node in rpc_nodes])
     node.machine.run('bash',
                      input=start_load_test_helper_script(
                          script, node_account_name(node.instance_name), pk, sk,
-                         rpc_node_ips, num_nodes, max_tps))
+                         rpc_node_ips, num_nodes, max_tps, lead_account_id, upk,
+                         usk))
 
 
-def start_load_test_helpers(nodes, script, rpc_nodes, num_nodes, max_tps):
+def start_load_test_helpers(nodes,
+                            script,
+                            rpc_nodes,
+                            num_nodes,
+                            max_tps,
+                            get_node_key=False):
     account = get_validator_account(nodes[0])
     pmap(
-        lambda node: start_load_test_helper(node, script, account.pk, account.
-                                            sk, rpc_nodes, num_nodes, max_tps),
-        nodes)
+        lambda node: start_load_test_helper(node,
+                                            script,
+                                            account.pk,
+                                            account.sk,
+                                            rpc_nodes,
+                                            num_nodes,
+                                            max_tps,
+                                            lead_account_id=account.account_id,
+                                            get_node_key=get_node_key), nodes)
 
 
 def get_log(node):
@@ -185,12 +216,7 @@ def get_logs(nodes):
 
 
 def get_epoch_length_in_blocks(node):
-    genesis_file = tempfile.NamedTemporaryFile(mode='r+',
-                                               delete=False,
-                                               suffix='.genesis.json')
-    node.machine.download('/home/ubuntu/.near/genesis.json', genesis_file.name)
-    with open(genesis_file.name) as f:
-        config = json.load(f)
+    config = download_and_read_json(node, '/home/ubuntu/.near/genesis.json')
     epoch_length_in_blocks = config['epoch_length']
     return epoch_length_in_blocks
 
@@ -300,7 +326,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
             )
             time.sleep(5)
             response = node.get_tx(tx_hash, account_id)
-        elif "doesn't exist" in error_data:
+        elif 'does not exist' in error_data:
             missing_count += 1
             logger.warning(
                 f'transaction {tx_hash} falied to be recieved by the node, checking again.'
@@ -426,9 +452,13 @@ def compress_and_upload(nodes, src_filename, dst_filename):
 def create_and_upload_genesis(validator_nodes,
                               genesis_template_filename=None,
                               rpc_nodes=None,
-                              chain_id=CHAIN_ID,
+                              chain_id=None,
                               update_genesis_on_machine=False,
-                              epoch_length=None):
+                              epoch_length=None,
+                              node_pks=None):
+    logger.info(
+        f'create_and_upload_genesis: validator_nodes: {validator_nodes}')
+    assert chain_id
     if not epoch_length:
         epoch_length = 20000
     logger.info('Uploading genesis and config files')
@@ -437,12 +467,18 @@ def create_and_upload_genesis(validator_nodes,
 
         if not update_genesis_on_machine:
             assert genesis_template_filename
-            mocknet_genesis_filename = os.path.join(tmp_dir, "genesis.json")
-            create_genesis_file(validator_nodes,
+            mocknet_genesis_filename = os.path.join(tmp_dir, 'genesis.json')
+            validator_node_names = [
+                node.instance_name for node in validator_nodes
+            ]
+            rpc_node_names = [node.instance_name for node in rpc_nodes]
+            create_genesis_file(validator_node_names,
                                 genesis_template_filename,
                                 mocknet_genesis_filename,
-                                rpc_nodes=rpc_nodes,
-                                epoch_length=epoch_length)
+                                tmp_dir=tmp_dir,
+                                rpc_node_names=rpc_node_names,
+                                epoch_length=epoch_length,
+                                node_pks=node_pks)
             # Save time and bandwidth by uploading a compressed file, which is 2% the size of the genesis file.
             compress_and_upload(validator_nodes + rpc_nodes,
                                 mocknet_genesis_filename,
@@ -455,7 +491,7 @@ def create_and_upload_genesis(validator_nodes,
                 node.instance_name for node in validator_nodes
             ]
             rpc_node_names = [node.instance_name for node in rpc_nodes]
-            assert '-spoon' in chain_id, f"Expecting chain_id like 'testnet-spoon' or 'mainnet-spoon', got {chain_id}"
+            assert '-spoon' in chain_id, f'Expecting chain_id like "testnet-spoon" or "mainnet-spoon", got {chain_id}'
             chain_id_in = chain_id.split('-spoon')[0]
             genesis_filename_in = f'/home/ubuntu/.near/genesis.{chain_id_in}.json'
             done_filename = f'/home/ubuntu/genesis_update_done_{int(time.time())}.txt'
@@ -464,7 +500,7 @@ def create_and_upload_genesis(validator_nodes,
                     node, 'genesis_updater.py', genesis_filename_in,
                     '/home/ubuntu/.near/genesis.json', chain_id,
                     validator_node_names, rpc_node_names, done_filename,
-                    epoch_length), validator_nodes + rpc_nodes)
+                    epoch_length, node_pks), validator_nodes + rpc_nodes)
             pmap(lambda node: wait_genesis_updater_done(node, done_filename),
                  validator_nodes + rpc_nodes)
 
@@ -472,34 +508,33 @@ def create_and_upload_genesis(validator_nodes,
 def create_genesis_file(validator_node_names,
                         genesis_template_filename,
                         mocknet_genesis_filename,
+                        tmp_dir=None,
                         rpc_node_names=None,
                         chain_id=None,
                         append=False,
-                        epoch_length=None):
+                        epoch_length=None,
+                        node_pks=None):
+    logger.info(
+        f'create_genesis_file: validator_node_names: {validator_node_names}')
+    logger.info(f'create_genesis_file: rpc_node_names: {rpc_node_names}')
     with open(genesis_template_filename) as f:
         genesis_config = json.load(f)
 
     ONE_NEAR = 10**24
     TOTAL_SUPPLY = (10**9) * ONE_NEAR
     # Make sure our new validators have more tokens than any existing validators.
-    VALIDATOR_BALANCE = (10**8) * ONE_NEAR
+    VALIDATOR_BALANCE = (10**7) * ONE_NEAR
     STAKED_BALANCE = 15 * (10**5) * ONE_NEAR
     RPC_BALANCE = (10**1) * ONE_NEAR
-    MASTER_ACCOUNT = "near"
-    TREASURY_ACCOUNT = "test.near"
+    TREASURY_ACCOUNT = 'test.near'
     TREASURY_BALANCE = (10**7) * ONE_NEAR
     LOAD_TESTER_BALANCE = (10**4) * ONE_NEAR
 
-    add_balance = (len(validator_node_names) *
-                   (VALIDATOR_BALANCE + STAKED_BALANCE +
-                    NUM_ACCOUNTS * LOAD_TESTER_BALANCE) +
-                   len(rpc_node_names) * RPC_BALANCE)
-    if not append:
-        add_balance += TREASURY_BALANCE
-
-    # Because we want our new validators to have huge balances, we may need to extend TOTAL_SUPPLY.
-    while TOTAL_SUPPLY <= add_balance:
-        TOTAL_SUPPLY *= 10
+    SKYWARD_CONTRACT_BALANCE = (10**6) * ONE_NEAR
+    TOKEN1_BALANCE = (10**6) * ONE_NEAR
+    TOKEN2_BALANCE = (10**6) * ONE_NEAR
+    TOKEN2_OWNER_BALANCE = (10**6) * ONE_NEAR
+    ACCOUNT1_BALANCE = (10**6) * ONE_NEAR
 
     if chain_id:
         if append:
@@ -509,189 +544,210 @@ def create_genesis_file(validator_node_names,
         genesis_config['chain_id'] = chain_id
 
     if append:
-        genesis_config['total_supply'] = str(
-            int(genesis_config['total_supply']) + add_balance)
         # Unstake all tokens from all existing accounts.
         for record in genesis_config['records']:
             if 'Account' in record:
-                if 'account' in record['Account']:
-                    if 'locked' in record['Account']['account']:
-                        locked = int(record['Account']['account']['locked'])
-                        if locked > 0:
-                            amount = int(record['Account']['account']['amount'])
-                            record['Account']['account']['amount'] = str(
-                                amount + locked)
-                            record['Account']['account']['locked'] = str(0)
+                account = record['Account'].get('account', {})
+                locked = int(account.get('locked', 0))
+                if locked > 0:
+                    amount = int(account.get('amount', 0))
+                    account['amount'] = str(amount + locked)
+                    account['locked'] = 0
 
     else:
-        genesis_config['total_supply'] = str(TOTAL_SUPPLY)
-        master_balance = (TOTAL_SUPPLY - add_balance)
-        assert master_balance > 0
         genesis_config['records'] = []
-        genesis_config['records'].append({
-            "Account": {
-                "account_id": MASTER_ACCOUNT,
-                "account": {
-                    "amount": str(master_balance),
-                    "locked": "0",
-                    "code_hash": "11111111111111111111111111111111",
-                    "storage_usage": 0,
-                    "version": "V1"
+
+    master_balance = 10**7
+    assert master_balance > 0
+    accounts = {
+        TREASURY_ACCOUNT: TREASURY_BALANCE,
+        MASTER_ACCOUNT: master_balance,
+        SKYWARD_ACCOUNT: SKYWARD_CONTRACT_BALANCE,
+        TOKEN1_ACCOUNT: TOKEN1_BALANCE,
+        TOKEN2_ACCOUNT: TOKEN2_BALANCE,
+        TOKEN2_OWNER_ACCOUNT: TOKEN2_OWNER_BALANCE,
+        ACCOUNT1_ACCOUNT: ACCOUNT1_BALANCE
+    }
+    seen_accounts = set()
+    for record in genesis_config['records']:
+        if 'Account' in record:
+            account_record = record['Account']
+            account_id = account_record.get('account_id', '')
+            if account_id in accounts:
+                seen_accounts.add(account_id)
+                account = account_record.get('account', {})
+                account['amount'] = str(accounts[account_id])
+
+    for account_id, balance in accounts.items():
+        if account_id not in seen_accounts:
+            genesis_config['records'].append({
+                'Account': {
+                    'account_id': account_id,
+                    'account': {
+                        'amount': str(balance),
+                        'locked': '0',
+                        'code_hash': '11111111111111111111111111111111',
+                        'storage_usage': 0,
+                        'version': 'V1'
+                    }
                 }
-            }
-        })
-        genesis_config['records'].append({
-            "AccessKey": {
-                "account_id": MASTER_ACCOUNT,
-                "public_key": PUBLIC_KEY,
-                "access_key": {
-                    "nonce": 0,
-                    "permission": "FullAccess"
+            })
+        pkeys = [PUBLIC_KEY]
+        if node_pks:
+            pkeys += node_pks
+        for pk in pkeys:
+            genesis_config['records'].append({
+                'AccessKey': {
+                    'account_id': account_id,
+                    'public_key': pk,
+                    'access_key': {
+                        'nonce': 0,
+                        'permission': 'FullAccess'
+                    }
                 }
-            }
-        })
-        genesis_config['records'].append({
-            "Account": {
-                "account_id": TREASURY_ACCOUNT,
-                "account": {
-                    "amount": str(TREASURY_BALANCE),
-                    "locked": "0",
-                    "code_hash": "11111111111111111111111111111111",
-                    "storage_usage": 0,
-                    "version": "V1"
-                }
-            }
-        })
-        genesis_config['records'].append({
-            "AccessKey": {
-                "account_id": TREASURY_ACCOUNT,
-                "public_key": PUBLIC_KEY,
-                "access_key": {
-                    "nonce": 0,
-                    "permission": "FullAccess"
-                }
-            }
-        })
+            })
 
     genesis_config['validators'] = []
     for node_name in validator_node_names:
         account_id = node_account_name(node_name)
+        logger.info(f'Adding account {account_id}')
         genesis_config['records'].append({
-            "Account": {
-                "account_id": account_id,
-                "account": {
-                    "amount": str(VALIDATOR_BALANCE),
-                    "locked": str(STAKED_BALANCE),
-                    "code_hash": "11111111111111111111111111111111",
-                    "storage_usage": 0,
-                    "version": "V1"
+            'Account': {
+                'account_id': account_id,
+                'account': {
+                    'amount': str(VALIDATOR_BALANCE),
+                    'locked': str(STAKED_BALANCE),
+                    'code_hash': '11111111111111111111111111111111',
+                    'storage_usage': 0,
+                    'version': 'V1'
                 }
             }
         })
         genesis_config['records'].append({
-            "AccessKey": {
-                "account_id": account_id,
-                "public_key": PUBLIC_KEY,
-                "access_key": {
-                    "nonce": 0,
-                    "permission": "FullAccess"
+            'AccessKey': {
+                'account_id': account_id,
+                'public_key': PUBLIC_KEY,
+                'access_key': {
+                    'nonce': 0,
+                    'permission': 'FullAccess'
                 }
             }
         })
         genesis_config['validators'].append({
-            "account_id": account_id,
-            "public_key": PUBLIC_KEY,
-            "amount": str(STAKED_BALANCE)
+            'account_id': account_id,
+            'public_key': PUBLIC_KEY,
+            'amount': str(STAKED_BALANCE)
         })
         for i in range(NUM_ACCOUNTS):
             load_testing_account = load_testing_account_id(account_id, i)
+            logger.info(f'Adding load testing account {load_testing_account}')
             genesis_config['records'].append({
-                "Account": {
-                    "account_id": load_testing_account,
-                    "account": {
-                        "amount": str(LOAD_TESTER_BALANCE),
-                        "locked": str(0),
-                        "code_hash": "11111111111111111111111111111111",
-                        "storage_usage": 0,
-                        "version": "V1"
+                'Account': {
+                    'account_id': load_testing_account,
+                    'account': {
+                        'amount': str(LOAD_TESTER_BALANCE),
+                        'locked': str(0),
+                        'code_hash': '11111111111111111111111111111111',
+                        'storage_usage': 0,
+                        'version': 'V1'
                     }
                 }
             })
             genesis_config['records'].append({
-                "AccessKey": {
-                    "account_id": load_testing_account,
-                    "public_key": PUBLIC_KEY,
-                    "access_key": {
-                        "nonce": 0,
-                        "permission": "FullAccess"
+                'AccessKey': {
+                    'account_id': load_testing_account,
+                    'public_key': PUBLIC_KEY,
+                    'access_key': {
+                        'nonce': 0,
+                        'permission': 'FullAccess'
                     }
                 }
             })
     for node_name in rpc_node_names:
         account_id = node_account_name(node_name)
+        logger.info(f'Adding rpc node account {account_id}')
         genesis_config['records'].append({
-            "Account": {
-                "account_id": account_id,
-                "account": {
-                    "amount": str(RPC_BALANCE),
-                    "locked": str(0),
-                    "code_hash": "11111111111111111111111111111111",
-                    "storage_usage": 0,
-                    "version": "V1"
+            'Account': {
+                'account_id': account_id,
+                'account': {
+                    'amount': str(RPC_BALANCE),
+                    'locked': str(0),
+                    'code_hash': '11111111111111111111111111111111',
+                    'storage_usage': 0,
+                    'version': 'V1'
                 }
             }
         })
         genesis_config['records'].append({
-            "AccessKey": {
-                "account_id": account_id,
-                "public_key": PUBLIC_KEY,
-                "access_key": {
-                    "nonce": 0,
-                    "permission": "FullAccess"
+            'AccessKey': {
+                'account_id': account_id,
+                'public_key': PUBLIC_KEY,
+                'access_key': {
+                    'nonce': 0,
+                    'permission': 'FullAccess'
                 }
             }
         })
 
+    total_supply = 0
+    for record in genesis_config['records']:
+        account = record.get('Account', {}).get('account', {})
+        total_supply += int(account.get('locked', 0))
+        total_supply += int(account.get('amount', 0))
+    genesis_config['total_supply'] = str(total_supply)
     # Testing simple nightshade.
-    genesis_config["protocol_version"] = 47
-    genesis_config.pop("simple_nightshade_shard_layout", None)
-    genesis_config.pop("shard_layout", None)
-    genesis_config["epoch_length"] = epoch_length
-    genesis_config["num_block_producer_seats"] = len(validator_node_names)
+    genesis_config['protocol_version'] = 47
+    genesis_config['epoch_length'] = epoch_length
+    genesis_config['num_block_producer_seats'] = len(validator_node_names)
     # Loadtest helper signs all transactions using the same block.
     # Extend validity period to allow the same hash to be used for the whole duration of the test.
-    genesis_config["transaction_validity_period"] = 10**9
+    genesis_config['transaction_validity_period'] = 10**9
+
+    genesis_config.pop('simple_nightshade_shard_layout', None)
+    genesis_config.pop('shard_layout', None)
 
     # The json object gets truncated if I don't close and reopen the file.
-    with open(mocknet_genesis_filename, "w") as f:
+    with open(mocknet_genesis_filename, 'w') as f:
         json.dump(genesis_config, f, indent=2)
 
 
-def get_node_addr(node, port, tmp_dir):
-    node_key_filename = os.path.join(tmp_dir,
-                                     f'node_key.{node.instance_name}.json')
-    node.machine.download('/home/ubuntu/.near/node_key.json', node_key_filename)
-    with open(node_key_filename, 'r') as f:
-        node_key_json = json.load(f)
+def download_and_read_json(node, filename):
+    tmp_file = tempfile.NamedTemporaryFile(mode='r+', delete=False)
+    node.machine.download(filename, tmp_file.name)
+    tmp_file.close()
+    with open(tmp_file.name, 'r') as f:
+        return json.load(f)
+
+
+def get_node_addr(node, port):
+    node_key_json = download_and_read_json(node,
+                                           '/home/ubuntu/.near/node_key.json')
     return f'{node_key_json["public_key"]}@{node.ip}:{port}'
+
+
+def get_node_keys(node):
+    logger.info(f'get_node_keys from {node.instance_name}')
+    node_key_json = download_and_read_json(node,
+                                           '/home/ubuntu/.near/node_key.json')
+    return node_key_json['public_key'], node_key_json['secret_key']
 
 
 def update_config_file(all_nodes, tmp_dir):
     first_node = all_nodes[0]
 
-    mocknet_config_filename = os.path.join(tmp_dir, "config.json")
+    # Download and read.
+    mocknet_config_filename = os.path.join(tmp_dir, 'config.json')
     first_node.machine.download('/home/ubuntu/.near/config.json',
                                 mocknet_config_filename)
     with open(mocknet_config_filename, 'r') as f:
         config_json = json.load(f)
-    port = config_json["network"]["addr"].split(':')[
+    port = config_json['network']['addr'].split(':')[
         1]  # Usually the port is 24567
-    node_addresses = []
-    pmap(lambda node: node_addresses.append(get_node_addr(node, port, tmp_dir)),
-         all_nodes)
+    node_addresses = pmap(lambda node: get_node_addr(node, port), all_nodes)
 
-    config_json["tracked_shards"] = [0]
-    # config_json["tracked_shards"] = list(range(0, NUM_SHARDS))
+    config_json['tracked_shards'] = [0]
+    config_json['archive'] = True
+    config_json['archival_peer_connections_lower_bound'] = 1
 
     # Update the config and save it to the file.
     config_json['network']['boot_nodes'] = ','.join(node_addresses)
@@ -727,7 +783,7 @@ def start_node(node):
             success = True
             break
         logger.warn(
-            f"Failed to start process, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}"
+            f'Failed to start process, returncode: {start_process.returncode}\n{node.instance_name}\n{start_process.stderr}'
         )
         attempt += 1
         time.sleep(1)
@@ -757,11 +813,11 @@ def reset_data(node, retries=0):
 def start_genesis_updater_script(script, genesis_filename_in,
                                  genesis_filename_out, chain_id,
                                  validator_nodes, rpc_nodes, done_filename,
-                                 epoch_length):
+                                 epoch_length, node_pks):
     return '''
         cd {dir}
         rm -f ${done_filename}
-        nohup ./venv/bin/python {script} {genesis_filename_in} {genesis_filename_out} {chain_id} {validator_nodes} {rpc_nodes} {done_filename} {epoch_length}  1> genesis_updater.out 2> genesis_updater.err < /dev/null &
+        nohup ./venv/bin/python {script} {genesis_filename_in} {genesis_filename_out} {chain_id} {validator_nodes} {rpc_nodes} {done_filename} {epoch_length} {node_pks} 1> genesis_updater.out 2> genesis_updater.err < /dev/null &
     '''.format(dir=shlex.quote(PYTHON_DIR),
                script=shlex.quote(script),
                genesis_filename_in=shlex.quote(genesis_filename_in),
@@ -770,18 +826,19 @@ def start_genesis_updater_script(script, genesis_filename_in,
                validator_nodes=shlex.quote(','.join(validator_nodes)),
                rpc_nodes=shlex.quote(','.join(rpc_nodes)),
                done_filename=shlex.quote(done_filename),
-               epoch_length=shlex.quote(str(epoch_length)))
+               epoch_length=shlex.quote(str(epoch_length)),
+               node_pks=shlex.quote(','.join(node_pks)))
 
 
 def start_genesis_updater(node, script, genesis_filename_in,
                           genesis_filename_out, chain_id, validator_nodes,
-                          rpc_nodes, done_filename, epoch_length):
+                          rpc_nodes, done_filename, epoch_length, node_pks):
     logger.info(f'Starting genesis_updater on {node.instance_name}')
     node.machine.run('bash',
                      input=start_genesis_updater_script(
                          script, genesis_filename_in, genesis_filename_out,
                          chain_id, validator_nodes, rpc_nodes, done_filename,
-                         epoch_length))
+                         epoch_length, node_pks))
 
 
 def start_genesis_update_waiter_script(done_filename):
@@ -789,7 +846,7 @@ def start_genesis_update_waiter_script(done_filename):
         rm /home/ubuntu/waiter.txt
         until [ -f {done_filename} ]
         do
-            echo "waiting for {done_filename}" >> /home/ubuntu/waiter.txt
+            echo 'waiting for {done_filename}' >> /home/ubuntu/waiter.txt
             date >> /home/ubuntu/waiter.txt
             ls {done_filename} >> /home/ubuntu/waiter.txt
             sleep 5

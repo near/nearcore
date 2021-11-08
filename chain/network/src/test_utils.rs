@@ -22,11 +22,12 @@ use near_primitives::utils::index_to_bytes;
 use near_store::test_utils::create_test_store;
 
 use crate::types::{
-    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo, ReasonForBan,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
 };
 use crate::{
-    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerManagerActor, RoutingTableActor,
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkResponses,
+    PeerManagerActor, PeerManagerAdapter, RoutingTableActor,
 };
 
 type ClientMock = Mocker<NetworkClientMessages>;
@@ -255,31 +256,32 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
 }
 
 #[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+pub struct MockPeerManagerAdapter {
+    pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl NetworkAdapter for MockNetworkAdapter {
+impl PeerManagerAdapter for MockPeerManagerAdapter {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
         self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
+        future::ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse))
+            .boxed()
     }
 
-    fn do_send(&self, msg: NetworkRequests) {
+    fn do_send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
 
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
+impl MockPeerManagerAdapter {
+    pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
 }
 
-pub fn make_ibf_routing_pool() -> Addr<RoutingTableActor> {
+pub fn make_routing_table_actor() -> Addr<RoutingTableActor> {
     SyncArbiter::start(1, move || RoutingTableActor::default())
 }
 
@@ -289,7 +291,7 @@ pub fn make_peer_manager(
     port: u16,
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
-    ibf_routing_pool: Addr<RoutingTableActor>,
+    routing_table_addr: Addr<RoutingTableActor>,
 ) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
@@ -332,7 +334,7 @@ pub fn make_peer_manager(
             config,
             client_addr.recipient(),
             view_client_addr.recipient(),
-            ibf_routing_pool,
+            routing_table_addr,
         )
         .unwrap(),
         peer_id,

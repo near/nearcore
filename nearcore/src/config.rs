@@ -23,7 +23,6 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
@@ -573,17 +572,6 @@ impl Genesis {
         )
     }
 
-    pub fn test_free(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        let mut genesis = Self::test_with_seeds(
-            accounts,
-            num_validator_seats,
-            vec![num_validator_seats],
-            ShardLayout::default(),
-        );
-        genesis.config.runtime_config = RuntimeConfig::free();
-        genesis
-    }
-
     pub fn test_sharded(
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
@@ -615,7 +603,7 @@ impl Genesis {
 
 #[derive(Clone)]
 pub struct NearConfig {
-    config: Config,
+    pub config: Config,
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     #[cfg(feature = "json_rpc")]

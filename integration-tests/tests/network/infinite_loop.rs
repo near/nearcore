@@ -10,9 +10,11 @@ use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
 use near_logger_utils::init_integration_logger;
 use near_network::test_utils::{
-    convert_boot_nodes, make_ibf_routing_pool, open_port, GetInfo, WaitOrTimeout,
+    convert_boot_nodes, make_routing_table_actor, open_port, GetInfo, WaitOrTimeout,
 };
-use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses, SyncData};
+use near_network::types::{
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, SyncData,
+};
 use near_network::{NetworkClientResponses, NetworkConfig, NetworkRequests, PeerManagerActor};
 use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -59,7 +61,7 @@ pub fn make_peer_manager(
         }
     }))
     .start();
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let routing_table_addr = make_routing_table_actor();
     let peer_id = config.public_key.clone().into();
     (
         PeerManagerActor::new(
@@ -67,7 +69,7 @@ pub fn make_peer_manager(
             config,
             client_addr.recipient(),
             view_client_addr.recipient(),
-            ibf_routing_pool,
+            routing_table_addr,
         )
         .unwrap(),
         peer_id,
@@ -125,25 +127,37 @@ fn test_infinite_loop() {
                         future::ready(())
                     }));
                 } else if state_value == 1 {
-                    actix::spawn(pm1.clone().send(request1.clone()).then(move |res| {
-                        assert!(res.is_ok());
-                        state1.store(2, Ordering::SeqCst);
-                        future::ready(())
-                    }));
+                    actix::spawn(
+                        pm1.clone()
+                            .send(PeerManagerMessageRequest::NetworkRequests(request1.clone()))
+                            .then(move |res| {
+                                assert!(res.is_ok());
+                                state1.store(2, Ordering::SeqCst);
+                                future::ready(())
+                            }),
+                    );
                 } else if state_value == 2 {
                     if counter1.load(Ordering::SeqCst) == 1 && counter2.load(Ordering::SeqCst) == 1
                     {
                         state.store(3, Ordering::SeqCst);
                     }
                 } else if state_value == 3 {
-                    actix::spawn(pm1.clone().send(request1.clone()).then(move |res| {
-                        assert!(res.is_ok());
-                        future::ready(())
-                    }));
-                    actix::spawn(pm2.clone().send(request2.clone()).then(move |res| {
-                        assert!(res.is_ok());
-                        future::ready(())
-                    }));
+                    actix::spawn(
+                        pm1.clone()
+                            .send(PeerManagerMessageRequest::NetworkRequests(request1.clone()))
+                            .then(move |res| {
+                                assert!(res.is_ok());
+                                future::ready(())
+                            }),
+                    );
+                    actix::spawn(
+                        pm2.clone()
+                            .send(PeerManagerMessageRequest::NetworkRequests(request2.clone()))
+                            .then(move |res| {
+                                assert!(res.is_ok());
+                                future::ready(())
+                            }),
+                    );
                     state.store(4, Ordering::SeqCst);
                 } else if state_value == 4 {
                     assert_eq!(counter1.load(Ordering::SeqCst), 1);

@@ -35,7 +35,7 @@ use crate::migrations::{
 };
 pub use crate::runtime::NightshadeRuntime;
 pub use crate::shard_tracker::TrackedConfig;
-use near_network::test_utils::make_ibf_routing_pool;
+use near_network::test_utils::make_routing_table_actor;
 
 pub mod append_only_map;
 pub mod config;
@@ -295,6 +295,19 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
         config.client_config.max_gas_burnt_view,
     ));
 
+    // Make view_client use a different runtime so prevent it from blocking transaction processing
+    // If they share the same runtime, they will use the same set of cache objects (epoch_manager/shard_tries).
+    // Even though view_client only read from these caches, that will still block all other
+    // accesses.
+    // A more long term solution would to make the caches not read-blocking.
+    let view_client_runtime = Arc::new(NightshadeRuntime::with_config(
+        home_dir,
+        Arc::clone(&store),
+        &config,
+        config.client_config.trie_viewer_state_size_limit,
+        config.client_config.max_gas_burnt_view,
+    ));
+
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::from(&config.genesis);
 
@@ -306,7 +319,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client = start_view_client(
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
-        runtime.clone(),
+        view_client_runtime,
         network_adapter.clone(),
         config.client_config.clone(),
         #[cfg(feature = "test_features")]
@@ -331,12 +344,18 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
     let view_client1 = view_client.clone().recipient();
     config.network_config.verify();
     let network_config = config.network_config;
-    let ibf_routing_pool = make_ibf_routing_pool();
+    let routing_table_addr = make_routing_table_actor();
     #[cfg(all(feature = "json_rpc", feature = "test_features"))]
-    let ibf_routing_pool2 = ibf_routing_pool.clone();
+    let routing_table_addr2 = routing_table_addr.clone();
     let network_actor = PeerManagerActor::start_in_arbiter(&arbiter.handle(), move |_ctx| {
-        PeerManagerActor::new(store, network_config, client_actor1, view_client1, ibf_routing_pool)
-            .unwrap()
+        PeerManagerActor::new(
+            store,
+            network_config,
+            client_actor1,
+            view_client1,
+            routing_table_addr,
+        )
+        .unwrap()
     });
 
     #[cfg(feature = "json_rpc")]
@@ -349,7 +368,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             #[cfg(feature = "test_features")]
             network_actor.clone(),
             #[cfg(feature = "test_features")]
-            ibf_routing_pool2,
+            routing_table_addr2,
         ));
     }
 
