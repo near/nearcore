@@ -134,7 +134,7 @@ mod tests {
     fn test_mock_override() {
         let time_override = get_time_override();
 
-        let near_time = UNIX_EPOCH + NearDuration::from_millis(1000);
+        let near_time = UNIX_EPOCH + NearDuration::from_millis(1001);
         let near_time2 = near_time.clone();
 
         let _ = thread::spawn(move || {
