@@ -246,7 +246,7 @@ impl StateMachine {
                                         res.as_network_response()
                                     {
                                         if expected_routing_tables(
-                                            (routing_table.peer_forwarding).clone(),
+                                            (*routing_table.peer_forwarding.as_ref()).clone(),
                                             expected,
                                         ) {
                                             flag.store(true, Ordering::Relaxed);
