@@ -9,7 +9,7 @@ use near_client::{
 };
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
@@ -188,7 +188,7 @@ fn test_state_request() {
             false,
             true,
             false,
-            Arc::new(MockNetworkAdapter::default()),
+            Arc::new(MockPeerManagerAdapter::default()),
             100,
             Utc::now(),
         );

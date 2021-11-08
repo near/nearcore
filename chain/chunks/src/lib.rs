@@ -13,11 +13,11 @@ use near_chain::validate::validate_chunk_proofs;
 use near_chain::{
     byzantine_assert, ChainStore, ChainStoreAccess, ChainStoreUpdate, ErrorKind, RuntimeAdapter,
 };
-use near_network::types::PartialEncodedChunkForwardMsg;
 use near_network::types::{
-    AccountIdOrPeerTrackingShard, NetworkAdapter, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg,
+    AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+    PeerManagerAdapter,
 };
+use near_network::types::{PartialEncodedChunkForwardMsg, PeerManagerMessageRequest};
 use near_network::NetworkRequests;
 use near_pool::{PoolIteratorWrapper, TransactionPool};
 use near_primitives::block::{BlockHeader, Tip};
@@ -379,7 +379,7 @@ pub struct ShardsManager {
     tx_pools: HashMap<ShardId, TransactionPool>,
 
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    peer_manager_adapter: Arc<dyn PeerManagerAdapter>,
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
@@ -393,13 +393,13 @@ impl ShardsManager {
     pub fn new(
         me: Option<AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
     ) -> Self {
         Self {
             me: me.clone(),
             tx_pools: HashMap::new(),
             runtime_adapter: runtime_adapter.clone(),
-            network_adapter,
+            peer_manager_adapter: network_adapter,
             encoded_chunks: EncodedChunksCache::new(),
             requested_partial_encoded_chunks: RequestPool::new(
                 Duration::from_millis(CHUNK_REQUEST_RETRY_MS),
@@ -535,8 +535,9 @@ impl ShardsManager {
                     },
                 };
 
-                self.network_adapter
-                    .do_send(NetworkRequests::PartialEncodedChunkRequest { target, request });
+                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkRequest { target, request },
+                ));
             } else {
                 warn!(target: "client", "{:?} requests parts {:?} for chunk {:?} from self",
                     me, part_ords, chunk_hash
@@ -928,8 +929,9 @@ impl ShardsManager {
 
         let response = PartialEncodedChunkResponseMsg { chunk_hash, parts, receipts };
 
-        self.network_adapter
-            .do_send(NetworkRequests::PartialEncodedChunkResponse { route_back, response });
+        self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedChunkResponse { route_back, response },
+        ));
     }
 
     pub fn check_chunk_complete(
@@ -1372,10 +1374,12 @@ impl ShardsManager {
                 false,
             );
             if cares_about_shard {
-                self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp_account_id,
-                    forward: forward.clone(),
-                });
+                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: bp_account_id,
+                        forward: forward.clone(),
+                    },
+                ));
             }
         }
 
@@ -1688,10 +1692,12 @@ impl ShardsManager {
                 );
 
             if Some(&to_whom) != self.me.as_ref() {
-                self.network_adapter.do_send(NetworkRequests::PartialEncodedChunkMessage {
-                    account_id: to_whom.clone(),
-                    partial_encoded_chunk,
-                });
+                self.peer_manager_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id: to_whom.clone(),
+                        partial_encoded_chunk,
+                    },
+                ));
             }
         }
 
@@ -1710,7 +1716,7 @@ mod test {
     use super::*;
     use crate::test_utils::*;
     use near_chain::test_utils::KeyValueRuntime;
-    use near_network::test_utils::MockNetworkAdapter;
+    use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PartialEncodedChunkForwardMsg;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::version::PROTOCOL_VERSION;
@@ -1733,7 +1739,7 @@ mod test {
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
         let runtime_adapter = Arc::new(KeyValueRuntime::new(create_test_store()));
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
             runtime_adapter,
@@ -1760,9 +1766,9 @@ mod test {
 
         // For the chunks that would otherwise be requested from self we expect a request to be
         // sent to any peer tracking shard
-        if let NetworkRequests::PartialEncodedChunkRequest { target, .. } =
-            network_adapter.requests.read().unwrap()[0].clone()
-        {
+
+        let msg = network_adapter.requests.read().unwrap()[0].as_network_requests_ref().clone();
+        if let NetworkRequests::PartialEncodedChunkRequest { target, .. } = msg {
             assert!(target.account_id == None);
         } else {
             println!("{:?}", network_adapter.requests.read().unwrap());
@@ -1786,7 +1792,7 @@ mod test {
             1,
             5,
         ));
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut chain_store = ChainStore::new(create_test_store(), 0);
         let mut shards_manager = ShardsManager::new(
             Some("test".parse().unwrap()),
@@ -1977,10 +1983,12 @@ mod test {
         let count_forwards_and_requests = |fixture: &ChunkForwardingTestFixture| -> (usize, usize) {
             let mut forwards_count = 0;
             let mut requests_count = 0;
-            fixture.mock_network.requests.read().unwrap().iter().for_each(|r| match r {
-                NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
-                NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
-                _ => (),
+            fixture.mock_network.requests.read().unwrap().iter().for_each(|r| {
+                match r.as_network_requests_ref() {
+                    NetworkRequests::PartialEncodedChunkForward { .. } => forwards_count += 1,
+                    NetworkRequests::PartialEncodedChunkRequest { .. } => requests_count += 1,
+                    _ => (),
+                }
             });
             (forwards_count, requests_count)
         };
@@ -2051,9 +2059,11 @@ mod test {
             .read()
             .unwrap()
             .iter()
-            .find(|r| match r {
-                NetworkRequests::PartialEncodedChunkRequest { .. } => true,
-                _ => false,
+            .find(|r| {
+                match r.as_network_requests_ref() {
+                    NetworkRequests::PartialEncodedChunkRequest { .. } => true,
+                    _ => false,
+                }
             })
             .is_none());
     }

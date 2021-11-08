@@ -29,11 +29,11 @@ use near_chain_configs::GenesisConfig;
 use near_crypto::Signature;
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
-use near_network::types::{NetworkInfo, ReasonForBan};
+use near_network::types::{NetworkInfo, PeerManagerMessageRequest, ReasonForBan};
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
 use near_network::{
-    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRequests,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, PeerManagerAdapter,
 };
 use near_performance_metrics;
 use near_performance_metrics_macros::{perf, perf_with_debug};
@@ -82,7 +82,7 @@ pub struct ClientActor {
     pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
@@ -130,7 +130,7 @@ impl ClientActor {
         chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
@@ -285,8 +285,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                             let block = block.expect("block should exist after produced");
                             info!(target: "adversary", "Producing {} block out of {}, height = {}", blocks_produced, num_blocks, height);
-                            self.network_adapter
-                                .do_send(NetworkRequests::Block { block: block.clone() });
+                            self.network_adapter.do_send(
+                                PeerManagerMessageRequest::NetworkRequests(
+                                    NetworkRequests::Block { block: block.clone() },
+                                ),
+                            );
                             let (accepted_blocks, _) =
                                 self.client.process_block(block, Provenance::PRODUCED);
                             for accepted_block in accepted_blocks {
@@ -759,12 +762,14 @@ impl ClientActor {
             self.last_validator_announce_time = Some(now);
             let signature = self.sign_announce_account(&next_epoch_id).unwrap();
 
-            self.network_adapter.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
-                account_id: validator_signer.validator_id().clone(),
-                peer_id: self.node_id.clone(),
-                epoch_id: next_epoch_id,
-                signature,
-            }));
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
+            ));
         }
     }
 
@@ -1009,7 +1014,9 @@ impl ClientActor {
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
-            self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
         } else {
             match self.client.chain.validate_block(&block) {
                 Ok(_) => {
@@ -1025,10 +1032,12 @@ impl ClientActor {
                 }
                 Err(e) => {
                     if e.is_bad_data() {
-                        self.network_adapter.do_send(NetworkRequests::BanPeer {
-                            peer_id: peer_id.clone(),
-                            ban_reason: ReasonForBan::BadBlockHeader,
-                        });
+                        self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::BanPeer {
+                                peer_id: peer_id.clone(),
+                                ban_reason: ReasonForBan::BadBlockHeader,
+                            },
+                        ));
                         return Err(e);
                     }
                 }
@@ -1135,7 +1144,9 @@ impl ClientActor {
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.client.chain.block_exists(&hash) {
             Ok(false) => {
-                self.network_adapter.do_send(NetworkRequests::BlockRequest { hash, peer_id });
+                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::BlockRequest { hash, peer_id },
+                ));
             }
             Ok(true) => {
                 debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
@@ -1675,7 +1686,7 @@ pub fn start_client(
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,

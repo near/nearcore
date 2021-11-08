@@ -13,7 +13,7 @@ use near_chunks::test_utils::ChunkForwardingTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEncodedChunkForwardMsg;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
@@ -66,7 +66,7 @@ fn test_pending_approvals() {
 
 #[test]
 fn test_invalid_approvals() {
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(ChainGenesis::test())
         .runtime_adapters(create_runtimes(1))
         .network_adapters(vec![network_adapter.clone()])

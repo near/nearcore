@@ -325,6 +325,7 @@ impl ValidIBFLevel {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
 pub struct PeerRequestResult {
     pub peers: Vec<PeerInfo>,
@@ -341,10 +342,6 @@ where
         }
     }
 }
-
-#[derive(MessageResponse, Debug)]
-#[cfg_attr(feature = "test_features", derive(Serialize))]
-pub struct SetAdvOptionsResult {}
 
 #[derive(MessageResponse, Debug)]
 #[cfg_attr(feature = "test_features", derive(Serialize))]
@@ -398,8 +395,8 @@ pub struct RoutingTable {
     waiting_pong: SizedCache<PeerId, SizedCache<usize, Instant>>,
     /// Last nonce sent to each peer through pings.
     last_ping_nonce: SizedCache<PeerId, usize>,
-    /// Last nonce used to store edges on disk.
-    pub component_nonce: u64,
+    /// First component nonce id that hasn't been used. Used for creating new components.
+    pub next_available_component_nonce: u64,
 }
 
 #[derive(Debug)]
@@ -412,8 +409,8 @@ pub enum FindRouteError {
 
 impl RoutingTable {
     pub fn new(peer_id: PeerId, store: Arc<Store>) -> Self {
-        // Find greater nonce on disk and set `component_nonce` to this value.
-        let component_nonce = store
+        // Find greater nonce on disk and set `next_available_component_nonce` to this value.
+        let next_available_component_nonce = store
             .get_ser::<u64>(ColLastComponentNonce, &[])
             .unwrap_or(None)
             .map_or(0, |nonce| nonce + 1);
@@ -435,12 +432,12 @@ impl RoutingTable {
             pong_info: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             waiting_pong: SizedCache::with_size(PING_PONG_CACHE_SIZE),
             last_ping_nonce: SizedCache::with_size(PING_PONG_CACHE_SIZE),
-            component_nonce,
+            next_available_component_nonce,
         }
     }
 
-    fn peer_id(&self) -> &PeerId {
-        &self.raw_graph.source
+    fn my_peer_id(&self) -> &PeerId {
+        &self.raw_graph.my_peer_id
     }
 
     pub fn reachable_peers(&self) -> impl Iterator<Item = &PeerId> {
@@ -552,11 +549,11 @@ impl RoutingTable {
 
     /// If peer_id is not on memory check if it is on disk in bring it back on memory.
     fn touch(&mut self, peer_id: &PeerId) {
-        if peer_id == self.peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
+        if peer_id == self.my_peer_id() || self.peer_last_time_reachable.contains_key(peer_id) {
             return;
         }
 
-        let me = self.peer_id().clone();
+        let me = self.my_peer_id().clone();
 
         if let Ok(nonce) = self.component_nonce_from_peer(peer_id.clone()) {
             let mut update = self.store.store_update();
@@ -619,9 +616,9 @@ impl RoutingTable {
     }
 
     /// Add several edges to the current view of the network.
-    /// These edges are assumed to be valid at this point.
+    /// These edges are assumed to have their signature verified at this point.
     /// Return true if some of the edges contains new information to the network.
-    pub fn process_edges(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
+    pub fn add_verified_edges_to_routing_table(&mut self, edges: Vec<Edge>) -> ProcessEdgeResult {
         let mut new_edge = false;
         let total = edges.len();
         let mut result = Vec::with_capacity(edges.len() as usize);
@@ -759,8 +756,8 @@ impl RoutingTable {
         }
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", to_save.len());
 
-        let component_nonce = self.component_nonce;
-        self.component_nonce += 1;
+        let component_nonce = self.next_available_component_nonce;
+        self.next_available_component_nonce += 1;
 
         let mut update = self.store.store_update();
         let _ = update.set_ser(ColLastComponentNonce, &[], &component_nonce);
@@ -798,7 +795,7 @@ impl RoutingTable {
     }
 
     /// Recalculate routing table.
-    pub fn update(
+    pub fn recalculate_routing_table(
         &mut self,
         can_save_edges: bool,
         force_pruning: bool,
@@ -879,23 +876,36 @@ pub struct RoutingTableInfo {
     pub peer_forwarding: HashMap<PeerId, Vec<PeerId>>,
 }
 
+/// `Graph` is used to compute `peer_routing`, which contains information how to route messages to
+/// all known peers. That is, for each `peer`, we get a sub-set of peers to which we are connected
+/// to that are on the shortest path between us as destination `peer`.
 #[derive(Clone)]
 pub struct Graph {
-    pub source: PeerId,
+    /// peer_id of current peer
+    my_peer_id: PeerId,
+    /// `id` as integer corresponding to `my_peer_id`.
+    /// We use u32 to reduce both improve performance, and reduce memory usage.
     source_id: u32,
+    /// Mapping from `PeerId` to `id`
     p2id: HashMap<PeerId, u32>,
+    /// List of existing `PeerId`s
     id2p: Vec<PeerId>,
-    pub used: Vec<bool>,
-    pub unused: Vec<u32>,
+    /// Which ids are currently in use
+    used: Vec<bool>,
+    /// List of unused peer ids
+    unused: Vec<u32>,
+    /// Compressed adjacency table, we use 32 bit integer as ids instead of using full `PeerId`.
+    /// This is undirected graph, we store edges in both directions.
     adjacency: Vec<Vec<u32>>,
 
-    pub total_active_edges: u64,
+    /// Total number of edges used for stats.
+    total_active_edges: u64,
 }
 
 impl Graph {
     pub fn new(source: PeerId) -> Self {
         let mut res = Self {
-            source: source.clone(),
+            my_peer_id: source.clone(),
             source_id: 0,
             p2id: HashMap::default(),
             id2p: Vec::default(),
@@ -910,6 +920,17 @@ impl Graph {
         res.used.push(true);
 
         res
+    }
+
+    pub fn total_active_edges(&self) -> u64 {
+        self.total_active_edges
+    }
+
+    // Compute number of active edges. We divide by 2 to remove duplicates.
+    pub fn compute_total_active_edges(&self) -> u64 {
+        let result: u64 = self.adjacency.iter().map(|x| x.len() as u64).sum();
+        assert_eq!(result % 2, 0);
+        result / 2
     }
 
     fn contains_edge(&self, peer0: &PeerId, peer1: &PeerId) -> bool {
@@ -1089,6 +1110,9 @@ mod test {
 
         assert_eq!(graph.contains_edge(&node0, &node1), false);
         assert_eq!(graph.contains_edge(&node1, &node0), false);
+
+        assert_eq!(0, graph.total_active_edges() as usize);
+        assert_eq!(0, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1105,6 +1129,9 @@ mod test {
             graph.calculate_distance(),
             vec![(node0.clone(), vec![node0.clone()])],
         ));
+
+        assert_eq!(1, graph.total_active_edges() as usize);
+        assert_eq!(1, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1119,6 +1146,9 @@ mod test {
         graph.add_edge(nodes[1].clone(), nodes[2].clone());
 
         assert!(expected_routing_tables(graph.calculate_distance(), vec![]));
+
+        assert_eq!(2, graph.total_active_edges() as usize);
+        assert_eq!(2, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1141,6 +1171,9 @@ mod test {
                 (nodes[2].clone(), vec![nodes[0].clone()]),
             ],
         ));
+
+        assert_eq!(3, graph.total_active_edges() as usize);
+        assert_eq!(3, graph.compute_total_active_edges() as usize);
     }
 
     #[test]
@@ -1164,6 +1197,9 @@ mod test {
                 (nodes[2].clone(), vec![nodes[0].clone(), nodes[1].clone()]),
             ],
         ));
+
+        assert_eq!(5, graph.total_active_edges() as usize);
+        assert_eq!(5, graph.compute_total_active_edges() as usize);
     }
 
     /// Test the following graph
@@ -1207,5 +1243,8 @@ mod test {
         }
 
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
+
+        assert_eq!(22, graph.total_active_edges() as usize);
+        assert_eq!(22, graph.compute_total_active_edges() as usize);
     }
 }
