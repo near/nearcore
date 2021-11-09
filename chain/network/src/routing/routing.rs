@@ -13,6 +13,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
 use near_store::{ColAccountAnnouncements, Store};
 
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::PeerInfo;
 use crate::{
     types::{PeerIdOrHash, Ping, Pong},

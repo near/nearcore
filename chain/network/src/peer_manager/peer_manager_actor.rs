@@ -20,6 +20,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::stats::metrics;
 use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
@@ -49,8 +50,8 @@ use crate::routing::routing::{
     DELETE_PEERS_AFTER_TIME, MAX_NUM_PEERS,
 };
 
-use crate::edge_verifier::EdgeVerifierActor;
-use crate::routing_table_actor::Prune;
+use crate::routing::edge_verifier_actor::EdgeVerifierActor;
+use crate::routing::routing_table_actor::Prune;
 
 #[cfg(feature = "test_features")]
 use crate::types::SetAdvOptions;
