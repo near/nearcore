@@ -241,7 +241,7 @@ impl PeerStore {
         let now = NearClock::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
-            let diff = (now - peer_status.last_seen()).to_std();
+            let diff = (now - peer_status.last_seen());
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration
             {

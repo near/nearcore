@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_clock::{set_time_override, NearClock, NearDuration};
+use near_clock::{set_time_override, NearClock};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -62,7 +62,7 @@ use crate::types::{GetPeerId, GetPeerIdResult};
 use crate::types::{RoutingSyncV2, RoutingVersion2};
 
 /// How often to request peers from active peers.
-const REQUEST_PEERS_INTERVAL: NearDuration = NearDuration::from_millis(60_000);
+const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
 /// How much time to wait (in milliseconds) after we send update nonce request before disconnecting.
 /// This number should be large to handle pair of nodes with high latency.
 const WAIT_ON_TRY_UPDATE_NONCE: Duration = Duration::from_millis(6_000);
@@ -87,7 +87,7 @@ const LIMIT_PENDING_PEERS: usize = 60;
 /// How ofter should we broadcast edges.
 const BROADCAST_EDGES_INTERVAL: Duration = Duration::from_millis(50);
 /// Maximum amount of time spend processing edges.
-const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: NearDuration = NearDuration::from_millis(50);
+const BROAD_CAST_EDGES_MAX_WORK_ALLOWED: Duration = Duration::from_millis(50);
 /// Delay syncinc for 1 second to avoid race condition
 const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
 /// How often should we update the routing table
@@ -992,8 +992,7 @@ impl PeerManagerActor {
             .active_peers
             .iter()
             .filter_map(|(peer_id, active)| {
-                if active.last_time_received_message.elapsed().to_std()
-                    < self.config.peer_recent_time_window
+                if active.last_time_received_message.elapsed() < self.config.peer_recent_time_window
                 {
                     Some((peer_id.clone(), active.connection_established_time))
                 } else {
@@ -1047,7 +1046,7 @@ impl PeerManagerActor {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
-                let interval = (NearClock::now() - NearClock::from_timestamp(last_banned)).to_std();
+                let interval = (NearClock::now() - NearClock::from_timestamp(last_banned));
                 if interval > self.config.ban_window {
                     info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
                     to_unban.push(peer_id.clone());

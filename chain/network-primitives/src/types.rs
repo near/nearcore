@@ -9,7 +9,7 @@ use std::time::Duration;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_clock::{NearClock, NearDuration};
+use near_clock::NearClock;
 use serde::{Deserialize, Serialize};
 use strum::AsStaticStr;
 use tokio::net::TcpStream;
@@ -41,7 +41,7 @@ pub const ROUTED_MESSAGE_TTL: u8 = 100;
 /// On every message from peer don't update `last_time_received_message`
 /// but wait some "small" timeout between updates to avoid a lot of messages between
 /// Peer and PeerManager.
-pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: NearDuration = NearDuration::from_secs(60);
+pub const UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE: Duration = Duration::from_secs(60);
 
 /// Peer information.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -593,8 +593,7 @@ impl NetworkConfig {
             );
         }
 
-        if (UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2).to_std() > self.peer_recent_time_window
-        {
+        if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
             error!(
                 target: "network",
                 "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",

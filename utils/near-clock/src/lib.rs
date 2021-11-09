@@ -60,18 +60,16 @@ impl NearClock {
         now()
     }
 
-    pub fn duration_since(&self, rhs: &NearClock) -> NearDuration {
-        NearDuration {
-            duration: self.time.duration_since(rhs.time).unwrap_or(Duration::from_millis(0)),
-        }
+    pub fn duration_since(&self, rhs: &NearClock) -> Duration {
+        self.time.duration_since(rhs.time).unwrap_or(Duration::from_millis(0))
     }
 
-    pub fn elapsed(&self) -> NearDuration {
+    pub fn elapsed(&self) -> Duration {
         NearClock::now().duration_since(self)
     }
 
     pub fn from_timestamp(timestamp: u64) -> Self {
-        UNIX_EPOCH + NearDuration::from_nanos(timestamp)
+        UNIX_EPOCH + Duration::from_nanos(timestamp)
     }
 
     pub fn to_timestamp(&self) -> u64 {
@@ -79,82 +77,25 @@ impl NearClock {
     }
 }
 
-// TODO: Add other methods that `Duration` has.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Debug)]
-pub struct NearDuration {
-    duration: Duration,
-}
-
-impl NearDuration {
-    pub const fn from_std(duration: Duration) -> Self {
-        Self { duration }
-    }
-
-    pub fn to_std(&self) -> Duration {
-        self.duration
-    }
-
-    pub fn as_millis(&self) -> u128 {
-        self.duration.as_millis()
-    }
-
-    pub fn as_secs(&self) -> u64 {
-        self.duration.as_secs()
-    }
-
-    pub fn as_nanos(&self) -> u128 {
-        self.duration.as_nanos()
-    }
-
-    pub fn as_micros(&self) -> u128 {
-        self.duration.as_micros()
-    }
-
-    pub const fn from_nanos(ns: u64) -> NearDuration {
-        Self { duration: Duration::from_nanos(ns) }
-    }
-
-    pub const fn from_millis(ns: u64) -> NearDuration {
-        Self { duration: Duration::from_millis(ns) }
-    }
-
-    pub const fn from_secs(ns: u64) -> NearDuration {
-        Self { duration: Duration::from_secs(ns) }
-    }
-}
-
-impl Add<NearDuration> for NearClock {
+impl Add<Duration> for NearClock {
     type Output = Self;
 
-    fn add(self, other: NearDuration) -> Self {
-        Self { time: self.time + other.duration }
+    fn add(self, other: Duration) -> Self {
+        Self { time: self.time + other }
     }
 }
 
 impl Sub for NearClock {
-    type Output = NearDuration;
+    type Output = Duration;
 
     fn sub(self, other: Self) -> Self::Output {
-        let duration = self.time.duration_since(other.time).unwrap_or(Duration::from_millis(0));
-
-        NearDuration { duration }
-    }
-}
-
-impl Mul<u32> for NearDuration {
-    // The multiplication of rational numbers is a closed operation.
-    type Output = Self;
-
-    fn mul(self, rhs: u32) -> Self {
-        Self { duration: self.duration * rhs }
+        self.time.duration_since(other.time).unwrap_or(Duration::from_millis(0))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        get_time_override, mock_time, set_time_override, NearClock, NearDuration, UNIX_EPOCH,
-    };
+    use crate::{get_time_override, mock_time, set_time_override, NearClock, UNIX_EPOCH};
     use std::thread;
     use std::time::Duration;
 
@@ -162,7 +103,7 @@ mod tests {
     fn test_mock_override() {
         let time_override = get_time_override();
 
-        let near_time = UNIX_EPOCH + NearDuration::from_millis(1001);
+        let near_time = UNIX_EPOCH + Duration::from_millis(1001);
         let near_time2 = near_time.clone();
 
         let _ = thread::spawn(move || {
@@ -173,16 +114,5 @@ mod tests {
         .join();
 
         assert_eq!(NearClock::now(), near_time);
-    }
-
-    #[test]
-    fn test_near_duration_methods() {
-        let std = Duration::from_nanos(12345678910);
-        let near_duration = NearDuration::from_std(std);
-
-        assert_eq!(std.as_nanos(), near_duration.as_nanos());
-        assert_eq!(std.as_millis(), near_duration.as_millis());
-        assert_eq!(std.as_secs(), near_duration.as_secs());
-        assert_eq!(std.as_micros(), near_duration.as_micros());
     }
 }
