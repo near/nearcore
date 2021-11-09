@@ -41,8 +41,8 @@ use near_metrics::{Encoder, TextEncoder};
 use near_network::routing::routing::GetRoutingTableResult;
 #[cfg(feature = "test_features")]
 use near_network::types::{
-    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
-    PeerManagerMessageRequest, SetAdvOptions,
+    GetPeerId, NetworkAdversarialMessage, NetworkViewClientMessages, PeerManagerMessageRequest,
+    SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
@@ -324,16 +324,6 @@ impl JsonRpcHandler {
                     )
                 }
                 "adv_get_routing_table" => {
-                    let result = self
-                        .peer_manager_addr
-                        .send(PeerManagerMessageRequest::GetRoutingTable(GetRoutingTable {}))
-                        .await?;
-                    Some(
-                        serde_json::to_value(result.as_get_routing_table_result())
-                            .map_err(|err| RpcError::serialization_error(err.to_string())),
-                    )
-                }
-                "adv_get_routing_table_new" => {
                     let result = self
                         .routing_table_addr
                         .send(RoutingTableMessages::RequestRoutingTable)

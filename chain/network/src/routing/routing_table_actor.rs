@@ -404,10 +404,6 @@ impl Handler<StopMsg> for RoutingTableActor {
 // Messages for RoutingTableActor
 #[derive(Debug)]
 pub enum RoutingTableMessages {
-    // Add verified edges to routing table actor (Will be removed soon).
-    AddEdges(Vec<Edge>),
-    // Remove edges. (Will be removed soon).
-    RemoveEdges(Vec<Edge>),
     // Add verified edges to routing table actor and update stats.
     // Each edge contains signature of both peers.
     // We say that the edge is "verified" if and only if we checked that the `signature0` and
@@ -504,16 +500,6 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
     #[perf]
     fn handle(&mut self, msg: RoutingTableMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
-            RoutingTableMessages::AddEdges(edges) => {
-                for edge in edges {
-                    self.add_verified_edge(edge);
-                }
-                RoutingTableMessagesResponse::Empty
-            }
-            RoutingTableMessages::RemoveEdges(edges) => {
-                self.remove_edges(&edges);
-                RoutingTableMessagesResponse::Empty
-            }
             RoutingTableMessages::AddVerifiedEdges { edges } => {
                 RoutingTableMessagesResponse::AddVerifiedEdgesResponse(
                     self.add_verified_edges_to_routing_table(edges),

@@ -573,7 +573,6 @@ pub enum PeerManagerMessageRequest {
     #[cfg(feature = "test_features")]
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     SetRoutingTable(SetRoutingTable),
-    GetRoutingTable(GetRoutingTable),
 }
 
 impl PeerManagerMessageRequest {
@@ -620,7 +619,6 @@ pub enum PeerManagerMessageResponse {
     #[cfg(feature = "test_features")]
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     SetRoutingTable(()),
-    GetRoutingTableResult(GetRoutingTableResult),
 }
 
 impl PeerManagerMessageResponse {
@@ -669,14 +667,6 @@ impl PeerManagerMessageResponse {
             item
         } else {
             panic!("expected PeerMessageRequest::GetPeerIdResult(");
-        }
-    }
-
-    pub fn as_get_routing_table_result(self) -> GetRoutingTableResult {
-        if let PeerManagerMessageResponse::GetRoutingTableResult(item) = self {
-            item
-        } else {
-            panic!("expected PeerMessageRequest::GetRoutingTableResult(");
         }
     }
 }
