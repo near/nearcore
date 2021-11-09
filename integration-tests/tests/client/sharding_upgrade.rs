@@ -179,6 +179,18 @@ impl TestShardUpgradeEnv {
         }
     }
 
+    /// Check that chain.get_next_block_hash_with_new_chunk function returns the expected
+    /// result with sharding upgrade
+    /// Specifically, the function calls `get_next_block_with_new_chunk` for the block at height
+    /// `height` for all shards in this block, and verifies that the returned result
+    /// 1) If it is not empty (`new_block_hash`, `target_shard_id`),
+    ///    - the chunk at `target_shard_id` is a new chunk
+    ///    - `target_shard_id` is either the original shard or a split shard of the original shard
+    ///    - all blocks before the returned `new_block_hash` do not have new chunk for the corresponding
+    ///      shards
+    /// 2) If it is empty
+    ///    - all blocks after the block at `height` in the current canonical chain do not have
+    ///      new chunks for the corresponding shards
     fn check_next_block_with_new_chunk(&mut self, height: BlockHeight) {
         let block = self.env.clients[0].chain.get_block_by_height(height).unwrap().clone();
         let block_hash = block.hash();
@@ -193,7 +205,7 @@ impl TestShardUpgradeEnv {
                     let new_block =
                         self.env.clients[0].chain.get_block(&new_block_hash).unwrap().clone();
                     let chunks = new_block.chunks();
-                    // check that the target chunk in the new block is not empty
+                    // check that the target chunk in the new block is new
                     assert_eq!(
                         chunks.get(target_shard_id as usize).unwrap().height_included(),
                         new_block.header().height(),
@@ -205,7 +217,7 @@ impl TestShardUpgradeEnv {
                 }
                 None => self.env.clients[0].chain.head().unwrap().last_block_hash.clone(),
             };
-            // check that the target chunks in all prev blocks are empty
+            // check that the target chunks in all prev blocks are not new
             while &last_block_hash_with_empty_chunk != block_hash {
                 let last_block = self.env.clients[0]
                     .chain

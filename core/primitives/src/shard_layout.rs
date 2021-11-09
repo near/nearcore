@@ -104,17 +104,19 @@ impl ShardLayout {
     }
 
     #[inline]
-    pub fn get_split_shards(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
+    pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
+        self.get_split_shard_ids(parent_shard_id).map(|shards| {
+            shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, &self)).collect()
+        })
+    }
+
+    #[inline]
+    pub fn get_split_shard_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
                 Some(shards_split_map) => match shards_split_map.get(parent_shard_id as usize) {
-                    Some(shards) => Some(
-                        shards
-                            .iter()
-                            .map(|&x| ShardUId::from_shard_id_and_layout(x, &self))
-                            .collect(),
-                    ),
+                    Some(shards) => Some(shards.clone()),
                     None => None,
                 },
                 None => None,
@@ -310,11 +312,11 @@ mod tests {
             1,
         );
         assert_eq!(
-            shard_layout.get_split_shards(0).unwrap(),
+            shard_layout.get_split_shard_uids(0).unwrap(),
             (0..4).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         assert_eq!(
-            shard_layout.get_split_shards(1).unwrap(),
+            shard_layout.get_split_shard_uids(1).unwrap(),
             (4..8).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..4 {
