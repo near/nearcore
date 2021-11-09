@@ -69,6 +69,14 @@ impl NearClock {
     pub fn elapsed(&self) -> NearDuration {
         NearClock::now().duration_since(self)
     }
+
+    pub fn from_timestamp(timestamp: u64) -> Self {
+        UNIX_EPOCH + NearDuration::from_nanos(timestamp)
+    }
+
+    pub fn to_timestamp(&self) -> u64 {
+        self.duration_since(&UNIX_EPOCH).as_nanos() as u64
+    }
 }
 
 // TODO: Add other methods that `Duration` has.

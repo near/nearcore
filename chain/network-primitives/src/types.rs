@@ -9,8 +9,7 @@ use std::time::Duration;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Utc};
-use near_clock::NearDuration;
+use near_clock::{NearClock, NearDuration};
 use serde::{Deserialize, Serialize};
 use strum::AsStaticStr;
 use tokio::net::TcpStream;
@@ -663,20 +662,21 @@ pub struct KnownPeerState {
 
 impl KnownPeerState {
     pub fn new(peer_info: PeerInfo) -> Self {
+        let now = NearClock::now().to_timestamp();
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: to_timestamp(Utc::now()),
-            last_seen: to_timestamp(Utc::now()),
+            first_seen: now,
+            last_seen: now,
         }
     }
 
-    pub fn first_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.first_seen)
+    pub fn first_seen(&self) -> NearClock {
+        NearClock::from_timestamp(self.first_seen)
     }
 
-    pub fn last_seen(&self) -> DateTime<Utc> {
-        from_timestamp(self.last_seen)
+    pub fn last_seen(&self) -> NearClock {
+        NearClock::from_timestamp(self.last_seen)
     }
 }
 

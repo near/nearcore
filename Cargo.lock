@@ -2756,7 +2756,6 @@ dependencies = [
  "bytes",
  "bytesize",
  "cached",
- "chrono",
  "conqueue",
  "delay-detector",
  "futures",
@@ -2791,7 +2790,6 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "borsh 0.9.1",
- "chrono",
  "near-clock",
  "near-crypto",
  "near-primitives",

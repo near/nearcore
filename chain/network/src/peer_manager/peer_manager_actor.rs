@@ -13,7 +13,6 @@ use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
 };
-use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -1049,10 +1048,7 @@ impl PeerManagerActor {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
-                let interval = unwrap_or_error!(
-                    (Utc::now() - from_timestamp(last_banned)).to_std(),
-                    "Failed to convert time"
-                );
+                let interval = (NearClock::now() - NearClock::from_timestamp(last_banned)).to_std();
                 if interval > self.config.ban_window {
                     info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
                     to_unban.push(peer_id.clone());

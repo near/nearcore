@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
-use chrono::Utc;
+use near_clock::NearClock;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tracing::{debug, error};
@@ -87,7 +87,7 @@ impl PeerStore {
             let peer_id: PeerId = key.try_into()?;
             let mut peer_state: KnownPeerState = value.try_into()?;
             // Mark loaded node last seen to now, to avoid deleting them as soon as they are loaded.
-            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.last_seen = NearClock::now().to_timestamp();
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
                 _ => peer_state.status = KnownPeerStatus::NotConnected,
@@ -131,7 +131,7 @@ impl PeerStore {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.add_trusted_peer(peer_info.clone(), TrustLevel::Signed)?;
         let entry = self.peer_states.get_mut(&peer_info.id).unwrap();
-        entry.last_seen = to_timestamp(Utc::now());
+        entry.last_seen = NearClock::now().to_timestamp();
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
         store_update.set_ser(ColPeers, &peer_info.id.try_to_vec()?, entry)?;
@@ -143,7 +143,7 @@ impl PeerStore {
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.last_seen = NearClock::now().to_timestamp();
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
             store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
@@ -159,8 +159,9 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = to_timestamp(Utc::now());
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
+            let now = NearClock::now().to_timestamp();
+            peer_state.last_seen = now;
+            peer_state.status = KnownPeerStatus::Banned(ban_reason, now);
             let mut store_update = self.store.store_update();
             store_update.set_ser(ColPeers, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
@@ -238,10 +239,10 @@ impl PeerStore {
         &mut self,
         config: &NetworkConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let now = Utc::now();
+        let now = NearClock::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
-            let diff = (now - peer_status.last_seen()).to_std()?;
+            let diff = (now - peer_status.last_seen()).to_std();
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration
             {
