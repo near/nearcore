@@ -10,11 +10,12 @@ use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction};
-use near_primitives::types::{AccountId, BlockHeight, Gas, Nonce};
+use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
 use near_store::create_store;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
 
 pub struct ScenarioResult<T, E> {
@@ -36,8 +37,12 @@ impl Scenario {
             self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect();
         let clients = vec![accounts[0].clone()];
         let mut genesis = Genesis::test(accounts, 1);
-        genesis.config.runtime_config.wasm_config.limit_config.max_total_prepaid_gas =
+        let mut runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
+        runtime_config.wasm_config.limit_config.max_total_prepaid_gas =
             self.runtime_config.max_total_prepaid_gas;
+        genesis.config.epoch_length = self.runtime_config.epoch_length;
+        genesis.config.gas_limit = self.runtime_config.gas_limit;
+        let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
 
         let (tempdir, store) = if self.use_in_memory_store {
             (None, create_test_store())
@@ -51,10 +56,11 @@ impl Scenario {
         let mut env = TestEnv::builder(ChainGenesis::from(&genesis))
             .clients(clients.clone())
             .validators(clients)
-            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test(
+            .runtime_adapters(vec![Arc::new(NightshadeRuntime::test_with_runtime_config_store(
                 if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
                 store,
                 &genesis,
+                runtime_config_store,
             ))])
             .build();
 
@@ -108,6 +114,8 @@ pub struct NetworkConfig {
 #[derive(Serialize, Deserialize)]
 pub struct RuntimeConfig {
     pub max_total_prepaid_gas: Gas,
+    pub gas_limit: Gas,
+    pub epoch_length: BlockHeightDelta,
 }
 
 #[derive(Serialize, Deserialize)]

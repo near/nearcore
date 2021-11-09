@@ -38,10 +38,11 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
 #[cfg(feature = "test_features")]
-use near_network::routing::GetRoutingTableResult;
+use near_network::routing::routing::GetRoutingTableResult;
 #[cfg(feature = "test_features")]
 use near_network::types::{
-    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages, SetAdvOptions,
+    GetPeerId, GetRoutingTable, NetworkAdversarialMessage, NetworkViewClientMessages,
+    PeerManagerMessageRequest, SetAdvOptions,
 };
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
@@ -231,7 +232,7 @@ struct JsonRpcHandler {
     #[cfg(feature = "test_features")]
     peer_manager_addr: Addr<PeerManagerActor>,
     #[cfg(feature = "test_features")]
-    ibf_routing_pool: Addr<RoutingTableActor>,
+    routing_table_addr: Addr<RoutingTableActor>,
 }
 
 impl JsonRpcHandler {
@@ -269,34 +270,32 @@ impl JsonRpcHandler {
                 "adv_check_store" => Some(self.adv_check_store(params).await),
                 "adv_set_options" => {
                     let params = parse_params::<SetAdvOptionsRequest>(params)?;
-                    let result = self
-                        .peer_manager_addr
-                        .send(SetAdvOptions {
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
                             disable_edge_signature_verification: params
                                 .disable_edge_signature_verification,
                             disable_edge_propagation: params.disable_edge_propagation,
                             disable_edge_pruning: params.disable_edge_pruning,
                             set_max_peers: None,
-                        })
+                        }))
                         .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
                 "adv_set_routing_table" => {
                     let request = SetRoutingTableRequest::parse(params)?;
-                    let result = self
-                        .peer_manager_addr
-                        .send(SetRoutingTable {
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::SetRoutingTable(SetRoutingTable {
                             add_edges: request.add_edges,
                             remove_edges: request.remove_edges,
                             prune_edges: request.prune_edges,
-                        })
+                        }))
                         .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
@@ -304,32 +303,39 @@ impl JsonRpcHandler {
                 "adv_start_routing_table_syncv2" => {
                     let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
 
-                    let result = self
-                        .peer_manager_addr
-                        .send(StartRoutingTableSync { peer_id: params.peer_id })
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::StartRoutingTableSync(
+                            StartRoutingTableSync { peer_id: params.peer_id },
+                        ))
                         .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_peer_id" => {
-                    let response = self.peer_manager_addr.send(GetPeerId {}).await?;
+                    let response = self
+                        .peer_manager_addr
+                        .send(PeerManagerMessageRequest::GetPeerId(GetPeerId {}))
+                        .await?;
                     Some(
-                        serde_json::to_value(response)
+                        serde_json::to_value(response.as_peer_id_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_routing_table" => {
-                    let result = self.peer_manager_addr.send(GetRoutingTable {}).await?;
+                    let result = self
+                        .peer_manager_addr
+                        .send(PeerManagerMessageRequest::GetRoutingTable(GetRoutingTable {}))
+                        .await?;
                     Some(
-                        serde_json::to_value(result)
+                        serde_json::to_value(result.as_get_routing_table_result())
                             .map_err(|err| RpcError::serialization_error(err.to_string())),
                     )
                 }
                 "adv_get_routing_table_new" => {
                     let result = self
-                        .ibf_routing_pool
+                        .routing_table_addr
                         .send(RoutingTableMessages::RequestRoutingTable)
                         .await?;
 
@@ -1336,7 +1342,7 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
     #[cfg(feature = "test_features")] peer_manager_addr: Addr<PeerManagerActor>,
-    #[cfg(feature = "test_features")] ibf_routing_pool: Addr<RoutingTableActor>,
+    #[cfg(feature = "test_features")] routing_table_addr: Addr<RoutingTableActor>,
 ) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
@@ -1355,7 +1361,7 @@ pub fn start_http(
                 #[cfg(feature = "test_features")]
                 peer_manager_addr: peer_manager_addr.clone(),
                 #[cfg(feature = "test_features")]
-                ibf_routing_pool: ibf_routing_pool.clone(),
+                routing_table_addr: routing_table_addr.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())

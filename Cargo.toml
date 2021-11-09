@@ -22,7 +22,7 @@ members = [
     "chain/indexer",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
-    "chain/jsonrpc/test-utils",
+    "chain/jsonrpc/jsonrpc-tests",
     "chain/jsonrpc-primitives",
     "chain/jsonrpc-adversarial-primitives",
     "chain/rosetta-rpc",
@@ -55,9 +55,6 @@ overflow-checks = true
 overflow-checks = true
 
 [profile.dev.package.hex]
-opt-level = 3 # BLS library is too slow to use in debug
-
-[profile.dev.package.ring]
 opt-level = 3 # BLS library is too slow to use in debug
 
 [profile.dev.package.rand]

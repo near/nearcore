@@ -19,16 +19,14 @@ expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_bloc
 expensive --timeout=1800 near-client catching_up tests::test_catchup_sanity_blocks_produced --features nightly_protocol,nightly_protocol_features
 expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000
 expensive --timeout=3600 near-client catching_up tests::test_all_chunks_accepted_1000 --features nightly_protocol,nightly_protocol_features
-# expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
-# expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow --features nightly_protocol,nightly_protocol_features
+expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow
+expensive --timeout=7200 near-client catching_up tests::test_all_chunks_accepted_1000_slow --features nightly_protocol,nightly_protocol_features
 expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing
 expensive --timeout=1800 near-client catching_up tests::test_all_chunks_accepted_1000_rare_epoch_changing --features nightly_protocol,nightly_protocol_features
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client catching_up tests::test_catchup_receipts_sync_hold --features nightly_protocol,nightly_protocol_features
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
-# expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving --features nightly_protocol,nightly_protocol_features
+expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving
+expensive --timeout=1800 near-client catching_up tests::test_chunk_grieving --features nightly_protocol,nightly_protocol_features
 
 expensive integration-tests test_catchup test_catchup
 expensive integration-tests test_catchup test_catchup --features nightly_protocol,nightly_protocol_features
@@ -132,10 +130,8 @@ expensive --timeout=600 near-chain gc tests::test_gc_pine --features nightly_pro
 expensive --timeout=700 near-chain gc tests::test_gc_star_large
 expensive --timeout=700 near-chain gc tests::test_gc_star_large --features nightly_protocol,nightly_protocol_features
 
-# TODO(#4618): Those tests are currently broken.  Comment out while we’re
-# working on a fix / deciding whether to remove them.
-# expensive integration-tests client process_blocks::test_gc_after_state_sync
-# expensive integration-tests client process_blocks::test_gc_after_state_sync --features nightly_protocol,nightly_protocol_features
+expensive integration-tests client process_blocks::test_gc_after_state_sync
+expensive integration-tests client process_blocks::test_gc_after_state_sync --features nightly_protocol,nightly_protocol_features
 
 # other tests
 expensive near-chunks near_chunks test::test_seal_removal

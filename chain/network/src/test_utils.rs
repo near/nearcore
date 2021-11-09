@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, ActorContext, Addr, Context, Handler, MailboxError, Message, SyncArbiter};
+use actix::{Actor, ActorContext, Addr, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use lazy_static::lazy_static;
@@ -19,14 +19,19 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
+#[cfg(feature = "test_features")]
 use near_store::test_utils::create_test_store;
+use near_store::Store;
 
+#[cfg(feature = "test_features")]
+use crate::routing::routing_table_actor::start_routing_table_actor;
 use crate::types::{
-    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo, ReasonForBan,
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
 };
 use crate::{
-    NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerManagerActor, RoutingTableActor,
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkResponses,
+    PeerManagerActor, PeerManagerAdapter, RoutingTableActor,
 };
 
 type ClientMock = Mocker<NetworkClientMessages>;
@@ -255,44 +260,63 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
 }
 
 #[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+pub struct MockPeerManagerAdapter {
+    pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl NetworkAdapter for MockNetworkAdapter {
+impl PeerManagerAdapter for MockPeerManagerAdapter {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
         self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
+        future::ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse))
+            .boxed()
     }
 
-    fn do_send(&self, msg: NetworkRequests) {
+    fn do_send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
 
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
+impl MockPeerManagerAdapter {
+    pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
 }
 
-pub fn make_ibf_routing_pool() -> Addr<RoutingTableActor> {
-    SyncArbiter::start(1, move || RoutingTableActor::default())
+// Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
+// for each of them.
+#[cfg(feature = "test_features")]
+pub fn make_peer_manager_routing_table_addr_pair(
+) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
+    let seed = "test2";
+    let port = open_port();
+
+    let net_config = NetworkConfig::from_seed(seed, port);
+    let store = create_test_store();
+    let routing_table_addr =
+        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+    let peer_manager_addr = make_peer_manager(
+        store,
+        net_config,
+        vec![("test1", open_port())],
+        10,
+        routing_table_addr.clone(),
+    )
+    .0
+    .start();
+    (peer_manager_addr, routing_table_addr)
 }
 
 #[allow(dead_code)]
 pub fn make_peer_manager(
-    seed: &str,
-    port: u16,
+    store: Arc<Store>,
+    mut config: NetworkConfig,
     boot_nodes: Vec<(&str, u16)>,
     peer_max_count: u32,
-    ibf_routing_pool: Addr<RoutingTableActor>,
+    routing_table_addr: Addr<RoutingTableActor>,
 ) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
-    let store = create_test_store();
-    let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
     config.max_num_peers = peer_max_count;
     let counter = Arc::new(AtomicUsize::new(0));
@@ -332,7 +356,7 @@ pub fn make_peer_manager(
             config,
             client_addr.recipient(),
             view_client_addr.recipient(),
-            ibf_routing_pool,
+            routing_table_addr,
         )
         .unwrap(),
         peer_id,

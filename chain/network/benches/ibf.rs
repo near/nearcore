@@ -3,8 +3,8 @@ extern crate bencher;
 
 use bencher::Bencher;
 
-use near_network::ibf_peer_set::SlotMapId;
-use near_network::ibf_set::IbfSet;
+use near_network::routing::ibf_peer_set::SlotMapId;
+use near_network::routing::ibf_set::IbfSet;
 
 #[allow(dead_code)]
 fn test_measure_adding_edges_to_ibf(bench: &mut Bencher) {
