@@ -288,6 +288,7 @@ impl MockPeerManagerAdapter {
 // Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
 // for each of them.
 #[cfg(feature = "test_features")]
+#[allow(dead_code)]
 pub fn make_peer_manager_routing_table_addr_pair(
 ) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
     let seed = "test2";
