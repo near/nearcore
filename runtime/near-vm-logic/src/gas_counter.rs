@@ -74,16 +74,13 @@ impl GasCounter {
         is_view: bool,
     ) -> Self {
         use std::cmp::min;
+        // Ignore prepaid gas limit when in view.
+        let prepaid_gas = if is_view { Gas::MAX } else { prepaid_gas };
         Self {
             ext_costs_config,
             fast_counter: FastGasCounter {
                 burnt_gas: 0,
-                gas_limit: if is_view {
-                    // Ignore prepaid gas limit and promises.
-                    max_gas_burnt
-                } else {
-                    min(max_gas_burnt, prepaid_gas)
-                },
+                gas_limit: min(max_gas_burnt, prepaid_gas),
                 opcode_cost: Gas::from(opcode_cost),
             },
             max_gas_burnt: max_gas_burnt,
@@ -103,8 +100,7 @@ impl GasCounter {
             self.fast_counter.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
-        {
+        if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
             if promise_gas != 0 && !self.is_view {
                 self.fast_counter.gas_limit =
