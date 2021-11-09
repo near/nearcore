@@ -262,12 +262,15 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use near_primitives_core::config::ExtCostsConfig;
+    use crate::HostError;
+
+    fn test_counter(is_view: bool) -> super::GasCounter {
+        super::GasCounter::new(Default::default(), 10, 1, 12, is_view)
+    }
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 1, 10, false);
+        let mut counter = test_counter(false);
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -275,8 +278,59 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_prepaid_gas_min() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 1, 10, false);
-        counter.deduct_gas(10, 5).unwrap();
+    fn test_burn_gas_must_be_lt_use_gas() {
+        let _ = test_counter(false).deduct_gas(5, 2);
+        let _ = test_counter(true).deduct_gas(5, 2);
+    }
+
+    #[test]
+    fn test_errors_burnt_too_much() {
+        let mut counter = test_counter(false);
+        assert_eq!(counter.burn_gas(5), Ok(()));
+        assert_eq!(counter.burn_gas(5), Ok(()));
+        assert_eq!(counter.burn_gas(5), Err(HostError::GasExceeded.into()));
+
+        let mut counter = test_counter(true);
+        assert_eq!(counter.burn_gas(5), Ok(()));
+        assert_eq!(counter.burn_gas(5), Ok(()));
+        assert_eq!(counter.burn_gas(5), Err(HostError::GasLimitExceeded.into()));
+    }
+
+    #[test]
+    fn test_errors_burnt_and_used_too_much() {
+        let mut counter = test_counter(false);
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 5), Err(HostError::GasExceeded.into()));
+
+        let mut counter = test_counter(true);
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 5), Err(HostError::GasLimitExceeded.into()));
+    }
+
+    #[test]
+    fn test_errors_burnt_too_much_used_ok() {
+        let mut counter = test_counter(false);
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(1, 1), Err(HostError::GasLimitExceeded.into()));
+
+        let mut counter = test_counter(true);
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+        assert_eq!(counter.deduct_gas(1, 1), Err(HostError::GasLimitExceeded.into()));
+    }
+
+    #[test]
+    fn test_errors_used_too_much() {
+        let mut counter = test_counter(false);
+        assert_eq!(counter.deduct_gas(5, 10), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 10), Err(HostError::GasExceeded.into()));
+
+        let mut counter = test_counter(true);
+        assert_eq!(counter.deduct_gas(5, 10), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 10), Ok(()));
+        assert_eq!(counter.deduct_gas(5, 10), Err(HostError::GasLimitExceeded.into()));
     }
 }
