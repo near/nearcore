@@ -44,7 +44,7 @@ members = [
     "tools/storage-usage-delta-calculator",
     "tools/restored-receipts-verifier",
     "integration-tests",
-	"utils/tokio-util-0.6.3",
+    "utils/near-framed-read",
 ]
 
 [patch.crates-io]

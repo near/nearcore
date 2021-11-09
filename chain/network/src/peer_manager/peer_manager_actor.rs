@@ -13,6 +13,8 @@ use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
 };
+use chrono::Utc;
+use futures::channel::mpsc::unbounded;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_primitives::time::Clock;
@@ -67,7 +69,7 @@ use crate::types::{
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
-use near_tokio_util::codec::NearFramedRead;
+use near_framed_read::{RateLimiterHelper, ThrottledFrameRead};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
@@ -764,8 +766,10 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
+            let (tx, rx) = unbounded();
+            let rate_limiter = RateLimiterHelper::new(tx);
             PeerActor::add_stream(
-                NearFramedRead::new(read, Codec::new())
+                ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), rx)
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {
@@ -791,6 +795,7 @@ impl PeerManagerActor {
                 network_metrics,
                 txns_since_last_block,
                 peer_counter,
+                rate_limiter,
             )
         });
     }

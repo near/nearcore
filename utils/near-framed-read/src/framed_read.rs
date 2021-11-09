@@ -1,0 +1,281 @@
+use std::borrow::BorrowMut;
+use std::io;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::task::{Context, Poll};
+
+use bytes::BytesMut;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures_core::{ready, Stream};
+use log::trace;
+
+use pin_project_lite::pin_project;
+use tokio::io::AsyncRead;
+use tokio_util::io::poll_read_buf;
+
+// Initial capacity of read buffer.
+const INITIAL_CAPACITY: usize = 8 * 1024;
+
+// Max number of messages we received from peer, and they are in progress, before we start throttling.
+const MAX_MESSAGES_COUNT: u64 = 20;
+// Max total size of all messages that are in progress, before we start throttling.
+const MAX_MESSAGES_TOTAL_SIZE: u64 = 500_000_000;
+
+pin_project! {
+    pub struct ThrottledFrameRead<T, D> {
+        #[pin]
+        inner: FramedImpl<T, D, ReadFrame>,
+    }
+}
+
+pin_project! {
+    #[derive(Debug)]
+    pub(crate) struct FramedImpl<T, U, State> {
+        #[pin]
+        pub(crate) inner: T,
+        pub(crate) state: State,
+        pub(crate) codec: U,
+        pub(crate) rate_limiter: RateLimiterHelper,
+        pub(crate) receiver: UnboundedReceiver<()>,
+    }
+}
+
+// Wrapper around Actix messages, used to track size of all messages sent to PeerManager.
+// TODO(#5155) Finish implementation of this.
+
+#[allow(unused)]
+/// TODO - Once we start using this `ActixMessageWrapper` we will need to make following changes
+/// to get this struct to work
+/// - Add needed decorators. Probably `Debug`, `Message` from Actix, etc.
+/// - Add two rate limiters (local per peer, global one)
+/// - Any other metadata we need debugging, etc.
+pub struct ActixMessageWrapper<T> {
+    msg: T,
+    rate_limiter: RateLimiterHelper,
+    msg_len: usize,
+}
+
+impl<T> ActixMessageWrapper<T> {
+    #[allow(unused)]
+    pub fn new(msg: T, rate_limiter: RateLimiterHelper) -> Self {
+        // TODO(#5155) Add decorator like SizeOf
+        let msg_len = 0; // TODO msg.sizeof()
+        rate_limiter.add_msg(msg_len);
+        Self { msg, rate_limiter, msg_len }
+    }
+
+    #[allow(unused)]
+    pub fn take(mut self) -> (T, RateLimiterHelper) {
+        self.rate_limiter.remove_msg(self.msg_len);
+
+        return (self.msg, self.rate_limiter);
+    }
+}
+
+/// Each RateLimiterHelper is associated with exactly one `Peer`. It keeps track total size of all
+/// messages / their count that were received from given peer. We are going to keep tracking them
+/// as long as their exist in transit in inside `Actix` queues. For example from `Peer` to
+/// `PeerManager` and back to `Peer`.
+///
+/// TODO (#5155) Add throttling by bandwidth.
+#[derive(Clone, Debug)]
+pub struct RateLimiterHelper {
+    pub num_messages_in_progress: Arc<AtomicUsize>,
+    pub max_messages: u64,
+    pub sizeof_messages_in_progress: Arc<AtomicUsize>,
+    pub max_sizeof_messages: u64,
+    pub tx: UnboundedSender<()>,
+}
+
+impl RateLimiterHelper {
+    pub fn new(tx: UnboundedSender<()>) -> Self {
+        Self {
+            num_messages_in_progress: Arc::new(AtomicUsize::new(0)),
+            max_messages: MAX_MESSAGES_COUNT,
+            sizeof_messages_in_progress: Arc::new(AtomicUsize::new(0)),
+            max_sizeof_messages: MAX_MESSAGES_TOTAL_SIZE,
+            tx,
+        }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.num_messages_in_progress.load(Ordering::SeqCst) <= self.max_messages as usize
+            && self.sizeof_messages_in_progress.load(Ordering::SeqCst)
+                <= self.max_sizeof_messages as usize
+    }
+
+    pub fn add_msg(&self, msg_size: usize) {
+        self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst);
+        self.sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
+    }
+
+    pub fn remove_msg(&mut self, msg_size: usize) {
+        self.num_messages_in_progress.fetch_sub(1, Ordering::SeqCst);
+        self.sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
+        // TODO figure out how to send msg with tx
+        // self.tx.send(()).await;
+    }
+}
+
+impl<T, D> ThrottledFrameRead<T, D>
+where
+    T: AsyncRead,
+    D: Decoder,
+{
+    /// Creates a new `NearFramedRead` with the given `decoder`.
+    pub fn new(
+        inner: T,
+        decoder: D,
+        rate_limiter: RateLimiterHelper,
+        receiver: UnboundedReceiver<()>,
+    ) -> ThrottledFrameRead<T, D> {
+        ThrottledFrameRead {
+            inner: FramedImpl {
+                inner,
+                codec: decoder,
+                state: Default::default(),
+                rate_limiter,
+                receiver,
+            },
+        }
+    }
+}
+
+impl<T, D> ThrottledFrameRead<T, D> {
+    pub fn get_ref(&self) -> &T {
+        &self.inner.inner
+    }
+
+    pub fn into_inner(self) -> T {
+        self.inner.inner
+    }
+
+    pub fn decoder(&self) -> &D {
+        &self.inner.codec
+    }
+
+    pub fn read_buffer(&self) -> &BytesMut {
+        &self.inner.state.buffer
+    }
+}
+
+// This impl just defers to the underlying FramedImpl
+impl<T, D> Stream for ThrottledFrameRead<T, D>
+where
+    T: AsyncRead,
+    D: Decoder,
+{
+    type Item = Result<D::Item, D::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.project().inner.poll_next(cx)
+    }
+}
+
+pub(crate) struct ReadFrame {
+    pub(crate) eof: bool,
+    pub(crate) is_readable: bool,
+    pub(crate) buffer: BytesMut,
+}
+
+impl Default for ReadFrame {
+    fn default() -> Self {
+        Self { eof: false, is_readable: false, buffer: BytesMut::with_capacity(INITIAL_CAPACITY) }
+    }
+}
+
+impl<T, U, R> Stream for FramedImpl<T, U, R>
+where
+    T: AsyncRead,
+    U: Decoder,
+    R: BorrowMut<ReadFrame>,
+{
+    type Item = Result<U::Item, U::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut pinned = self.project();
+        let state: &mut ReadFrame = pinned.state.borrow_mut();
+        loop {
+            if !pinned.rate_limiter.is_ready() {
+                // Poll on receiver
+                ready!(UnboundedReceiver::poll_next(Pin::new(&mut pinned.receiver), cx));
+            }
+
+            // Check condition again
+            if !pinned.rate_limiter.is_ready() {
+                return Poll::Pending;
+            }
+
+            // Repeatedly call `decode` or `decode_eof` as long as it is
+            // "readable". Readable is defined as not having returned `None`. If
+            // the upstream has returned EOF, and the decoder is no longer
+            // readable, it can be assumed that the decoder will never become
+            // readable again, at which point the stream is terminated.
+            if state.is_readable {
+                if state.eof {
+                    let frame =
+                        pinned.codec.decode_eof(&mut state.buffer, &mut pinned.rate_limiter)?;
+                    return Poll::Ready(frame.map(Ok));
+                }
+                trace!("attempting to decode a frame");
+
+                if let Some(frame) =
+                    pinned.codec.decode(&mut state.buffer, &mut pinned.rate_limiter)?
+                {
+                    trace!("frame decoded from buffer");
+                    return Poll::Ready(Some(Ok(frame)));
+                }
+
+                state.is_readable = false;
+            }
+
+            assert!(!state.eof);
+
+            // Otherwise, try to read more data and try again. Make sure we've
+            // got room for at least one byte to read to ensure that we don't
+            // get a spurious 0 that looks like EOF
+            state.buffer.reserve(1);
+
+            let bytect = match poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)? {
+                Poll::Ready(ct) => ct,
+                Poll::Pending => return Poll::Pending,
+            };
+
+            if bytect == 0 {
+                state.eof = true;
+            }
+
+            state.is_readable = true;
+        }
+    }
+}
+
+pub trait Decoder {
+    type Item;
+
+    type Error: From<io::Error>;
+
+    fn decode(
+        &mut self,
+        src: &mut BytesMut,
+        read_limiter: &mut RateLimiterHelper,
+    ) -> Result<Option<Self::Item>, Self::Error>;
+
+    fn decode_eof(
+        &mut self,
+        buf: &mut BytesMut,
+        read_limiter: &mut RateLimiterHelper,
+    ) -> Result<Option<Self::Item>, Self::Error> {
+        match self.decode(buf, read_limiter)? {
+            Some(frame) => Ok(Some(frame)),
+            None => {
+                if buf.is_empty() {
+                    Ok(None)
+                } else {
+                    Err(io::Error::new(io::ErrorKind::Other, "bytes remaining on stream").into())
+                }
+            }
+        }
+    }
+}

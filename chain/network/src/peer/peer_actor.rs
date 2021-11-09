@@ -18,6 +18,7 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_crypto::Signature;
+use near_framed_read::RateLimiterHelper;
 use near_metrics;
 use near_network_primitives::types::PeerIdOrHash;
 use near_performance_metrics;
@@ -202,6 +203,8 @@ pub struct PeerActor {
     last_time_received_epoch_sync_request: Instant,
     /// Cache of recently routed messages, this allows us to drop duplicates
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
+    /// A helper data structure for limiting reading
+    rate_limiter: RateLimiterHelper,
 }
 
 impl Debug for PeerActor {
@@ -225,6 +228,7 @@ impl PeerActor {
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
+        rate_limiter: RateLimiterHelper,
     ) -> Self {
         PeerActor {
             node_info,
@@ -249,6 +253,7 @@ impl PeerActor {
             last_time_received_epoch_sync_request: Clock::instant()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
             routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
+            rate_limiter,
         }
     }
 
@@ -706,6 +711,9 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 return;
             }
         };
+        // TODO(#5155) We should change our code to track size of messages received from Peer
+        // as long as it travels to PeerManager, etc.
+        self.rate_limiter.remove_msg(msg.len());
 
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
@@ -1026,6 +1034,11 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             }
             #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
             (_, _state, PeerMessage::RoutingTableSyncV2(ibf_message)) => {
+                // TODO(#5155) Add wrapper to be something like this for all messages.
+                // self.peer_manager_addr.do_send(ActixMessageWrapper<NetworkRequests>::new(
+                //        self.rate_limiter.clone, NetworkRequests::IbfMessage {
+                //         ...
+
                 self.peer_manager_addr.do_send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::IbfMessage {
                         peer_id: self.peer_id().unwrap(),
