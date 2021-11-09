@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 thread_local! {
     // A shared pointer. We should propagate it across multiple threads.
     // Replace by AtomicU128 by 2262-04-12, after that date 64 bits won't be enough to
-    // represent time in nanoseconds.
+    // represent time in nanoseconds. AtomicU128 is still in nightly build only.
     static TIME_OVERRIDE: RefCell<Arc<AtomicU64>> = RefCell::new(Arc::new(AtomicU64::new(0)));
 }
 
