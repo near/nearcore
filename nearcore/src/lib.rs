@@ -13,6 +13,7 @@ use near_chain::ChainGenesis;
 #[cfg(feature = "test_features")]
 use near_client::AdversarialControls;
 use near_client::{start_client, start_view_client, ClientActor, ViewClientActor};
+use near_clock::get_time_override;
 use near_network::routing::routing_table_actor::start_routing_table_actor;
 use near_network::{NetworkRecipient, PeerManagerActor};
 #[cfg(feature = "rosetta_rpc")]
@@ -355,6 +356,7 @@ pub fn start_with_config(home_dir: &Path, config: NearConfig) -> NearNode {
             client_actor1,
             view_client1,
             routing_table_addr,
+            get_time_override(),
         )
         .unwrap()
     });

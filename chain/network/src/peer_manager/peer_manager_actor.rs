@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::swap;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{atomic::AtomicUsize, Arc};
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::stats::metrics::NetworkMetrics;
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
-use near_clock::{NearClock, NearDuration};
+use near_clock::{set_time_override, NearClock, NearDuration};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
 use near_primitives::checked_feature;
@@ -163,6 +163,8 @@ pub struct PeerManagerActor {
     adv_disable_edge_signature_verification: bool,
     #[cfg(feature = "test_features")]
     adv_disable_edge_pruning: bool,
+
+    time_override: Arc<AtomicU64>,
 }
 
 impl PeerManagerActor {
@@ -172,6 +174,7 @@ impl PeerManagerActor {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         routing_table_addr: Addr<RoutingTableActor>,
+        time_override: Arc<AtomicU64>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if config.max_num_peers as usize > MAX_NUM_PEERS {
             panic!("Exceeded max peer limit: {}", MAX_NUM_PEERS);
@@ -215,6 +218,7 @@ impl PeerManagerActor {
             adv_disable_edge_signature_verification: false,
             #[cfg(feature = "test_features")]
             adv_disable_edge_pruning: false,
+            time_override,
         })
     }
 
@@ -1422,6 +1426,8 @@ impl Actor for PeerManagerActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // override time in child process for unit test
+        set_time_override(self.time_override.clone());
         // Start server if address provided.
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.

@@ -53,6 +53,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         client_addr.recipient(),
         view_client_addr.recipient(),
         routing_table_addr,
+        near_clock::get_time_override(),
     )
     .unwrap()
 }

@@ -8,6 +8,7 @@ use futures::{future, FutureExt};
 
 use near_actix_test_utils::run_actix;
 use near_client::ClientActor;
+use near_clock::get_time_override;
 use near_logger_utils::init_integration_logger;
 
 use near_network::routing::routing_table_actor::start_routing_table_actor;
@@ -74,6 +75,7 @@ pub fn make_peer_manager(
             client_addr.recipient(),
             view_client_addr.recipient(),
             routing_table_addr,
+            get_time_override(),
         )
         .unwrap(),
         peer_id,

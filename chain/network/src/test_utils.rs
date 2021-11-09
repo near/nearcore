@@ -9,6 +9,7 @@ use actix::{Actor, ActorContext, Addr, Context, Handler, MailboxError, Message};
 use futures::future::BoxFuture;
 use futures::{future, FutureExt};
 use lazy_static::lazy_static;
+use near_clock::get_time_override;
 use rand::{thread_rng, RngCore};
 use tracing::debug;
 
@@ -357,6 +358,7 @@ pub fn make_peer_manager(
             client_addr.recipient(),
             view_client_addr.recipient(),
             routing_table_addr,
+            get_time_override(),
         )
         .unwrap(),
         peer_id,
