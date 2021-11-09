@@ -3,8 +3,8 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{
-        Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
-        DeleteKeyAction, FunctionCallAction, TransferAction,
+        Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+        DeployContractAction, FunctionCallAction, TransferAction,
     },
     types::{AccountId, Balance, BlockHeight, Nonce},
 };
@@ -316,7 +316,7 @@ impl TransactionConfig {
                     signer_id: signer_account.id.clone(),
                     receiver_id: signer_account.id.clone(),
                     signer,
-                    actions: vec![]
+                    actions: vec![],
                 });
             }
 
@@ -327,12 +327,9 @@ impl TransactionConfig {
                 signer_id: signer_account.id.clone(),
                 receiver_id: signer_account.id.clone(),
                 signer,
-                actions: vec![Action::DeleteKey(DeleteKeyAction{
-                    public_key,
-                })]
+                actions: vec![Action::DeleteKey(DeleteKeyAction { public_key })],
             })
         });
-
 
         let f = u.choose(&options)?;
         f(u, scope)
@@ -520,16 +517,13 @@ impl Scope {
             KeyType::ED25519,
             format!("test{}.{}", account_id, nonce).as_str(),
         );
-        self.accounts[account_id]
-            .keys
-            .insert(nonce,
-                    Key{
+        self.accounts[account_id].keys.insert(
+            nonce,
+            Key {
                 signer: signer.clone(),
-                access_key: AccessKey {
-                    nonce,
-                    permission: permission.clone()
-                }
-            });
+                access_key: AccessKey { nonce, permission: permission.clone() },
+            },
+        );
         Ok(AddKeyAction {
             public_key: signer.public_key,
             access_key: AccessKey { nonce, permission },
@@ -573,7 +567,11 @@ impl Scope {
         }
     }
 
-    pub fn delete_random_key(&mut self, u: &mut Unstructured, account_idx: usize) -> Result<PublicKey> {
+    pub fn delete_random_key(
+        &mut self,
+        u: &mut Unstructured,
+        account_idx: usize,
+    ) -> Result<PublicKey> {
         let (nonce, key) = self.accounts[account_idx].random_key(u)?;
         let public_key = key.signer.public_key.clone();
         self.accounts[account_idx].keys.remove(&nonce);
@@ -584,14 +582,17 @@ impl Scope {
 impl Account {
     pub fn from_id(id: String) -> Self {
         let mut keys = HashMap::new();
-        keys.insert(0, Key {
-            signer: InMemorySigner::from_seed(
-                AccountId::from_str(id.as_str()).expect("Invalid account_id"),
-                KeyType::ED25519,
-                id.as_ref(),
-            ),
-            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-        });
+        keys.insert(
+            0,
+            Key {
+                signer: InMemorySigner::from_seed(
+                    AccountId::from_str(id.as_str()).expect("Invalid account_id"),
+                    KeyType::ED25519,
+                    id.as_ref(),
+                ),
+                access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+            },
+        );
         Self {
             id: AccountId::from_str(id.as_str()).expect("Invalid account_id"),
             balance: TESTING_INIT_BALANCE,
@@ -630,11 +631,7 @@ impl Account {
     }
 
     pub fn random_key(&self, u: &mut Unstructured) -> Result<(Nonce, Key)> {
-        let mut items = vec![];
-        self.keys.iter().for_each(|item| {
-            items.push(item.clone());
-        });
-        let (nonce, key) = *u.choose(&items)?;
+        let (nonce, key) = *u.choose(&self.keys.iter().collect::<Vec<_>>())?;
         Ok((*nonce, key.clone()))
     }
 }
