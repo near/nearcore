@@ -75,6 +75,10 @@ pub struct NearDuration {
 }
 
 impl NearDuration {
+    pub const fn from_std(duration: Duration) -> Self {
+        Self { duration }
+    }
+
     pub fn to_std(&self) -> Duration {
         self.duration
     }
@@ -88,7 +92,11 @@ impl NearDuration {
     }
 
     pub fn as_nanos(&self) -> u128 {
-        self.duration.as_nanos() as u128
+        self.duration.as_nanos()
+    }
+
+    pub fn as_micros(&self) -> u128 {
+        self.duration.as_micros()
     }
 
     pub const fn from_nanos(ns: u64) -> NearDuration {
@@ -137,6 +145,7 @@ mod tests {
         get_time_override, mock_time, set_time_override, NearClock, NearDuration, UNIX_EPOCH,
     };
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_mock_override() {
@@ -153,5 +162,16 @@ mod tests {
         .join();
 
         assert_eq!(NearClock::now(), near_time);
+    }
+
+    #[test]
+    fn test_near_duration_methods() {
+        let std = Duration::from_nanos(12345678910);
+        let near_duration = NearDuration::from_std(std);
+
+        assert_eq!(std.as_nanos(), near_duration.as_nanos());
+        assert_eq!(std.as_millis(), near_duration.as_millis());
+        assert_eq!(std.as_secs(), near_duration.as_secs());
+        assert_eq!(std.as_micros(), near_duration.as_micros());
     }
 }
