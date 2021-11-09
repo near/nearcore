@@ -5,9 +5,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 thread_local! {
+    // A shared pointer. We should propagate it across multiple threads.
+    // Replace by AtomicU128 by 2262-04-12, after that date 64 bits won't be enough to
+    // represent time in nanoseconds.
     static TIME_OVERRIDE: RefCell<Arc<AtomicU64>> = RefCell::new(Arc::new(AtomicU64::new(0)));
 }
 
+// Used for tests to set clock time manually.
 pub fn mock_time(new_time: NearClock) {
     TIME_OVERRIDE.with(|time_override| {
         let ns = new_time.duration_since(&UNIX_EPOCH);
@@ -15,22 +19,21 @@ pub fn mock_time(new_time: NearClock) {
     });
 }
 
-pub fn propagate_time_mock(time_mock: Arc<AtomicU64>) {
-    TIME_OVERRIDE.with(|time_override| {
-        *time_override.borrow_mut() = time_mock;
-    });
-}
-
 pub const UNIX_EPOCH: NearClock = NearClock::from_system_time(SystemTime::UNIX_EPOCH);
 
+// A pointer to shared atomic, which is used to override time.
+// This pointer is meant to be shared between threads. A typical usage would be to get pointer
+// to atomic on the main thread running unit test, and then propagate is to sub threads
 pub fn get_time_override() -> Arc<AtomicU64> {
     TIME_OVERRIDE.with(|x| x.borrow().clone())
 }
 
+// sets override on child threads
 pub fn set_time_override(new_time_override: Arc<AtomicU64>) {
     TIME_OVERRIDE.with(|x| *x.borrow_mut() = new_time_override);
 }
 
+// get current time; we should use it everywhere in our code base
 pub fn now() -> NearClock {
     TIME_OVERRIDE.with(|time_override| {
         let time_override = time_override.borrow().load(Ordering::SeqCst);
