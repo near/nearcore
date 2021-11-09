@@ -262,8 +262,8 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives_core::types::Gas;
     use crate::HostError;
+    use near_primitives_core::types::Gas;
 
     fn test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
         super::GasCounter::new(Default::default(), max_burnt, 1, prepaid, is_view)
