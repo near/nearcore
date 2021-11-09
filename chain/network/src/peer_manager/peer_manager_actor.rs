@@ -29,7 +29,6 @@ use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, ProtocolVersion};
-use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use rand::thread_rng;
 

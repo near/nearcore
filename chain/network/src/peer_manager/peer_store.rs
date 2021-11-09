@@ -12,7 +12,6 @@ use rand::thread_rng;
 use tracing::{debug, error};
 
 use near_primitives::network::PeerId;
-use near_primitives::utils::to_timestamp;
 use near_store::{ColPeers, Store};
 
 use crate::types::{KnownPeerState, KnownPeerStatus, NetworkConfig, PeerInfo, ReasonForBan};
