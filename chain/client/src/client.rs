@@ -837,10 +837,10 @@ impl Client {
 
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
+        partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>
     ) -> Result<Vec<AcceptedBlock>, Error> {
         self.record_receive_chunk_timestamp(
-            partial_encoded_chunk.height_included(),
+            partial_encoded_chunk.height_created(),
             partial_encoded_chunk.shard_id(),
         );
         fn missing_block_handler(
@@ -1727,16 +1727,16 @@ impl ChunksDelayTracker {
                     if latest_chunk > &block_received {
                         cnt += 1;
                         sum_delays +=
-                            latest_chunk.duration_since(block_received).as_millis() as f64;
+                            latest_chunk.duration_since(block_received).as_micros() as f64;
                     }
                 }
             }
         }
         if cnt == 0 {
-            near_metrics::set_gauge(&metrics::CHUNKS_RECEIVING_DELAY_MS, 0);
+            near_metrics::set_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US, 0);
         } else {
             near_metrics::set_gauge(
-                &metrics::CHUNKS_RECEIVING_DELAY_MS,
+                &metrics::CHUNKS_RECEIVING_DELAY_US,
                 (sum_delays / (cnt as f64)).round() as i64,
             );
         }
