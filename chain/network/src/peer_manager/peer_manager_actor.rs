@@ -345,6 +345,11 @@ impl PeerManagerActor {
         };
     }
 
+    /// `update_routing_table_trigger` schedule updating routing table to `RoutingTableActor`
+    /// Usually we do edge pruning one an hour. However it may be disabled in following cases:
+    /// - there are edges, that were supposed to be added, but are still in `EdgeVerifierActor,
+    ///   waiting to have their signatures checked.
+    /// - edge pruning may be disabled for unit testing.
     fn update_routing_table_trigger(&mut self, ctx: &mut Context<Self>) {
         let can_prune_edges = self.edge_verifier_requests_in_progress == 0
             && !self.adv_helper.adv_disable_edge_pruning();
@@ -410,7 +415,7 @@ impl PeerManagerActor {
                     }
                 }
             }
-            // Add new edge update to the routing table.
+            // Add new edge update to the routing table and broadcast it to peers.
             self.add_verified_edges_to_routing_table(ctx, new_edges, true);
         };
 
