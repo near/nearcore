@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 
 use bytes::BytesMut;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures::SinkExt;
 use futures_core::{ready, Stream};
 use log::trace;
 
@@ -88,7 +89,13 @@ pub struct RateLimiterHelper {
     pub tx: UnboundedSender<()>,
 }
 
+/// `RateLimiterHelper` is a helper data structure that stores message count/total memory
+/// limits per Peer. It controls whenever associated `ThrottleFramedReader` is able to read
+/// from TcpSocket. It accepts `tx` as argument, which is used to notify `ThrottleFramedReader`
+/// to wake up and consider reading again. That happens when a message is removed, and limits
+/// are increased.
 impl RateLimiterHelper {
+    // Initialize `RateLimiterHelper`.
     pub fn new(tx: UnboundedSender<()>) -> Self {
         Self {
             num_messages_in_progress: Arc::new(AtomicUsize::new(0)),
@@ -99,22 +106,29 @@ impl RateLimiterHelper {
         }
     }
 
+    // Check whenever
     pub fn is_ready(&self) -> bool {
         self.num_messages_in_progress.load(Ordering::SeqCst) <= self.max_messages as usize
             && self.sizeof_messages_in_progress.load(Ordering::SeqCst)
                 <= self.max_sizeof_messages as usize
     }
 
+    // Increase limits by size of the message
     pub fn add_msg(&self, msg_size: usize) {
         self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst);
         self.sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
     }
 
+    // Decrease limits by size of the message and notify ThrottledFramedReader to try to
+    // read again
     pub fn remove_msg(&mut self, msg_size: usize) {
         self.num_messages_in_progress.fetch_sub(1, Ordering::SeqCst);
         self.sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
-        // TODO figure out how to send msg with tx
-        // self.tx.send(()).await;
+
+        // Notify throttled framed reader
+        actix::System::new().block_on(async move {
+            self.tx.send(()).await.expect("Unable to notify ThrottledFramedReader")
+        });
     }
 }
 
