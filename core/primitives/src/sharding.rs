@@ -682,6 +682,13 @@ impl PartialEncodedChunk {
             }
         }
     }
+
+    pub fn shard_id(&self) -> ShardId {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.shard_id,
+            Self::V2(chunk) => chunk.header.shard_id(),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]

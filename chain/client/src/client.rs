@@ -676,6 +676,7 @@ impl Client {
         block: Block,
         provenance: Provenance,
     ) -> (Vec<AcceptedBlock>, Result<Option<Tip>, near_chain::Error>) {
+        self.record_receive_block_timestamp(block.header().height());
         let is_requested = match provenance {
             Provenance::PRODUCED | Provenance::SYNC => true,
             Provenance::NONE => false,
@@ -835,6 +836,7 @@ impl Client {
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
+        self.record_receive_chunk_timestamp(partial_encoded_chunk.height_included(), partial_encoded_chunk.shard_id());
         fn missing_block_handler(
             client: &mut Client,
             pec: PartialEncodedChunkV2,
@@ -1660,5 +1662,12 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
+    }
+
+    fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
+        // TODO
+    }
+    fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
+        // TODO
     }
 }
