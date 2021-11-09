@@ -151,7 +151,7 @@ impl RoutingTableActor {
     /// If new edge comes comes that is adjacent to a peer that has been previously removed,
     /// we will try to re-add edges previously removed from disk.
     pub fn add_verified_edges_to_routing_table(&mut self, mut edges: Vec<Edge>) -> Vec<Edge> {
-        if edges.len() == 0 {
+        if edges.is_empty() {
             return Vec::new();
         }
 
