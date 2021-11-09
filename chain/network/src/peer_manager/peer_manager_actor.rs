@@ -1542,6 +1542,7 @@ impl Actor for PeerManagerActor {
         // Read verified edges and broadcast them.
         self.broadcast_edges_trigger(ctx);
 
+        // Update routing table and prune edges that are no longer reachable.
         self.update_routing_table_trigger(ctx);
     }
 
