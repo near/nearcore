@@ -922,6 +922,10 @@ impl Graph {
         res
     }
 
+    pub fn my_peer_id(&self) -> &PeerId {
+        &self.my_peer_id
+    }
+
     pub fn total_active_edges(&self) -> u64 {
         self.total_active_edges
     }
