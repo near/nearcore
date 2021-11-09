@@ -485,7 +485,7 @@ fn compilation_cost_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
 }
 
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
-    let total_cost = noop_host_function_call_cost(ctx);
+    let total_cost = noop_function_call_cost(ctx);
     let base_cost = action_sir_receipt_creation(ctx);
 
     total_cost - base_cost
@@ -501,7 +501,7 @@ fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
         transaction_cost(test_bed, &mut make_transaction)
     };
 
-    let base_cost = noop_host_function_call_cost(ctx);
+    let base_cost = noop_function_call_cost(ctx);
 
     let bytes_per_transaction = 1024 * 1024;
 
@@ -556,12 +556,12 @@ fn host_function_call(ctx: &mut EstimatorContext) -> GasCost {
     let (total_cost, count) = fn_cost_count(ctx, "base_1M", ExtCosts::base);
     assert_eq!(count, 1_000_000);
 
-    let base_cost = noop_host_function_call_cost(ctx);
+    let base_cost = noop_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
 }
-fn noop_host_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
-    if let Some(cost) = ctx.cached.noop_host_function_call_cost.clone() {
+fn noop_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = ctx.cached.noop_function_call_cost.clone() {
         return cost;
     }
 
@@ -575,7 +575,7 @@ fn noop_host_function_call_cost(ctx: &mut EstimatorContext) -> GasCost {
         transaction_cost(test_bed, &mut make_transaction)
     };
 
-    ctx.cached.noop_host_function_call_cost = Some(cost.clone());
+    ctx.cached.noop_function_call_cost = Some(cost.clone());
     cost
 }
 
@@ -956,7 +956,7 @@ fn fn_cost(ctx: &mut EstimatorContext, method: &str, ext_cost: ExtCosts, count: 
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost);
     assert_eq!(measured_count, count);
 
-    let base_cost = noop_host_function_call_cost(ctx);
+    let base_cost = noop_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
 }
@@ -1030,7 +1030,7 @@ fn fn_cost_with_setup(
     };
     assert_eq!(measured_count, count);
 
-    let base_cost = noop_host_function_call_cost(ctx);
+    let base_cost = noop_function_call_cost(ctx);
 
     (total_cost - base_cost) / count
 }
