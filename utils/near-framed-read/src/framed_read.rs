@@ -1,18 +1,17 @@
 use std::borrow::BorrowMut;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::BytesMut;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::SinkExt;
 use futures_core::{ready, Stream};
 use log::trace;
 
 use pin_project_lite::pin_project;
 use tokio::io::AsyncRead;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::io::poll_read_buf;
 
 // Initial capacity of read buffer.
@@ -127,9 +126,7 @@ impl RateLimiterHelper {
         self.total_sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
 
         // Notify throttled framed reader
-        actix::System::new().block_on(async move {
-            self.tx.send(()).await.expect("Unable to notify ThrottledFramedReader")
-        });
+        self.tx.send(()).expect("sending msg to tx failed");
     }
 }
 
@@ -214,7 +211,7 @@ where
         loop {
             if !pinned.rate_limiter.is_ready() {
                 // Poll on receiver
-                ready!(UnboundedReceiver::poll_next(Pin::new(&mut pinned.receiver), cx));
+                ready!(pinned.receiver.poll_recv(cx));
             }
 
             // Check condition again

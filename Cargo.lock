@@ -2614,7 +2614,6 @@ version = "0.1.0"
 dependencies = [
  "actix",
  "bytes",
- "futures",
  "futures-core",
  "log",
  "pin-project-lite",

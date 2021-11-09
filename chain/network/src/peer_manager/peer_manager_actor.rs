@@ -14,11 +14,11 @@ use actix::{
     Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
 };
 use chrono::Utc;
-use futures::channel::mpsc::unbounded;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::stats::metrics;
@@ -766,7 +766,7 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-            let (tx, rx) = unbounded();
+            let (tx, rx) = mpsc::unbounded_channel::<()>();
             let rate_limiter = RateLimiterHelper::new(tx);
             PeerActor::add_stream(
                 ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), rx)

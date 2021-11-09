@@ -169,7 +169,6 @@ pub fn is_forward_tx(bytes: &[u8]) -> Option<bool> {
 
 #[cfg(test)]
 mod test {
-    use futures::channel::mpsc::unbounded;
     use near_crypto::{KeyType, PublicKey, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::{self, CryptoHash};
@@ -192,7 +191,7 @@ mod test {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
         codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
-        let (tx, _) = unbounded();
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
         let decoded = codec.decode(&mut buffer, &mut rate_limiter).unwrap().unwrap().unwrap();
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
@@ -342,7 +341,7 @@ mod test {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
         codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
-        let (tx, _) = unbounded();
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
         let decoded = codec.decode(&mut buffer, &mut rate_limiter).unwrap().unwrap().unwrap();
 
@@ -421,7 +420,7 @@ mod test {
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE + 1);
-        let (tx, _) = unbounded();
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
         assert_eq!(
             codec.decode(&mut buffer, &mut rate_limiter).unwrap(),
@@ -435,7 +434,7 @@ mod test {
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE);
-        let (tx, _) = unbounded();
+        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
         assert_ne!(
             codec.decode(&mut buffer, &mut rate_limiter).unwrap(),
