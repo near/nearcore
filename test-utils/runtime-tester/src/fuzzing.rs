@@ -1,10 +1,10 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
     transaction::{
         Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
-        FunctionCallAction, TransferAction,
+        DeleteKeyAction, FunctionCallAction, TransferAction,
     },
     types::{AccountId, Balance, BlockHeight, Nonce},
 };
@@ -13,7 +13,7 @@ use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 use byteorder::{ByteOrder, LittleEndian};
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::mem::size_of;
 use std::str::FromStr;
@@ -303,6 +303,37 @@ impl TransactionConfig {
             })
         });
 
+        // Delete key
+        options.push(|u, scope| {
+            let nonce = scope.nonce();
+
+            let signer_account = scope.random_account(u)?;
+            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
+
+            if signer_account.keys.is_empty() {
+                return Ok(TransactionConfig {
+                    nonce,
+                    signer_id: signer_account.id.clone(),
+                    receiver_id: signer_account.id.clone(),
+                    signer,
+                    actions: vec![]
+                });
+            }
+
+            let public_key = scope.delete_random_key(u, signer_account.usize_id())?;
+
+            Ok(TransactionConfig {
+                nonce,
+                signer_id: signer_account.id.clone(),
+                receiver_id: signer_account.id.clone(),
+                signer,
+                actions: vec![Action::DeleteKey(DeleteKeyAction{
+                    public_key,
+                })]
+            })
+        });
+
+
         let f = u.choose(&options)?;
         f(u, scope)
     }
@@ -327,7 +358,13 @@ pub struct Account {
     pub id: AccountId,
     pub balance: Balance,
     pub deployed_contract: Option<ContractId>,
-    pub keys: Vec<(InMemorySigner, AccessKey)>,
+    pub keys: HashMap<Nonce, Key>,
+}
+
+#[derive(Clone)]
+pub struct Key {
+    pub signer: InMemorySigner,
+    pub access_key: AccessKey,
 }
 
 #[derive(Clone)]
@@ -485,7 +522,14 @@ impl Scope {
         );
         self.accounts[account_id]
             .keys
-            .push((signer.clone(), AccessKey { nonce, permission: permission.clone() }));
+            .insert(nonce,
+                    Key{
+                signer: signer.clone(),
+                access_key: AccessKey {
+                    nonce,
+                    permission: permission.clone()
+                }
+            });
         Ok(AddKeyAction {
             public_key: signer.public_key,
             access_key: AccessKey { nonce, permission },
@@ -528,22 +572,31 @@ impl Scope {
             Ok(u.choose(&possible_signers)?.clone())
         }
     }
+
+    pub fn delete_random_key(&mut self, u: &mut Unstructured, account_idx: usize) -> Result<PublicKey> {
+        let (nonce, key) = self.accounts[account_idx].random_key(u)?;
+        let public_key = key.signer.public_key.clone();
+        self.accounts[account_idx].keys.remove(&nonce);
+        Ok(public_key)
+    }
 }
 
 impl Account {
     pub fn from_id(id: String) -> Self {
+        let mut keys = HashMap::new();
+        keys.insert(0, Key {
+            signer: InMemorySigner::from_seed(
+                AccountId::from_str(id.as_str()).expect("Invalid account_id"),
+                KeyType::ED25519,
+                id.as_ref(),
+            ),
+            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+        });
         Self {
             id: AccountId::from_str(id.as_str()).expect("Invalid account_id"),
             balance: TESTING_INIT_BALANCE,
             deployed_contract: None,
-            keys: vec![(
-                InMemorySigner::from_seed(
-                    AccountId::from_str(id.as_str()).expect("Invalid account_id"),
-                    KeyType::ED25519,
-                    id.as_ref(),
-                ),
-                AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-            )],
+            keys,
         }
     }
 
@@ -553,9 +606,9 @@ impl Account {
 
     pub fn full_access_keys(&self) -> Vec<InMemorySigner> {
         let mut full_access_keys = vec![];
-        for (signer, access_key) in &self.keys {
-            if access_key.permission == AccessKeyPermission::FullAccess {
-                full_access_keys.push(signer.clone());
+        for (_, key) in &self.keys {
+            if key.access_key.permission == AccessKeyPermission::FullAccess {
+                full_access_keys.push(key.signer.clone());
             }
         }
         full_access_keys
@@ -563,17 +616,26 @@ impl Account {
 
     pub fn function_call_keys(&self, receiver_id: &String) -> Vec<InMemorySigner> {
         let mut function_call_keys = vec![];
-        for (signer, access_key) in &self.keys {
-            match &access_key.permission {
-                AccessKeyPermission::FullAccess => function_call_keys.push(signer.clone()),
+        for (_, key) in &self.keys {
+            match &key.access_key.permission {
+                AccessKeyPermission::FullAccess => function_call_keys.push(key.signer.clone()),
                 AccessKeyPermission::FunctionCall(function_call_permission) => {
                     if function_call_permission.receiver_id == *receiver_id {
-                        function_call_keys.push(signer.clone())
+                        function_call_keys.push(key.signer.clone())
                     }
                 }
             }
         }
         function_call_keys
+    }
+
+    pub fn random_key(&self, u: &mut Unstructured) -> Result<(Nonce, Key)> {
+        let mut items = vec![];
+        self.keys.iter().for_each(|item| {
+            items.push(item.clone());
+        });
+        let (nonce, key) = *u.choose(&items)?;
+        Ok((*nonce, key.clone()))
     }
 }
 
