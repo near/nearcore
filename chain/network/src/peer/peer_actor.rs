@@ -18,7 +18,6 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "delay_detector")]
 use delay_detector::DelayDetector;
 use near_crypto::Signature;
-use near_framed_read::RateLimiterHelper;
 use near_metrics;
 use near_network_primitives::types::PeerIdOrHash;
 use near_performance_metrics;
@@ -35,6 +34,7 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
+use near_rate_limiter::RateLimiterHelper;
 use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};

@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use near_framed_read::{Decoder, RateLimiterHelper};
+use near_rate_limiter::{Decoder, RateLimiterHelper};
 use tokio_util::codec::Encoder;
 use tracing::error;
 

@@ -1,6 +1,6 @@
 [package]
 edition = "2018"
-name = "near-framed-read"
+name = "near-rate-limiter"
 version = "0.1.0"
 tokio-util = { version = "0.6", features = ["codec"]}
 

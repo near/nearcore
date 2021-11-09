@@ -2609,20 +2609,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-framed-read"
-version = "0.1.0"
-dependencies = [
- "actix",
- "bytes",
- "futures-core",
- "log",
- "pin-project-lite",
- "slab",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "near-indexer"
 version = "0.10.1"
 dependencies = [
@@ -2774,13 +2760,13 @@ dependencies = [
  "near-chain",
  "near-chain-configs",
  "near-crypto",
- "near-framed-read",
  "near-logger-utils",
  "near-metrics",
  "near-network-primitives",
  "near-performance-metrics",
  "near-performance-metrics-macros",
  "near-primitives",
+ "near-rate-limiter",
  "near-rust-allocator-proxy",
  "near-stable-hasher",
  "near-store",
@@ -2891,6 +2877,20 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "near-rate-limiter"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "bytes",
+ "futures-core",
+ "log",
+ "pin-project-lite",
+ "slab",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

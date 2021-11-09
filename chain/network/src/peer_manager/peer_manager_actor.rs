@@ -69,7 +69,7 @@ use crate::types::{
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
-use near_framed_read::{RateLimiterHelper, ThrottledFrameRead};
+use near_rate_limiter::{RateLimiterHelper, ThrottledFrameRead};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);

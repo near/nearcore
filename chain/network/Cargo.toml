@@ -35,7 +35,7 @@ near-metrics = { path = "../../core/metrics" }
 near-performance-metrics = { path = "../../utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "../../utils/near-performance-metrics-macros" }
 near-stable-hasher = { path = "../../utils/near-stable-hasher" }
-near-framed-read = {path = "../../utils/near-framed-read" }
+near-rate-limiter = {path = "../../utils/near-rate-limiter" }
 
 delay-detector = { path = "../../tools/delay_detector", optional = true}
 

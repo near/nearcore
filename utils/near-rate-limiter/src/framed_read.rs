@@ -291,3 +291,48 @@ pub trait Decoder {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::framed_read::MAX_MESSAGES_COUNT;
+    use crate::RateLimiterHelper;
+    use std::sync::atomic::Ordering::SeqCst;
+    use tokio::sync::mpsc;
+
+    #[test]
+    fn test_rate_limiter_helper() {
+        let (tx, _rx) = mpsc::unbounded_channel::<()>();
+        let mut rate_limiter = RateLimiterHelper::new(tx);
+
+        for _ in 0..MAX_MESSAGES_COUNT {
+            assert_eq!(rate_limiter.is_ready(), true);
+            rate_limiter.add_msg(100);
+        }
+        assert_eq!(rate_limiter.is_ready(), false);
+
+        for _ in 0..MAX_MESSAGES_COUNT {
+            rate_limiter.add_msg(100);
+        }
+
+        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 2 * MAX_MESSAGES_COUNT);
+        assert_eq!(
+            rate_limiter.total_sizeof_messages_in_progress.load(SeqCst),
+            2 * MAX_MESSAGES_COUNT * 100
+        );
+
+        for _ in 0..MAX_MESSAGES_COUNT {
+            assert_eq!(rate_limiter.is_ready(), false);
+            rate_limiter.remove_msg(100);
+        }
+
+        assert_eq!(rate_limiter.is_ready(), true);
+
+        for _ in 0..MAX_MESSAGES_COUNT {
+            rate_limiter.remove_msg(100);
+            assert_eq!(rate_limiter.is_ready(), true);
+        }
+
+        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 0);
+        assert_eq!(rate_limiter.total_sizeof_messages_in_progress.load(SeqCst), 0);
+    }
+}
