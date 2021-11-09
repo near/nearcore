@@ -196,6 +196,10 @@ impl TestShardUpgradeEnv {
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
         for shard_id in 0..num_shards {
+            // get hash of the last block that we need to check that it has empty chunks for the shard
+            // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
+            // on chain, otherwise, that would be the block before the `block_hash` that the function
+            // call returns
             let mut last_block_hash_with_empty_chunk = match self.env.clients[0]
                 .chain
                 .get_next_block_hash_with_new_chunk(block_hash, shard_id as ShardId)
