@@ -156,7 +156,7 @@ pub struct PeerManagerActor {
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
-    pending_update_nonce_request: HashMap<PeerId, u64>,
+    local_peer_pending_update_nonce_request: HashMap<PeerId, u64>,
     /// Dynamic Prometheus metrics
     network_metrics: NetworkMetrics,
     /// EdgeVerifierActor, which is responsible for veryfing edges.
@@ -244,7 +244,7 @@ impl PeerManagerActor {
             routing_table_exchange_helper: Default::default(),
             monitor_peers_attempts: 0,
             started_connect_attempts: false,
-            pending_update_nonce_request: HashMap::new(),
+            local_peer_pending_update_nonce_request: HashMap::new(),
             network_metrics: NetworkMetrics::new(),
             edge_verifier_pool,
             routing_table_addr,
@@ -382,7 +382,13 @@ impl PeerManagerActor {
         }
 
         if !new_edges.is_empty() {
+            // Check whenever there is an edge indicating whenever there is a peer we should be
+            // connected to but we aren't. And try to resolve the inconsistency.
+            //
+            // Also check whenever there is an edge indicating that we should be disconnected
+            // from a peer, but we are connected. And try to resolve the inconsistency.
             for edge in new_edges.iter() {
+                // check if edge is local; contains our peer
                 if !edge.contains_peer(&self.my_peer_id) {
                     continue;
                 }
@@ -397,8 +403,7 @@ impl PeerManagerActor {
                         // This is an active connection.
                         match edge.edge_type() {
                             EdgeType::Removed => {
-                                // Try to update the nonce, and in case it fails removes the peer.
-                                self.try_update_nonce(ctx, edge.clone(), other);
+                                self.maybe_remove_connected_peer(ctx, edge.clone(), other);
                             }
                             _ => {}
                         }
@@ -932,10 +937,14 @@ impl PeerManagerActor {
         );
     }
 
-    fn try_update_nonce(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
+    // If we receive an edge indicating that we should no longer be connected to a peer.
+    // We will broadcast that edge to that peer, and if that peer doesn't reply within specific time,
+    // that peer will be removed. However, the connected peer may gives us a new edge indicating
+    // that we should in fact be connected to it.
+    fn maybe_remove_connected_peer(&mut self, ctx: &mut Context<Self>, edge: Edge, other: PeerId) {
         let nonce = edge.next();
 
-        if let Some(last_nonce) = self.pending_update_nonce_request.get(&other) {
+        if let Some(last_nonce) = self.local_peer_pending_update_nonce_request.get(&other) {
             if *last_nonce >= nonce {
                 // We already tried to update an edge with equal or higher nonce.
                 return;
@@ -953,19 +962,19 @@ impl PeerManagerActor {
             )),
         );
 
-        self.pending_update_nonce_request.insert(other.clone(), nonce);
+        self.local_peer_pending_update_nonce_request.insert(other.clone(), nonce);
 
         near_performance_metrics::actix::run_later(
             ctx,
             WAIT_ON_TRY_UPDATE_NONCE,
             move |act, _ctx| {
-                if let Some(cur_nonce) = act.pending_update_nonce_request.get(&other) {
+                if let Some(cur_nonce) = act.local_peer_pending_update_nonce_request.get(&other) {
                     if *cur_nonce == nonce {
                         if let Some(peer) = act.active_peers.get(&other) {
                             // Send disconnect signal to this peer if we haven't edge update.
                             peer.addr.do_send(PeerManagerRequest::UnregisterPeer);
                         }
-                        act.pending_update_nonce_request.remove(&other);
+                        act.local_peer_pending_update_nonce_request.remove(&other);
                     }
                 }
             },
@@ -1886,9 +1895,11 @@ impl PeerManagerActor {
                     let key = edge.get_pair();
                     if self.routing_table_view.is_local_edge_newer(&key, edge.nonce) {
                         let other = edge.other(&self.my_peer_id).unwrap();
-                        if let Some(nonce) = self.pending_update_nonce_request.get(&other) {
+                        if let Some(nonce) =
+                            self.local_peer_pending_update_nonce_request.get(&other)
+                        {
                             if edge.nonce >= *nonce {
-                                self.pending_update_nonce_request.remove(&other);
+                                self.local_peer_pending_update_nonce_request.remove(&other);
                             }
                         }
                     }
