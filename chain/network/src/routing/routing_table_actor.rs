@@ -6,7 +6,7 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
-use crate::metrics;
+use crate::stats::metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 
