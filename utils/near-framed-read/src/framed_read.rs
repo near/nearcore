@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
@@ -19,9 +19,9 @@ use tokio_util::io::poll_read_buf;
 const INITIAL_CAPACITY: usize = 8 * 1024;
 
 // Max number of messages we received from peer, and they are in progress, before we start throttling.
-const MAX_MESSAGES_COUNT: u64 = 20;
+const MAX_MESSAGES_COUNT: usize = 20;
 // Max total size of all messages that are in progress, before we start throttling.
-const MAX_MESSAGES_TOTAL_SIZE: u64 = 500_000_000;
+const MAX_MESSAGES_TOTAL_SIZE: usize = 500_000_000;
 
 pin_project! {
     pub struct ThrottledFrameRead<T, D> {
@@ -82,10 +82,13 @@ impl<T> ActixMessageWrapper<T> {
 /// TODO (#5155) Add throttling by bandwidth.
 #[derive(Clone, Debug)]
 pub struct RateLimiterHelper {
+    // Total count of all messages that are tracked by `RateLimiterHelper`
     pub num_messages_in_progress: Arc<AtomicUsize>,
-    pub max_messages: u64,
-    pub sizeof_messages_in_progress: Arc<AtomicUsize>,
-    pub max_sizeof_messages: u64,
+    // Total size of all messages that are tracked by `RateLimiterHelper`
+    pub total_sizeof_messages_in_progress: Arc<AtomicUsize>,
+    // We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
+    // This is the sender part, which is used to notify `ThrottledRateLimiter` to try to
+    // read again from queue.
     pub tx: UnboundedSender<()>,
 }
 
@@ -99,31 +102,29 @@ impl RateLimiterHelper {
     pub fn new(tx: UnboundedSender<()>) -> Self {
         Self {
             num_messages_in_progress: Arc::new(AtomicUsize::new(0)),
-            max_messages: MAX_MESSAGES_COUNT,
-            sizeof_messages_in_progress: Arc::new(AtomicUsize::new(0)),
-            max_sizeof_messages: MAX_MESSAGES_TOTAL_SIZE,
+            total_sizeof_messages_in_progress: Arc::new(AtomicUsize::new(0)),
             tx,
         }
     }
 
     // Check whenever
     pub fn is_ready(&self) -> bool {
-        self.num_messages_in_progress.load(Ordering::SeqCst) <= self.max_messages as usize
-            && self.sizeof_messages_in_progress.load(Ordering::SeqCst)
-                <= self.max_sizeof_messages as usize
+        self.num_messages_in_progress.load(Ordering::SeqCst) <= MAX_MESSAGES_COUNT
+            && self.total_sizeof_messages_in_progress.load(Ordering::SeqCst)
+                <= MAX_MESSAGES_TOTAL_SIZE
     }
 
     // Increase limits by size of the message
     pub fn add_msg(&self, msg_size: usize) {
         self.num_messages_in_progress.fetch_add(1, Ordering::SeqCst);
-        self.sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
+        self.total_sizeof_messages_in_progress.fetch_add(msg_size, Ordering::SeqCst);
     }
 
     // Decrease limits by size of the message and notify ThrottledFramedReader to try to
     // read again
     pub fn remove_msg(&mut self, msg_size: usize) {
         self.num_messages_in_progress.fetch_sub(1, Ordering::SeqCst);
-        self.sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
+        self.total_sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
 
         // Notify throttled framed reader
         actix::System::new().block_on(async move {
