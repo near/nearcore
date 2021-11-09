@@ -2142,7 +2142,6 @@ impl PeerManagerActor {
 impl Handler<PeerManagerMessageRequest> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
 
-    #[perf]
     fn handle(&mut self, msg: PeerManagerMessageRequest, ctx: &mut Self::Context) -> Self::Result {
         match msg {
             PeerManagerMessageRequest::RoutedMessageFrom(msg) => {
