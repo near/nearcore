@@ -24,7 +24,7 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 
 #[cfg(feature = "test_features")]
-use crate::routing_table_actor::start_routing_table_actor;
+use crate::routing::routing_table_actor::start_routing_table_actor;
 use crate::types::{
     NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,

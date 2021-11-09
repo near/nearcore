@@ -21,7 +21,7 @@ use near_network::test_utils::{
     GetInfo, StopSignal, WaitOrTimeout,
 };
 
-use near_network::routing_table_actor::start_routing_table_actor;
+use near_network::routing::routing_table_actor::start_routing_table_actor;
 #[cfg(feature = "test_features")]
 use near_network::types::SetAdvOptions;
 use near_network::types::{

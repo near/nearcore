@@ -6,19 +6,19 @@ use actix::{Actor, Addr, Context, Handler, Message, System};
 use tracing::error;
 use tracing::{debug, trace, warn};
 
-use crate::metrics;
+use crate::stats::metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::network::PeerId;
 
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::ibf::{Ibf, IbfBox};
+use crate::routing::ibf::{Ibf, IbfBox};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::ibf_peer_set::IbfPeerSet;
+use crate::routing::ibf_peer_set::IbfPeerSet;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::ibf_set::IbfSet;
-use crate::routing::{Edge, EdgeType, Graph, SAVE_PEERS_MAX_TIME};
+use crate::routing::ibf_set::IbfSet;
+use crate::routing::routing::{Edge, EdgeType, Graph, SAVE_PEERS_MAX_TIME};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
-use crate::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
+use crate::routing::routing::{SimpleEdge, ValidIBFLevel, MIN_IBF_LEVEL};
 use crate::types::StopMsg;
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{PartialSync, PeerMessage, RoutingState, RoutingSyncV2, RoutingVersion2};

@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::Bencher;
 
-use near_network::routing::Graph;
+use near_network::routing::routing::Graph;
 use near_network::test_utils::random_peer_id;
 
 fn build_graph(depth: usize, size: usize) -> Graph {

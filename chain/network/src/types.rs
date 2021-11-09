@@ -30,9 +30,9 @@ use near_primitives::version::{
 };
 use near_primitives::views::QueryRequest;
 
-use crate::ibf::IbfBox;
-use crate::peer::Peer;
-use crate::routing::{
+use crate::peer::peer_actor::PeerActor;
+use crate::routing::ibf::IbfBox;
+use crate::routing::routing::{
     Edge, EdgeInfo, GetRoutingTableResult, PeerRequestResult, RoutingTableInfo, SimpleEdge,
     ValidIBFLevel,
 };
@@ -432,7 +432,7 @@ pub struct SendMessage {
 /// Returns if connection should be kept or dropped.
 #[derive(Clone, Debug)]
 pub struct Consolidate {
-    pub actor: Addr<Peer>,
+    pub actor: Addr<PeerActor>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
     pub chain_info: PeerChainInfoV2,

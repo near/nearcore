@@ -20,12 +20,13 @@ use near_store::{
     StoreUpdate,
 };
 
+use crate::routing::route_back_cache::RouteBackCache;
+use crate::stats::metrics;
+use crate::PeerInfo;
 use crate::{
-    cache::RouteBackCache,
     types::{PeerIdOrHash, Ping, Pong},
     utils::cache_to_hashmap,
 };
-use crate::{metrics, PeerInfo};
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1086,7 +1087,7 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
-    use crate::routing::Graph;
+    use crate::routing::routing::Graph;
     use crate::test_utils::{expected_routing_tables, random_peer_id};
 
     #[test]
