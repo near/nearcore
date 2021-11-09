@@ -151,6 +151,10 @@ impl RoutingTableActor {
     /// If new edge comes comes that is adjacent to a peer that has been previously removed,
     /// we will try to re-add edges previously removed from disk.
     pub fn add_verified_edges_to_routing_table(&mut self, mut edges: Vec<Edge>) -> Vec<Edge> {
+        if edges.len() == 0 {
+            return Vec::new();
+        }
+
         let total = edges.len();
         edges.retain(|edge| {
             let key = edge.get_pair();
@@ -160,6 +164,7 @@ impl RoutingTableActor {
 
             self.add_verified_edge(edge.clone())
         });
+        self.needs_routing_table_recalculation = true;
 
         // Update metrics after edge update
         near_metrics::inc_counter_by(&metrics::EDGE_UPDATES, total as u64);
