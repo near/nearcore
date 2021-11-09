@@ -131,24 +131,32 @@ impl GasCounter {
 
     fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> VMLogicError {
         use std::cmp::min;
-        if new_used_gas > self.prepaid_gas {
-            // Ensure that contract never burn more than `max_gas_burnt`, even if paid for more.
-            let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
-            self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
-            // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
-            // no promises will be kept, but that would mean protocol change.
-            // See https://github.com/near/nearcore/issues/5148.
-            // TODO: consider making this change!
-            assert!(hard_burnt_limit >= self.fast_counter.burnt_gas);
-            let used_gas_limit = min(self.prepaid_gas, new_used_gas);
-            assert!(used_gas_limit >= self.fast_counter.burnt_gas);
-            self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
-            HostError::GasExceeded.into()
+
+        let over_burnt = new_burnt_gas > self.max_gas_burnt;
+        let over_used = new_used_gas > self.prepaid_gas;
+
+        // Never burn more gas than what was paid for.
+        let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
+        self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
+        debug_assert!(hard_burnt_limit >= self.fast_counter.burnt_gas);
+
+        // Technically we shall do `self.promises_gas = 0;` or error paths, as in this case
+        // no promises will be kept, but that would mean protocol change.
+        // See https://github.com/near/nearcore/issues/5148.
+        // TODO: consider making this change!
+        let used_gas_limit = min(self.prepaid_gas, new_used_gas);
+        assert!(used_gas_limit >= self.fast_counter.burnt_gas);
+        self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
+
+        // If we crossed both limits prefer reporting the one which is lower.
+        // If both limits are the same arbitrarily prefer reporting burnt limit.
+        let report_burnt = if over_burnt != over_used {
+            over_burnt
         } else {
-            self.fast_counter.burnt_gas = min(new_burnt_gas, self.max_gas_burnt);
-            self.promises_gas = new_used_gas - self.fast_counter.burnt_gas;
-            HostError::GasLimitExceeded.into()
-        }
+            debug_assert!(over_burnt && over_used);
+            self.max_gas_burnt <= self.prepaid_gas
+        };
+        if report_burnt { HostError::GasLimitExceeded } else { HostError::GasExceeded }.into()
     }
 
     pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
@@ -300,9 +308,9 @@ mod tests {
             assert_eq!(counter.burn_gas(3), want.map_err(Into::into));
         }
 
-        test(5, 7, false, Err(HostError::GasExceeded));
+        test(5, 7, false, Err(HostError::GasLimitExceeded));
         test(5, 7, true, Err(HostError::GasLimitExceeded));
-        test(5, 5, false, Err(HostError::GasExceeded));
+        test(5, 5, false, Err(HostError::GasLimitExceeded));
         test(5, 5, true, Err(HostError::GasLimitExceeded));
         test(7, 5, false, Err(HostError::GasExceeded));
         test(7, 5, true, Err(HostError::GasLimitExceeded));
@@ -316,9 +324,9 @@ mod tests {
             assert_eq!(counter.deduct_gas(3, 3), want.map_err(Into::into));
         }
 
-        test(5, 7, false, Err(HostError::GasExceeded));
+        test(5, 7, false, Err(HostError::GasLimitExceeded));
         test(5, 7, true, Err(HostError::GasLimitExceeded));
-        test(5, 5, false, Err(HostError::GasExceeded));
+        test(5, 5, false, Err(HostError::GasLimitExceeded));
         test(5, 5, true, Err(HostError::GasLimitExceeded));
         test(7, 5, false, Err(HostError::GasExceeded));
         test(7, 5, true, Err(HostError::GasLimitExceeded));
