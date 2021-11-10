@@ -33,6 +33,7 @@ pin_project! {
         pub(crate) state: State,
         pub(crate) codec: U,
         pub(crate) throttle_controller: ThrottleController,
+        // TODO(#5155) Figure out how to replace with `Notify` or `Semaphore`.
         pub(crate) receiver: UnboundedReceiver<()>,
     }
 }
