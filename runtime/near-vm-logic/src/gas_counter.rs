@@ -268,13 +268,13 @@ mod tests {
     use crate::HostError;
     use near_primitives_core::types::Gas;
 
-    fn test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
+    fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
         super::GasCounter::new(Default::default(), max_burnt, 1, prepaid, is_view)
     }
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = test_counter(10, 10, false);
+        let mut counter = make_test_counter(10, 10, false);
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -283,14 +283,19 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_burn_gas_must_be_lt_use_gas() {
-        let _ = test_counter(10, 10, false).deduct_gas(5, 2);
-        let _ = test_counter(10, 10, true).deduct_gas(5, 2);
+        let _ = make_test_counter(10, 10, false).deduct_gas(5, 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_burn_gas_must_be_lt_use_gas_view() {
+        let _ = make_test_counter(10, 10, true).deduct_gas(5, 2);
     }
 
     #[test]
     fn test_burn_too_much() {
         fn test(burn: Gas, prepaid: Gas, view: bool, want: Result<(), HostError>) {
-            let mut counter = test_counter(burn, prepaid, view);
+            let mut counter = make_test_counter(burn, prepaid, view);
             assert_eq!(counter.burn_gas(5), Ok(()));
             assert_eq!(counter.burn_gas(3), want.map_err(Into::into));
         }
@@ -306,7 +311,7 @@ mod tests {
     #[test]
     fn test_deduct_too_much() {
         fn test(burn: Gas, prepaid: Gas, view: bool, want: Result<(), HostError>) {
-            let mut counter = test_counter(burn, prepaid, view);
+            let mut counter = make_test_counter(burn, prepaid, view);
             assert_eq!(counter.deduct_gas(5, 5), Ok(()));
             assert_eq!(counter.deduct_gas(3, 3), want.map_err(Into::into));
         }
