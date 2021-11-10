@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{Buf, BufMut, BytesMut};
 use bytesize::{GIB, MIB};
-use near_rate_limiter::{Decoder, RateLimiterHelper};
+use near_rate_limiter::Decoder;
 use tokio_util::codec::Encoder;
 use tracing::error;
 
@@ -77,11 +77,7 @@ impl Decoder for Codec {
     type Item = Result<Vec<u8>, ReasonForBan>;
     type Error = Error;
 
-    fn decode(
-        &mut self,
-        buf: &mut BytesMut,
-        rate_limiter: &mut RateLimiterHelper,
-    ) -> Result<Option<Self::Item>, Self::Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if buf.len() < 4 {
             // not enough bytes to start decoding
             return Ok(None);
@@ -102,7 +98,6 @@ impl Decoder for Codec {
         } else {
             let res = Some(Ok(buf[4..4 + len as usize].to_vec()));
             buf.advance(4 + len as usize);
-            rate_limiter.add_msg(len as usize);
             Ok(res)
         }
     }
@@ -191,9 +186,7 @@ mod test {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
         codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
-        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = RateLimiterHelper::new(tx);
-        let decoded = codec.decode(&mut buffer, &mut rate_limiter).unwrap().unwrap().unwrap();
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
         assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
     }
 
@@ -341,9 +334,7 @@ mod test {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
         codec.encode(peer_message_to_bytes(&msg).unwrap(), &mut buffer).unwrap();
-        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = RateLimiterHelper::new(tx);
-        let decoded = codec.decode(&mut buffer, &mut rate_limiter).unwrap().unwrap().unwrap();
+        let decoded = codec.decode(&mut buffer).unwrap().unwrap().unwrap();
 
         let err = bytes_to_peer_message(&decoded).unwrap_err();
 
@@ -420,12 +411,7 @@ mod test {
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE + 1);
-        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = RateLimiterHelper::new(tx);
-        assert_eq!(
-            codec.decode(&mut buffer, &mut rate_limiter).unwrap(),
-            Some(Err(ReasonForBan::Abusive))
-        );
+        assert_eq!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 
     #[test]
@@ -434,11 +420,6 @@ mod test {
         let mut buffer = BytesMut::new();
         buffer.reserve(4);
         buffer.put_u32_le(NETWORK_MESSAGE_MAX_SIZE);
-        let (tx, _) = tokio::sync::mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = RateLimiterHelper::new(tx);
-        assert_ne!(
-            codec.decode(&mut buffer, &mut rate_limiter).unwrap(),
-            Some(Err(ReasonForBan::Abusive))
-        );
+        assert_ne!(codec.decode(&mut buffer).unwrap(), Some(Err(ReasonForBan::Abusive)));
     }
 }

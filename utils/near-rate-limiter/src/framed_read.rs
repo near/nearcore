@@ -227,15 +227,12 @@ where
             // readable again, at which point the stream is terminated.
             if state.is_readable {
                 if state.eof {
-                    let frame =
-                        pinned.codec.decode_eof(&mut state.buffer, &mut pinned.rate_limiter)?;
+                    let frame = pinned.codec.decode_eof(&mut state.buffer)?;
                     return Poll::Ready(frame.map(Ok));
                 }
                 trace!("attempting to decode a frame");
 
-                if let Some(frame) =
-                    pinned.codec.decode(&mut state.buffer, &mut pinned.rate_limiter)?
-                {
+                if let Some(frame) = pinned.codec.decode(&mut state.buffer)? {
                     trace!("frame decoded from buffer");
                     return Poll::Ready(Some(Ok(frame)));
                 }
@@ -275,18 +272,10 @@ pub trait Decoder {
 
     type Error: From<io::Error>;
 
-    fn decode(
-        &mut self,
-        src: &mut BytesMut,
-        read_limiter: &mut RateLimiterHelper,
-    ) -> Result<Option<Self::Item>, Self::Error>;
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>;
 
-    fn decode_eof(
-        &mut self,
-        buf: &mut BytesMut,
-        read_limiter: &mut RateLimiterHelper,
-    ) -> Result<Option<Self::Item>, Self::Error> {
-        match self.decode(buf, read_limiter)? {
+    fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        match self.decode(buf)? {
             Some(frame) => Ok(Some(frame)),
             None => {
                 if buf.is_empty() {
