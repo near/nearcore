@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_helper_by_count() {
-        let (tx, _rx) = mpsc::unbounded_channel::<()>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
 
         for _ in 0..MAX_MESSAGES_COUNT {
@@ -341,11 +341,18 @@ mod tests {
 
         assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(rate_limiter.total_sizeof_messages_in_progress.load(SeqCst), 0);
+
+        actix::System::new().block_on(async {
+            for _ in 0..2 * MAX_MESSAGES_COUNT {
+                rx.recv().await.unwrap();
+            }
+            assert_eq!(rx.recv().await, None);
+        });
     }
 
     #[test]
     fn test_rate_limiter_helper_by_size() {
-        let (tx, _rx) = mpsc::unbounded_channel::<()>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
 
         for _ in 0..8 {
@@ -378,5 +385,12 @@ mod tests {
 
         assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(rate_limiter.total_sizeof_messages_in_progress.load(SeqCst), 0);
+
+        actix::System::new().block_on(async {
+            for _ in 0..16 {
+                rx.recv().await.unwrap();
+            }
+            assert_eq!(rx.recv().await, None);
+        });
     }
 }
