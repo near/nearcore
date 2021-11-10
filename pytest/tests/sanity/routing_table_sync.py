@@ -188,7 +188,7 @@ for (left, right, common, TIMEOUT) in tests:
     started = time.time()
     while True:
         assert time.time() - started < TIMEOUT
-        status = nodes[0].get_status()
+        status = nodes[0].get_status(timeout=30)
         height = status['sync_info']['latest_block_height']
         if success.value == 1:
             break
