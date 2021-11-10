@@ -27,11 +27,12 @@ pub struct VMLimitConfig {
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
     /// Max burnt gas per view method.
+    /// TODO #4719: remove this field because it does not affect the protocol
     pub max_gas_burnt_view: Gas,
 
     /// How tall the stack is allowed to grow?
     ///
-    /// See https://wiki.parity.io/WebAssembly-StackHeight to find out
+    /// See <https://wiki.parity.io/WebAssembly-StackHeight> to find out
     /// how the stack frame cost is calculated.
     pub max_stack_height: u32,
 
@@ -80,6 +81,9 @@ pub struct VMLimitConfig {
     pub max_promises_per_function_call_action: u64,
     /// Max number of input data dependencies
     pub max_number_input_data_dependencies: u64,
+    /// If present, stores max number of functions in one contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_functions_number_per_contract: Option<u64>,
 }
 
 impl Default for VMConfig {
@@ -109,14 +113,15 @@ impl VMConfig {
             regular_op_cost: 0,
             // We shouldn't have any costs in the limit config.
             limit_config: VMLimitConfig {
-                max_gas_burnt: std::u64::MAX,
-                max_gas_burnt_view: std::u64::MAX,
+                max_gas_burnt: u64::MAX,
+                max_gas_burnt_view: u64::MAX,
                 ..Default::default()
             },
         }
     }
 }
 
+// TODO #4649: remove default impl and create impls with explicitly stated purposes
 impl Default for VMLimitConfig {
     fn default() -> Self {
         Self {
@@ -161,8 +166,16 @@ impl Default for VMLimitConfig {
             max_promises_per_function_call_action: 1024,
             // Unlikely to hit it for normal development.
             max_number_input_data_dependencies: 128,
+            max_functions_number_per_contract: None,
         }
     }
+}
+
+/// Configuration of view methods execution, during which no costs should be charged.
+#[derive(Default, Clone, Serialize, Deserialize, Debug, Hash, PartialEq, Eq)]
+pub struct ViewConfig {
+    /// If specified, defines max burnt gas per view method.
+    pub max_gas_burnt: Gas,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -335,6 +348,7 @@ pub struct ExtCostsConfig {
 // have certain reserve for further gas price variation.
 const SAFETY_MULTIPLIER: u64 = 3;
 
+/// TODO #4649: remove default implementation when LowerEcrecoverBaseCost will be released
 impl Default for ExtCostsConfig {
     fn default() -> ExtCostsConfig {
         ExtCostsConfig {

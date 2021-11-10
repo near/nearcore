@@ -1,7 +1,8 @@
 [package]
 name = "testlib"
 version = "0.1.0"
-edition = "2018"
+publish = false
+edition = "2021"
 
 [dependencies]
 actix = "=0.11.0-beta.2"
@@ -19,7 +20,7 @@ assert_matches = "1.3"
 num-rational = "0.3"
 hex = "0.4"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-actix-test-utils = { path = "../actix-test-utils" }
 near-logger-utils = { path = "../../test-utils/logger" }
@@ -27,7 +28,6 @@ near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-node-runtime = { path = "../../runtime/runtime" }
 near-vm-errors = { path = "../../runtime/near-vm-errors" }
 near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
@@ -41,6 +41,8 @@ near-test-contracts = { path = "../../runtime/near-test-contracts" }
 default = []
 protocol_feature_alt_bn128 = [
     "near-primitives/protocol_feature_alt_bn128",
-    "node-runtime/protocol_feature_alt_bn128",
     "near-vm-errors/protocol_feature_alt_bn128",
 ]
+protocol_feature_chunk_only_producers = ["near-client/protocol_feature_chunk_only_producers"]
+nightly_protocol_features = ["nightly_protocol", "protocol_feature_chunk_only_producers", "protocol_feature_alt_bn128"]
+nightly_protocol = []

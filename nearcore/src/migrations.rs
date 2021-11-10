@@ -5,11 +5,12 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::{EpochManager, RewardCalculator};
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::ReceiptResult;
 use near_primitives::runtime::migration_data::MigrationData;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader, ShardChunkV1};
 use near_primitives::transaction::{
     ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof,
@@ -93,7 +94,7 @@ fn apply_block_at_height(
     Ok(())
 }
 
-pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
+pub fn migrate_12_to_13(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if !near_config.client_config.archive {
         // Non archival node. Perform a simply migration without necessarily fixing the inconsistencies
@@ -109,15 +110,7 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().expect("head must exist");
-        let runtime = NightshadeRuntime::new(
-            &Path::new(path),
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let mut store_update = store.store_update();
         store_update.delete_all(DBCol::ColTransactionResult);
         store_update.commit().unwrap();
@@ -142,15 +135,16 @@ pub fn migrate_12_to_13(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 13);
 }
 
-pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
+pub fn migrate_18_to_19(path: &Path, near_config: &NearConfig) {
     use near_primitives::types::EpochId;
     let store = create_store(path);
     if near_config.client_config.archive {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
+        let epoch_config = EpochConfig::from(&near_config.genesis.config);
         let mut epoch_manager = EpochManager::new(
             store.clone(),
-            EpochConfig::from(&near_config.genesis.config),
+            AllEpochConfig::new(epoch_config, None),
             near_config.genesis.config.protocol_version,
             RewardCalculator::new(&near_config.genesis.config),
             near_config.genesis.config.validators(),
@@ -213,22 +207,15 @@ pub fn migrate_18_to_19(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 19);
 }
 
-pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
+pub fn migrate_19_to_20(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
         let head = chain_store.head().unwrap();
-        let runtime = NightshadeRuntime::new(
-            &Path::new(path),
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), near_config, None, None);
         let shard_id = 0;
+        let shard_uid = ShardUId::default();
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let start_height = 34691244;
         for block_height in start_height..=head.height {
@@ -237,7 +224,7 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
                 if block.chunks()[shard_id as usize].height_included() != block.header().height() {
                     let mut chain_store_update = ChainStoreUpdate::new(&mut chain_store);
                     let new_extra = chain_store_update
-                        .get_chunk_extra(block.header().prev_hash(), shard_id)
+                        .get_chunk_extra(block.header().prev_hash(), &shard_uid)
                         .unwrap()
                         .clone();
 
@@ -280,21 +267,14 @@ pub fn migrate_19_to_20(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 20);
 }
 
-/// This is a one time patch to fix an existing issue in mainnet database (https://github.com/near/near-indexer-for-explorer/issues/110)
-pub fn migrate_22_to_23(path: &String, near_config: &NearConfig) {
+/// This is a one time patch to fix an existing issue in mainnet database
+/// (<https://github.com/near/near-indexer-for-explorer/issues/110>)
+pub fn migrate_22_to_23(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if near_config.client_config.archive && &near_config.genesis.config.chain_id == "mainnet" {
         let genesis_height = near_config.genesis.config.genesis_height;
         let mut chain_store = ChainStore::new(store.clone(), genesis_height);
-        let runtime = NightshadeRuntime::new(
-            &Path::new(path),
-            store.clone(),
-            &near_config.genesis,
-            near_config.client_config.tracked_accounts.clone(),
-            near_config.client_config.tracked_shards.clone(),
-            None,
-            None,
-        );
+        let runtime = NightshadeRuntime::with_config(path, store.clone(), &near_config, None, None);
         let shard_id = 0;
         // This is hardcoded for mainnet specifically. Blocks with lower heights have been checked.
         let block_heights = vec![22633807];
@@ -361,8 +341,9 @@ lazy_static_include::lazy_static_include_bytes! {
     MAINNET_RESTORED_RECEIPTS => "res/mainnet_restored_receipts.json",
 }
 
-/// Put receipts restored in scope of issue https://github.com/near/nearcore/pull/4248 to storage.
-pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
+/// Put receipts restored in scope of issue
+/// <https://github.com/near/nearcore/pull/4248> to storage.
+pub fn migrate_23_to_24(path: &Path, near_config: &NearConfig) {
     let store = create_store(path);
     if &near_config.genesis.config.chain_id == "mainnet" {
         let mut store_update = store.store_update();
@@ -377,10 +358,10 @@ pub fn migrate_23_to_24(path: &String, near_config: &NearConfig) {
     set_store_version(&store, 24);
 }
 
-pub fn migrate_24_to_25(path: &String) {
+pub fn migrate_24_to_25(path: &Path) {
     use smart_default::SmartDefault;
 
-    let store = create_store(&path);
+    let store = create_store(path);
 
     #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, SmartDefault, Eq, Debug)]
     pub struct OldExecutionOutcome {
@@ -428,7 +409,7 @@ pub fn migrate_24_to_25(path: &String) {
                         tokens_burnt: self.outcome_with_id.outcome.tokens_burnt,
                         executor_id: self.outcome_with_id.outcome.executor_id,
                         status: self.outcome_with_id.outcome.status,
-                        metadata: ExecutionMetadata::ExecutionMetadataV1,
+                        metadata: ExecutionMetadata::V1,
                     },
                 },
             }
@@ -455,7 +436,6 @@ pub fn migrate_24_to_25(path: &String) {
                     vec![old_outcome]
                 } else {
                     let mut v2: Vec<u8> = value.clone().into();
-                    use std::convert::TryFrom;
                     // We investigate how deserialization went wrong, by manually borsh deserialize struct field-by-field and found
                     // the problem comes from https://github.com/near/nearcore/commit/6c3c2f7475a5e8c258a39ed94f11f6a8a7b2108e, where
                     // where MethodUTF8Error was dropped without a migration, which lead to deser index 3 of MethodResolveError

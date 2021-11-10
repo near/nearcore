@@ -11,7 +11,6 @@ use near_vm_runner::{compile_module, precompile_contract_vm, prepare, run_vm, VM
 use nearcore::get_store_path;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
-use std::convert::TryFrom;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,22 +37,21 @@ pub(crate) fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(18),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: None,
         output_data_receivers: vec![],
     }
 }
 
-fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
+fn call(code: &ContractCode) -> (Option<VMOutcome>, Option<VMError>) {
     let mut fake_external = MockedExternal::new();
     let context = create_context(vec![]);
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
 
-    let code = ContractCode::new(code.to_vec(), None);
     near_vm_runner::run(
-        &code,
+        code,
         "cpu_ram_soak_test",
         &mut fake_external,
         context,
@@ -68,7 +66,7 @@ fn call(code: &[u8]) -> (Option<VMOutcome>, Option<VMError>) {
 const NUM_ITERATIONS: u64 = 10;
 
 /// Cost of the most CPU demanding operation.
-pub fn cost_per_op(gas_metric: GasMetric, code: &[u8]) -> Ratio<u64> {
+pub fn cost_per_op(gas_metric: GasMetric, code: &ContractCode) -> Ratio<u64> {
     // Call once for the warmup.
     let (outcome, _) = call(code);
     let outcome = outcome.unwrap();
@@ -303,7 +301,7 @@ pub(crate) fn compute_compile_cost_vm(
 #[allow(dead_code)]
 fn test_compile_cost(metric: GasMetric) {
     compute_compile_cost_vm(metric, VMKind::Wasmer0, true);
-    compute_compile_cost_vm(metric, VMKind::Wasmer1, true);
+    compute_compile_cost_vm(metric, VMKind::Wasmer2, true);
 }
 
 #[test]
@@ -357,7 +355,7 @@ fn test_many_contracts_call(gas_metric: GasMetric, vm_kind: VMKind) {
     }
     let mut fake_external = MockedExternal::new();
     let fake_context = create_context(vec![]);
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
 
     let start = start_count(gas_metric);
     for contract in &contracts {

@@ -62,7 +62,7 @@ impl Handler<TelemetryEvent> for TelemetryActor {
     #[perf]
     fn handle(&mut self, msg: TelemetryEvent, _ctx: &mut Context<Self>) {
         for endpoint in self.config.endpoints.iter() {
-            near_performance_metrics::actix::spawn("telemetry", file!(), line!(),
+            near_performance_metrics::actix::spawn("telemetry",
                                            self.client
                         .post(endpoint)
                         .insert_header(("Content-Type", "application/json"))

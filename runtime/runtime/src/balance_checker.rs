@@ -233,6 +233,7 @@ mod tests {
     use near_store::test_utils::create_tries;
     use testlib::runtime_utils::{alice_account, bob_account};
 
+    use crate::near_primitives::shard_layout::ShardUId;
     use assert_matches::assert_matches;
     use near_primitives::version::PROTOCOL_VERSION;
 
@@ -246,9 +247,9 @@ mod tests {
     fn test_check_balance_no_op() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(0, root);
-        let final_state = tries.new_trie_update(0, root);
-        let transaction_costs = RuntimeFeesConfig::default();
+        let initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let final_state = tries.new_trie_update(ShardUId::default(), root);
+        let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
             &initial_state,
@@ -267,9 +268,9 @@ mod tests {
     fn test_check_balance_unaccounted_refund() {
         let tries = create_tries();
         let root = MerkleHash::default();
-        let initial_state = tries.new_trie_update(0, root);
-        let final_state = tries.new_trie_update(0, root);
-        let transaction_costs = RuntimeFeesConfig::default();
+        let initial_state = tries.new_trie_update(ShardUId::default(), root);
+        let final_state = tries.new_trie_update(ShardUId::default(), root);
+        let transaction_costs = RuntimeFeesConfig::test();
         let err = check_balance(
             &transaction_costs,
             &initial_state,
@@ -294,17 +295,17 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE;
         let refund_balance = 1000;
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = tries.new_trie_update(0, root);
+        let mut final_state = tries.new_trie_update(ShardUId::default(), root);
         let final_account = account_new(initial_balance + refund_balance, hash(&[]));
         set_account(&mut final_state, account_id.clone(), &final_account);
         final_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let transaction_costs = RuntimeFeesConfig::default();
+        let transaction_costs = RuntimeFeesConfig::test();
         check_balance(
             &transaction_costs,
             &initial_state,
@@ -328,7 +329,7 @@ mod tests {
         let initial_balance = TESTING_INIT_BALANCE / 2;
         let deposit = 500_000_000;
         let gas_price = 100;
-        let cfg = RuntimeFeesConfig::default();
+        let cfg = RuntimeFeesConfig::test();
         let exec_gas = cfg.action_receipt_creation_config.exec_fee()
             + cfg.action_creation_config.transfer_cost.exec_fee();
         let send_gas = cfg.action_receipt_creation_config.send_fee(false)
@@ -336,12 +337,12 @@ mod tests {
         let contract_reward = send_gas as u128 * *cfg.burnt_gas_reward.numer() as u128 * gas_price
             / (*cfg.burnt_gas_reward.denom() as u128);
         let total_validator_reward = send_gas as Balance * gas_price - contract_reward;
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         let initial_account = account_new(initial_balance, hash(&[]));
         set_account(&mut initial_state, account_id.clone(), &initial_account);
         initial_state.commit(StateChangeCause::NotWritableToDisk);
 
-        let mut final_state = tries.new_trie_update(0, root);
+        let mut final_state = tries.new_trie_update(ShardUId::default(), root);
         let final_account = account_new(
             initial_balance - (exec_gas + send_gas) as Balance * gas_price - deposit
                 + contract_reward,
@@ -402,7 +403,7 @@ mod tests {
         let gas_price = 100;
         let deposit = 1000;
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         let alice = account_new(std::u128::MAX, hash(&[]));
         let bob = account_new(1u128, hash(&[]));
 
@@ -430,7 +431,7 @@ mod tests {
             }),
         };
 
-        let transaction_costs = RuntimeFeesConfig::default();
+        let transaction_costs = RuntimeFeesConfig::test();
         assert_eq!(
             check_balance(
                 &transaction_costs,

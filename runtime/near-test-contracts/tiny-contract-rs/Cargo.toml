@@ -2,7 +2,8 @@
 name = "tiny-contract-rs"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]

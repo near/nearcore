@@ -1,5 +1,3 @@
-use std::convert::{TryFrom, TryInto};
-
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
 use near_primitives::serialize::BaseEncode;
@@ -46,7 +44,7 @@ pub(crate) struct AccountBalanceResponse {
 pub(crate) struct AccountIdentifier {
     /// The address may be a cryptographic public key (or some encoding of it)
     /// or a provided username.
-    pub address: near_primitives::types::AccountId,
+    pub address: super::types::AccountId,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub_account: Option<SubAccountIdentifier>,
@@ -61,7 +59,7 @@ pub(crate) struct AccountIdentifier {
 
 impl From<near_primitives::types::AccountId> for AccountIdentifier {
     fn from(account_id: near_primitives::types::AccountId) -> Self {
-        Self { address: account_id, sub_account: None }
+        Self { address: account_id.into(), sub_account: None }
     }
 }
 
@@ -289,7 +287,7 @@ pub(crate) struct ConstructionPreprocessRequest {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct ConstructionMetadataOptions {
-    pub signer_account_id: near_primitives::types::AccountId,
+    pub signer_account_id: super::types::AccountId,
 }
 
 /// ConstructionPreprocessResponse contains `options` that will
@@ -535,7 +533,7 @@ impl Error {
     }
 }
 
-impl<T> std::convert::From<T> for Error
+impl<T> From<T> for Error
 where
     T: Into<crate::errors::ErrorKind>,
 {

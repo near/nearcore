@@ -3,13 +3,13 @@ use futures::{future, FutureExt};
 
 use chrono::Utc;
 use near_actix_test_utils::run_actix;
-use near_client::test_utils::{setup, setup_no_network};
+use near_client::test_utils::{setup_no_network, setup_only_view};
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
 use near_crypto::{InMemorySigner, KeyType};
 use near_logger_utils::init_test_logger;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{NetworkViewClientMessages, NetworkViewClientResponses};
 use near_network::{NetworkClientMessages, NetworkClientResponses, PeerInfo};
 use near_primitives::block::{Block, BlockHeader};
@@ -176,7 +176,7 @@ fn test_execution_outcome_for_chunk() {
 #[test]
 fn test_state_request() {
     run_actix(async {
-        let (_, _, view_client) = setup(
+        let view_client = setup_only_view(
             vec![vec!["test".parse().unwrap()]],
             1,
             1,
@@ -188,7 +188,7 @@ fn test_state_request() {
             false,
             true,
             false,
-            Arc::new(MockNetworkAdapter::default()),
+            Arc::new(MockPeerManagerAdapter::default()),
             100,
             Utc::now(),
         );

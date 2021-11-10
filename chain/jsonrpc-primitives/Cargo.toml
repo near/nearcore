@@ -2,7 +2,7 @@
 name = "near-jsonrpc-primitives"
 version = "0.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,4 +24,4 @@ near-primitives-core = { path = "../../core/primitives-core" }
 near-rpc-error-macro = { path = "../../tools/rpctypegen/macro" }
 
 [features]
-adversarial = []
+test_features = []

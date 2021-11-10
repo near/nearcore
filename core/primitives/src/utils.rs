@@ -1,5 +1,5 @@
 use std::cmp::max;
-use std::convert::{AsRef, TryFrom};
+use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -18,6 +18,8 @@ use crate::version::{
 };
 use std::mem::size_of;
 use std::ops::Deref;
+
+pub mod min_heap;
 
 /// Number of nano seconds in a second.
 const NS_IN_SECOND: u64 = 1_000_000_000;

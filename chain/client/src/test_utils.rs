@@ -1,15 +1,17 @@
 use log::info;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
+use std::mem::swap;
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::{DateTime, Utc};
 use futures::{future, FutureExt};
+use num_rational::Rational;
 use rand::{thread_rng, Rng};
 
 use near_chain::test_utils::KeyValueRuntime;
@@ -18,22 +20,26 @@ use near_chain::{
 };
 use near_chain_configs::ClientConfig;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-#[cfg(feature = "metric_recorder")]
-use near_network::recorder::MetricRecorder;
-use near_network::routing::EdgeInfo;
+use near_network::routing::routing::EdgeInfo;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
     AccountOrPeerIdOrHash, NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses,
-    PeerChainInfoV2,
+    PeerChainInfoV2, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
 use near_network::{
-    FullPeerInfo, NetworkAdapter, NetworkClientMessages, NetworkClientResponses, NetworkRecipient,
-    NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRecipient, NetworkRequests,
+    NetworkResponses, PeerInfo, PeerManagerActor, PeerManagerAdapter,
 };
 use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::Receipt;
+use near_primitives::shard_layout::ShardUId;
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, BlockHeightDelta, NumBlocks, NumSeats, NumShards,
+    AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, NumSeats, NumShards,
+    ShardId,
 };
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
@@ -42,18 +48,16 @@ use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 use crate::AdversarialControls;
 use crate::{start_view_client, Client, ClientActor, SyncStatus, ViewClientActor};
-use near_network::test_utils::MockNetworkAdapter;
-use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
-use num_rational::Rational;
-use std::mem::swap;
-use std::time::Instant;
+use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, StateSplitRequest};
+use near_chain::types::AcceptedBlock;
+use near_client_primitives::types::Error;
+use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::utils::MaybeValidated;
 
-pub type NetworkMock = Mocker<PeerManagerActor>;
+pub type PeerManagerMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -68,9 +72,10 @@ pub fn setup(
     enable_doomslug: bool,
     archive: bool,
     epoch_sync_enabled: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
+    ctx: &Context<ClientActor>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>) {
     let store = create_test_store();
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
@@ -117,7 +122,7 @@ pub fn setup(
         epoch_sync_enabled,
     );
 
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     let adv = Arc::new(RwLock::new(AdversarialControls::default()));
 
     let view_client_addr = start_view_client(
@@ -126,7 +131,7 @@ pub fn setup(
         runtime.clone(),
         network_adapter.clone(),
         config.clone(),
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         adv.clone(),
     );
 
@@ -139,11 +144,87 @@ pub fn setup(
         Some(signer),
         telemetry,
         enable_doomslug,
-        #[cfg(feature = "adversarial")]
+        ctx,
+        #[cfg(feature = "test_features")]
         adv,
     )
     .unwrap();
     (genesis_block, client, view_client_addr)
+}
+
+pub fn setup_only_view(
+    validators: Vec<Vec<AccountId>>,
+    validator_groups: u64,
+    num_shards: NumShards,
+    epoch_length: BlockHeightDelta,
+    account_id: AccountId,
+    skip_sync_wait: bool,
+    min_block_prod_time: u64,
+    max_block_prod_time: u64,
+    enable_doomslug: bool,
+    archive: bool,
+    epoch_sync_enabled: bool,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
+    transaction_validity_period: NumBlocks,
+    genesis_time: DateTime<Utc>,
+) -> Addr<ViewClientActor> {
+    let store = create_test_store();
+    let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators_and_no_gc(
+        store,
+        validators,
+        validator_groups,
+        num_shards,
+        epoch_length,
+        archive,
+    ));
+    let chain_genesis = ChainGenesis {
+        time: genesis_time,
+        height: 0,
+        gas_limit: 1_000_000,
+        min_gas_price: 100,
+        max_gas_price: 1_000_000_000,
+        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+        gas_price_adjustment_rate: Rational::from_integer(0),
+        transaction_validity_period,
+        epoch_length,
+        protocol_version: PROTOCOL_VERSION,
+    };
+
+    let doomslug_threshold_mode = if enable_doomslug {
+        DoomslugThresholdMode::TwoThirds
+    } else {
+        DoomslugThresholdMode::NoApprovals
+    };
+    Chain::new(runtime.clone(), &chain_genesis, doomslug_threshold_mode).unwrap();
+
+    let signer = Arc::new(InMemoryValidatorSigner::from_seed(
+        account_id.clone(),
+        KeyType::ED25519,
+        account_id.as_ref(),
+    ));
+    TelemetryActor::default().start();
+    let config = ClientConfig::test(
+        skip_sync_wait,
+        min_block_prod_time,
+        max_block_prod_time,
+        num_validator_seats,
+        archive,
+        epoch_sync_enabled,
+    );
+
+    #[cfg(feature = "test_features")]
+    let adv = Arc::new(RwLock::new(AdversarialControls::default()));
+
+    start_view_client(
+        Some(signer.validator_id().clone()),
+        chain_genesis.clone(),
+        runtime.clone(),
+        network_adapter.clone(),
+        config.clone(),
+        #[cfg(feature = "test_features")]
+        adv.clone(),
+    )
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -152,12 +233,12 @@ pub fn setup_mock(
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
-    network_mock: Box<
+    peer_manager_mock: Box<
         dyn FnMut(
-            &NetworkRequests,
-            &mut Context<NetworkMock>,
+            &PeerManagerMessageRequest,
+            &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
-        ) -> NetworkResponses,
+        ) -> PeerManagerMessageResponse,
     >,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     setup_mock_with_validity_period_and_no_epoch_sync(
@@ -165,7 +246,7 @@ pub fn setup_mock(
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        network_mock,
+        peer_manager_mock,
         100,
     )
 }
@@ -175,45 +256,50 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
-    mut network_mock: Box<
+    mut peermanager_mock: Box<
         dyn FnMut(
-            &NetworkRequests,
-            &mut Context<NetworkMock>,
+            &PeerManagerMessageRequest,
+            &mut Context<PeerManagerMock>,
             Addr<ClientActor>,
-        ) -> NetworkResponses,
+        ) -> PeerManagerMessageResponse,
     >,
     transaction_validity_period: NumBlocks,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let network_adapter = Arc::new(NetworkRecipient::new());
-    let (_, client, view_client_addr) = setup(
-        vec![validators],
-        1,
-        1,
-        5,
-        account_id,
-        skip_sync_wait,
-        100,
-        200,
-        enable_doomslug,
-        false,
-        false,
-        network_adapter.clone(),
-        transaction_validity_period,
-        Utc::now(),
-    );
-    let client_addr = client.start();
+    let mut vca: Option<Addr<ViewClientActor>> = None;
+    let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
+        let (_, client, view_client_addr) = setup(
+            vec![validators],
+            1,
+            1,
+            5,
+            account_id,
+            skip_sync_wait,
+            100,
+            200,
+            enable_doomslug,
+            false,
+            false,
+            network_adapter.clone(),
+            transaction_validity_period,
+            Utc::now(),
+            ctx,
+        );
+        vca = Some(view_client_addr);
+        client
+    });
     let client_addr1 = client_addr.clone();
 
-    let network_actor = NetworkMock::mock(Box::new(move |msg, ctx| {
-        let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
-        let resp = network_mock(msg, ctx, client_addr1.clone());
+    let network_actor = PeerManagerMock::mock(Box::new(move |msg, ctx| {
+        let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
+        let resp = peermanager_mock(msg, ctx, client_addr1.clone());
         Box::new(Some(resp))
     }))
     .start();
 
     network_adapter.set_recipient(network_actor.recipient());
 
-    (client_addr, view_client_addr)
+    (client_addr, vca.unwrap())
 }
 
 fn sample_binary(n: u64, k: u64) -> bool {
@@ -384,8 +470,15 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
-    network_mock: Arc<
-        RwLock<Box<dyn FnMut(AccountId, &NetworkRequests) -> (NetworkResponses, bool)>>,
+    peer_manager_mock: Arc<
+        RwLock<
+            Box<
+                dyn FnMut(
+                    AccountId,
+                    &PeerManagerMessageRequest,
+                ) -> (PeerManagerMessageResponse, bool),
+            >,
+        >,
     >,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>, Arc<RwLock<BlockStats>>) {
     let validators_clone = validators.clone();
@@ -424,7 +517,7 @@ pub fn setup_mock_all_validators(
         let addresses = addresses.clone();
         let connectors1 = connectors.clone();
         let connectors2 = connectors.clone();
-        let network_mock1 = network_mock.clone();
+        let network_mock1 = peer_manager_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
         let last_height1 = last_height.clone();
         let last_height2 = last_height.clone();
@@ -436,8 +529,8 @@ pub fn setup_mock_all_validators(
         let client_addr = ClientActor::create(move |ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
-            let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
-                let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+            let pm = PeerManagerMock::mock(Box::new(move |msg, _ctx| {
+                let msg = msg.downcast_ref::<PeerManagerMessageRequest>().unwrap();
 
                 let mut guard = network_mock1.write().unwrap();
                 let (resp, perform_default) = guard.deref_mut()(account_id.clone(), msg);
@@ -487,14 +580,12 @@ pub fn setup_mock_all_validators(
                             sent_bytes_per_sec: 0,
                             received_bytes_per_sec: 0,
                             known_producers: vec![],
-                            #[cfg(feature = "metric_recorder")]
-                            metric_recorder: MetricRecorder::default(),
                             peer_counter: 0,
                         };
                         client_addr.do_send(NetworkClientMessages::NetworkInfo(info));
                     }
 
-                    match msg {
+                    match msg.as_network_requests_ref() {
                         NetworkRequests::Block { block } => {
                             if check_block_stats {
                                 let block_stats2 = &mut *block_stats1.write().unwrap();
@@ -885,6 +976,8 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::RequestUpdateNonce(_, _)
                         | NetworkRequests::ResponseUpdateNonce(_)
                         | NetworkRequests::ReceiptOutComeRequest(_, _) => {}
+                        #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                        | NetworkRequests::IbfMessage { .. } => {}
                     };
                 }
                 Box::new(Some(resp))
@@ -907,6 +1000,7 @@ pub fn setup_mock_all_validators(
                 Arc::new(network_adapter),
                 10000,
                 genesis_time,
+                &ctx,
             );
             *view_client_addr1.write().unwrap() = Some(view_client_addr);
             *genesis_block1.write().unwrap() = Some(block);
@@ -953,7 +1047,9 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
         account_id,
         skip_sync_wait,
         enable_doomslug,
-        Box::new(|_, _, _| NetworkResponses::NoResponse),
+        Box::new(|_, _, _| {
+            PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)
+        }),
         transaction_validity_period,
     )
 }
@@ -962,7 +1058,7 @@ pub fn setup_client_with_runtime(
     num_validator_seats: NumSeats,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
 ) -> Client {
@@ -992,7 +1088,7 @@ pub fn setup_client(
     num_shards: NumShards,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     chain_genesis: ChainGenesis,
 ) -> Client {
     let num_validator_seats = validators.iter().map(|x| x.len()).sum::<usize>() as NumSeats;
@@ -1017,95 +1113,191 @@ pub fn setup_client(
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
     pub chain_genesis: ChainGenesis,
-    validators: Vec<AccountId>,
-    pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
+    pub validators: Vec<AccountId>,
+    pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub clients: Vec<Client>,
+    account_to_client_index: HashMap<AccountId, usize>,
+}
+
+/// A builder for the TestEnv structure.
+pub struct TestEnvBuilder {
+    chain_genesis: ChainGenesis,
+    clients: Vec<AccountId>,
+    validators: Vec<AccountId>,
+    runtime_adapters: Option<Vec<Arc<dyn RuntimeAdapter>>>,
+    network_adapters: Option<Vec<Arc<MockPeerManagerAdapter>>>,
+}
+
+/// Builder for the [`TestEnv`] structure.
+impl TestEnvBuilder {
+    /// Constructs a new builder.
+    fn new(chain_genesis: ChainGenesis) -> Self {
+        let clients = Self::make_accounts(1);
+        let validators = clients.clone();
+        Self { chain_genesis, clients, validators, runtime_adapters: None, network_adapters: None }
+    }
+
+    /// Sets list of client [`AccountId`]s to the one provided.  Panics if the
+    /// vector is empty.
+    pub fn clients(mut self, clients: Vec<AccountId>) -> Self {
+        assert!(!clients.is_empty());
+        self.clients = clients;
+        self
+    }
+
+    /// Sets number of clients to given one.  To get [`AccountId`] used by the
+    /// validator associated with the client the [`TestEnv::get_client_id`]
+    /// method can be used.  Tests should not rely on any particular format of
+    /// account identifiers used by the builder.  Panics if `num` is zero.
+    pub fn clients_count(self, num: usize) -> Self {
+        self.clients(Self::make_accounts(num))
+    }
+
+    /// Sets list of validator [`AccountId`]s to the one provided.  Panics if
+    /// the vector is empty.
+    pub fn validators(mut self, validators: Vec<AccountId>) -> Self {
+        assert!(!validators.is_empty());
+        self.validators = validators;
+        self
+    }
+
+    /// Sets number of validator seats to given one.  To get [`AccountId`] used
+    /// in the test environment the `validators` field of the built [`TestEnv`]
+    /// object can be used.  Tests should not rely on any particular format of
+    /// account identifiers used by the builder.  Panics if `num` is zero.
+    pub fn validator_seats(self, num: usize) -> Self {
+        self.validators(Self::make_accounts(num))
+    }
+
+    /// Specifies custom runtime adaptors for each client.  This allows us to
+    /// construct [`TestEnv`] with `NightshadeRuntime`.
+    ///
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
+    pub fn runtime_adapters(mut self, adapters: Vec<Arc<dyn RuntimeAdapter>>) -> Self {
+        self.runtime_adapters = Some(adapters);
+        self
+    }
+
+    /// Specifies custom network adaptors for each client.
+    ///
+    /// The vector must have the same number of elements as they are clients
+    /// (one by default).  If that does not hold, [`Self::build`] method will
+    /// panic.
+    pub fn network_adapters(mut self, adapters: Vec<Arc<MockPeerManagerAdapter>>) -> Self {
+        self.network_adapters = Some(adapters);
+        self
+    }
+
+    /// Constructs new `TestEnv` structure.
+    ///
+    /// If no clients were configured (either through count or vector) one
+    /// client is created.  Similarly, if no validator seats were configured,
+    /// one seat is configured.
+    ///
+    /// Panics if `runtime_adapters` or `network_adapters` methods were used and
+    /// the length of the vectors passed to them did not equal number of
+    /// configured clients.
+    pub fn build(self) -> TestEnv {
+        let chain_genesis = self.chain_genesis;
+        let clients = self.clients.clone();
+        let num_clients = clients.len();
+        let validators = self.validators;
+        let num_validators = validators.len();
+        let network_adapters = self
+            .network_adapters
+            .unwrap_or_else(|| (0..num_clients).map(|_| Arc::new(Default::default())).collect());
+        assert_eq!(clients.len(), network_adapters.len());
+        let clients = match self.runtime_adapters {
+            None => clients
+                .into_iter()
+                .zip(network_adapters.iter())
+                .map(|(account_id, network_adapter)| {
+                    setup_client(
+                        create_test_store(),
+                        vec![validators.clone()],
+                        1,
+                        1,
+                        Some(account_id),
+                        false,
+                        network_adapter.clone(),
+                        chain_genesis.clone(),
+                    )
+                })
+                .collect(),
+            Some(runtime_adapters) => {
+                assert!(clients.len() == runtime_adapters.len());
+                clients
+                    .into_iter()
+                    .zip((&network_adapters).iter())
+                    .zip(runtime_adapters.into_iter())
+                    .map(|((account_id, network_adapter), runtime_adapter)| {
+                        setup_client_with_runtime(
+                            u64::try_from(num_validators).unwrap(),
+                            Some(account_id),
+                            false,
+                            network_adapter.clone(),
+                            chain_genesis.clone(),
+                            runtime_adapter,
+                        )
+                    })
+                    .collect()
+            }
+        };
+
+        TestEnv {
+            chain_genesis,
+            validators,
+            network_adapters,
+            clients,
+            account_to_client_index: self
+                .clients
+                .into_iter()
+                .enumerate()
+                .map(|(index, client)| (client, index))
+                .collect(),
+        }
+    }
+
+    fn make_accounts(count: usize) -> Vec<AccountId> {
+        (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
+    }
 }
 
 impl TestEnv {
-    /// Create a `TestEnv` with `KeyValueRuntime`.
-    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
-        let validators: Vec<AccountId> = (0..num_validators)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
-        let network_adapters =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
-        let clients = (0..num_clients)
-            .map(|i| {
-                let store = create_test_store();
-                setup_client(
-                    store,
-                    vec![validators.clone()],
-                    1,
-                    1,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
-                    false,
-                    network_adapters[i].clone(),
-                    chain_genesis.clone(),
-                )
-            })
-            .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+    pub fn builder(chain_genesis: ChainGenesis) -> TestEnvBuilder {
+        TestEnvBuilder::new(chain_genesis)
     }
 
-    /// Create a `TestEnv` with custom runtime adapters. This allows us to construct `TestEnv` with `NightshadeRuntime`.
-    pub fn new_with_runtime(
-        chain_genesis: ChainGenesis,
-        num_clients: usize,
-        num_validator_seats: NumSeats,
-        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
-    ) -> Self {
-        let network_adapters: Vec<Arc<MockNetworkAdapter>> =
-            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect();
-        Self::new_with_runtime_and_network_adapter(
-            chain_genesis,
-            num_clients,
-            num_validator_seats,
-            runtime_adapters,
-            network_adapters,
-        )
-    }
-
-    /// Create a `TestEnv` with custom runtime adapters and `MockNetworkAdapter`s.
-    pub fn new_with_runtime_and_network_adapter(
-        chain_genesis: ChainGenesis,
-        num_clients: usize,
-        num_validator_seats: NumSeats,
-        runtime_adapters: Vec<Arc<dyn RuntimeAdapter>>,
-        network_adapters: Vec<Arc<MockNetworkAdapter>>,
-    ) -> Self {
-        let validators: Vec<AccountId> = (0..num_validator_seats)
-            .map(|i| AccountId::try_from(format!("test{}", i)).unwrap())
-            .collect();
-        let clients = (0..num_clients)
-            .map(|i| {
-                setup_client_with_runtime(
-                    num_validator_seats,
-                    Some(AccountId::try_from(format!("test{}", i)).unwrap()),
-                    false,
-                    network_adapters[i].clone(),
-                    chain_genesis.clone(),
-                    runtime_adapters[i].clone(),
-                )
-            })
-            .collect();
-        TestEnv { chain_genesis, validators, network_adapters, clients }
+    pub fn process_block_with_options(
+        &mut self,
+        id: usize,
+        block: Block,
+        provenance: Provenance,
+        should_run_catchup: bool,
+        should_produce_chunk: bool,
+    ) {
+        let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
+        assert!(result.is_ok(), "{:?}", result);
+        if should_run_catchup {
+            let more_accepted_blocks = run_catchup(&mut self.clients[id], &vec![]).unwrap();
+            accepted_blocks.extend(more_accepted_blocks);
+        }
+        for accepted_block in accepted_blocks {
+            self.clients[id].on_block_accepted_with_optional_chunk_produce(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+                !should_produce_chunk,
+            );
+        }
     }
 
     /// Process a given block in the client with index `id`.
     /// Simulate the block processing logic in `Client`, i.e, it would run catchup and then process accepted blocks and possibly produce chunks.
     pub fn process_block(&mut self, id: usize, block: Block, provenance: Provenance) {
-        let (mut accepted_blocks, result) = self.clients[id].process_block(block, provenance);
-        assert!(result.is_ok(), "{:?}", result);
-        let more_accepted_blocks = self.clients[id].run_catchup(&vec![]).unwrap();
-        accepted_blocks.extend(more_accepted_blocks);
-        for accepted_block in accepted_blocks {
-            self.clients[id].on_block_accepted(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-            );
-        }
+        self.process_block_with_options(id, block, provenance, true, true);
     }
 
     /// Produces block by given client, which may kick off chunk production.
@@ -1115,12 +1307,40 @@ impl TestEnv {
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
     }
 
+    pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
+        &mut self.clients[self.account_to_client_index[account_id]]
+    }
+
+    pub fn process_partial_encoded_chunks(&mut self) {
+        let network_adapters = self.network_adapters.clone();
+        for network_adapter in network_adapters {
+            // process partial encoded chunks
+            while let Some(request) = network_adapter.pop() {
+                if let PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkMessage {
+                        account_id,
+                        partial_encoded_chunk,
+                    },
+                ) = request
+                {
+                    self.client(&account_id)
+                        .process_partial_encoded_chunk(MaybeValidated::NotValidated(
+                            partial_encoded_chunk.into(),
+                        ))
+                        .unwrap();
+                }
+            }
+        }
+    }
+
     pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let account_id = self.get_client_id(0);
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
         let tx = SignedTransaction::send_money(
             1,
-            "test1".parse().unwrap(),
-            "test1".parse().unwrap(),
+            account_id.clone(),
+            account_id.clone(),
             &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
@@ -1135,7 +1355,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                0,
+                ShardUId::default(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -1158,7 +1378,7 @@ impl TestEnv {
         let response = self.clients[0]
             .runtime_adapter
             .query(
-                0,
+                ShardUId::default(),
                 &last_chunk_header.prev_state_root(),
                 last_block.header().height(),
                 last_block.header().raw_timestamp(),
@@ -1178,37 +1398,59 @@ impl TestEnv {
         self.query_account(account_id).amount
     }
 
-    pub fn restart(&mut self, id: usize) {
-        let store = self.clients[id].chain.store().owned_store();
-        self.clients[id] = setup_client(
+    /// Restarts client at given index.  Note that the client is restarted with
+    /// the default runtime adapter (i.e. [`KeyValueRuntime`]).  That is, if
+    /// this `TestEnv` was created with custom runtime adapters that
+    /// customisation will be lost.
+    pub fn restart(&mut self, idx: usize) {
+        let store = self.clients[idx].chain.store().owned_store();
+        self.clients[idx] = setup_client(
             store,
             vec![self.validators.clone()],
             1,
             1,
-            Some(AccountId::try_from(format!("test{}", id)).unwrap()),
+            Some(self.get_client_id(idx).clone()),
             false,
-            self.network_adapters[id].clone(),
+            self.network_adapters[idx].clone(),
             self.chain_genesis.clone(),
         )
     }
+
+    /// Returns an [`AccountId`] used by a client at given index.  More
+    /// specifically, returns validator id of the client’s validator signer.
+    pub fn get_client_id(&self, idx: usize) -> &AccountId {
+        self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    }
+
+    pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
+        self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
+    }
 }
 
-pub fn create_chunk_on_height(
+pub fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
+    shard_id: ShardId,
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap().clone();
     client
         .produce_chunk(
             last_block_hash,
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
+            &client.runtime_adapter.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
+            Chain::get_prev_chunk_header(&*client.runtime_adapter, &last_block, shard_id).unwrap(),
             next_height,
-            0,
+            shard_id,
         )
         .unwrap()
         .unwrap()
+}
+
+pub fn create_chunk_on_height(
+    client: &mut Client,
+    next_height: BlockHeight,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+    create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
 pub fn create_chunk_with_transactions(
@@ -1313,4 +1555,55 @@ pub fn create_chunk(
         block_merkle_tree.root(),
     );
     (chunk, merkle_paths, receipts, block)
+}
+
+pub fn run_catchup(
+    client: &mut Client,
+    highest_height_peers: &Vec<FullPeerInfo>,
+) -> Result<Vec<AcceptedBlock>, Error> {
+    let mut result = vec![];
+    let f = |_| {};
+    let block_messages = Arc::new(RwLock::new(vec![]));
+    let block_inside_messages = block_messages.clone();
+    let block_catch_up = move |msg: BlockCatchUpRequest| {
+        block_inside_messages.write().unwrap().push(msg);
+    };
+    let state_split_messages = Arc::new(RwLock::new(vec![]));
+    let state_split_inside_messages = state_split_messages.clone();
+    let state_split = move |msg: StateSplitRequest| {
+        state_split_inside_messages.write().unwrap().push(msg);
+    };
+    let rt = client.runtime_adapter.clone();
+    while !client.chain.store().iterate_state_sync_infos().is_empty() {
+        let call = client.run_catchup(highest_height_peers, &f, &block_catch_up, &state_split)?;
+        for msg in block_messages.write().unwrap().drain(..) {
+            let results = do_apply_chunks(msg.work);
+            if let Some((_, _, blocks_catch_up_state)) =
+                client.catchup_state_syncs.get_mut(&msg.sync_hash)
+            {
+                let saved_store_update =
+                    blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash).unwrap();
+                blocks_catch_up_state
+                    .processed_blocks
+                    .insert(msg.block_hash, (saved_store_update, results));
+            } else {
+                panic!("block catch up processing result from unknown sync hash");
+            }
+        }
+        for msg in state_split_messages.write().unwrap().drain(..) {
+            let results = rt.build_state_for_split_shards(
+                msg.shard_uid,
+                &msg.state_root,
+                &msg.next_epoch_shard_layout,
+            );
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+                // We are doing catchup
+                sync.set_split_result(msg.shard_id, results);
+            } else {
+                client.state_sync.set_split_result(msg.shard_id, results);
+            }
+        }
+        result.extend(call);
+    }
+    Ok(result)
 }

@@ -2,7 +2,8 @@
 name = "near-client-primitives"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,10 +17,7 @@ thiserror = "1.0"
 near-chain-primitives = { path = "../chain-primitives" }
 near-chain-configs = { path = "../../core/chain-configs" }
 
-near-chunks = { path = "../chunks" }
+near-chunks-primitives = { path = "../chunks-primitives" }
 near-crypto = { path = "../../core/crypto" }
-near-network = { path = "../network" }
+near-network-primitives = { path = "../network-primitives" }
 near-primitives = { path = "../../core/primitives" }
-
-[features]
-metric_recorder = []

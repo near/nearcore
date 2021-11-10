@@ -15,6 +15,7 @@ class BlockV2:
 
 
 class BlockHeader:
+
     def inner_lite(self):
         if self.enum == 'BlockHeaderV3':
             return self.BlockHeaderV3.inner_lite
@@ -36,6 +37,7 @@ class BlockHeaderV2:
 class BlockHeaderV3:
     pass
 
+
 class BlockHeaderInnerLite:
     pass
 
@@ -50,6 +52,7 @@ class BlockHeaderInnerRestV2:
 
 class BlockHeaderInnerRestV3:
     pass
+
 
 class ShardChunk:
     pass
@@ -68,44 +71,57 @@ class ShardChunkHeader:
 
 
 class ShardChunkHeaderV1:
+
     @staticmethod
     def chunk_hash(inner):
         import hashlib
         from messages.crypto import crypto_schema
         from serializer import BinarySerializer
-        inner_serialized = BinarySerializer(dict(block_schema + crypto_schema)).serialize(inner)
+        inner_serialized = BinarySerializer(
+            dict(block_schema + crypto_schema)).serialize(inner)
         return hashlib.sha256(inner_serialized).digest()
 
+
 class ShardChunkHeaderV2:
+
     @staticmethod
     def chunk_hash(inner):
         import hashlib
         from messages.crypto import crypto_schema
         from serializer import BinarySerializer
-        inner_serialized = BinarySerializer(dict(block_schema + crypto_schema)).serialize(inner)
+        inner_serialized = BinarySerializer(
+            dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
         return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
+
 
 class ShardChunkHeaderV3:
+
     @staticmethod
     def chunk_hash(inner):
         import hashlib
         from messages.crypto import crypto_schema
         from serializer import BinarySerializer
-        inner_serialized = BinarySerializer(dict(block_schema + crypto_schema)).serialize(inner)
+        inner_serialized = BinarySerializer(
+            dict(block_schema + crypto_schema)).serialize(inner)
         inner_hash = hashlib.sha256(inner_serialized).digest()
 
-        return hashlib.sha256(inner_hash + inner.encoded_merkle_root).digest()
+        return hashlib.sha256(inner_hash +
+                              inner.V2.encoded_merkle_root).digest()
+
 
 class ShardChunkHeaderInner:
     pass
 
+
 class ShardChunkHeaderInnerV1:
     pass
 
+
 class ShardChunkHeaderInnerV2:
     pass
+
 
 class PartialEncodedChunkPart:
     pass
@@ -116,6 +132,7 @@ class ReceiptProof:
 
 
 class PartialEncodedChunk:
+
     def inner_header(self):
         version = self.enum
         if version == 'V1':
@@ -127,13 +144,17 @@ class PartialEncodedChunk:
                 return header.V1.inner
             elif header_version == 'V2':
                 return header.V2.inner
-    
+            elif header_version == 'V3':
+                return header.V3.inner
+            assert False, "unknown header version"
+
     def header_version(self):
         version = self.enum
         if version == 'V1':
             return version
         elif version == 'V2':
             return self.V2.header.enum
+        assert False, "unknown partial encoded chunk version"
 
 
 class PartialEncodedChunkV1:
@@ -155,11 +176,18 @@ class PartialEncodedChunkResponseMsg:
 class PartialEncodedChunkForwardMsg:
     pass
 
+
 class ValidatorStake:
     pass
 
+
 class ValidatorStakeV1:
     pass
+
+
+class ValidatorStakeV2:
+    pass
+
 
 class Approval:
     pass
@@ -181,26 +209,28 @@ block_schema = [
         }
     ],
     [
-        BlockV1, {
-            'kind': 'struct',
+        BlockV1,
+        {
+            'kind':
+                'struct',
             'fields': [
                 ['header', BlockHeader],
                 ['chunks', [ShardChunkHeaderV1]],
-                ['challenges', [()]], # TODO
-
+                ['challenges', [()]],  # TODO
                 ['vrf_value', [32]],
                 ['vrf_proof', [64]],
             ]
         }
     ],
     [
-        BlockV2, {
-            'kind': 'struct',
+        BlockV2,
+        {
+            'kind':
+                'struct',
             'fields': [
                 ['header', BlockHeader],
                 ['chunks', [ShardChunkHeader]],
-                ['challenges', [()]], # TODO
-
+                ['challenges', [()]],  # TODO
                 ['vrf_value', [32]],
                 ['vrf_proof', [64]],
             ]
@@ -208,18 +238,19 @@ block_schema = [
     ],
     [
         BlockHeader, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['BlockHeaderV1', BlockHeaderV1],
-                ['BlockHeaderV2', BlockHeaderV2],
-                ['BlockHeaderV3', BlockHeaderV3]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['BlockHeaderV1', BlockHeaderV1],
+                       ['BlockHeaderV2', BlockHeaderV2],
+                       ['BlockHeaderV3', BlockHeaderV3]]
         }
     ],
     [
         BlockHeaderV1, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['prev_hash', [32]],
                 ['inner_lite', BlockHeaderInnerLite],
@@ -230,7 +261,8 @@ block_schema = [
     ],
     [
         BlockHeaderV2, {
-            'kind' : 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['prev_hash', [32]],
                 ['inner_lite', BlockHeaderInnerLite],
@@ -241,7 +273,8 @@ block_schema = [
     ],
     [
         BlockHeaderV3, {
-            'kind' : 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['prev_hash', [32]],
                 ['inner_lite', BlockHeaderInnerLite],
@@ -252,7 +285,8 @@ block_schema = [
     ],
     [
         BlockHeaderInnerLite, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['height', 'u64'],
                 ['epoch_id', [32]],
@@ -266,8 +300,10 @@ block_schema = [
         }
     ],
     [
-        BlockHeaderInnerRest, {
-            'kind': 'struct',
+        BlockHeaderInnerRest,
+        {
+            'kind':
+                'struct',
             'fields': [
                 ['chunk_receipts_root', [32]],
                 ['chunk_headers_root', [32]],
@@ -279,17 +315,22 @@ block_schema = [
                 ['chunk_mask', ['u8']],
                 ['gas_price', 'u128'],
                 ['total_supply', 'u128'],
-                ['challenges_result', [()]], # TODO
+                ['challenges_result', [()]],  # TODO
                 ['last_final_block', [32]],
                 ['last_ds_final_block', [32]],
-                ['approvals', [{'kind': 'option', 'type': Signature}]],
+                ['approvals', [{
+                    'kind': 'option',
+                    'type': Signature
+                }]],
                 ['latest_protocol_verstion', 'u32'],
             ]
         }
     ],
     [
-        BlockHeaderInnerRestV2, {
-            'kind': 'struct',
+        BlockHeaderInnerRestV2,
+        {
+            'kind':
+                'struct',
             'fields': [
                 ['chunk_receipts_root', [32]],
                 ['chunk_headers_root', [32]],
@@ -300,17 +341,22 @@ block_schema = [
                 ['chunk_mask', ['u8']],
                 ['gas_price', 'u128'],
                 ['total_supply', 'u128'],
-                ['challenges_result', [()]], # TODO
+                ['challenges_result', [()]],  # TODO
                 ['last_final_block', [32]],
                 ['last_ds_final_block', [32]],
-                ['approvals', [{'kind': 'option', 'type': Signature}]],
+                ['approvals', [{
+                    'kind': 'option',
+                    'type': Signature
+                }]],
                 ['latest_protocol_verstion', 'u32'],
             ]
         }
     ],
     [
-        BlockHeaderInnerRestV3, {
-            'kind': 'struct',
+        BlockHeaderInnerRestV3,
+        {
+            'kind':
+                'struct',
             'fields': [
                 ['chunk_receipts_root', [32]],
                 ['chunk_headers_root', [32]],
@@ -321,31 +367,37 @@ block_schema = [
                 ['chunk_mask', ['u8']],
                 ['gas_price', 'u128'],
                 ['total_supply', 'u128'],
-                ['challenges_result', [()]], # TODO
+                ['challenges_result', [()]],  # TODO
                 ['last_final_block', [32]],
                 ['last_ds_final_block', [32]],
                 ['block_ordinal', 'u64'],
                 ['prev_height', 'u64'],
-                ['epoch_sync_data_hash', {'kind': 'option', 'type': [32]}],
-                ['approvals', [{'kind': 'option', 'type': Signature}]],
+                ['epoch_sync_data_hash', {
+                    'kind': 'option',
+                    'type': [32]
+                }],
+                ['approvals', [{
+                    'kind': 'option',
+                    'type': Signature
+                }]],
                 ['latest_protocol_verstion', 'u32'],
             ]
         }
     ],
     [
         ShardChunkHeader, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['V1', ShardChunkHeaderV1],
-                ['V2', ShardChunkHeaderV2],
-                ['V3', ShardChunkHeaderV3]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['V1', ShardChunkHeaderV1], ['V2', ShardChunkHeaderV2],
+                       ['V3', ShardChunkHeaderV3]]
         }
     ],
     [
         ShardChunkHeaderV1, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['inner', ShardChunkHeaderInnerV1],
                 ['height_included', 'u64'],
@@ -355,7 +407,8 @@ block_schema = [
     ],
     [
         ShardChunkHeaderV2, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['inner', ShardChunkHeaderInnerV1],
                 ['height_included', 'u64'],
@@ -365,7 +418,8 @@ block_schema = [
     ],
     [
         ShardChunkHeaderV3, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['inner', ShardChunkHeaderInner],
                 ['height_included', 'u64'],
@@ -375,17 +429,18 @@ block_schema = [
     ],
     [
         ShardChunkHeaderInner, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['V1', ShardChunkHeaderInnerV1],
-                ['V2', ShardChunkHeaderInnerV2]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['V1', ShardChunkHeaderInnerV1],
+                       ['V2', ShardChunkHeaderInnerV2]]
         }
     ],
     [
         ShardChunkHeaderInnerV1, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['prev_block_hash', [32]],
                 ['prev_state_root', [32]],
@@ -405,7 +460,8 @@ block_schema = [
     ],
     [
         ShardChunkHeaderInnerV2, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['prev_block_hash', [32]],
                 ['prev_state_root', [32]],
@@ -427,15 +483,13 @@ block_schema = [
         ShardChunk, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [
-                ['V1', ShardChunkV1],
-                ['V2', ShardChunkV2]
-            ]
+            'values': [['V1', ShardChunkV1], ['V2', ShardChunkV2]]
         }
     ],
     [
         ShardChunkV1, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['chunk_hash', [32]],
                 ['header', ShardChunkHeaderV1],
@@ -446,7 +500,8 @@ block_schema = [
     ],
     [
         ShardChunkV2, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['chunk_hash', [32]],
                 ['header', ShardChunkHeader],
@@ -457,7 +512,8 @@ block_schema = [
     ],
     [
         PartialEncodedChunkPart, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['part_ord', 'u64'],
                 ['part', ['u8']],
@@ -476,81 +532,71 @@ block_schema = [
     ],
     [
         PartialEncodedChunk, {
-            'kind': 'enum',
-            'field': 'enum',
-            'values': [
-                ['V1', PartialEncodedChunkV1],
-                ['V2', PartialEncodedChunkV2]
-            ]
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [['V1', PartialEncodedChunkV1],
+                       ['V2', PartialEncodedChunkV2]]
         }
     ],
     [
         PartialEncodedChunkV1, {
-            'kind': 'struct',
-            'fields': [
-                ['header', ShardChunkHeaderV1],
-                ['parts', [PartialEncodedChunkPart]],
-                ['receipts', [ReceiptProof]]
-            ]
+            'kind':
+                'struct',
+            'fields': [['header', ShardChunkHeaderV1],
+                       ['parts', [PartialEncodedChunkPart]],
+                       ['receipts', [ReceiptProof]]]
         }
     ],
     [
         PartialEncodedChunkV2, {
-            'kind': 'struct',
-            'fields': [
-                ['header', ShardChunkHeader],
-                ['parts', [PartialEncodedChunkPart]],
-                ['receipts', [ReceiptProof]]
-            ]
+            'kind':
+                'struct',
+            'fields': [['header', ShardChunkHeader],
+                       ['parts', [PartialEncodedChunkPart]],
+                       ['receipts', [ReceiptProof]]]
         }
     ],
     [
         PartialEncodedChunkRequestMsg, {
-            'kind': 'struct',
-            'fields': [
-                ['chunk_hash', [32]],
-                ['part_ords', ['u64']],
-                ['tracking_shards', ['u64']]
-            ]
+            'kind':
+                'struct',
+            'fields': [['chunk_hash', [32]], ['part_ords', ['u64']],
+                       ['tracking_shards', ['u64']]]
         }
     ],
     [
         PartialEncodedChunkResponseMsg, {
-            'kind': 'struct',
-            'fields': [
-                ['chunk_hash', [32]],
-                ['parts', [PartialEncodedChunkPart]],
-                ['receipts', [ReceiptProof]]
-            ]
+            'kind':
+                'struct',
+            'fields': [['chunk_hash', [32]],
+                       ['parts', [PartialEncodedChunkPart]],
+                       ['receipts', [ReceiptProof]]]
         }
     ],
     [
         PartialEncodedChunkForwardMsg, {
-            'kind': 'struct',
-            'fields': [
-                ['chunk_hash', [32]],
-                ['inner_header_hash', [32]],
-                ['merkle_root', [32]],
-                ['signature', Signature],
-                ['prev_block_hash', [32]],
-                ['height_created', 'u64'],
-                ['shard_id', 'u64'],
-                ['parts', [PartialEncodedChunkPart]]
-            ]
+            'kind':
+                'struct',
+            'fields': [['chunk_hash', [32]], ['inner_header_hash', [32]],
+                       ['merkle_root', [32]], ['signature', Signature],
+                       ['prev_block_hash', [32]], ['height_created', 'u64'],
+                       ['shard_id', 'u64'],
+                       ['parts', [PartialEncodedChunkPart]]]
         }
     ],
     [
         ValidatorStake, {
             'kind': 'enum',
             'field': 'enum',
-            'values': [
-                ['V1', ValidatorStakeV1]
-            ]
+            'values': [['V1', ValidatorStakeV1], ['V2', ValidatorStakeV2]]
         }
     ],
     [
         ValidatorStakeV1, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['account_id', 'string'],
                 ['public_key', PublicKey],
@@ -559,8 +605,17 @@ block_schema = [
         }
     ],
     [
+        ValidatorStakeV2, {
+            'kind':
+                'struct',
+            'fields': [['account_id', 'string'], ['public_key', PublicKey],
+                       ['stake', 'u128'], ['is_chunk_only', 'u8']]
+        }
+    ],
+    [
         Approval, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['inner', ApprovalInner],
                 ['target_height', 'u64'],
@@ -580,4 +635,3 @@ block_schema = [
         }
     ],
 ]
-

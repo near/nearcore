@@ -326,6 +326,8 @@ pub fn validate_action(
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
+        #[cfg(feature = "protocol_feature_chunk_only_producers")]
+        Action::StakeChunkOnly(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(_) => Ok(()),
@@ -434,6 +436,7 @@ mod tests {
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     use super::*;
+    use crate::near_primitives::shard_layout::ShardUId;
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -462,7 +465,7 @@ mod tests {
             account_id.as_ref(),
         ));
 
-        let mut initial_state = tries.new_trie_update(0, root);
+        let mut initial_state = tries.new_trie_update(ShardUId::default(), root);
         for (account_id, initial_balance, initial_locked, access_key) in accounts {
             let mut initial_account = account_new(initial_balance, hash(&[]));
             initial_account.set_locked(initial_locked);
@@ -478,10 +481,10 @@ mod tests {
         }
         initial_state.commit(StateChangeCause::InitialState);
         let trie_changes = initial_state.finalize().unwrap().0;
-        let (store_update, root) = tries.apply_all(&trie_changes, 0).unwrap();
+        let (store_update, root) = tries.apply_all(&trie_changes, ShardUId::default()).unwrap();
         store_update.commit().unwrap();
 
-        (signer, tries.new_trie_update(0, root), 100)
+        (signer, tries.new_trie_update(ShardUId::default(), root), 100)
     }
 
     fn assert_err_both_validations(
@@ -515,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_valid() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -566,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_signature() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -591,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_access_key_not_found() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (bad_signer, mut state_update, gas_price) = setup_common(TESTING_INIT_BALANCE, 0, None);
 
         assert_eq!(
@@ -623,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_bad_action() {
-        let mut config = RuntimeConfig::default();
+        let mut config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -657,7 +660,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_bad_signer() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -687,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_bad_nonce() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -718,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_balance_overflow() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -740,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_not_enough_balance() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) =
             setup_common(TESTING_INIT_BALANCE, 0, Some(AccessKey::full_access()));
 
@@ -777,7 +780,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_not_enough_allowance() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -866,7 +869,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_actions_for_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -960,7 +963,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_receiver_for_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -1008,7 +1011,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_invalid_method_name_for_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -1053,7 +1056,7 @@ mod tests {
 
     #[test]
     fn test_validate_transaction_deposit_with_function_call() {
-        let config = RuntimeConfig::default();
+        let config = RuntimeConfig::test();
         let (signer, mut state_update, gas_price) = setup_common(
             TESTING_INIT_BALANCE,
             0,
@@ -1111,7 +1114,7 @@ mod tests {
         );
         let transaction_size = transaction.get_size();
 
-        let mut config = RuntimeConfig::default();
+        let mut config = RuntimeConfig::test();
         let max_transaction_size = transaction_size - 1;
         config.wasm_config.limit_config.max_transaction_size = transaction_size - 1;
 

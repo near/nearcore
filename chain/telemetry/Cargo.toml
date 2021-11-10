@@ -2,7 +2,8 @@
 name = "near-telemetry"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 [dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

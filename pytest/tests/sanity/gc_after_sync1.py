@@ -16,9 +16,7 @@ TARGET_HEIGHT2 = 35
 TARGET_HEIGHT3 = 105
 TIME_OUT = 80
 
-node0_config = {
-    "gc_blocks_limit": 10
-}
+node0_config = {"gc_blocks_limit": 10}
 
 node1_config = {
     "consensus": {
@@ -33,8 +31,10 @@ node1_config = {
 nodes = start_cluster(
     1, 1, 1, None,
     [["epoch_length", 10], ["block_producer_kickout_threshold", 80],
-     ["chunk_producer_kickout_threshold", 80]
-     ], {0: node0_config, 1: node1_config})
+     ["chunk_producer_kickout_threshold", 80]], {
+         0: node0_config,
+         1: node1_config
+     })
 
 status1 = nodes[1].get_status()
 height = status1['sync_info']['latest_block_height']
@@ -57,7 +57,7 @@ while height < TARGET_HEIGHT2:
     height = status0['sync_info']['latest_block_height']
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 start = time.time()
 while height < TARGET_HEIGHT3:

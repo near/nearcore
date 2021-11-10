@@ -5,7 +5,9 @@ class BinarySerializer:
         self.schema = schema
 
     def read_bytes(self, n):
-        assert n + self.offset <= len(self.array), f'n: {n} offset: {self.offset}, length: {len(self.array)}'
+        assert n + self.offset <= len(
+            self.array
+        ), f'n: {n} offset: {self.offset}, length: {len(self.array)}'
         ret = self.array[self.offset:self.offset + n]
         self.offset += n
         return ret
@@ -94,7 +96,9 @@ class BinarySerializer:
                 return bytes(self.read_bytes(fieldType[0]))
             else:
                 len_ = self.deserialize_num(4)
-                return [self.deserialize_field(fieldType[0]) for _ in range(len_)]
+                return [
+                    self.deserialize_field(fieldType[0]) for _ in range(len_)
+                ]
         elif type(fieldType) == dict:
             assert fieldType['kind'] == 'option'
             is_none = self.deserialize_num(1) == 0
@@ -137,7 +141,8 @@ class BinarySerializer:
             value_ord = self.deserialize_num(1)
             value_schema = structSchema['values'][value_ord]
             setattr(ret, structSchema['field'], value_schema[0])
-            setattr(ret, value_schema[0], self.deserialize_field(value_schema[1]))
+            setattr(ret, value_schema[0],
+                    self.deserialize_field(value_schema[1]))
 
             return ret
         else:
@@ -151,6 +156,6 @@ class BinarySerializer:
         self.array = bytearray(bytes_)
         self.offset = 0
         ret = self.deserialize_field(type_)
-        assert self.offset == len(bytes_), "%s != %s" % (self.offset, len(bytes_))
+        assert self.offset == len(bytes_), "%s != %s" % (self.offset,
+                                                         len(bytes_))
         return ret
-

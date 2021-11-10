@@ -19,13 +19,13 @@ use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, MerklePath};
-use near_primitives::receipt::{Receipt, ReceiptResult};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptList, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, ShardId, StateRoot, StateRootNode,
+    NumBlocks, ShardId, StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -36,6 +36,8 @@ use near_store::{PartialStorage, ShardTries, Store, StoreUpdate, Trie, WrappedTr
 
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use crate::DoomslugThresholdMode;
+use near_primitives::epoch_manager::ShardConfig;
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
 use near_primitives::state_record::StateRecord;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -78,15 +80,32 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
+pub struct ApplySplitStateResult {
+    pub shard_uid: ShardUId,
+    pub trie_changes: WrappedTrieChanges,
+    pub new_root: StateRoot,
+}
+
+// This struct captures two cases
+// when apply transactions, split states may or may not be ready
+// if it's ready, apply transactions also apply updates to split states and this enum will be
+//    ApplySplitStateResults
+// otherwise, it simply returns the state changes needed to be applied to split states
+pub enum ApplySplitStateResultOrStateChanges {
+    ApplySplitStateResults(Vec<ApplySplitStateResult>),
+    StateChangesForSplitStates(StateChangesForSplitStates),
+}
+
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
-    pub receipt_result: ReceiptResult,
+    pub outgoing_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
+    pub processed_delayed_receipts: Vec<Receipt>,
 }
 
 impl ApplyTransactionResult {
@@ -243,11 +262,19 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_tries(&self) -> ShardTries;
 
-    /// Returns trie.
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_store(&self) -> Arc<Store>;
+
+    /// Returns trie. Since shard layout may change from epoch to epoch, `shard_id` itself is
+    /// not enough to identify the trie. `prev_hash` is used to identify the epoch the given
+    /// `shard_id` is at.
+    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error>;
 
     /// Returns trie with view cache
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie;
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<Trie, Error>;
 
     fn verify_block_vrf(
         &self,
@@ -271,6 +298,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error>;
 
@@ -285,6 +313,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
+        epoch_id: &EpochId,
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
@@ -401,17 +430,43 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(ValidatorStake, bool), Error>;
 
     /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<ShardId, Error>;
 
     fn num_total_parts(&self) -> usize;
 
     fn num_data_parts(&self) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error>;
 
     /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
+
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
+
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error>;
+
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error>;
+
+    /// Get shard layout given hash of previous block.
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error>;
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error>;
+
+    /// Returns true if the shard layout will change in the next epoch
+    /// Current epoch is the epoch of the block after `parent_hash`
+    fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
 
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
@@ -428,6 +483,9 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     /// Whether the client cares about some shard in the next epoch.
+    //  Note that `shard_id` always refers to a shard in the current epoch
+    //  If shard layout will change next epoch,
+    //  returns true if it cares about any shard that `shard_id` will split to
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client will track the shard
     /// * If `account_id` is not None, it is supposed to be a validator
@@ -590,7 +648,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -606,9 +664,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<EpochValidatorInfo, Error>;
 
     /// Get the part of the state from given state root.
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
@@ -624,6 +684,21 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &Vec<u8>,
     ) -> bool;
 
+    fn apply_update_to_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        state_roots: HashMap<ShardUId, StateRoot>,
+        next_shard_layout: &ShardLayout,
+        state_changes: StateChangesForSplitStates,
+    ) -> Result<Vec<ApplySplitStateResult>, Error>;
+
+    fn build_state_for_split_shards(
+        &self,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
+        next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
+
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
         &self,
@@ -636,11 +711,13 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Error>;
 
     /// Returns StateRootNode of a state.
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     /// Panics if requested hash is not in storage.
     /// Never returns Error
     fn get_state_root_node(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error>;
 
@@ -674,18 +751,23 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Build receipts hashes.
     // Due to borsh serialization constraints, we have to use `&Vec<Receipt>` instead of `&[Receipt]`
     // here.
-    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Vec<CryptoHash> {
-        if self.num_shards() == 1 {
+    fn build_receipts_hashes(
+        &self,
+        receipts: &[Receipt],
+        shard_layout: &ShardLayout,
+    ) -> Vec<CryptoHash> {
+        if shard_layout.num_shards() == 1 {
             return vec![hash(&ReceiptList(0, receipts).try_to_vec().unwrap())];
         }
-        let mut account_id_to_shard_id = HashMap::new();
-        let mut shard_receipts: Vec<_> = (0..self.num_shards()).map(|i| (i, Vec::new())).collect();
+        let mut account_id_to_shard_id_map = HashMap::new();
+        let mut shard_receipts: Vec<_> =
+            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
         for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id.get(&receipt.receiver_id) {
+            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
                 Some(id) => *id,
                 None => {
-                    let id = self.account_id_to_shard_id(&receipt.receiver_id);
-                    account_id_to_shard_id.insert(receipt.receiver_id.clone(), id);
+                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
+                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
                     id
                 }
             };
@@ -780,7 +862,7 @@ mod tests {
                 gas_burnt: 100,
                 tokens_burnt: 10000,
                 executor_id: "alice".parse().unwrap(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V1,
             },
         };
         let outcome2 = ExecutionOutcomeWithId {
@@ -792,7 +874,7 @@ mod tests {
                 gas_burnt: 0,
                 tokens_burnt: 0,
                 executor_id: "bob".parse().unwrap(),
-                metadata: ExecutionMetadata::ExecutionMetadataV1,
+                metadata: ExecutionMetadata::V1,
             },
         };
         let outcomes = vec![outcome1, outcome2];

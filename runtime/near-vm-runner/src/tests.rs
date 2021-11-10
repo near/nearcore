@@ -1,10 +1,11 @@
+mod compile_errors;
 mod contract_preload;
-mod error_cases;
-mod invalid_contracts;
 mod rs_contract;
+mod runtime_errors;
 mod ts_contract;
 
 use near_primitives::contract::ContractCode;
+use near_primitives::runtime::config_store::RuntimeConfigStore;
 
 use crate::{run_vm, VMKind};
 use near_primitives::runtime::fees::RuntimeFeesConfig;
@@ -28,8 +29,8 @@ fn with_vm_variants(runner: fn(VMKind) -> ()) {
     #[cfg(feature = "wasmtime_vm")]
     runner(VMKind::Wasmtime);
 
-    #[cfg(feature = "wasmer1_vm")]
-    runner(VMKind::Wasmer1);
+    #[cfg(feature = "wasmer2_vm")]
+    runner(VMKind::Wasmer2);
 }
 
 fn create_context(input: Vec<u8>) -> VMContext {
@@ -48,7 +49,7 @@ fn create_context(input: Vec<u8>) -> VMContext {
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(14),
         random_seed: vec![0, 1, 2],
-        is_view: false,
+        view_config: None,
         output_data_receivers: vec![],
     }
 }
@@ -63,7 +64,7 @@ fn make_simple_contract_call_with_gas_vm(
     let mut context = create_context(vec![]);
     context.prepaid_gas = prepaid_gas;
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
 
     let promise_results = vec![];
 
@@ -78,6 +79,36 @@ fn make_simple_contract_call_with_gas_vm(
         &promise_results,
         vm_kind,
         LATEST_PROTOCOL_VERSION,
+        None,
+    )
+}
+
+fn make_simple_contract_call_with_protocol_version_vm(
+    code: &[u8],
+    method_name: &str,
+    protocol_version: ProtocolVersion,
+    vm_kind: VMKind,
+) -> (Option<VMOutcome>, Option<VMError>) {
+    let mut fake_external = MockedExternal::new();
+    let context = create_context(vec![]);
+    let runtime_config_store = RuntimeConfigStore::new(None);
+    let runtime_config = runtime_config_store.get_config(protocol_version);
+    let config = &runtime_config.wasm_config;
+    let fees = &runtime_config.transaction_costs;
+
+    let promise_results = vec![];
+
+    let code = ContractCode::new(code.to_vec(), None);
+    run_vm(
+        &code,
+        method_name,
+        &mut fake_external,
+        context,
+        &config,
+        fees,
+        &promise_results,
+        vm_kind,
+        protocol_version,
         None,
     )
 }
@@ -100,7 +131,7 @@ fn make_cached_contract_call_vm(
     let mut fake_external = MockedExternal::new();
     let mut context = create_context(vec![]);
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
     let code = ContractCode::new(code.to_vec(), None);

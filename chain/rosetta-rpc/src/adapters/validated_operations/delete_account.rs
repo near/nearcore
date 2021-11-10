@@ -26,7 +26,7 @@ impl super::ValidatedOperation for DeleteAccountOperation {
     }
 }
 
-impl std::convert::TryFrom<crate::models::Operation> for DeleteAccountOperation {
+impl TryFrom<crate::models::Operation> for DeleteAccountOperation {
     type Error = crate::errors::ErrorKind;
 
     fn try_from(operation: crate::models::Operation) -> Result<Self, Self::Error> {

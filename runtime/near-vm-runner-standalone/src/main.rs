@@ -1,19 +1,12 @@
-//! See package description.
-//! Usage example:
-//! ```
-//! cargo run --package near-vm-runner-standalone --bin near-vm-runner-standalone \
-//! -- --method-name=hello --wasm-file=/tmp/main.wasm
-//! ```
-//! Optional `--context-file=/tmp/context.json --config-file=/tmp/config.json` could be added
-//! to provide custom context and VM config.
+#![doc = include_str!("../README.md")]
+
 mod script;
-mod tracing_timings;
 
 use crate::script::Script;
 use clap::Clap;
 use near_vm_logic::VMOutcome;
 use near_vm_logic::{mocks::mock_external::Receipt, ProtocolVersion};
-use near_vm_runner::{VMError, VMKind};
+use near_vm_runner::VMKind;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeMap,
@@ -99,7 +92,7 @@ struct CliArgs {
     #[clap(long)]
     wasm_file: PathBuf,
     /// Select VM kind to run.
-    #[clap(long, possible_values = &["wasmer", "wasmer1", "wasmtime"])]
+    #[clap(long, possible_values = &["wasmer", "wasmer2", "wasmtime"])]
     vm_kind: Option<String>,
     /// Prints execution times of various components.
     #[clap(long)]
@@ -109,10 +102,10 @@ struct CliArgs {
     protocol_version: Option<ProtocolVersion>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 struct StandaloneOutput {
     pub outcome: Option<VMOutcome>,
-    pub err: Option<VMError>,
+    pub err: Option<String>,
     pub receipts: Vec<Receipt>,
     pub state: State,
 }
@@ -121,7 +114,7 @@ fn main() {
     let cli_args = CliArgs::parse();
 
     if cli_args.timings {
-        tracing_timings::enable();
+        tracing_span_tree::span_tree().enable();
     }
 
     let mut script = Script::default();
@@ -129,7 +122,7 @@ fn main() {
     match cli_args.vm_kind.as_deref() {
         Some("wasmtime") => script.vm_kind(VMKind::Wasmtime),
         Some("wasmer") => script.vm_kind(VMKind::Wasmer0),
-        Some("wasmer1") => script.vm_kind(VMKind::Wasmer1),
+        Some("wasmer2") => script.vm_kind(VMKind::Wasmer2),
         _ => (),
     };
     if let Some(config) = &cli_args.config {
@@ -172,25 +165,18 @@ fn main() {
     let mut results = script.run();
     let (outcome, err) = results.outcomes.pop().unwrap();
 
-    let all_gas = match &outcome {
-        Some(outcome) => outcome.burnt_gas,
-        _ => 1,
-    };
-
     println!(
-        "{}",
-        serde_json::to_string(&StandaloneOutput {
+        "{:#?}",
+        StandaloneOutput {
             outcome: outcome.clone(),
-            err,
+            err: err.map(|it| it.to_string()),
             receipts: results.state.get_receipt_create_calls().clone(),
             state: State(results.state.fake_trie),
-        })
-        .unwrap()
+        }
     );
 
     match &outcome {
         Some(outcome) => {
-            assert_eq!(all_gas, outcome.profile.all_gas());
             println!("{:#?}", outcome.profile);
         }
         _ => {}

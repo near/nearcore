@@ -1,4 +1,8 @@
+mod tracing_capture;
+
 use tracing_subscriber::EnvFilter;
+
+pub use tracing_capture::TracingCapture;
 
 fn setup_subscriber_from_filter(mut env_filter: EnvFilter) {
     if let Ok(rust_log) = std::env::var("RUST_LOG") {

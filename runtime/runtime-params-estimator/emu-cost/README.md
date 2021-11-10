@@ -31,8 +31,6 @@ Start container and build estimator with:
 
     host> ./run.sh
     docker> cd /host/nearcore
-    docker> cargo run -j2 --release --package neard --bin neard -- --home /tmp/data init --test-seed=alice.near --account-id=test.near --fast
-    docker> cargo run -j2 --release --package genesis-populate --bin genesis-populate -- --additional-accounts-num=200000 --home /tmp/data
     docker> cd /host/nearcore/runtime/runtime-params-estimator
     docker> pushd ./test-contract && ./build.sh && popd
     docker> cargo build --release --package runtime-params-estimator --features required
@@ -40,10 +38,24 @@ Start container and build estimator with:
 Now start the estimator under QEMU with the counter plugin enabled (note, that Rust compiler produces SSE4, so specify recent CPU):
 
     docker> ./emu-cost/counter_plugin/qemu-x86_64 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so \
-         ../../target/release/runtime-params-estimator --home /tmp/data --accounts-num 20000 --iters 1 --warmup-iters 1
+         ../../target/release/runtime-params-estimator --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1
 
-Note that it may take some time, as we execute instrumented code under the binary translator.
-Also note that results in different launches may differ, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations. To improve estimation, you can launch it several times and take the worst result. 
+### Notes
+
+* Estimation may take some time, as we execute instrumented code under the binary translator.
+
+* You may observe tangible differences between instructions number got by `params-estimator` and the actual number of instructions executed by production nodes.
+  This is explained by the LTO (Link Time Optimization) which is disabled by default for release builds to reduce compilation time.
+  To get better results, enable LTO via environment variable:
+
+      CARGO_PROFILE_RELEASE_LTO=fat
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+      export CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+  
+  See [#4678](https://github.com/near/nearcore/issues/4678) for more details.
+  
+* You also may observe slight differences in different launches, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations. 
+  To improve estimation, you can launch it several times and take the worst result.
 
 ## IO cost calibration
 

@@ -1,8 +1,7 @@
-use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,7 +23,7 @@ use near_network::utils::blacklist_from_iter;
 use near_network::NetworkConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config::RuntimeConfig;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, EpochHeight, Gas, NumBlocks, NumSeats,
@@ -464,14 +463,15 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn from_file(path: &PathBuf) -> Self {
-        let mut file = File::open(path).expect("Could not open config file.");
+    pub fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path)
+            .unwrap_or_else(|_| panic!("Could not open config file: `{}`", path.display()));
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from config file.");
         Config::from(content.as_str())
     }
 
-    pub fn write_to_file(&self, path: &PathBuf) {
+    pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a config file.");
         let str = serde_json::to_string_pretty(self).expect("Error serializing the config.");
         if let Err(err) = file.write_all(str.as_bytes()) {
@@ -508,6 +508,7 @@ impl Genesis {
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
+        shard_layout: ShardLayout,
     ) -> Self {
         let mut validators = vec![];
         let mut records = vec![];
@@ -556,20 +557,19 @@ impl Genesis {
             chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
             min_gas_price: MIN_GAS_PRICE,
+            shard_layout,
             ..Default::default()
         };
         Genesis::new(config, records.into())
     }
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        Self::test_with_seeds(accounts, num_validator_seats, vec![num_validator_seats])
-    }
-
-    pub fn test_free(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        let mut genesis =
-            Self::test_with_seeds(accounts, num_validator_seats, vec![num_validator_seats]);
-        genesis.config.runtime_config = RuntimeConfig::free();
-        genesis
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            vec![num_validator_seats],
+            ShardLayout::default(),
+        )
     }
 
     pub fn test_sharded(
@@ -577,13 +577,33 @@ impl Genesis {
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
     ) -> Self {
-        Self::test_with_seeds(accounts, num_validator_seats, num_validator_seats_per_shard)
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 0),
+        )
+    }
+
+    pub fn test_sharded_new_version(
+        accounts: Vec<AccountId>,
+        num_validator_seats: NumSeats,
+        num_validator_seats_per_shard: Vec<NumSeats>,
+    ) -> Self {
+        let num_shards = num_validator_seats_per_shard.len() as NumShards;
+        Self::test_with_seeds(
+            accounts,
+            num_validator_seats,
+            num_validator_seats_per_shard,
+            ShardLayout::v0(num_shards, 1),
+        )
     }
 }
 
 #[derive(Clone)]
 pub struct NearConfig {
-    config: Config,
+    pub config: Config,
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     #[cfg(feature = "json_rpc")]
@@ -780,8 +800,11 @@ fn generate_validator_key(account_id: AccountId, path: &Path) {
     signer.write_to_file(path);
 }
 
-lazy_static_include::lazy_static_include_bytes! {
-    MAINNET_GENESIS_JSON => "res/mainnet_genesis.json"
+pub fn mainnet_genesis() -> Genesis {
+    lazy_static_include::lazy_static_include_bytes! {
+        MAINNET_GENESIS_JSON => "res/mainnet_genesis.json",
+    };
+    serde_json::from_slice(*MAINNET_GENESIS_JSON).expect("Failed to deserialize MainNet genesis")
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -805,7 +828,7 @@ pub fn init_configs(
     if dir.join(CONFIG_FILENAME).exists() {
         let config = Config::from_file(&dir.join(CONFIG_FILENAME));
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
-        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
+        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.display(), genesis_config.chain_id);
     }
 
     let mut config = Config::default();
@@ -838,8 +861,7 @@ pub fn init_configs(
             config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let genesis: Genesis = serde_json::from_slice(*MAINNET_GENESIS_JSON)
-                .expect("Failed to deserialize MainNet genesis");
+            let genesis = mainnet_genesis();
             if let Some(account_id) = account_id {
                 generate_validator_key(account_id, &dir.join(config.validator_key_file));
             }
@@ -849,7 +871,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated MainNet genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated MainNet genesis file in {}", dir.display());
         }
         "testnet" | "betanet" => {
             if test_seed.is_some() {
@@ -885,7 +907,7 @@ pub fn init_configs(
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.to_str().unwrap());
+            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
@@ -942,7 +964,6 @@ pub fn init_configs(
                 chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
                 online_max_threshold: Rational::new(99, 100),
                 online_min_threshold: Rational::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as isize, 100),
-                runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key(),
@@ -960,7 +981,7 @@ pub fn init_configs(
             };
             let genesis = Genesis::new(genesis_config, records.into());
             genesis.to_file(&dir.join(config.genesis_file));
-            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
+            info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
 }
@@ -1077,7 +1098,7 @@ pub fn get_config_url(chain_id: &String) -> String {
     )
 }
 
-pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
+pub fn download_file(url: &String, path: &Path, limit: usize) {
     actix::System::new().block_on(async move {
         let client = awc::Client::new();
         let mut response = client.get(url).send().await.expect("Unable to download the file");
@@ -1094,16 +1115,16 @@ pub fn download_file(url: &String, path: &PathBuf, limit: usize) {
     });
 }
 
-pub fn download_genesis(url: &String, path: &PathBuf) {
+pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
     download_file(&url, &path, 10_000_000_000);
-    info!(target: "near", "Saved the genesis file to: {} ...", path.as_path().display());
+    info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
-pub fn download_config(url: &String, path: &PathBuf) {
+pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
     download_file(&url, &path, 10_000);
-    info!(target: "near", "Saved the config file to: {} ...", path.as_path().display());
+    info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 
 #[derive(Deserialize)]

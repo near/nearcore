@@ -14,6 +14,7 @@ use crate::logging;
 use crate::merkle::MerklePath;
 use crate::serialize::{base64_format, u128_dec_format_compatible};
 use crate::types::{AccountId, Balance, Gas, Nonce};
+use near_primitives_core::profile::ProfileData;
 
 pub type LogEntry = String;
 
@@ -45,8 +46,9 @@ impl Transaction {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
-    /// Create an (sub)account using a transaction `receiver_id` as an ID for a new account
-    /// ID must pass validation rules described here http://nomicon.io/Primitives/Account.html
+    /// Create an (sub)account using a transaction `receiver_id` as an ID for
+    /// a new account ID must pass validation rules described here
+    /// <http://nomicon.io/Primitives/Account.html>.
     CreateAccount(CreateAccountAction),
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
@@ -56,6 +58,8 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+    StakeChunkOnly(StakeAction),
 }
 
 impl Action {
@@ -352,15 +356,18 @@ pub struct ExecutionOutcome {
     pub metadata: ExecutionMetadata,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Clone, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Eq, Debug)]
 pub enum ExecutionMetadata {
     // V1: Empty Metadata
-    ExecutionMetadataV1,
+    V1,
+
+    // V2: With ProfileData
+    V2(ProfileData),
 }
 
 impl Default for ExecutionMetadata {
     fn default() -> Self {
-        ExecutionMetadata::ExecutionMetadataV1
+        ExecutionMetadata::V1
     }
 }
 
@@ -525,7 +532,7 @@ mod tests {
             gas_burnt: 123,
             tokens_burnt: 1234000,
             executor_id: "alice".parse().unwrap(),
-            metadata: ExecutionMetadata::ExecutionMetadataV1,
+            metadata: ExecutionMetadata::V1,
         };
         let hashes = outcome.to_hashes();
         assert_eq!(hashes.len(), 3);

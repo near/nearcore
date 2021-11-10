@@ -32,19 +32,24 @@ consensus_config = {
 
 nodes = start_cluster(
     4, 0, 1, None,
-    [["epoch_length", 10], ["num_block_producer_seats_per_shard", [5]],
+    [["epoch_length", 15], ["num_block_producer_seats_per_shard", [5]],
      ["validators", 0, "amount", "60000000000000000000000000000000"],
+     ["block_producer_kickout_threshold", 50],
+     ["chunk_producer_kickout_threshold", 50],
      [
          "records", 0, "Account", "account", "locked",
          "60000000000000000000000000000000"
      ], ["total_supply", "5010000000000000000000000000000000"]], {
          0: consensus_config,
          1: consensus_config,
-         2: consensus_config
+         2: consensus_config,
+         3: consensus_config
      })
 
 node0_height = 0
+start_time = time.time()
 while node0_height < TARGET_HEIGHT:
+    assert time.time() - start_time < TIMEOUT
     status = nodes[0].get_status()
     logger.info(status)
     node0_height = status['sync_info']['latest_block_height']
@@ -54,13 +59,14 @@ logger.info('Kill node 1')
 nodes[1].kill()
 
 while node0_height < AFTER_SYNC_HEIGHT:
+    assert time.time() - start_time < TIMEOUT
     status = nodes[0].get_status()
     logger.info(status)
     node0_height = status['sync_info']['latest_block_height']
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()

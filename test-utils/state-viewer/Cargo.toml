@@ -2,13 +2,18 @@
 name = "state-viewer"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 [dependencies]
-clap = "2.33"
 ansi_term = "0.12"
-
-borsh = "0.8.1"
+borsh = "0.9"
+clap = "2.33"
+rayon = "1.5"
+serde = "1"
+serde_json = "1"
+tempfile = "3"
+tracing = "0.1"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -19,10 +24,12 @@ node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
 nearcore = { path = "../../nearcore" }
+near-epoch-manager = { path = "../../chain/epoch_manager" }
+
 
 [dev-dependencies]
-serde_json = "1"
 near-client = { path = "../../chain/client" }
+testlib = { path = "../../test-utils/testlib" }
 
 [features]
 sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-network/sandbox", "near-client/sandbox"]

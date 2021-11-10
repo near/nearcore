@@ -47,7 +47,7 @@ while max_height < BLOCKS1:
             max_height = height
             if height % 10 == 0:
                 logger.info("Reached height %s, min common: %s" %
-                      (height, min_common()))
+                            (height, min_common()))
 
         if height not in height_to_hash:
             height_to_hash[height] = hash_
@@ -70,8 +70,8 @@ assert min_common() + 2 >= BLOCKS1, heights_report()
 for node in nodes:
     node.kill()
 
-nodes[0].start(None, None)
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[0].start()
+nodes[1].start(boot_node=nodes[0])
 
 while max_height < BLOCKS2:
     assert time.time() - started < TIMEOUT
@@ -84,7 +84,7 @@ while max_height < BLOCKS2:
             max_height = height
             if height % 10 == 0:
                 logger.info("Reached height %s, min common: %s" %
-                      (height, min_common()))
+                            (height, min_common()))
 
         if height not in height_to_hash:
             height_to_hash[height] = hash_

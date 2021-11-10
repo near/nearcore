@@ -1,6 +1,7 @@
 use near_primitives::contract::ContractCode;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::types::Balance;
+use near_primitives::version::ProtocolFeature;
 use near_vm_errors::{FunctionCallError, VMError, WasmTrap};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::{types::ReturnData, VMConfig, VMOutcome};
@@ -56,7 +57,7 @@ pub fn test_read_write() {
 
         let context = create_context(arr_u64_to_u8(&[10u64, 20u64]));
         let config = VMConfig::default();
-        let fees = RuntimeFeesConfig::default();
+        let fees = RuntimeFeesConfig::test();
 
         let promise_results = vec![];
         let result = run_vm(
@@ -87,6 +88,50 @@ pub fn test_read_write() {
             None,
         );
         assert_run_result(result, 20);
+    });
+}
+
+#[test]
+pub fn test_stablized_host_function() {
+    with_vm_variants(|vm_kind: VMKind| {
+        let code = test_contract();
+        let mut fake_external = MockedExternal::new();
+
+        let context = create_context(vec![]);
+        let config = VMConfig::default();
+        let fees = RuntimeFeesConfig::test();
+
+        let promise_results = vec![];
+        let result = run_vm(
+            &code,
+            "do_ripemd",
+            &mut fake_external,
+            context.clone(),
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            LATEST_PROTOCOL_VERSION,
+            None,
+        );
+        assert_eq!(result.1, None);
+
+        let result = run_vm(
+            &code,
+            "do_ripemd",
+            &mut fake_external,
+            context,
+            &config,
+            &fees,
+            &promise_results,
+            vm_kind.clone(),
+            ProtocolFeature::MathExtension.protocol_version() - 1,
+            None,
+        );
+        match result.1 {
+            Some(VMError::FunctionCallError(FunctionCallError::LinkError { msg: _ })) => {}
+            _ => panic!("should return a link error due to missing import"),
+        }
     });
 }
 
@@ -129,7 +174,7 @@ fn run_test_ext(
     fake_external.validators =
         validators.into_iter().map(|(s, b)| (s.parse().unwrap(), b)).collect();
     let config = VMConfig::default();
-    let fees = RuntimeFeesConfig::default();
+    let fees = RuntimeFeesConfig::test();
     let context = create_context(input.to_vec());
 
     let (outcome, err) = run_vm(
@@ -282,7 +327,7 @@ pub fn test_out_of_memory() {
         assert_eq!(
             result.1,
             match vm_kind {
-                VMKind::Wasmer0 | VMKind::Wasmer1 => Some(VMError::FunctionCallError(
+                VMKind::Wasmer0 | VMKind::Wasmer2 => Some(VMError::FunctionCallError(
                     FunctionCallError::WasmTrap(WasmTrap::Unreachable)
                 )),
                 VMKind::Wasmtime => unreachable!(),

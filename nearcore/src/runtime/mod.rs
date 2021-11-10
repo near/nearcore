@@ -9,13 +9,15 @@ use borsh::BorshDeserialize;
 use tracing::{debug, error, info, warn};
 
 use near_chain::chain::NUM_EPOCHS_TO_KEEP_STORE_DATA;
-use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier};
+use near_chain::types::{
+    ApplySplitStateResult, ApplyTransactionResult, BlockHeaderInfo, ValidatorInfoIdentifier,
+};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter};
 #[cfg(feature = "protocol_feature_block_header_v3")]
 use near_chain::{Doomslug, DoomslugThresholdMode};
 use near_chain_configs::{Genesis, GenesisConfig, ProtocolConfig};
 use near_crypto::{PublicKey, Signature};
-use near_epoch_manager::{EpochManager, RewardCalculator};
+use near_epoch_manager::EpochManager;
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block::{Approval, ApprovalInner};
@@ -23,7 +25,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::contract::ContractCode;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::{EpochError, InvalidTxError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -33,8 +35,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, CompiledContractCache, EpochHeight, EpochId,
-    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause, StateRoot,
-    StateRootNode,
+    EpochInfoProvider, Gas, MerkleHash, NumShards, ShardId, StateChangeCause,
+    StateChangesForSplitStates, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -55,12 +57,19 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 
-use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::runtime::config::ActualRuntimeConfig;
+use crate::shard_tracker::{ShardTracker, TrackedConfig};
 
 use crate::migrations::load_migration_data;
+use crate::NearConfig;
 use errors::FromStateViewerErrors;
+use near_primitives::runtime::config_store::{RuntimeConfigStore, INITIAL_TESTNET_CONFIG};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::shard_layout::{
+    account_id_to_shard_id, account_id_to_shard_uid, ShardLayout, ShardUId,
+};
+use near_primitives::syncing::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};
+use near_store::split_state::get_delayed_receipts;
+use node_runtime::near_primitives::shard_layout::ShardLayoutError;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 pub mod errors;
@@ -124,10 +133,7 @@ impl EpochInfoProvider for SafeEpochManager {
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    /// Runtime configuration.  Note that it may be slightly different than
-    /// `genesis_config.runtime_config`.  Consider `max_gas_burnt_view` value
-    /// which may be configured per node.
-    runtime_config: ActualRuntimeConfig,
+    runtime_config_store: RuntimeConfigStore,
 
     store: Arc<Store>,
     tries: ShardTries,
@@ -140,48 +146,63 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
+    pub fn with_config(
+        home_dir: &Path,
+        store: Arc<Store>,
+        config: &NearConfig,
+        trie_viewer_state_size_limit: Option<u64>,
+        max_gas_burnt_view: Option<Gas>,
+    ) -> Self {
+        Self::new(
+            home_dir,
+            store,
+            &config.genesis,
+            TrackedConfig::from_config(&config.client_config),
+            trie_viewer_state_size_limit,
+            max_gas_burnt_view,
+            None,
+        )
+    }
+
     pub fn new(
         home_dir: &Path,
         store: Arc<Store>,
         genesis: &Genesis,
-        initial_tracking_accounts: Vec<AccountId>,
-        initial_tracking_shards: Vec<ShardId>,
+        tracked_config: TrackedConfig,
         trie_viewer_state_size_limit: Option<u64>,
         max_gas_burnt_view: Option<Gas>,
+        runtime_config_store: Option<RuntimeConfigStore>,
     ) -> Self {
+        let runtime_config_store = match runtime_config_store {
+            Some(store) => store,
+            None => NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id),
+        };
+
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let genesis_config = genesis.config.clone();
-        let runtime_config =
-            ActualRuntimeConfig::new(genesis_config.runtime_config.clone(), max_gas_burnt_view);
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
-        let initial_epoch_config = EpochConfig::from(&genesis_config);
-        let reward_calculator = RewardCalculator::new(&genesis_config);
+        assert_eq!(
+            genesis_config.shard_layout.num_shards(),
+            genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
+            "genesis config shard_layout and num_block_producer_seats_per_shard indicate inconsistent number of shards {} vs {}",
+            genesis_config.shard_layout.num_shards(),
+            genesis_config.num_block_producer_seats_per_shard.len() as NumShards,
+        );
         let state_roots =
             Self::initialize_genesis_state_if_needed(store.clone(), home_dir, genesis);
         let tries = ShardTries::new(
             store.clone(),
+            genesis_config.shard_layout.version(),
             genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
         );
         let epoch_manager = Arc::new(RwLock::new(
-            EpochManager::new(
-                store.clone(),
-                initial_epoch_config,
-                genesis_config.protocol_version,
-                reward_calculator,
-                genesis_config.validators(),
-            )
-            .expect("Failed to start Epoch Manager"),
+            EpochManager::new_from_genesis_config(store.clone(), &genesis_config)
+                .expect("Failed to start Epoch Manager"),
         ));
-        let shard_tracker = ShardTracker::new(
-            initial_tracking_accounts,
-            initial_tracking_shards,
-            epoch_manager.clone(),
-            num_shards,
-        );
+        let shard_tracker = ShardTracker::new(tracked_config, epoch_manager.clone());
         NightshadeRuntime {
             genesis_config,
-            runtime_config,
+            runtime_config_store,
             store,
             tries,
             runtime,
@@ -193,6 +214,27 @@ impl NightshadeRuntime {
         }
     }
 
+    pub fn test_with_runtime_config_store(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis: &Genesis,
+        runtime_config_store: RuntimeConfigStore,
+    ) -> Self {
+        Self::new(
+            home_dir,
+            store,
+            genesis,
+            TrackedConfig::new_empty(),
+            None,
+            None,
+            Some(runtime_config_store),
+        )
+    }
+
+    pub fn test(home_dir: &Path, store: Arc<Store>, genesis: &Genesis) -> Self {
+        Self::test_with_runtime_config_store(home_dir, store, genesis, RuntimeConfigStore::test())
+    }
+
     fn get_epoch_height_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
@@ -202,9 +244,26 @@ impl NightshadeRuntime {
         epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height()).map_err(Error::from)
     }
 
-    fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
+    pub fn get_epoch_id(&self, hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         epoch_manager.get_epoch_id(hash).map_err(Error::from)
+    }
+
+    /// Create store of runtime configs for the given chain id.
+    ///
+    /// For mainnet and other chains except testnet we don't need to override runtime config for
+    /// first protocol versions.
+    /// For testnet, runtime config for genesis block was (incorrectly) different, that's why we
+    /// need to override it specifically to preserve compatibility.
+    fn create_runtime_config_store(chain_id: &str) -> RuntimeConfigStore {
+        match chain_id {
+            "testnet" => {
+                let genesis_runtime_config =
+                    serde_json::from_slice(INITIAL_TESTNET_CONFIG).unwrap();
+                RuntimeConfigStore::new(Some(&genesis_runtime_config))
+            }
+            _ => RuntimeConfigStore::new(None),
+        }
     }
 
     fn genesis_state_from_dump(store: Arc<Store>, home_dir: &Path) -> Vec<StateRoot> {
@@ -227,12 +286,14 @@ impl NightshadeRuntime {
             info!(target: "runtime", "Computing state roots from records in file {:?}", genesis.records_file);
         }
         let mut state_roots = vec![];
-        let num_shards = genesis.config.num_block_producer_seats_per_shard.len() as NumShards;
+        let initial_epoch_config = EpochConfig::from(&genesis.config);
+        let shard_layout = initial_epoch_config.shard_layout;
+        let num_shards = shard_layout.num_shards();
         let mut shard_account_ids: Vec<HashSet<AccountId>> =
             (0..num_shards).map(|_| HashSet::new()).collect();
         let mut has_protocol_account = false;
         genesis.for_each_record(|record: &StateRecord| {
-            shard_account_ids[state_record_to_shard_id(record, num_shards) as usize]
+            shard_account_ids[state_record_to_shard_id(record, &shard_layout) as usize]
                 .insert(state_record_to_account_id(record).clone());
             if let StateRecord::Account { account_id, .. } = record {
                 if account_id == &genesis.config.protocol_treasury_account {
@@ -241,15 +302,20 @@ impl NightshadeRuntime {
             }
         });
         assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
-        let tries = ShardTries::new(store.clone(), num_shards);
+        let tries =
+            ShardTries::new(store.clone(), genesis.config.shard_layout.version(), num_shards);
         let runtime = Runtime::new();
+        let runtime_config_store =
+            NightshadeRuntime::create_runtime_config_store(&genesis.config.chain_id);
+        let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
+
         for shard_id in 0..num_shards {
             let validators = genesis
                 .config
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, num_shards) == shard_id {
+                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -266,7 +332,7 @@ impl NightshadeRuntime {
                 shard_id,
                 &validators,
                 &genesis,
-                &genesis.config.runtime_config,
+                &runtime_config,
                 shard_account_ids[shard_id as usize].clone(),
             ));
         }
@@ -305,11 +371,7 @@ impl NightshadeRuntime {
         genesis: &Genesis,
     ) -> Vec<StateRoot> {
         let has_records = !genesis.records.as_ref().is_empty();
-        let has_dump = {
-            let mut state_dump = home_dir.to_path_buf();
-            state_dump.push(STATE_DUMP_FILE);
-            state_dump.exists()
-        };
+        let has_dump = home_dir.join(STATE_DUMP_FILE).exists();
         if has_dump {
             if has_records {
                 warn!(target: "runtime", "Found both records in genesis config and the state dump file. Will ignore the records.");
@@ -319,6 +381,41 @@ impl NightshadeRuntime {
         } else {
             Self::genesis_state_from_records(store, genesis)
         }
+    }
+
+    fn get_shard_uid_from_prev_hash(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(prev_hash).map_err(Error::from)?;
+        let shard_version =
+            epoch_manager.get_shard_layout(&epoch_id).map_err(Error::from)?.version();
+        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+    }
+
+    fn get_shard_uid_from_epoch_id(
+        &self,
+        shard_id: ShardId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let shard_version =
+            epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.version();
+        Ok(ShardUId { version: shard_version, shard_id: shard_id as u32 })
+    }
+
+    fn account_id_to_shard_uid(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        let shard_id = account_id_to_shard_id(account_id, shard_layout);
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
     }
 
     /// Processes state update.
@@ -342,8 +439,11 @@ impl NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
+        let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?.clone();
             debug!(target: "runtime",
                    "block height: {}, is next_block_epoch_start {}",
                    block_height,
@@ -353,7 +453,9 @@ impl NightshadeRuntime {
             let mut slashing_info: HashMap<_, _> = challenges_result
                 .iter()
                 .filter_map(|s| {
-                    if self.account_id_to_shard_id(&s.account_id) == shard_id && !s.is_double_sign {
+                    if account_id_to_shard_id(&s.account_id, &shard_layout) == shard_id
+                        && !s.is_double_sign
+                    {
                         Some((s.account_id.clone(), None))
                     } else {
                         None
@@ -366,14 +468,18 @@ impl NightshadeRuntime {
                     epoch_manager.compute_stake_return_info(prev_block_hash)?;
                 let stake_info = stake_info
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    })
                     .collect();
                 let validator_rewards = validator_reward
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    })
                     .collect();
                 let last_proposals = last_validator_proposals
-                    .filter(|v| self.account_id_to_shard_id(v.account_id()) == shard_id)
+                    .filter(|v| account_id_to_shard_id(v.account_id(), &shard_layout) == shard_id)
                     .fold(HashMap::new(), |mut acc, v| {
                         let (account_id, stake) = v.account_and_stake();
                         acc.insert(account_id, stake);
@@ -381,7 +487,9 @@ impl NightshadeRuntime {
                     });
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
                     .into_iter()
-                    .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                    .filter(|(account_id, _)| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    })
                     .map(|(account_id, stake)| (account_id, Some(stake)))
                     .collect();
                 slashing_info.extend(double_sign_slashing_info);
@@ -392,7 +500,9 @@ impl NightshadeRuntime {
                     protocol_treasury_account_id: Some(
                         self.genesis_config.protocol_treasury_account.clone(),
                     )
-                    .filter(|account_id| self.account_id_to_shard_id(account_id) == shard_id),
+                    .filter(|account_id| {
+                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                    }),
                     slashing_info,
                 })
             } else if !challenges_result.is_empty() {
@@ -409,11 +519,15 @@ impl NightshadeRuntime {
         };
 
         let epoch_height = self.get_epoch_height_from_prev_block(prev_block_hash)?;
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let prev_block_epoch_id = self.get_epoch_id(prev_block_hash)?;
         let current_protocol_version = self.get_epoch_protocol_version(&epoch_id)?;
         let prev_block_protocol_version = self.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
+
+        debug!(target: "runtime",
+               "epoch height: {:?}, epoch id: {:?}, current_protocol_version: {:?}, is_first_block_of_version: {}",
+               epoch_height, &epoch_id, current_protocol_version, is_first_block_of_version,
+        );
 
         let apply_state = ApplyState {
             block_index: block_height,
@@ -426,7 +540,7 @@ impl NightshadeRuntime {
             gas_limit: Some(gas_limit),
             random_seed,
             current_protocol_version,
-            config: self.runtime_config.for_protocol_version(current_protocol_version).clone(),
+            config: self.runtime_config_store.get_config(current_protocol_version).clone(),
             cache: Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() })),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
@@ -473,30 +587,24 @@ impl NightshadeRuntime {
                 ErrorKind::Other("Integer overflow during burnt balance summation".to_string())
             })?;
 
-        // Sort the receipts into appropriate outgoing shards.
-        let mut receipt_result = HashMap::default();
-        for receipt in apply_result.outgoing_receipts {
-            receipt_result
-                .entry(self.account_id_to_shard_id(&receipt.receiver_id))
-                .or_insert_with(|| vec![])
-                .push(receipt);
-        }
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
-                shard_id,
+                shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
                 block_hash.clone(),
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
-            receipt_result,
+            outgoing_receipts: apply_result.outgoing_receipts,
             validator_proposals: apply_result.validator_proposals,
             total_gas_burnt,
             total_balance_burnt,
             proof: apply_result.proof,
+            processed_delayed_receipts: apply_result.processed_delayed_receipts,
         };
 
         Ok(result)
@@ -508,7 +616,7 @@ impl NightshadeRuntime {
         contract_codes: Vec<ContractCode>,
     ) -> Result<(), Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let runtime_config = self.runtime_config.for_protocol_version(protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Arc<dyn CompiledContractCache>> =
             Some(Arc::new(StoreCompiledContractCache { store: self.store.clone() }));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
@@ -522,6 +630,7 @@ impl NightshadeRuntime {
                     precompile_contract(
                         &code,
                         &runtime_config.wasm_config,
+                        protocol_version,
                         compiled_contract_cache.as_deref(),
                     )
                     .ok();
@@ -531,8 +640,35 @@ impl NightshadeRuntime {
     }
 }
 
-pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: NumShards) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), num_shards)
+fn apply_delayed_receipts<'a>(
+    tries: &ShardTries,
+    orig_shard_uid: ShardUId,
+    orig_state_root: StateRoot,
+    state_roots: HashMap<ShardUId, StateRoot>,
+    account_id_to_shard_id: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid.clone(), orig_state_root);
+
+    let mut start_index = None;
+    let mut new_state_roots = state_roots.clone();
+    while let Some((next_index, receipts)) =
+        get_delayed_receipts(&orig_trie_update, start_index, STATE_PART_MEMORY_LIMIT)?
+    {
+        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
+            &new_state_roots,
+            &receipts,
+            account_id_to_shard_id,
+        )?;
+        new_state_roots = updated_state_roots;
+        start_index = Some(next_index);
+        store_update.commit()?;
+    }
+
+    Ok(new_state_roots)
+}
+
+pub fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
+    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -540,16 +676,26 @@ impl RuntimeAdapter for NightshadeRuntime {
         (self.store.clone(), self.genesis_state_roots.clone())
     }
 
+    fn get_store(&self) -> Arc<Store> {
+        self.store.clone()
+    }
+
     fn get_tries(&self) -> ShardTries {
         self.tries.clone()
     }
 
-    fn get_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_trie_for_shard(shard_id)
+    fn get_trie_for_shard(&self, shard_id: ShardId, prev_hash: &CryptoHash) -> Result<Trie, Error> {
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
+        Ok(self.tries.get_trie_for_shard(shard_uid))
     }
 
-    fn get_view_trie_for_shard(&self, shard_id: ShardId) -> Trie {
-        self.tries.get_view_trie_for_shard(shard_id)
+    fn get_view_trie_for_shard(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<Trie, Error> {
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_hash)?;
+        Ok(self.tries.get_view_trie_for_shard(shard_uid))
     }
 
     fn verify_block_vrf(
@@ -579,13 +725,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: Option<StateRoot>,
         transaction: &SignedTransaction,
         verify_signature: bool,
+        epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Option<InvalidTxError>, Error> {
-        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(state_root) = state_root {
-            let shard_id = self.account_id_to_shard_id(&transaction.transaction.signer_id);
-            let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
+            let shard_uid =
+                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
+            let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
                 runtime_config,
@@ -634,6 +782,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         gas_price: Balance,
         gas_limit: Gas,
+        epoch_id: &EpochId,
         shard_id: ShardId,
         state_root: StateRoot,
         next_block_height: BlockHeight,
@@ -641,7 +790,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let mut state_update = self.get_tries().new_trie_update(shard_id, state_root);
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
+        let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -650,7 +800,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut transactions = vec![];
         let mut num_checked_transactions = 0;
 
-        let runtime_config = self.runtime_config.for_protocol_version(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         while total_gas_burnt < transactions_gas_limit {
             if let Some(iter) = pool_iterator.next() {
@@ -919,9 +1069,60 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_shards(&self) -> NumShards {
-        // TODO: should be dynamic.
-        self.genesis_config.num_block_producer_seats_per_shard.len() as NumShards
+    fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.num_shards())
+    }
+
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?.clone())
+    }
+
+    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_config(epoch_id).map_err(Error::from)?.clone().into())
+    }
+
+    fn get_prev_shard_ids(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_ids: Vec<ShardId>,
+    ) -> Result<Vec<ShardId>, Error> {
+        if self.is_next_block_epoch_start(prev_hash)? {
+            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+            if prev_shard_layout != shard_layout {
+                return Ok(shard_ids
+                    .into_iter()
+                    .map(|shard_id| {
+                        shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
+                            assert!(parent_shard_id < prev_shard_layout.num_shards(),
+                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
+                                    shard_layout,
+                                    parent_shard_id
+                            );
+                            parent_shard_id
+                        })
+                    })
+                    .collect::<Result<_, ShardLayoutError>>()?);
+            }
+        }
+        Ok(shard_ids)
+    }
+
+    fn get_shard_layout_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<ShardLayout, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        self.get_shard_layout(&epoch_id)
+    }
+
+    fn shard_id_to_uid(&self, shard_id: ShardId, epoch_id: &EpochId) -> Result<ShardUId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(ShardUId::from_shard_id_and_layout(shard_id, shard_layout))
     }
 
     fn num_total_parts(&self) -> usize {
@@ -942,8 +1143,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        account_id_to_shard_id(account_id, self.num_shards())
+    fn account_id_to_shard_id(
+        &self,
+        account_id: &AccountId,
+        epoch_id: &EpochId,
+    ) -> Result<ShardId, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).map_err(Error::from)?;
+        Ok(account_id_to_shard_id(account_id, shard_layout))
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error> {
@@ -1167,7 +1374,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         is_first_block_with_chunk_of_version: bool,
         states_to_patch: Option<Vec<StateRecord>>,
     ) -> Result<ApplyTransactionResult, Error> {
-        let trie = self.get_trie_for_shard(shard_id);
+        let trie = self.get_trie_for_shard(shard_id, prev_block_hash)?;
         let trie = if generate_storage_proof { trie.recording_reads() } else { trie };
         match self.process_state_update(
             trie,
@@ -1241,7 +1448,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn query(
         &self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         state_root: &StateRoot,
         block_height: BlockHeight,
         block_timestamp: u64,
@@ -1253,8 +1460,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         match request {
             QueryRequest::ViewAccount { account_id } => {
                 let account = self
-                    .view_account(shard_id, *state_root, account_id)
-                    .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_account_error(err, block_height, *block_hash))?;
+                    .view_account(&shard_uid, *state_root, account_id)
+                    .map_err(|err| {
+                    near_chain::near_chain_primitives::error::QueryError::from_view_account_error(
+                        err,
+                        block_height,
+                        *block_hash,
+                    )
+                })?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewAccount(account.into()),
                     block_height,
@@ -1263,7 +1476,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewCode { account_id } => {
                 let contract_code = self
-                    .view_contract_code(shard_id, *state_root, account_id)
+                    .view_contract_code(&shard_uid,  *state_root, account_id)
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
                 Ok(QueryResponse {
                     kind: QueryResponseKind::ViewCode(contract_code.into()),
@@ -1288,7 +1501,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 let call_function_result = self
                     .call_function(
-                        shard_id,
+                        &shard_uid,
                         *state_root,
                         block_height,
                         block_timestamp,
@@ -1315,7 +1528,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewState { account_id, prefix } => {
                 let view_state_result = self
-                    .view_state(shard_id, *state_root, account_id, prefix.as_ref())
+                    .view_state(&shard_uid, *state_root, account_id, prefix.as_ref())
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_state_error(
                             err,
@@ -1331,7 +1544,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewAccessKeyList { account_id } => {
                 let access_key_list =
-                    self.view_access_keys(shard_id, *state_root, account_id).map_err(|err| {
+                    self.view_access_keys(&shard_uid, *state_root, account_id).map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
                             block_height,
@@ -1354,7 +1567,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
             QueryRequest::ViewAccessKey { account_id, public_key } => {
                 let access_key = self
-                    .view_access_key(shard_id, *state_root, account_id, public_key)
+                    .view_access_key(&shard_uid, *state_root, account_id, public_key)
                     .map_err(|err| {
                         near_chain::near_chain_primitives::error::QueryError::from_view_access_key_error(
                             err,
@@ -1381,15 +1594,19 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     /// Returns StorageError when storage is inconsistent.
     /// This is possible with the used isolation level + running ViewClient in a separate thread
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
         part_id: u64,
         num_parts: u64,
     ) -> Result<Vec<u8>, Error> {
         assert!(part_id < num_parts);
-        let trie = self.get_view_trie_for_shard(shard_id);
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        let trie = self.tries.get_view_trie_for_shard(shard_uid);
         let result = match trie.get_trie_nodes_for_part(part_id, num_parts, state_root) {
             Ok(partial_state) => partial_state,
             Err(e) => {
@@ -1427,6 +1644,86 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    fn apply_update_to_split_states(
+        &self,
+        block_hash: &CryptoHash,
+        state_roots: HashMap<ShardUId, StateRoot>,
+        next_epoch_shard_layout: &ShardLayout,
+        state_changes: StateChangesForSplitStates,
+    ) -> Result<Vec<ApplySplitStateResult>, Error> {
+        let trie_changes = self.tries.apply_state_changes_to_split_states(
+            &state_roots,
+            state_changes,
+            &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
+        )?;
+
+        Ok(trie_changes
+            .into_iter()
+            .map(|(shard_uid, trie_changes)| ApplySplitStateResult {
+                shard_uid,
+                new_root: trie_changes.new_root,
+                trie_changes: WrappedTrieChanges::new(
+                    self.get_tries(),
+                    shard_uid,
+                    trie_changes,
+                    vec![],
+                    block_hash.clone(),
+                ),
+            })
+            .collect())
+    }
+
+    fn build_state_for_split_shards(
+        &self,
+        shard_uid: ShardUId,
+        state_root: &StateRoot,
+        next_epoch_shard_layout: &ShardLayout,
+    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+        let trie = self.tries.get_view_trie_for_shard(shard_uid);
+        let shard_id = shard_uid.shard_id();
+        let new_shards = next_epoch_shard_layout
+            .get_split_shards(shard_id)
+            .ok_or(ErrorKind::InvalidShardId(shard_id))?;
+        let mut state_roots: HashMap<_, _> =
+            new_shards.iter().map(|shard_uid| (*shard_uid, StateRoot::default())).collect();
+        let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
+        let checked_account_id_to_shard_id = |account_id: &AccountId| {
+            let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
+            // check that all accounts in the shard are mapped the shards that this shard will split
+            // to according to shard layout
+            assert!(
+                split_shard_ids.contains(&new_shard_uid),
+                "Inconsistent shard_layout specs. Account {:?} in shard {:?} and in shard {:?}, but the former is not parent shard for the latter",
+                account_id,
+                shard_uid,
+                new_shard_uid,
+            );
+            new_shard_uid
+        };
+
+        let state_root_node = trie.retrieve_root_node(state_root)?;
+        let num_parts = get_num_state_parts(state_root_node.memory_usage);
+        debug!(target: "runtime", "splitting state for shard {} to {} parts to build new states", shard_id, num_parts);
+        for part_id in 0..num_parts {
+            let trie_items = trie.get_trie_items_for_part(part_id, num_parts, state_root)?;
+            let (store_update, new_state_roots) = self.tries.add_values_to_split_states(
+                &state_roots,
+                trie_items.into_iter().map(|(key, value)| (key, Some(value.clone()))).collect(),
+                &checked_account_id_to_shard_id,
+            )?;
+            state_roots = new_state_roots;
+            store_update.commit()?;
+        }
+        state_roots = apply_delayed_receipts(
+            &self.tries,
+            shard_uid,
+            state_root.clone(),
+            state_roots,
+            &checked_account_id_to_shard_id,
+        )?;
+        Ok(state_roots)
+    }
+
     fn apply_state_part(
         &self,
         shard_id: ShardId,
@@ -1441,18 +1738,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         let ApplyStatePartResult { trie_changes, contract_codes } =
             Trie::apply_state_part(&state_root, part_id, num_parts, part);
         let tries = self.get_tries();
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let (store_update, _) =
-            tries.apply_all(&trie_changes, shard_id).expect("TrieChanges::into never fails");
+            tries.apply_all(&trie_changes, shard_uid).expect("TrieChanges::into never fails");
         self.precompile_contracts(epoch_id, contract_codes)?;
         Ok(store_update.commit()?)
     }
 
+    /// `block_hash` is a block whose `prev_state_root` is `state_root`
     fn get_state_root_node(
         &self,
         shard_id: ShardId,
+        block_hash: &CryptoHash,
         state_root: &StateRoot,
     ) -> Result<StateRootNode, Error> {
-        self.get_view_trie_for_shard(shard_id)
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        self.tries
+            .get_view_trie_for_shard(shard_uid)
             .retrieve_root_node(state_root)
             .map_err(|e| e.to_string().into())
     }
@@ -1516,18 +1819,20 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error> {
         let protocol_version = self.get_epoch_protocol_version(epoch_id)?;
-        let mut config = self.genesis_config.clone();
-        config.protocol_version = protocol_version;
-        // If we were initialised with a custom max_gas_burnt_view (see
-        // ActualRuntimeConfig::new method), keep the value from genesis file.
-        // Since max_gas_burnt_view never changes as a result of protocol
-        // upgrade, we can use it when reporting protocol config.
-        let gas = config.runtime_config.wasm_config.limit_config.max_gas_burnt_view;
-        // Currently only runtime config is changed through protocol upgrades.
-        config.runtime_config =
-            (**self.runtime_config.for_protocol_version(protocol_version)).clone();
-        config.runtime_config.wasm_config.limit_config.max_gas_burnt_view = gas;
-        Ok(config)
+        let mut genesis_config = self.genesis_config.clone();
+        genesis_config.protocol_version = protocol_version;
+        let shard_config = {
+            let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+            epoch_manager.get_shard_config(epoch_id)?
+        };
+        genesis_config.num_block_producer_seats_per_shard =
+            shard_config.num_block_producer_seats_per_shard;
+        genesis_config.avg_hidden_validator_seats_per_shard =
+            shard_config.avg_hidden_validator_seats_per_shard;
+        genesis_config.shard_layout = shard_config.shard_layout;
+        let runtime_config =
+            self.runtime_config_store.get_config(protocol_version).as_ref().clone();
+        Ok(ProtocolConfig { genesis_config, runtime_config })
     }
 
     fn get_prev_epoch_id_from_prev_block(
@@ -1541,32 +1846,37 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_manager.get_prev_epoch_id(prev_block_hash).map_err(Error::from)
         }
     }
+
+    fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Account, node_runtime::state_viewer::errors::ViewAccountError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn view_contract_code(
         &self,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<ContractCode, node_runtime::state_viewer::errors::ViewContractCodeError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_contract_code(&state_update, account_id)
     }
 
     fn call_function(
         &self,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         state_root: MerkleHash,
         height: BlockHeight,
         block_timestamp: u64,
@@ -1581,7 +1891,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         epoch_info_provider: &dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Result<Vec<u8>, node_runtime::state_viewer::errors::CallFunctionError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         let view_state = ViewApplyState {
             block_height: height,
             prev_block_hash: *prev_block_hash,
@@ -1605,34 +1915,34 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn view_access_key(
         &self,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<AccessKey, node_runtime::state_viewer::errors::ViewAccessKeyError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
 
     fn view_access_keys(
         &self,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, node_runtime::state_viewer::errors::ViewAccessKeyError>
     {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_access_keys(&state_update, account_id)
     }
 
     fn view_state(
         &self,
-        shard_id: ShardId,
+        shard_uid: &ShardUId,
         state_root: MerkleHash,
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, node_runtime::state_viewer::errors::ViewStateError> {
-        let state_update = self.get_tries().new_trie_update_view(shard_id, state_root);
+        let state_update = self.tries.new_trie_update_view(*shard_uid, state_root);
         self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }
@@ -1640,7 +1950,6 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 #[cfg(test)]
 mod test {
     use std::collections::BTreeSet;
-    use std::convert::{TryFrom, TryInto};
 
     use num_rational::Rational;
 
@@ -1648,8 +1957,6 @@ mod test {
     use near_logger_utils::init_test_logger;
     use near_primitives::block::Tip;
     use near_primitives::challenge::SlashedValidator;
-    use near_primitives::receipt::ReceiptResult;
-    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction};
     use near_primitives::types::{BlockHeightDelta, Nonce, ValidatorId, ValidatorKickoutReason};
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -1697,7 +2004,7 @@ mod test {
             gas_price: Balance,
             gas_limit: Gas,
             challenges: &ChallengesResult,
-        ) -> (StateRoot, Vec<ValidatorStake>, ReceiptResult) {
+        ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
             let mut result = self
                 .apply_transactions(
                     shard_id,
@@ -1722,7 +2029,7 @@ mod test {
             result.trie_changes.insertions_into(&mut store_update).unwrap();
             result.trie_changes.state_changes_into(&mut store_update);
             store_update.commit().unwrap();
-            (result.new_root, result.validator_proposals, result.receipt_result)
+            (result.new_root, result.validator_proposals, result.outgoing_receipts)
         }
     }
 
@@ -1741,8 +2048,22 @@ mod test {
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockHeightDelta,
-            initial_tracked_accounts: Vec<AccountId>,
-            initial_tracked_shards: Vec<ShardId>,
+            has_reward: bool,
+        ) -> Self {
+            Self::new_with_tracking(
+                prefix,
+                validators,
+                epoch_length,
+                TrackedConfig::new_empty(),
+                has_reward,
+            )
+        }
+
+        pub fn new_with_tracking(
+            prefix: &str,
+            validators: Vec<Vec<AccountId>>,
+            epoch_length: BlockHeightDelta,
+            tracked_config: TrackedConfig,
             has_reward: bool,
         ) -> Self {
             let dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
@@ -1751,13 +2072,12 @@ mod test {
                 acc.union(&x.iter().cloned().collect()).cloned().collect()
             });
             let validators_len = all_validators.len() as ValidatorId;
-            let mut genesis = Genesis::test_sharded(
+            let mut genesis = Genesis::test_sharded_new_version(
                 all_validators.into_iter().collect(),
                 validators_len,
                 validators.iter().map(|x| x.len() as ValidatorId).collect(),
             );
             // No fees mode.
-            genesis.config.runtime_config = RuntimeConfig::free();
             genesis.config.epoch_length = epoch_length;
             genesis.config.chunk_producer_kickout_threshold =
                 genesis.config.block_producer_kickout_threshold;
@@ -1770,10 +2090,10 @@ mod test {
                 dir.path(),
                 store,
                 &genesis,
-                initial_tracked_accounts,
-                initial_tracked_shards,
+                tracked_config,
                 None,
                 None,
+                Some(RuntimeConfigStore::free()),
             );
             let (_store, state_roots) = runtime.genesis_state();
             let genesis_hash = hash(&vec![0]);
@@ -1819,11 +2139,11 @@ mod test {
             challenges_result: ChallengesResult,
         ) {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
-            let num_shards = self.runtime.num_shards();
+            let num_shards = self.runtime.num_shards(&self.head.epoch_id).unwrap();
             assert_eq!(transactions.len() as NumShards, num_shards);
             assert_eq!(chunk_mask.len() as NumShards, num_shards);
             let mut all_proposals = vec![];
-            let mut new_receipts = HashMap::new();
+            let mut all_receipts = vec![];
             for i in 0..num_shards {
                 let (state_root, proposals, receipts) = self.runtime.update(
                     &self.state_roots[i as usize],
@@ -1840,12 +2160,7 @@ mod test {
                     &challenges_result,
                 );
                 self.state_roots[i as usize] = state_root;
-                for (shard_id, mut shard_receipts) in receipts {
-                    new_receipts
-                        .entry(shard_id)
-                        .or_insert_with(|| vec![])
-                        .append(&mut shard_receipts);
-                }
+                all_receipts.extend(receipts);
                 all_proposals.append(&mut proposals.clone());
                 self.last_shard_proposals.insert(i as ShardId, proposals);
             }
@@ -1867,6 +2182,12 @@ mod test {
                 .unwrap()
                 .commit()
                 .unwrap();
+            let shard_layout = self.runtime.get_shard_layout_from_prev_block(&new_hash).unwrap();
+            let mut new_receipts = HashMap::new();
+            for receipt in all_receipts {
+                let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+                new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
+            }
             self.last_receipts = new_receipts;
             self.last_proposals = all_proposals;
             self.time += 10u64.pow(9);
@@ -1875,8 +2196,14 @@ mod test {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
-                epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
-                next_epoch_id: self.runtime.get_next_epoch_id_from_prev_block(&new_hash).unwrap(),
+                epoch_id: self
+                    .runtime
+                    .get_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
+                next_epoch_id: self
+                    .runtime
+                    .get_next_epoch_id_from_prev_block(&self.head.last_block_hash)
+                    .unwrap(),
             };
         }
 
@@ -1886,9 +2213,11 @@ mod test {
         }
 
         pub fn view_account(&self, account_id: &AccountId) -> AccountView {
-            let shard_id = self.runtime.account_id_to_shard_id(account_id);
+            let shard_id =
+                self.runtime.account_id_to_shard_id(account_id, &self.head.epoch_id).unwrap();
+            let shard_uid = self.runtime.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
             self.runtime
-                .view_account(shard_id, self.state_roots[shard_id as usize], account_id)
+                .view_account(&shard_uid, self.state_roots[shard_id as usize], &account_id)
                 .unwrap()
                 .into()
         }
@@ -1933,14 +2262,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_rotation",
-            vec![validators.clone()],
-            2,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env = TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -1969,7 +2291,28 @@ mod test {
             &signer,
             CryptoHash::default(),
         );
-        env.step_default(vec![staking_transaction, create_account_transaction]);
+        let test2_stake_amount = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3600 * crate::NEAR_BASE
+        } else {
+            TESTING_INIT_STAKE
+        };
+        let transactions = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            // With the new validator selection algorithm, test2 needs to have less stake to
+            // become a fisherman.
+            let signer = InMemorySigner::from_seed(
+                validators[1].clone(),
+                KeyType::ED25519,
+                validators[1].as_ref(),
+            );
+            vec![
+                staking_transaction,
+                create_account_transaction,
+                stake(1, &signer, &block_producers[1], test2_stake_amount),
+            ]
+        } else {
+            vec![staking_transaction, create_account_transaction]
+        };
+        env.step_default(transactions);
         env.step_default(vec![]);
         let account = env.view_account(block_producers[0].validator_id());
         assert_eq!(account.locked, 2 * TESTING_INIT_STAKE);
@@ -2008,7 +2351,7 @@ mod test {
         // Become fishermen instead
         assert_eq!(
             (test2_acc.amount, test2_acc.locked),
-            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+            (TESTING_INIT_BALANCE - test2_stake_amount, test2_stake_amount)
         );
         let test3_acc = env.view_account(&"test3".parse().unwrap());
         // Got 3 * X, staking 2 * X of them.
@@ -2025,14 +2368,8 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_stake_change",
-            vec![validators.clone()],
-            2,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env =
+            TestEnv::new("test_validator_stake_change", vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2077,8 +2414,6 @@ mod test {
             "test_validator_stake_change_multiple_times",
             vec![validators.clone()],
             4,
-            vec![],
-            vec![],
             false,
         );
         let block_producers: Vec<_> = validators
@@ -2188,8 +2523,6 @@ mod test {
             "test_validator_stake_change_multiple_times",
             vec![validators.clone()],
             5,
-            vec![],
-            vec![],
             false,
         );
         let block_producers: Vec<_> = validators
@@ -2230,14 +2563,8 @@ mod test {
         let validators = (0..2)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let env = TestEnv::new(
-            "verify_validator_signature_failure",
-            vec![validators.clone()],
-            2,
-            vec![],
-            vec![],
-            true,
-        );
+        let env =
+            TestEnv::new("verify_validator_signature_failure", vec![validators.clone()], 2, true);
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(
             validators[0].clone(),
@@ -2258,14 +2585,18 @@ mod test {
     }
 
     #[test]
+    fn test_split_states() {
+        init_test_logger();
+    }
+
+    #[test]
     fn test_state_sync() {
         init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
+        let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2278,10 +2609,12 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let state_part = env.runtime.obtain_state_part(0, &env.state_roots[0], 0, 1).unwrap();
-        let root_node = env.runtime.get_state_root_node(0, &env.state_roots[0]).unwrap();
-        let mut new_env =
-            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![], false);
+        let block_hash = hash(&vec![env.head.height as u8]);
+        let state_part =
+            env.runtime.obtain_state_part(0, &block_hash, &env.state_roots[0], 0, 1).unwrap();
+        let root_node =
+            env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
+        let mut new_env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, false);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -2290,6 +2623,8 @@ mod test {
                     block_producers[0].validator_id().clone(),
                     block_producers[0].public_key(),
                     TESTING_INIT_STAKE + 1,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )]
             } else {
                 vec![]
@@ -2349,6 +2684,9 @@ mod test {
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
     /// has 4 validators (test1, test2, test3, test4). Test that kickout and stake change
     /// work properly.
+    // This test only makes sense with the old validator selection because it requires
+    // specific control over what validators are assigned to each shard.
+    #[cfg(not(feature = "protocol_feature_chunk_only_producers"))]
     #[test]
     fn test_multiple_shards() {
         init_test_logger();
@@ -2364,8 +2702,6 @@ mod test {
             "test_multiple_shards",
             vec![first_shard_validators, second_shard_validators],
             4,
-            vec![],
-            vec![],
             false,
         );
         let block_producers: Vec<_> = validators
@@ -2378,12 +2714,16 @@ mod test {
             validators[0].as_ref(),
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE - 1);
-        let first_account_shard_id = env.runtime.account_id_to_shard_id(&"test1".parse().unwrap());
+        let first_account_shard_id = env
+            .runtime
+            .account_id_to_shard_id(&"test1".parse().unwrap(), &EpochId::default())
+            .unwrap();
         let transactions = if first_account_shard_id == 0 {
             vec![vec![staking_transaction], vec![]]
         } else {
             vec![vec![], vec![staking_transaction]]
         };
+        // a validator from the first shard does not produce their chunk
         env.step(transactions, vec![false, true], ChallengesResult::default());
         for _ in 2..10 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
@@ -2398,7 +2738,12 @@ mod test {
         for _ in 10..14 {
             env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
-        let account = env.view_account(block_producers[3].validator_id());
+        // which validator is kicked out depends on which validator selection is used
+        let account = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            env.view_account(&block_producers[1].validator_id())
+        } else {
+            env.view_account(&block_producers[3].validator_id())
+        };
         assert_eq!(account.locked, 0);
 
         let account = env.view_account(block_producers[0].validator_id());
@@ -2411,14 +2756,8 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_get_validator_info",
-            vec![validators.clone()],
-            2,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env =
+            TestEnv::new("test_validator_get_validator_info", vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2429,12 +2768,28 @@ mod test {
             validators[0].as_ref(),
         );
         let staking_transaction = stake(1, &signer, &block_producers[0], 0);
+        let mut expected_blocks = [0, 0];
+        let update_expected_blocks = |env: &mut TestEnv, expected_blocks: &mut [u64]| {
+            let bp = {
+                let epoch_id = env.head.epoch_id.clone();
+                let height = env.head.height;
+                let mut em = env.runtime.epoch_manager.0.write().unwrap();
+                em.get_block_producer_info(&epoch_id, height).unwrap()
+            };
+            if bp.account_id().as_ref() == "test1" {
+                expected_blocks[0] += 1;
+            } else {
+                expected_blocks[1] += 1;
+            }
+        };
         env.step_default(vec![staking_transaction]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         assert!(env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id.clone()))
             .is_err());
         env.step_default(vec![]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         let mut current_epoch_validator_info = vec![
             CurrentEpochValidatorInfo {
                 account_id: "test1".parse().unwrap(),
@@ -2442,8 +2797,8 @@ mod test {
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-                num_produced_blocks: 1,
-                num_expected_blocks: 1,
+                num_produced_blocks: expected_blocks[0],
+                num_expected_blocks: expected_blocks[0],
             },
             CurrentEpochValidatorInfo {
                 account_id: "test2".parse().unwrap(),
@@ -2451,8 +2806,8 @@ mod test {
                 is_slashed: false,
                 stake: TESTING_INIT_STAKE,
                 shards: vec![0],
-                num_produced_blocks: 1,
-                num_expected_blocks: 1,
+                num_produced_blocks: expected_blocks[1],
+                num_expected_blocks: expected_blocks[1],
             },
         ];
         let next_epoch_validator_info = vec![
@@ -2484,6 +2839,8 @@ mod test {
                     "test1".parse().unwrap(),
                     block_producers[0].public_key(),
                     0,
+                    #[cfg(feature = "protocol_feature_chunk_only_producers")]
+                    false,
                 )
                 .into()],
                 prev_epoch_kickout: Default::default(),
@@ -2491,14 +2848,18 @@ mod test {
                 epoch_height: 1,
             }
         );
+        expected_blocks = [0, 0];
         env.step_default(vec![]);
+        update_expected_blocks(&mut env, &mut expected_blocks);
         let response = env
             .runtime
             .get_validator_info(ValidatorInfoIdentifier::BlockHash(env.head.last_block_hash))
             .unwrap();
 
-        current_epoch_validator_info[1].num_produced_blocks = 0;
-        current_epoch_validator_info[1].num_expected_blocks = 0;
+        current_epoch_validator_info[0].num_produced_blocks = expected_blocks[0];
+        current_epoch_validator_info[0].num_expected_blocks = expected_blocks[0];
+        current_epoch_validator_info[1].num_produced_blocks = expected_blocks[1];
+        current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
         assert_eq!(response.current_validators, current_epoch_validator_info);
         assert_eq!(
             response.next_validators,
@@ -2527,12 +2888,11 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
+        let mut env = TestEnv::new_with_tracking(
             "test_validator_get_validator_info",
             vec![validators.clone(), vec![validators[0].clone()]],
             2,
-            vec![validators[1].clone()],
-            vec![],
+            TrackedConfig::Accounts(vec![validators[1].clone()]),
             true,
         );
         let block_producers: Vec<_> = validators
@@ -2608,8 +2968,6 @@ mod test {
             "test_challenges",
             vec![vec!["test1".parse().unwrap(), "test2".parse().unwrap()]],
             2,
-            vec![],
-            vec![],
             true,
         );
         env.step(
@@ -2618,15 +2976,15 @@ mod test {
             vec![SlashedValidator::new("test2".parse().unwrap(), false)],
         );
         assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, 0);
-        assert_eq!(
-            env.runtime
-                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id().clone(), x.1))
-                .collect::<Vec<_>>(),
-            vec![("test2".parse().unwrap(), true), ("test1".parse().unwrap(), false)]
-        );
+        let mut bps = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.account_id().clone(), x.1))
+            .collect::<Vec<_>>();
+        bps.sort_unstable();
+        assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
         let msg = vec![0, 1, 2];
         let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
         let signature = signer.sign(&msg);
@@ -2655,8 +3013,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_challenges", vec![validators.clone()], 3, vec![], vec![], false);
+        let mut env = TestEnv::new("test_challenges", vec![validators.clone()], 3, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2674,17 +3031,20 @@ mod test {
             vec![SlashedValidator::new("test2".parse().unwrap(), true)],
         );
         assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, TESTING_INIT_STAKE);
+        let mut bps = env
+            .runtime
+            .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.account_id().clone(), x.1))
+            .collect::<Vec<_>>();
+        bps.sort_unstable();
         assert_eq!(
-            env.runtime
-                .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
-                .unwrap()
-                .iter()
-                .map(|x| (x.0.account_id().clone(), x.1))
-                .collect::<Vec<_>>(),
+            bps,
             vec![
-                ("test3".parse().unwrap(), false),
+                ("test1".parse().unwrap(), false),
                 ("test2".parse().unwrap(), true),
-                ("test1".parse().unwrap(), false)
+                ("test3".parse().unwrap(), false)
             ]
         );
         let msg = vec![0, 1, 2];
@@ -2743,8 +3103,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+        let mut env = TestEnv::new("test_challenges", vec![validators.clone()], 5, false);
         let signers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2795,8 +3154,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_challenges", vec![validators.clone()], 5, vec![], vec![], false);
+        let mut env = TestEnv::new("test_challenges", vec![validators.clone()], 5, false);
         env.step(
             vec![vec![]],
             vec![true],
@@ -2837,14 +3195,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_fishermen_stake",
-            vec![validators.clone()],
-            4,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env = TestEnv::new("test_fishermen_stake", vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2853,7 +3204,11 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
+        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3200 * crate::NEAR_BASE + 1
+        } else {
+            TESTING_INIT_STAKE / 10 + 1
+        };
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -2909,14 +3264,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_fishermen_unstake",
-            vec![validators.clone()],
-            2,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env = TestEnv::new("test_fishermen_unstake", vec![validators.clone()], 2, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -2925,7 +3273,11 @@ mod test {
             .iter()
             .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
-        let fishermen_stake = TESTING_INIT_STAKE / 10 + 1;
+        let fishermen_stake = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            3200 * crate::NEAR_BASE + 1
+        } else {
+            TESTING_INIT_STAKE / 10 + 1
+        };
 
         let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
         env.step_default(vec![staking_transaction]);
@@ -2969,24 +3321,17 @@ mod test {
     fn test_validator_reward() {
         init_test_logger();
         let num_nodes = 4;
-        let epoch_length = 4;
-        let validators = (0..num_nodes)
-            .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
-            .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_reward",
-            vec![validators.clone()],
-            epoch_length,
-            vec![],
-            vec![],
-            true,
-        );
+        let epoch_length = 40;
+        let validators =
+            (0..num_nodes).map(|i| format!("test{}", i + 1).parse().unwrap()).collect::<Vec<_>>();
+        let mut env =
+            TestEnv::new("test_validator_reward", vec![validators.clone()], epoch_length, true);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
             .collect();
 
-        for _ in 0..5 {
+        for _ in 0..(epoch_length + 1) {
             env.step_default(vec![]);
         }
 
@@ -3012,14 +3357,8 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_validator_delete_account",
-            vec![validators.clone()],
-            4,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env =
+            TestEnv::new("test_validator_delete_account", vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3068,14 +3407,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_proposal_deduped",
-            vec![validators.clone()],
-            4,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env = TestEnv::new("test_proposal_deduped", vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3100,14 +3432,7 @@ mod test {
         let validators = (0..num_nodes)
             .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
             .collect::<Vec<_>>();
-        let mut env = TestEnv::new(
-            "test_proposal_deduped",
-            vec![validators.clone()],
-            4,
-            vec![],
-            vec![],
-            false,
-        );
+        let mut env = TestEnv::new("test_proposal_deduped", vec![validators.clone()], 4, false);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemoryValidatorSigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
@@ -3118,8 +3443,11 @@ mod test {
             .collect();
 
         let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-        let staking_transaction2 =
-            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1);
+        let staking_transaction2 = if cfg!(feature = "protocol_feature_chunk_only_producers") {
+            stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE)
+        } else {
+            stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE / 10 - 1)
+        };
         env.step_default(vec![staking_transaction1, staking_transaction2]);
         assert!(env.last_proposals.is_empty());
         let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);

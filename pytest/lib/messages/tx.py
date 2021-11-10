@@ -143,7 +143,8 @@ tx_schema = [
     ],
     [
         Receipt, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['predecessor_id', 'string'],
                 ['receiver_id', 'string'],
@@ -164,7 +165,8 @@ tx_schema = [
     ],
     [
         ActionReceipt, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['signer_id', 'string'],
                 ['signer_public_key', PublicKey],
@@ -177,10 +179,14 @@ tx_schema = [
     ],
     [
         DataReceipt, {
-            'kind': 'struct',
+            'kind':
+                'struct',
             'fields': [
                 ['data_id', [32]],
-                ['data', {'kind': 'option', 'type': ['u8']}],
+                ['data', {
+                    'kind': 'option',
+                    'type': ['u8']
+                }],
             ]
         }
     ],

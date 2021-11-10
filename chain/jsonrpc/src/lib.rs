@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::time::Duration;
 
 use actix::Addr;
@@ -18,16 +20,42 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, Query, Status, TxStatus,
     TxStatusError, ViewClientActor,
 };
+#[cfg(feature = "test_features")]
+use near_jsonrpc_adversarial_primitives::SetAdvOptionsRequest;
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
+use near_jsonrpc_adversarial_primitives::SetRoutingTableRequest;
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
+use near_jsonrpc_adversarial_primitives::StartRoutingTableSyncRequest;
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_metrics::{Encoder, TextEncoder};
-#[cfg(feature = "adversarial")]
-use near_network::types::{NetworkAdversarialMessage, NetworkViewClientMessages};
+#[cfg(feature = "test_features")]
+use near_network::routing::routing::GetRoutingTableResult;
+#[cfg(feature = "test_features")]
+use near_network::types::{
+    GetPeerId, NetworkAdversarialMessage, NetworkViewClientMessages, PeerManagerMessageRequest,
+    SetAdvOptions,
+};
 #[cfg(feature = "sandbox")]
 use near_network::types::{NetworkSandboxMessage, SandboxResponse};
+#[cfg(all(
+    feature = "test_features",
+    feature = "protocol_feature_routing_exchange_algorithm"
+))]
+use near_network::types::{SetRoutingTable, StartRoutingTableSync};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
+#[cfg(feature = "test_features")]
+use near_network::{
+    PeerManagerActor, RoutingTableActor, RoutingTableMessages, RoutingTableMessagesResponse,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
@@ -92,7 +120,7 @@ impl RpcConfig {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -102,7 +130,7 @@ fn parse_params<T: serde::de::DeserializeOwned>(value: Option<Value>) -> Result<
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 fn jsonify<T: serde::Serialize>(
     response: Result<Result<T, String>, actix::MailboxError>,
 ) -> Result<Value, RpcError> {
@@ -201,6 +229,10 @@ struct JsonRpcHandler {
     view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
     genesis_config: GenesisConfig,
+    #[cfg(feature = "test_features")]
+    peer_manager_addr: Addr<PeerManagerActor>,
+    #[cfg(feature = "test_features")]
+    routing_table_addr: Addr<RoutingTableActor>,
 }
 
 impl JsonRpcHandler {
@@ -223,7 +255,7 @@ impl JsonRpcHandler {
             &[request.method.as_ref()],
         );
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             let params = request.params.clone();
 
@@ -236,6 +268,87 @@ impl JsonRpcHandler {
                 "adv_switch_to_height" => Some(self.adv_switch_to_height(params).await),
                 "adv_get_saved_blocks" => Some(self.adv_get_saved_blocks(params).await),
                 "adv_check_store" => Some(self.adv_check_store(params).await),
+                "adv_set_options" => {
+                    let params = parse_params::<SetAdvOptionsRequest>(params)?;
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::SetAdvOptions(SetAdvOptions {
+                            disable_edge_signature_verification: params
+                                .disable_edge_signature_verification,
+                            disable_edge_propagation: params.disable_edge_propagation,
+                            disable_edge_pruning: params.disable_edge_pruning,
+                            set_max_peers: None,
+                        }))
+                        .await?;
+                    Some(
+                        serde_json::to_value(())
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                "adv_set_routing_table" => {
+                    let request = SetRoutingTableRequest::parse(params)?;
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::SetRoutingTable(SetRoutingTable {
+                            add_edges: request.add_edges,
+                            remove_edges: request.remove_edges,
+                            prune_edges: request.prune_edges,
+                        }))
+                        .await?;
+                    Some(
+                        serde_json::to_value(())
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
+                "adv_start_routing_table_syncv2" => {
+                    let params = parse_params::<StartRoutingTableSyncRequest>(params)?;
+
+                    self.peer_manager_addr
+                        .send(PeerManagerMessageRequest::StartRoutingTableSync(
+                            StartRoutingTableSync { peer_id: params.peer_id },
+                        ))
+                        .await?;
+                    Some(
+                        serde_json::to_value(())
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                "adv_get_peer_id" => {
+                    let response = self
+                        .peer_manager_addr
+                        .send(PeerManagerMessageRequest::GetPeerId(GetPeerId {}))
+                        .await?;
+                    Some(
+                        serde_json::to_value(response.as_peer_id_result())
+                            .map_err(|err| RpcError::serialization_error(err.to_string())),
+                    )
+                }
+                "adv_get_routing_table" => {
+                    let result = self
+                        .routing_table_addr
+                        .send(RoutingTableMessages::RequestRoutingTable)
+                        .await?;
+
+                    match result {
+                        RoutingTableMessagesResponse::RequestRoutingTableResponse {
+                            edges_info: routing_table,
+                        } => {
+                            let response = {
+                                GetRoutingTableResult {
+                                    edges_info: routing_table
+                                        .iter()
+                                        .map(|x| x.to_simple_edge())
+                                        .collect(),
+                                }
+                            };
+                            Some(
+                                serde_json::to_value(response)
+                                    .map_err(|err| RpcError::serialization_error(err.to_string())),
+                            )
+                        }
+                        _ => None,
+                    }
+                }
                 _ => None,
             };
 
@@ -351,7 +464,7 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes" => {
                 let rpc_state_changes_request =
-                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest::parse(
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest::parse(
                         request.params,
                     )?;
                 let state_changes =
@@ -361,7 +474,7 @@ impl JsonRpcHandler {
             }
             "EXPERIMENTAL_changes_in_block" => {
                 let rpc_state_changes_request =
-                    near_jsonrpc_primitives::types::changes::RpcStateChangesRequest::parse(
+                    near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest::parse(
                         request.params,
                     )?;
                 let state_changes = self.changes_in_block(rpc_state_changes_request).await?;
@@ -840,9 +953,9 @@ impl JsonRpcHandler {
 
     async fn changes_in_block(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesRequest,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
         let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
@@ -850,7 +963,7 @@ impl JsonRpcHandler {
         let block_hash = block.header.hash.clone();
         let changes = self.view_client_addr.send(GetStateChangesInBlock { block_hash }).await??;
 
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeResponse {
             block_hash: block.header.hash,
             changes,
         })
@@ -858,9 +971,9 @@ impl JsonRpcHandler {
 
     async fn changes_in_block_by_type(
         &self,
-        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockRequest,
+        request: near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockByTypeRequest,
     ) -> Result<
-        near_jsonrpc_primitives::types::changes::RpcStateChangesResponse,
+        near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse,
         near_jsonrpc_primitives::types::changes::RpcStateChangesError,
     > {
         let block = self.view_client_addr.send(GetBlock(request.block_reference.into())).await??;
@@ -874,7 +987,7 @@ impl JsonRpcHandler {
             })
             .await??;
 
-        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesResponse {
+        Ok(near_jsonrpc_primitives::types::changes::RpcStateChangesInBlockResponse {
             block_hash: block.header.hash,
             changes,
         })
@@ -1015,7 +1128,7 @@ impl JsonRpcHandler {
     }
 }
 
-#[cfg(feature = "adversarial")]
+#[cfg(feature = "test_features")]
 impl JsonRpcHandler {
     async fn adv_set_sync_info(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let height = parse_params::<u64>(params)?;
@@ -1202,18 +1315,32 @@ fn get_cors(cors_allowed_origins: &[String]) -> Cors {
         .max_age(3600)
 }
 
+/// Starts HTTP server(s) listening for RPC requests.
+///
+/// Starts an HTTP server which handles JSON RPC calls as well as states
+/// endpoints such as `/status`, `/health`, `/metrics` etc.  Depending on
+/// configuration may also start another HTTP server just for providing
+/// Prometheus metrics (i.e. covering the `/metrics` path).
+///
+/// Returns a vector of servers that have been started.  Each server is returned
+/// as a tuple containing a name of the server (e.g. `"JSON RPC"`) which can be
+/// used in diagnostic messages and a [`actix_web::dev::Server`] object which
+/// can be used to control the server (most notably stop it).
 pub fn start_http(
     config: RpcConfig,
     genesis_config: GenesisConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-) {
+    #[cfg(feature = "test_features")] peer_manager_addr: Addr<PeerManagerActor>,
+    #[cfg(feature = "test_features")] routing_table_addr: Addr<RoutingTableActor>,
+) -> Vec<(&'static str, actix_web::dev::Server)> {
     let RpcConfig { addr, prometheus_addr, cors_allowed_origins, polling_config, limits_config } =
         config;
     let prometheus_addr = prometheus_addr.filter(|it| it != &addr);
     let cors_allowed_origins_clone = cors_allowed_origins.clone();
     info!(target:"network", "Starting http server at {}", addr);
-    HttpServer::new(move || {
+    let mut servers = Vec::new();
+    let server = HttpServer::new(move || {
         App::new()
             .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
@@ -1221,6 +1348,10 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),
+                #[cfg(feature = "test_features")]
+                peer_manager_addr: peer_manager_addr.clone(),
+                #[cfg(feature = "test_features")]
+                routing_table_addr: routing_table_addr.clone(),
             })
             .app_data(web::JsonConfig::default().limit(limits_config.json_payload_max_size))
             .wrap(middleware::Logger::default())
@@ -1242,13 +1373,16 @@ pub fn start_http(
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)
+    .disable_signals()
     .run();
+
+    servers.push(("JSON RPC", server));
 
     if let Some(prometheus_addr) = prometheus_addr {
         info!(target:"network", "Starting http monitoring server at {}", prometheus_addr);
         // Export only the /metrics service. It's a read-only service and can have very relaxed
         // access restrictions.
-        HttpServer::new(move || {
+        let server = HttpServer::new(move || {
             App::new()
                 .wrap(get_cors(&cors_allowed_origins_clone))
                 .wrap(middleware::Logger::default())
@@ -1258,6 +1392,10 @@ pub fn start_http(
         .unwrap()
         .workers(2)
         .shutdown_timeout(5)
+        .disable_signals()
         .run();
+        servers.push(("Prometheus Metrics", server));
     }
+
+    servers
 }
