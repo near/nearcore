@@ -74,16 +74,13 @@ impl GasCounter {
         is_view: bool,
     ) -> Self {
         use std::cmp::min;
+        // Ignore prepaid gas limit when in view.
+        let prepaid_gas = if is_view { Gas::MAX } else { prepaid_gas };
         Self {
             ext_costs_config,
             fast_counter: FastGasCounter {
                 burnt_gas: 0,
-                gas_limit: if is_view {
-                    // Ignore prepaid gas limit and promises.
-                    max_gas_burnt
-                } else {
-                    min(max_gas_burnt, prepaid_gas)
-                },
+                gas_limit: min(max_gas_burnt, prepaid_gas),
                 opcode_cost: Gas::from(opcode_cost),
             },
             max_gas_burnt: max_gas_burnt,
@@ -94,6 +91,9 @@ impl GasCounter {
         }
     }
 
+    /// Accounts for burnt and used gas; reports an error if max gas burnt or
+    /// prepaid gas limit is crossed.  Panics when trying to burn more gas than
+    /// being used, i.e. if `burn_gas > use_gas`.
     fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
         assert!(burn_gas <= use_gas);
         let promise_gas = use_gas - burn_gas;
@@ -103,8 +103,7 @@ impl GasCounter {
             self.fast_counter.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             new_burnt_gas.checked_add(new_promises_gas).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.max_gas_burnt && (self.is_view || new_used_gas <= self.prepaid_gas)
-        {
+        if new_burnt_gas <= self.max_gas_burnt && new_used_gas <= self.prepaid_gas {
             use std::cmp::min;
             if promise_gas != 0 && !self.is_view {
                 self.fast_counter.gas_limit =
@@ -266,12 +265,16 @@ impl GasCounter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use near_primitives_core::config::ExtCostsConfig;
+    use crate::HostError;
+    use near_primitives_core::types::Gas;
+
+    fn make_test_counter(max_burnt: Gas, prepaid: Gas, is_view: bool) -> super::GasCounter {
+        super::GasCounter::new(Default::default(), max_burnt, 1, prepaid, is_view)
+    }
 
     #[test]
     fn test_deduct_gas() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 10, 1, 10, false);
+        let mut counter = make_test_counter(10, 10, false);
         counter.deduct_gas(5, 10).expect("deduct_gas should work");
         assert_eq!(counter.burnt_gas(), 5);
         assert_eq!(counter.used_gas(), 10);
@@ -279,8 +282,50 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_prepaid_gas_min() {
-        let mut counter = GasCounter::new(ExtCostsConfig::default(), 100, 1, 10, false);
-        counter.deduct_gas(10, 5).unwrap();
+    fn test_burn_gas_must_be_lt_use_gas() {
+        let _ = make_test_counter(10, 10, false).deduct_gas(5, 2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_burn_gas_must_be_lt_use_gas_view() {
+        let _ = make_test_counter(10, 10, true).deduct_gas(5, 2);
+    }
+
+    #[test]
+    fn test_burn_too_much() {
+        fn test(burn: Gas, prepaid: Gas, view: bool, want: Result<(), HostError>) {
+            let mut counter = make_test_counter(burn, prepaid, view);
+            assert_eq!(counter.burn_gas(5), Ok(()));
+            assert_eq!(counter.burn_gas(3), want.map_err(Into::into));
+        }
+
+        test(5, 7, false, Err(HostError::GasExceeded));
+        test(5, 7, true, Err(HostError::GasLimitExceeded));
+        test(5, 5, false, Err(HostError::GasExceeded));
+        test(5, 5, true, Err(HostError::GasLimitExceeded));
+        test(7, 5, false, Err(HostError::GasExceeded));
+        test(7, 5, true, Err(HostError::GasLimitExceeded));
+    }
+
+    #[test]
+    fn test_deduct_too_much() {
+        fn test(burn: Gas, prepaid: Gas, view: bool, want: Result<(), HostError>) {
+            let mut counter = make_test_counter(burn, prepaid, view);
+            assert_eq!(counter.deduct_gas(5, 5), Ok(()));
+            assert_eq!(counter.deduct_gas(3, 3), want.map_err(Into::into));
+        }
+
+        test(5, 7, false, Err(HostError::GasExceeded));
+        test(5, 7, true, Err(HostError::GasLimitExceeded));
+        test(5, 5, false, Err(HostError::GasExceeded));
+        test(5, 5, true, Err(HostError::GasLimitExceeded));
+        test(7, 5, false, Err(HostError::GasExceeded));
+        test(7, 5, true, Err(HostError::GasLimitExceeded));
+
+        test(5, 8, false, Err(HostError::GasLimitExceeded));
+        test(5, 8, true, Err(HostError::GasLimitExceeded));
+        test(8, 5, false, Err(HostError::GasExceeded));
+        test(8, 5, true, Ok(()));
     }
 }
