@@ -82,22 +82,21 @@ impl<T> ActixMessageWrapper<T> {
 #[derive(Clone, Debug)]
 pub struct RateLimiterHelper {
     // Total count of all messages that are tracked by `RateLimiterHelper`
-    pub num_messages_in_progress: Arc<AtomicUsize>,
+    num_messages_in_progress: Arc<AtomicUsize>,
     // Total size of all messages that are tracked by `RateLimiterHelper`
-    pub total_sizeof_messages_in_progress: Arc<AtomicUsize>,
+    total_sizeof_messages_in_progress: Arc<AtomicUsize>,
     // We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
     // This is the sender part, which is used to notify `ThrottledRateLimiter` to try to
     // read again from queue.
-    pub tx: UnboundedSender<()>,
+    tx: UnboundedSender<()>,
 }
 
-/// `RateLimiterHelper` is a helper data structure that stores message count/total memory
-/// limits per Peer. It controls whenever associated `ThrottleFramedReader` is able to read
-/// from TcpSocket. It accepts `tx` as argument, which is used to notify `ThrottleFramedReader`
-/// to wake up and consider reading again. That happens when a message is removed, and limits
-/// are increased.
 impl RateLimiterHelper {
     // Initialize `RateLimiterHelper`.
+    //
+    // Arguments:
+    // - tx - `tx` is used to notify `ThrottleFramedReader` to wake up and consider reading again.
+    //        That happens when a message is removed, and limits are increased.
     pub fn new(tx: UnboundedSender<()>) -> Self {
         Self {
             num_messages_in_progress: Arc::new(AtomicUsize::new(0)),
@@ -107,7 +106,7 @@ impl RateLimiterHelper {
     }
 
     // Check whenever
-    pub fn is_ready(&self) -> bool {
+    fn is_ready(&self) -> bool {
         self.num_messages_in_progress.load(Ordering::SeqCst) < MAX_MESSAGES_COUNT
             && self.total_sizeof_messages_in_progress.load(Ordering::SeqCst)
                 < MAX_MESSAGES_TOTAL_SIZE
@@ -245,13 +244,7 @@ where
             // get a spurious 0 that looks like EOF
             state.buffer.reserve(1);
 
-            let bytect = match poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)? {
-                Poll::Ready(ct) => ct,
-                // We are waiting for more data on TCP socket.
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
-            };
+            let bytect = ready!(poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)?);
 
             if bytect == 0 {
                 state.eof = true;
