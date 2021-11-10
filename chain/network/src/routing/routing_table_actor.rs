@@ -526,6 +526,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     };
                 // Only keep local edges
                 edges_removed.retain(|p| p.contains_peer(&self.my_peer_id()));
+
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     // PeerManager maintains list of local edges. We will notify `PeerManager`
                     // to remove those edges.
