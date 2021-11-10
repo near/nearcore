@@ -148,15 +148,11 @@ impl GasCounter {
         assert!(used_gas_limit >= self.fast_counter.burnt_gas);
         self.promises_gas = used_gas_limit - self.fast_counter.burnt_gas;
 
-        // If we crossed both limits prefer reporting the one which is lower.
-        // If both limits are the same arbitrarily prefer reporting burnt limit.
-        let report_burnt = if over_burnt != over_used {
-            over_burnt
-        } else {
-            debug_assert!(over_burnt && over_used);
-            self.max_gas_burnt <= self.prepaid_gas
-        };
-        if report_burnt { HostError::GasLimitExceeded } else { HostError::GasExceeded }.into()
+        // If we crossed both limits prefer reporting GasLimitExceeded.
+        // Alternative would be to prefer reporting limit that is lower (or
+        // perhaps even some other heuristic) but old code preferred
+        // GasLimitExceeded and we’re keeping compatibility with that.
+        if over_burnt { HostError::GasLimitExceeded } else { HostError::GasExceeded }.into()
     }
 
     pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
@@ -312,7 +308,7 @@ mod tests {
         test(5, 7, true, Err(HostError::GasLimitExceeded));
         test(5, 5, false, Err(HostError::GasLimitExceeded));
         test(5, 5, true, Err(HostError::GasLimitExceeded));
-        test(7, 5, false, Err(HostError::GasExceeded));
+        test(7, 5, false, Err(HostError::GasLimitExceeded));
         test(7, 5, true, Err(HostError::GasLimitExceeded));
     }
 
@@ -328,7 +324,7 @@ mod tests {
         test(5, 7, true, Err(HostError::GasLimitExceeded));
         test(5, 5, false, Err(HostError::GasLimitExceeded));
         test(5, 5, true, Err(HostError::GasLimitExceeded));
-        test(7, 5, false, Err(HostError::GasExceeded));
+        test(7, 5, false, Err(HostError::GasLimitExceeded));
         test(7, 5, true, Err(HostError::GasLimitExceeded));
 
         test(5, 8, false, Err(HostError::GasLimitExceeded));
