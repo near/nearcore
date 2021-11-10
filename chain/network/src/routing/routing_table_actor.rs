@@ -516,7 +516,7 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 )
             }
             RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_not_reachable_for } => {
-                let edges_removed =
+                let mut edges_removed =
                     if self.needs_routing_table_recalculation || prune == Prune::PruneNow {
                         self.needs_routing_table_recalculation = false;
                         self.recalculate_routing_table();
@@ -524,14 +524,13 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                     } else {
                         Vec::new()
                     };
+                // Only keep local edges
+                edges_removed.retain(|p| p.contains_peer(&self.my_peer_id()));
+
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     // PeerManager maintains list of local edges. We will notify `PeerManager`
                     // to remove those edges.
-                    edges_to_remove: edges_removed
-                        .iter()
-                        .filter(|p| p.contains_peer(&self.my_peer_id()))
-                        .cloned()
-                        .collect(),
+                    edges_to_remove: edges_removed,
                     peer_forwarding: self.peer_forwarding.clone(),
                 }
             }
