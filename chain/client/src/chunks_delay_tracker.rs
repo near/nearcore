@@ -53,7 +53,7 @@ impl ChunksDelayTracker {
             return;
         }
         let mut max_delay = 0;
-        for (_, v) in self.heights.range(RangeToInclusive { end: head_height }) {
+        for (_, v) in self.heights.range(..=head_height) {
             if let Some(block_received) = v.block_received {
                 if let Some(latest_chunk) = v.chunks_received.values().max() {
                     if latest_chunk > &block_received {
