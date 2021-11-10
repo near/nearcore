@@ -232,15 +232,7 @@ impl RoutingTableActor {
     }
 
     /// Recalculate routing table and update list of reachable peers.
-    /// If pruning is enabled we will remove unused edges and store them to disk.
-    ///
-    /// # Returns
-    /// List of edges removed.
-    pub fn recalculate_routing_table_and_maybe_prune_edges(
-        &mut self,
-        prune: Prune,
-        prune_edges_not_reachable_for: Duration,
-    ) -> Vec<Edge> {
+    pub fn recalculate_routing_table(&mut self) {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -255,18 +247,30 @@ impl RoutingTableActor {
             self.peer_last_time_reachable.insert(peer.clone(), now);
         }
 
-        let edges_to_remove = if prune != Prune::Disable {
-            self.prune_unreachable_edges_and_save_to_db(
-                prune == Prune::PruneNow,
-                prune_edges_not_reachable_for,
-            )
-        } else {
-            Vec::new()
-        };
-        self.remove_edges(&edges_to_remove);
-
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
+    }
+
+    /// If pruning is enabled we will remove unused edges and store them to disk.
+    ///
+    /// # Returns
+    /// List of edges removed.
+    pub fn prune_edges(
+        &mut self,
+        prune: Prune,
+        prune_edges_not_reachable_for: Duration,
+    ) -> Vec<Edge> {
+        if prune == Prune::Disable {
+            return Vec::new();
+        }
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("pruning edges".into());
+
+        let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
+            prune == Prune::PruneNow,
+            prune_edges_not_reachable_for,
+        );
+        self.remove_edges(&edges_to_remove);
         edges_to_remove
     }
 
@@ -511,15 +515,10 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 )
             }
             RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_not_reachable_for } => {
-                let edges_removed =
-                    if self.needs_routing_table_recalculation || prune == Prune::PruneNow {
-                        self.recalculate_routing_table_and_maybe_prune_edges(
-                            prune,
-                            prune_edges_not_reachable_for,
-                        )
-                    } else {
-                        Vec::new()
-                    };
+                if self.needs_routing_table_recalculation {
+                    self.recalculate_routing_table();
+                }
+                let edges_removed = self.prune_edges(prune, prune_edges_not_reachable_for);
                 self.needs_routing_table_recalculation = false;
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     // PeerManager maintains list of local edges. We will notify `PeerManager`
