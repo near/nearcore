@@ -301,13 +301,13 @@ pub trait Decoder {
 
 #[cfg(test)]
 mod tests {
-    use crate::framed_read::MAX_MESSAGES_COUNT;
+    use crate::framed_read::{MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE};
     use crate::RateLimiterHelper;
     use std::sync::atomic::Ordering::SeqCst;
     use tokio::sync::mpsc;
 
     #[test]
-    fn test_rate_limiter_helper() {
+    fn test_rate_limiter_helper_by_count() {
         let (tx, _rx) = mpsc::unbounded_channel::<()>();
         let mut rate_limiter = RateLimiterHelper::new(tx);
 
@@ -336,6 +336,43 @@ mod tests {
 
         for _ in 0..MAX_MESSAGES_COUNT {
             rate_limiter.remove_msg(100);
+            assert_eq!(rate_limiter.is_ready(), true);
+        }
+
+        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 0);
+        assert_eq!(rate_limiter.total_sizeof_messages_in_progress.load(SeqCst), 0);
+    }
+
+    #[test]
+    fn test_rate_limiter_helper_by_size() {
+        let (tx, _rx) = mpsc::unbounded_channel::<()>();
+        let mut rate_limiter = RateLimiterHelper::new(tx);
+
+        for _ in 0..8 {
+            assert_eq!(rate_limiter.is_ready(), true);
+            rate_limiter.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+        }
+        assert_eq!(rate_limiter.is_ready(), false);
+
+        for _ in 0..8 {
+            rate_limiter.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+        }
+
+        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 2 * 8);
+        assert_eq!(
+            rate_limiter.total_sizeof_messages_in_progress.load(SeqCst),
+            2 * MAX_MESSAGES_TOTAL_SIZE
+        );
+
+        for _ in 0..8 {
+            assert_eq!(rate_limiter.is_ready(), false);
+            rate_limiter.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+        }
+
+        assert_eq!(rate_limiter.is_ready(), false);
+
+        for _ in 0..8 {
+            rate_limiter.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
             assert_eq!(rate_limiter.is_ready(), true);
         }
 
