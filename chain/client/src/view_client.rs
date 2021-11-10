@@ -29,10 +29,10 @@ use near_client_primitives::types::{
 #[cfg(feature = "test_features")]
 use near_network::types::NetworkAdversarialMessage;
 use near_network::types::{
-    NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
+    NetworkViewClientMessages, NetworkViewClientResponses, PeerManagerMessageRequest, ReasonForBan,
+    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
-use near_network::{NetworkAdapter, NetworkRequests};
+use near_network::{NetworkRequests, PeerManagerAdapter};
 use near_performance_metrics_macros::perf;
 use near_performance_metrics_macros::perf_with_debug;
 use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
@@ -99,7 +99,7 @@ pub struct ViewClientActor {
     validator_account_id: Option<AccountId>,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     pub config: ClientConfig,
     request_manager: Arc<RwLock<ViewClientRequestManager>>,
     state_request_cache: Arc<Mutex<VecDeque<Instant>>>,
@@ -125,7 +125,7 @@ impl ViewClientActor {
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         config: ClientConfig,
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
@@ -346,8 +346,9 @@ impl ViewClientActor {
                         .chain
                         .find_validator_for_forwarding(dst_shard_id)
                         .map_err(|e| TxStatusError::ChainError(e))?;
-                    self.network_adapter
-                        .do_send(NetworkRequests::ReceiptOutComeRequest(validator, receipt_id));
+                    self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::ReceiptOutComeRequest(validator, receipt_id),
+                    ));
                 }
             }
         }
@@ -447,10 +448,8 @@ impl ViewClientActor {
                     .find_validator_for_forwarding(target_shard_id)
                     .map_err(|e| TxStatusError::ChainError(e))?;
 
-                self.network_adapter.do_send(NetworkRequests::TxStatus(
-                    validator,
-                    signer_account_id,
-                    tx_hash,
+                self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
                 ));
             }
         }
@@ -1326,7 +1325,7 @@ pub fn start_view_client(
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     config: ClientConfig,
     #[cfg(feature = "test_features")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> Addr<ViewClientActor> {

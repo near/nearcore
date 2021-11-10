@@ -120,6 +120,7 @@ impl<'a> VMLogic<'a> {
         let gas_counter = GasCounter::new(
             config.ext_costs.clone(),
             max_gas_burnt,
+            config.regular_op_cost,
             context.prepaid_gas,
             context.is_view(),
         );
@@ -1052,9 +1053,8 @@ impl<'a> VMLogic<'a> {
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
-    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        let value = Gas::from(gas_amount) * Gas::from(self.config.regular_op_cost);
-        self.gas_counter.pay_wasm_gas(value)
+    pub fn gas(&mut self, opcodes: u32) -> Result<()> {
+        self.gas_counter.pay_wasm_gas(opcodes)
     }
 
     // ################
@@ -2516,7 +2516,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct VMOutcome {
     pub balance: Balance,
     pub storage_usage: StorageUsage,
@@ -2526,19 +2526,6 @@ pub struct VMOutcome {
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileData,
-}
-
-// Compare VMOutcome skip profile data. Practically it's not possible to have burnt_gas and used_gas
-// same while profile doesn't match and this simplifies tests that compare VMOutcomes.
-impl PartialEq for VMOutcome {
-    fn eq(&self, other: &VMOutcome) -> bool {
-        self.balance == other.balance
-            && self.storage_usage == other.storage_usage
-            && self.return_data == other.return_data
-            && self.burnt_gas == other.burnt_gas
-            && self.used_gas == other.used_gas
-            && self.logs == other.logs
-    }
 }
 
 impl std::fmt::Debug for VMOutcome {

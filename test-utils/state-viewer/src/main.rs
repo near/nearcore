@@ -14,7 +14,7 @@ use near_chain::types::{ApplyTransactionResult, BlockHeaderInfo};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, RuntimeAdapter};
 use near_epoch_manager::EpochManager;
 use near_logger_utils::init_integration_logger;
-use near_network::peer_store::PeerStore;
+use near_network::peer_manager::peer_store::PeerStore;
 use near_primitives::block::BlockHeader;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -501,6 +501,13 @@ fn main() {
                         .default_value("0")
                         .takes_value(true),
                 )
+                .arg(
+                    Arg::with_name("verbose_output")
+                        .long("verbose_output")
+                        .required(false)
+                        .takes_value(false),
+                )
+                .arg(Arg::with_name("csv_file").long("csv_file").required(false).takes_value(true))
                 .help("apply blocks at a range of heights for a single shard"),
         )
         .subcommand(
@@ -671,6 +678,12 @@ fn main() {
             let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap());
             let shard_id =
                 args.value_of("shard_id").map(|s| s.parse::<u64>().unwrap()).unwrap_or_default();
+            let verbose_output = args.is_present("verbose_output");
+            let csv_filename = args.value_of("csv_file");
+            let mut csv_file = None;
+            if let Some(filename) = csv_filename {
+                csv_file = Some(std::fs::File::create(filename).unwrap());
+            }
 
             let runtime = NightshadeRuntime::with_config(
                 &home_dir,
@@ -686,6 +699,8 @@ fn main() {
                 end_index,
                 shard_id,
                 runtime,
+                verbose_output,
+                csv_file.as_mut(),
             );
         }
         ("view_chain", Some(args)) => {

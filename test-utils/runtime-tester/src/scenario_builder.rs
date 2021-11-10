@@ -2,7 +2,7 @@ use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, Trans
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::{
     transaction::Action,
-    types::{AccountId, BlockHeight, Gas, Nonce},
+    types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce},
 };
 
 use std::str::FromStr;
@@ -47,7 +47,11 @@ impl ScenarioBuilder {
     /// Default `use_in_memory_store` -- true.
     pub fn new() -> Self {
         let network_config = NetworkConfig { seeds: (0..4).map(|x| id_to_seed(x)).collect() };
-        let runtime_config = RuntimeConfig { max_total_prepaid_gas: 300 * 10u64.pow(12) };
+        let runtime_config = RuntimeConfig {
+            max_total_prepaid_gas: 300 * 10u64.pow(12),
+            gas_limit: 1_000_000_000_000_000,
+            epoch_length: 500,
+        };
 
         ScenarioBuilder {
             height: 1,
@@ -71,6 +75,18 @@ impl ScenarioBuilder {
     /// Changes max_total_prepaid_gas
     pub fn max_total_prepaid_gas(mut self, max_total_prepaid_gas: Gas) -> Self {
         self.scenario.runtime_config.max_total_prepaid_gas = max_total_prepaid_gas;
+        self
+    }
+
+    /// Changes gas_limit
+    pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
+        self.scenario.runtime_config.gas_limit = gas_limit;
+        self
+    }
+
+    /// Changes epoch_length
+    pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
+        self.scenario.runtime_config.epoch_length = epoch_length;
         self
     }
 
