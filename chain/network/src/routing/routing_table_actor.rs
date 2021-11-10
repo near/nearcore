@@ -236,9 +236,6 @@ impl RoutingTableActor {
 
     /// Recalculate routing table and update list of reachable peers.
     pub fn recalculate_routing_table(&mut self) {
-        if !self.needs_routing_table_recalculation {
-            return;
-        }
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("routing table update".into());
         let _routing_table_recalculation =
@@ -524,8 +521,13 @@ impl Handler<RoutingTableMessages> for RoutingTableActor {
                 )
             }
             RoutingTableMessages::RoutingTableUpdate { prune, prune_edges_not_reachable_for } => {
-                self.recalculate_routing_table();
-                let edges_removed = self.prune_edges(prune, prune_edges_not_reachable_for);
+                let edges_removed =
+                    if self.needs_routing_table_recalculation || prune == Prune::PruneNow {
+                        self.recalculate_routing_table();
+                        self.prune_edges(prune, prune_edges_not_reachable_for)
+                    } else {
+                        Vec::new()
+                    };
                 self.needs_routing_table_recalculation = false;
                 RoutingTableMessagesResponse::RoutingTableUpdateResponse {
                     // PeerManager maintains list of local edges. We will notify `PeerManager`
