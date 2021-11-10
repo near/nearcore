@@ -1,9 +1,9 @@
 use std::borrow::BorrowMut;
-use std::io;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::{io, task};
 
 use bytes::BytesMut;
 use futures_core::{ready, Stream};
@@ -209,6 +209,9 @@ where
         let mut pinned = self.project();
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
+            while let task::Poll::Ready(_) = pinned.receiver.poll_recv(cx) {
+                // pop all elements from queue, to prevent memory leak
+            }
             while !pinned.rate_limiter.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
@@ -246,9 +249,6 @@ where
                 Poll::Ready(ct) => ct,
                 // We are waiting for more data on TCP socket.
                 Poll::Pending => {
-                    while let Some(_) = ready!(pinned.receiver.poll_recv(cx)) {
-                        // pop all elements from queue, to prevent memory leak
-                    }
                     return Poll::Pending;
                 }
             };
