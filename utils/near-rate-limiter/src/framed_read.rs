@@ -210,6 +210,8 @@ where
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
             if !pinned.rate_limiter.is_ready() {
+                // This will cause us to subscribe to notifier when something gets pushed to
+                // `pinned.receiver`. If there is an element in the queue, we will check again.
                 ready!(pinned.receiver.poll_recv(cx));
             }
 
@@ -250,7 +252,13 @@ where
 
             let bytect = match poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)? {
                 Poll::Ready(ct) => ct,
-                Poll::Pending => return Poll::Pending,
+                // We are waiting for more data on TCP socket.
+                Poll::Pending => {
+                    while let Some(_) = ready!(pinned.receiver.poll_recv(cx)) {
+                        // pop all elements from queue, to prevent memory leak
+                    }
+                    return Poll::Pending;
+                }
             };
 
             if bytect == 0 {
