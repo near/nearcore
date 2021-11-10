@@ -301,13 +301,6 @@ mod tests {
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
-
-        actix::System::new().block_on(async {
-            for _ in 0..2 * MAX_MESSAGES_COUNT {
-                rx.recv().await.unwrap();
-            }
-            assert_eq!(rx.try_recv().is_err(), true);
-        });
     }
 
     #[test]
@@ -345,12 +338,5 @@ mod tests {
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
-
-        actix::System::new().block_on(async {
-            for _ in 0..16 {
-                rx.recv().await.unwrap();
-            }
-            assert_eq!(rx.try_recv().is_err(), true);
-        });
     }
 }
