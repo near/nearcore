@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use near_crypto::Signature;
 
@@ -21,6 +21,7 @@ use std::sync::Arc;
     BorshSerialize,
     BorshDeserialize,
     Serialize,
+    Deserialize,
     Hash,
     Eq,
     PartialEq,
@@ -931,7 +932,7 @@ impl EncodedShardChunkBody {
 }
 
 #[derive(BorshSerialize, Debug, Clone)]
-pub struct ReceiptList<'a>(pub ShardId, pub &'a Vec<Receipt>);
+pub struct ReceiptList<'a>(pub ShardId, pub &'a [Receipt]);
 
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
@@ -1101,7 +1102,12 @@ impl EncodedShardChunk {
         gas_limit: Gas,
         balance_burnt: Balance,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        #[cfg(feature = "protocol_feature_block_header_v3")] validator_proposals: Vec<
+            ValidatorStake,
+        >,
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))] validator_proposals: Vec<
+            ValidatorStakeV1,
+        >,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &Vec<Receipt>,
         outgoing_receipts_root: CryptoHash,
@@ -1288,7 +1294,7 @@ const RS_TTL: u64 = 2 * 1024;
 
 /// Wrapper around reed solomon which occasionally resets the underlying
 /// reed solomon instead to work around the memory leak in reed solomon
-/// implementation https://github.com/darrenldl/reed-solomon-erasure/issues/74.
+/// implementation <https://github.com/darrenldl/reed-solomon-erasure/issues/74>
 pub struct ReedSolomonWrapper {
     rs: ReedSolomon,
     ttl: u64,

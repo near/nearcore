@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::StateRoot;
+use tracing::error;
 
 use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
@@ -72,7 +73,7 @@ impl Trie {
 
     /// Part part_id has nodes with paths [ path(part_id) .. path(part_id + 1) )
     /// path is returned as nibbles, last path is vec![16], previous paths end in nodes
-    fn find_path_for_part_boundary(
+    pub(crate) fn find_path_for_part_boundary(
         &self,
         state_root: &StateRoot,
         part_id: u64,
@@ -128,6 +129,19 @@ impl Trie {
                         return Ok(true);
                     }
                 }
+                // This line should not be reached if node.memory_usage > size_start
+                // To avoid changing production behavior, I'm just adding a debug_assert here
+                // to indicate that
+                debug_assert!(
+                    false,
+                    "This should not be reached target size {} node memory usage {} size skipped {}",
+                    size_start, node.memory_usage, size_skipped,
+                );
+                error!(
+                    target: "state_parts",
+                    "This should not be reached target size {} node memory usage {} size skipped {}",
+                    size_start, node.memory_usage, size_skipped,
+                );
                 key_nibbles.push(16u8);
                 Ok(false)
             }
@@ -144,7 +158,11 @@ impl Trie {
         }
     }
 
+    // find the first node so that including this node, the traversed size is larger than size
     fn find_path(&self, root_node: &TrieNodeWithSize, size: u64) -> Result<Vec<u8>, StorageError> {
+        if root_node.memory_usage <= size {
+            return Ok(vec![16u8]);
+        }
         let mut key_nibbles: Vec<u8> = Vec::new();
         let mut node = root_node.clone();
         let mut size_skipped = 0u64;
@@ -256,6 +274,7 @@ mod tests {
     use crate::trie::{TrieRefcountChange, ValueHandle};
 
     use super::*;
+    use near_primitives::shard_layout::ShardUId;
 
     impl Trie {
         /// Combines all parts and returns TrieChanges that can be applied to storage.
@@ -288,7 +307,11 @@ mod tests {
             })?;
             let mut insertions = insertions
                 .into_iter()
-                .map(|(k, (v, rc))| TrieRefcountChange { key_hash: k, value: v, rc })
+                .map(|(k, (v, rc))| TrieRefcountChange {
+                    trie_node_or_value_hash: k,
+                    trie_node_or_value: v,
+                    rc,
+                })
                 .collect::<Vec<_>>();
             insertions.sort();
             Ok(TrieChanges {
@@ -526,8 +549,9 @@ mod tests {
         let trie_changes = gen_trie_changes(&mut rng, max_key_length, big_value_length);
         println!("Number of nodes: {}", trie_changes.len());
         let tries = create_tries();
-        let trie = tries.get_trie_for_shard(0);
-        let state_root = test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes);
+        let trie = tries.get_trie_for_shard(ShardUId::default());
+        let state_root =
+            test_populate_trie(&tries, &Trie::empty_root(), ShardUId::default(), trie_changes);
         let memory_size = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
         println!("Total memory size: {}", memory_size);
         for num_parts in [2, 3, 5, 10, 50].iter().cloned() {
@@ -570,11 +594,17 @@ mod tests {
         let mut map = HashMap::new();
         for changes_set in changes {
             assert!(changes_set.deletions.is_empty(), "state parts only have insertions");
-            for TrieRefcountChange { key_hash, value, rc } in changes_set.insertions {
-                map.entry(key_hash).or_insert_with(|| (value, 0)).1 += rc as i32;
+            for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
+                changes_set.insertions
+            {
+                map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 +=
+                    rc as i32;
             }
-            for TrieRefcountChange { key_hash, value, rc } in changes_set.deletions {
-                map.entry(key_hash).or_insert_with(|| (value, 0)).1 -= rc as i32;
+            for TrieRefcountChange { trie_node_or_value_hash, trie_node_or_value, rc } in
+                changes_set.deletions
+            {
+                map.entry(trie_node_or_value_hash).or_insert_with(|| (trie_node_or_value, 0)).1 -=
+                    rc as i32;
             }
         }
         let (insertions, deletions) = Trie::convert_to_insertions_and_deletions(map);
@@ -586,10 +616,14 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..2000 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let trie = tries.get_trie_for_shard(ShardUId::default());
             let trie_changes = gen_changes(&mut rng, 20);
-            let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::empty_root(),
+                ShardUId::default(),
+                trie_changes.clone(),
+            );
             let root_memory_usage = trie.retrieve_root_node(&state_root).unwrap().memory_usage;
 
             {
@@ -666,11 +700,15 @@ mod tests {
         let mut rng = rand::thread_rng();
         for _ in 0..20 {
             let tries = create_tries();
-            let trie = tries.get_trie_for_shard(0);
+            let trie = tries.get_trie_for_shard(ShardUId::default());
             let trie_changes = gen_changes(&mut rng, 10);
 
-            let state_root =
-                test_populate_trie(&tries, &Trie::empty_root(), 0, trie_changes.clone());
+            let state_root = test_populate_trie(
+                &tries,
+                &Trie::empty_root(),
+                ShardUId::default(),
+                trie_changes.clone(),
+            );
             for _ in 0..10 {
                 // Test that creating and validating are consistent
                 let num_parts = rng.gen_range(1, 10);

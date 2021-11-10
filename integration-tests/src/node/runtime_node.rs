@@ -4,13 +4,13 @@ use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
+use node_runtime::config::RuntimeConfig;
+use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 use crate::node::Node;
+use crate::runtime_utils::get_runtime_and_trie_from_genesis;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
-use testlib::runtime_utils::{
-    add_test_contract, alice_account, bob_account, get_runtime_and_trie_from_genesis,
-};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
@@ -27,7 +27,11 @@ impl RuntimeNode {
         Self::new_from_genesis(account_id, genesis)
     }
 
-    pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
+    pub fn new_from_genesis_and_config(
+        account_id: &AccountId,
+        genesis: Genesis,
+        runtime_config: RuntimeConfig,
+    ) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(
             account_id.clone(),
             KeyType::ED25519,
@@ -39,18 +43,20 @@ impl RuntimeNode {
             tries,
             state_root: root,
             epoch_length: genesis.config.epoch_length,
-            runtime_config: genesis.config.runtime_config.clone(),
+            runtime_config,
         }));
         RuntimeNode { signer, client, genesis }
     }
 
+    pub fn new_from_genesis(account_id: &AccountId, genesis: Genesis) -> Self {
+        Self::new_from_genesis_and_config(account_id, genesis, RuntimeConfig::test())
+    }
+
     pub fn free(account_id: &AccountId) -> Self {
-        let mut genesis = Genesis::test_free(
-            vec![alice_account(), bob_account(), "carol.near".parse().unwrap()],
-            3,
-        );
+        let mut genesis =
+            Genesis::test(vec![alice_account(), bob_account(), "carol.near".parse().unwrap()], 3);
         add_test_contract(&mut genesis, &bob_account());
-        Self::new_from_genesis(account_id, genesis)
+        Self::new_from_genesis_and_config(account_id, genesis, RuntimeConfig::free())
     }
 }
 
@@ -102,10 +108,9 @@ mod tests {
         let node_user = node.user();
         let (alice1, bob1) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         node_user.send_money(alice.clone(), bob.clone(), 1).unwrap();
-        let fee_helper = FeeHelper::new(
-            node.genesis().config.runtime_config.transaction_costs.clone(),
-            node.genesis().config.min_gas_price,
-        );
+        let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
+        let fee_helper =
+            FeeHelper::new(runtime_config.transaction_costs, node.genesis().config.min_gas_price);
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         assert_eq!(alice2, alice1 - 1 - transfer_cost);

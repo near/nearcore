@@ -18,7 +18,7 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     for i in 1..4 {
         env.produce_block(0, i);
         env.network_adapters[0].pop();
@@ -44,7 +44,8 @@ fn test_request_chunk_restart() {
         CryptoHash::default(),
         client.chain.mut_store(),
     );
-    let response = env.network_adapters[0].pop().unwrap();
+    let response = env.network_adapters[0].pop().unwrap().as_network_requests();
+
     if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
         assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
     } else {
@@ -99,7 +100,7 @@ fn update_chunk_height_created(
 #[test]
 fn store_partial_encoded_chunk_sanity() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let mut env = TestEnv::builder(ChainGenesis::test()).build();
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let mut partial_encoded_chunk = PartialEncodedChunkV2 {

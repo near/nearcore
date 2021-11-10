@@ -9,7 +9,7 @@ use near_chain::store_validator::StoreValidator;
 use near_chain::RuntimeAdapter;
 use near_logger_utils::init_integration_logger;
 use near_store::create_store;
-use nearcore::{get_default_home, get_store_path, load_config};
+use nearcore::{get_default_home, get_store_path, load_config, TrackedConfig};
 
 fn main() {
     init_integration_logger();
@@ -19,7 +19,7 @@ fn main() {
         .arg(
             Arg::with_name("home")
                 .long("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .help("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -35,8 +35,8 @@ fn main() {
         &home_dir,
         store.clone(),
         &near_config.genesis,
-        near_config.client_config.tracked_accounts.clone(),
-        near_config.client_config.tracked_shards.clone(),
+        TrackedConfig::from_config(&near_config.client_config),
+        None,
         None,
         None,
     ));

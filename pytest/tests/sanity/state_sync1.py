@@ -34,7 +34,7 @@ while cur_height < BLOCK_WAIT:
     status = nodes[0].get_status()
     cur_height = status['sync_info']['latest_block_height']
     time.sleep(2)
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(2)
 
 logger.info("step 2")
@@ -76,4 +76,5 @@ if len(validator_info['result']['next_validators']) < 2:
 for i in range(2):
     account0 = nodes[0].get_account("test%s" % i)['result']
     account1 = nodes[1].get_account("test%s" % i)['result']
+    print(account0, account1)
     assert account0 == account1, "state diverged"

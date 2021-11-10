@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -7,14 +6,14 @@ use near_chain::test_utils::KeyValueRuntime;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStore;
 use near_crypto::KeyType;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::{self, CryptoHash};
 use near_primitives::merkle;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunkPart, PartialEncodedChunkV2, ReedSolomonWrapper, ShardChunkHeader,
 };
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::types::{BlockHeight, MerkleHash};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -134,7 +133,7 @@ impl SealsManagerTestFixture {
 
 pub struct ChunkForwardingTestFixture {
     pub mock_runtime: Arc<KeyValueRuntime>,
-    pub mock_network: Arc<MockNetworkAdapter>,
+    pub mock_network: Arc<MockPeerManagerAdapter>,
     pub chain_store: ChainStore,
     pub mock_part_ords: Vec<u64>,
     pub mock_chunk_part_owner: AccountId,
@@ -156,7 +155,7 @@ impl Default for ChunkForwardingTestFixture {
             3,
             5,
         ));
-        let mock_network = Arc::new(MockNetworkAdapter::default());
+        let mock_network = Arc::new(MockPeerManagerAdapter::default());
 
         let data_parts = mock_runtime.num_data_parts();
         let parity_parts = mock_runtime.num_total_parts() - data_parts;
@@ -207,7 +206,8 @@ impl Default for ChunkForwardingTestFixture {
             mock_network.clone(),
         );
         let receipts = Vec::new();
-        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts);
+        let shard_layout = mock_runtime.get_shard_layout(&EpochId::default()).unwrap();
+        let receipts_hashes = mock_runtime.build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);
         let (mock_chunk, mock_merkles) = producer_shard_manager
             .create_encoded_shard_chunk(

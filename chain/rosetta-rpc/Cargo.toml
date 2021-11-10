@@ -2,7 +2,8 @@
 name = "near-rosetta-rpc"
 version = "0.1.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,7 +28,7 @@ validator = "0.12"
 paperclip = { git = "https://github.com/near/paperclip", branch = "actix-web-4-beta.6", features = ["actix"] }
 
 near-primitives = { path = "../../core/primitives" }
-near-account-id = { path = "../../core/account-id", features = ["paperclip"] }
+near-account-id = { path = "../../core/account-id" }
 near-crypto = { path = "../../core/crypto" }
 near-chain-configs = { path = "../../core/chain-configs" }
 near-client = { path = "../client" }
@@ -36,3 +37,6 @@ near-network = { path = "../network" }
 
 [dev-dependencies]
 insta = "1"
+
+[features]
+protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-client/protocol_feature_chunk_only_producers", "near-chain-configs/protocol_feature_chunk_only_producers"]

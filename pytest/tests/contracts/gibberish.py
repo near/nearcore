@@ -30,6 +30,9 @@ for iter_ in range(10):
     nodes[0].send_tx_and_wait(tx, 20)
 
 for iter_ in range(10):
+    status = nodes[0].get_status()
+    hash_ = status['sync_info']['latest_block_hash']
+    hash_ = base58.b58decode(hash_.encode('utf8'))
     logger.info("Deploying perturbed contract #%s" % iter_)
 
     new_name = '%s_mething' % iter_
@@ -47,6 +50,7 @@ for iter_ in range(10):
     tx = sign_deploy_contract_tx(nodes[0].signer_key, wasm_blob, 20 + iter_ * 2,
                                  hash_)
     res = nodes[0].send_tx_and_wait(tx, 20)
+    assert 'result' in res
     logger.info(res)
 
     logger.info("Invoking perturbed contract #%s" % iter_)
@@ -55,8 +59,9 @@ for iter_ in range(10):
                                 nodes[0].signer_key.account_id, new_name, [],
                                 3000000000000, 100000000000, 20 + iter_ * 2 + 1,
                                 hash_)
-    # don't have any particular expectation for the call result
+    # don't have any particular expectation for the call result, but the transaction should at least go through
     res = nodes[1].send_tx_and_wait(tx2, 20)
+    assert 'result' in res
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
@@ -72,8 +77,8 @@ status2 = nodes[1].get_status()
 hash_2 = status2['sync_info']['latest_block_hash']
 hash_2 = base58.b58decode(hash_2.encode('utf8'))
 tx2 = sign_function_call_tx(nodes[0].signer_key, nodes[0].signer_key.account_id,
-                            'log_something', [], 3000000000000, 100000000000, 62,
-                            hash_2)
+                            'log_something', [], 3000000000000, 100000000000,
+                            62, hash_2)
 res = nodes[1].send_tx_and_wait(tx2, 20)
 logger.info(res)
 assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'

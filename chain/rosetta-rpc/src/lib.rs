@@ -1,4 +1,6 @@
-use std::convert::{AsRef, TryInto};
+#![doc = include_str!("../README.md")]
+
+use std::convert::AsRef;
 use std::sync::Arc;
 
 use actix::Addr;
@@ -22,6 +24,7 @@ mod adapters;
 mod config;
 mod errors;
 mod models;
+mod types;
 mod utils;
 
 pub const BASE_PATH: &str = "";
@@ -331,7 +334,6 @@ async fn block_transaction_details(
 /// historical balance lookup (if the server supports it) by passing in an
 /// optional BlockIdentifier.
 async fn account_balance(
-    genesis: web::Data<Arc<Genesis>>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
     body: Json<models::AccountBalanceRequest>,
@@ -367,11 +369,14 @@ async fn account_balance(
         .send(near_client::GetBlock(block_id.clone()))
         .await?
         .map_err(|err| errors::ErrorKind::NotFound(err.to_string()))?;
+    let runtime_config =
+        crate::utils::query_protocol_config(block.header.hash, view_client_addr.get_ref())
+            .await?
+            .runtime_config;
 
+    let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
-        match crate::utils::query_account(block_id, account_identifier.address, &view_client_addr)
-            .await
-        {
+        match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
             Ok(account_info_response) => account_info_response,
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
@@ -381,10 +386,8 @@ async fn account_balance(
             Err(err) => return Err(err.into()),
         };
 
-    let account_balances = crate::utils::RosettaAccountBalances::from_account(
-        account_info,
-        &genesis.config.runtime_config,
-    );
+    let account_balances =
+        crate::utils::RosettaAccountBalances::from_account(account_info, &runtime_config);
 
     let balance = if let Some(sub_account) = account_identifier.sub_account {
         match sub_account.address {
@@ -520,11 +523,11 @@ async fn construction_preprocess(
 
     Ok(Json(models::ConstructionPreprocessResponse {
         required_public_keys: vec![models::AccountIdentifier {
-            address: near_actions.sender_account_id.clone(),
+            address: near_actions.sender_account_id.clone().into(),
             sub_account: None,
         }],
         options: models::ConstructionMetadataOptions {
-            signer_account_id: near_actions.sender_account_id,
+            signer_account_id: near_actions.sender_account_id.into(),
         },
     }))
 }
@@ -567,7 +570,7 @@ async fn construction_metadata(
 
     let (block_hash, _block_height, access_key) = crate::utils::query_access_key(
         near_primitives::types::BlockReference::latest(),
-        options.signer_account_id,
+        options.signer_account_id.into(),
         (&signer_public_access_key).try_into().map_err(|err| {
             errors::ErrorKind::InvalidInput(format!(
                 "public key could not be parsed due to: {:?}",
@@ -886,7 +889,7 @@ pub fn start_rosetta_rpc(
     genesis: Arc<Genesis>,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
-) {
+) -> actix_web::dev::Server {
     let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
     HttpServer::new(move || {
         let json_config = web::JsonConfig::default()
@@ -950,5 +953,7 @@ pub fn start_rosetta_rpc(
     })
     .bind(addr)
     .unwrap()
-    .run();
+    .shutdown_timeout(5)
+    .disable_signals()
+    .run()
 }

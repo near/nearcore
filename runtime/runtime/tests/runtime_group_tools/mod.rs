@@ -4,6 +4,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
@@ -14,7 +15,6 @@ use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -117,7 +117,7 @@ impl StandaloneRuntime {
         let apply_result = self
             .runtime
             .apply(
-                self.tries.get_trie_for_shard(0),
+                self.tries.get_trie_for_shard(ShardUId::default()),
                 self.root,
                 &None,
                 &self.apply_state,
@@ -128,7 +128,8 @@ impl StandaloneRuntime {
             )
             .unwrap();
 
-        let (store_update, root) = self.tries.apply_all(&apply_result.trie_changes, 0).unwrap();
+        let (store_update, root) =
+            self.tries.apply_all(&apply_result.trie_changes, ShardUId::default()).unwrap();
         self.root = root;
         store_update.commit().unwrap();
         self.apply_state.block_index += 1;

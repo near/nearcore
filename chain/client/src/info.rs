@@ -157,6 +157,8 @@ impl InfoHelper {
         set_gauge(&metrics::BLOCKS_PER_MINUTE, (avg_bls * (60 as f64)) as i64);
         set_gauge(&metrics::CPU_USAGE, cpu_usage as i64);
         set_gauge(&metrics::MEMORY_USAGE, (memory_usage * 1024) as i64);
+        let teragas = 1_000_000_000_000u64;
+        set_gauge(&metrics::AVG_TGAS_USAGE, (avg_gas_used as f64 / teragas as f64).round() as i64);
 
         self.started = Instant::now();
         self.num_blocks_processed = 0;
@@ -233,8 +235,8 @@ fn display_sync_status(
                 highest_height - current_height
             )
         }
-        SyncStatus::StateSync(_sync_hash, shard_statuses) => {
-            let mut res = String::from("State ");
+        SyncStatus::StateSync(sync_hash, shard_statuses) => {
+            let mut res = format!("State {:?}", sync_hash).to_string();
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
@@ -245,8 +247,12 @@ fn display_sync_status(
                         match shard_status.status {
                             ShardSyncStatus::StateDownloadHeader => format!("header"),
                             ShardSyncStatus::StateDownloadParts => format!("parts"),
-                            ShardSyncStatus::StateDownloadFinalize => format!("finalization"),
-                            ShardSyncStatus::StateDownloadComplete => format!("done"),
+                            ShardSyncStatus::StateDownloadScheduling => format!("scheduling"),
+                            ShardSyncStatus::StateDownloadApplying => format!("applying"),
+                            ShardSyncStatus::StateDownloadComplete => format!("download complete"),
+                            ShardSyncStatus::StateSplitScheduling => format!("split scheduling"),
+                            ShardSyncStatus::StateSplitApplying => format!("split applying"),
+                            ShardSyncStatus::StateSyncDone => format!("done"),
                         }
                     )
                     .as_str();

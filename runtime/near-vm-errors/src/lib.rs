@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use std::fmt::{self, Error, Formatter};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -5,8 +7,7 @@ use near_account_id::AccountId;
 use near_rpc_error_macro::RpcError;
 use serde::{Deserialize, Serialize};
 
-// TODO: remove serialization derives, once fix compilation caching.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VMError {
     FunctionCallError(FunctionCallError),
     /// Serialized external error from External trait implementation.
@@ -18,8 +19,7 @@ pub enum VMError {
     CacheError(CacheError),
 }
 
-// TODO(4217): remove serialization derives, once fix compilation caching.
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionCallError {
     /// Wasm compilation error
     CompilationError(CompilationError),
@@ -66,9 +66,7 @@ pub enum FunctionCallErrorSer {
     ExecutionError(String),
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize, RpcError,
-)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CacheError {
     ReadError,
     WriteError,
@@ -145,6 +143,9 @@ pub enum PrepareError {
     Instantiate,
     /// Error creating memory.
     Memory,
+    /// Contract contains too many functions.
+    #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+    TooManyFunctions,
 }
 
 #[derive(
@@ -292,7 +293,9 @@ impl fmt::Display for PrepareError {
             GasInstrumentation => write!(f, "Gas instrumentation failed."),
             StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
             Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory"),
+            Memory => write!(f, "Error creating memory."),
+            #[cfg(feature = "protocol_feature_limit_contract_functions_number")]
+            TooManyFunctions => write!(f, "Too many functions in contract."),
         }
     }
 }

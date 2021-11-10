@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 

@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -79,7 +78,8 @@ fn init_test_staking(
         .enumerate()
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis);
-            let (client, view_client, arbiters) = start_with_config(paths[i], config.clone());
+            let nearcore::NearNode { client, view_client, arbiters, .. } =
+                start_with_config(paths[i], config.clone());
             let account_id = format!("near.{}", i).parse::<AccountId>().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed(
                 account_id.clone(),
@@ -140,14 +140,16 @@ fn test_stake_nodes() {
                             if res.is_err() {
                                 return future::ready(());
                             }
-                            if res.unwrap().validators
+                            let mut validators = res.unwrap().validators;
+                            validators.sort_unstable_by(|a, b| a.account_id.cmp(&b.account_id));
+                            if validators
                                 == vec![
                                     ValidatorInfo {
-                                        account_id: "near.1".parse().unwrap(),
+                                        account_id: "near.0".parse().unwrap(),
                                         is_slashed: false,
                                     },
                                     ValidatorInfo {
-                                        account_id: "near.0".parse().unwrap(),
+                                        account_id: "near.1".parse().unwrap(),
                                         is_slashed: false,
                                     },
                                 ]
@@ -183,7 +185,7 @@ fn test_validator_kickout() {
                 dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
                 num_nodes,
                 4,
-                8,
+                15,
                 false,
                 (TESTING_INIT_STAKE / NEAR_BASE) as u64 + 1,
             );

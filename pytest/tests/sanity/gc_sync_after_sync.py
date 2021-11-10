@@ -37,7 +37,8 @@ nodes = start_cluster(
          "records", 2, "Account", "account", "locked",
          "12500000000000000000000000000000"
      ], ['total_supply', "4925000000000000000000000000000000"],
-     ["num_block_producer_seats", 10],
+     ["block_producer_kickout_threshold", 40],
+     ["chunk_producer_kickout_threshold", 40], ["num_block_producer_seats", 10],
      ["num_block_producer_seats_per_shard", [10]]], {1: consensus_config})
 
 logger.info('Kill node 1')
@@ -51,7 +52,7 @@ while node0_height < TARGET_HEIGHT_1:
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()
@@ -81,7 +82,7 @@ while node0_height < TARGET_HEIGHT_2:
     time.sleep(2)
 
 logger.info('Restart node 1')
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 time.sleep(3)
 
 start_time = time.time()

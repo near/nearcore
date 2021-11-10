@@ -9,8 +9,6 @@ use near_primitives::types::AccountId;
 use near_vm_runner::VMKind;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -55,6 +53,21 @@ pub struct Config {
     pub metric: GasMetric,
     /// VMKind used
     pub vm_kind: VMKind,
+    /// When non-none, only the specified metrics will be measured.
+    pub metrics_to_measure: Option<Vec<String>>,
+}
+
+impl Config {
+    pub(crate) fn should_skip(&self, metric: Metric) -> bool {
+        if metric == Metric::warmup {
+            return false;
+        }
+
+        match &self.metrics_to_measure {
+            None => false,
+            Some(metrics) => !metrics.contains(&format!("{:?}", metric)),
+        }
+    }
 }
 
 /// Measure the speed of transactions containing certain simple actions.
@@ -200,6 +213,11 @@ where
             Arc::new(Mutex::new(RuntimeTestbed::from_state_dump(&config.state_dump_path)))
         }
     };
+
+    if config.should_skip(metric) {
+        return testbed;
+    }
+
     let testbed_clone = testbed.clone();
 
     if config.warmup_iters_per_block > 0 {

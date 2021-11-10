@@ -1,22 +1,41 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use actix::{Actor, ActorContext, Context, Handler, MailboxError, Message};
+use actix::actors::mocker::Mocker;
+use actix::{Actor, ActorContext, Addr, Context, Handler, MailboxError, Message};
+use futures::future::BoxFuture;
 use futures::{future, FutureExt};
+use lazy_static::lazy_static;
 use rand::{thread_rng, RngCore};
 use tracing::debug;
 
 use near_crypto::{KeyType, SecretKey};
+use near_primitives::block::GenesisId;
+use near_primitives::borsh::maybestd::sync::atomic::AtomicUsize;
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
+#[cfg(feature = "test_features")]
+use near_store::test_utils::create_test_store;
+use near_store::Store;
 
-use crate::types::{NetworkConfig, NetworkInfo, PeerInfo, ReasonForBan, ROUTED_MESSAGE_TTL};
-use crate::{NetworkAdapter, NetworkRequests, NetworkResponses, PeerManagerActor};
-use futures::future::BoxFuture;
-use std::sync::{Arc, Mutex, RwLock};
+#[cfg(feature = "test_features")]
+use crate::routing::routing_table_actor::start_routing_table_actor;
+use crate::types::{
+    NetworkInfo, NetworkViewClientMessages, NetworkViewClientResponses, PeerInfo,
+    PeerManagerMessageRequest, PeerManagerMessageResponse, ReasonForBan,
+};
+use crate::{
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkResponses,
+    PeerManagerActor, PeerManagerAdapter, RoutingTableActor,
+};
+
+type ClientMock = Mocker<NetworkClientMessages>;
+type ViewClientMock = Mocker<NetworkViewClientMessages>;
 
 lazy_static! {
     static ref OPENED_PORTS: Mutex<HashSet<u16>> = Mutex::new(HashSet::new());
@@ -46,43 +65,6 @@ pub fn open_port() -> u16 {
     panic!("Failed to find an open port after {} attempts.", max_attempts);
 }
 
-impl NetworkConfig {
-    /// Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, port: u16) -> Self {
-        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let public_key = secret_key.public_key();
-        NetworkConfig {
-            public_key,
-            secret_key,
-            account_id: Some(seed.parse().unwrap()),
-            addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
-            boot_nodes: vec![],
-            handshake_timeout: Duration::from_secs(60),
-            reconnect_delay: Duration::from_secs(60),
-            bootstrap_peers_period: Duration::from_millis(100),
-            max_num_peers: 10,
-            minimum_outbound_peers: 5,
-            ideal_connections_lo: 30,
-            ideal_connections_hi: 35,
-            peer_recent_time_window: Duration::from_secs(600),
-            safe_set_size: 20,
-            archival_peer_connections_lower_bound: 10,
-            ban_window: Duration::from_secs(1),
-            peer_expiration_duration: Duration::from_secs(60 * 60),
-            max_send_peers: 512,
-            peer_stats_period: Duration::from_secs(5),
-            ttl_account_id_router: Duration::from_secs(60 * 60),
-            routed_message_ttl: ROUTED_MESSAGE_TTL,
-            max_routes_to_store: 1,
-            highest_peer_horizon: 5,
-            push_info_period: Duration::from_millis(100),
-            blacklist: HashMap::new(),
-            outbound_disabled: false,
-            archive: false,
-        }
-    }
-}
-
 pub fn peer_id_from_seed(seed: &str) -> PeerId {
     SecretKey::from_seed(KeyType::ED25519, seed).public_key().into()
 }
@@ -94,13 +76,6 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
-}
-
-impl PeerInfo {
-    /// Creates random peer info.
-    pub fn random() -> Self {
-        PeerInfo { id: PeerId::random(), addr: None, account_id: None }
-    }
 }
 
 /// Timeouts by stopping system without any condition and raises panic.
@@ -157,8 +132,6 @@ impl WaitOrTimeout {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            file!(),
-            line!(),
             Duration::from_millis(self.check_interval_ms),
             move |act, ctx| {
                 act.ms_slept += act.check_interval_ms;
@@ -287,26 +260,107 @@ impl Handler<BanPeerSignal> for PeerManagerActor {
 }
 
 #[derive(Default)]
-pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+pub struct MockPeerManagerAdapter {
+    pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
 }
 
-impl NetworkAdapter for MockNetworkAdapter {
+impl PeerManagerAdapter for MockPeerManagerAdapter {
     fn send(
         &self,
-        msg: NetworkRequests,
-    ) -> BoxFuture<'static, Result<NetworkResponses, MailboxError>> {
+        msg: PeerManagerMessageRequest,
+    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, MailboxError>> {
         self.do_send(msg);
-        future::ok(NetworkResponses::NoResponse).boxed()
+        future::ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse))
+            .boxed()
     }
 
-    fn do_send(&self, msg: NetworkRequests) {
+    fn do_send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
 
-impl MockNetworkAdapter {
-    pub fn pop(&self) -> Option<NetworkRequests> {
+impl MockPeerManagerAdapter {
+    pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
+}
+
+// Start PeerManagerActor, and RoutingTableActor together and returns pairs of addresses
+// for each of them.
+#[cfg(feature = "test_features")]
+#[allow(dead_code)]
+pub fn make_peer_manager_routing_table_addr_pair(
+) -> (Addr<PeerManagerActor>, Addr<RoutingTableActor>) {
+    let seed = "test2";
+    let port = open_port();
+
+    let net_config = NetworkConfig::from_seed(seed, port);
+    let store = create_test_store();
+    let routing_table_addr =
+        start_routing_table_actor(net_config.public_key.clone().into(), store.clone());
+    let peer_manager_addr = make_peer_manager(
+        store,
+        net_config,
+        vec![("test1", open_port())],
+        10,
+        routing_table_addr.clone(),
+    )
+    .0
+    .start();
+    (peer_manager_addr, routing_table_addr)
+}
+
+#[allow(dead_code)]
+pub fn make_peer_manager(
+    store: Arc<Store>,
+    mut config: NetworkConfig,
+    boot_nodes: Vec<(&str, u16)>,
+    peer_max_count: u32,
+    routing_table_addr: Addr<RoutingTableActor>,
+) -> (PeerManagerActor, PeerId, Arc<AtomicUsize>) {
+    config.boot_nodes = convert_boot_nodes(boot_nodes);
+    config.max_num_peers = peer_max_count;
+    let counter = Arc::new(AtomicUsize::new(0));
+    let counter1 = counter.clone();
+    let client_addr = ClientMock::mock(Box::new(move |_msg, _ctx| {
+        Box::new(Some(NetworkClientResponses::NoResponse))
+    }))
+    .start();
+
+    let view_client_addr = ViewClientMock::mock(Box::new(move |msg, _ctx| {
+        let msg = msg.downcast_ref::<NetworkViewClientMessages>().unwrap();
+        match msg {
+            NetworkViewClientMessages::AnnounceAccount(accounts) => {
+                if !accounts.is_empty() {
+                    counter1.fetch_add(1, Ordering::SeqCst);
+                }
+                Box::new(Some(NetworkViewClientResponses::AnnounceAccount(
+                    accounts.clone().into_iter().map(|obj| obj.0).collect(),
+                )))
+            }
+            NetworkViewClientMessages::GetChainInfo => {
+                Box::new(Some(NetworkViewClientResponses::ChainInfo {
+                    genesis_id: GenesisId::default(),
+                    height: 1,
+                    tracked_shards: vec![],
+                    archival: false,
+                }))
+            }
+            _ => Box::new(Some(NetworkViewClientResponses::NoResponse)),
+        }
+    }))
+    .start();
+    let peer_id = config.public_key.clone().into();
+    (
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            routing_table_addr,
+        )
+        .unwrap(),
+        peer_id,
+        counter,
+    )
 }

@@ -1,4 +1,4 @@
-use near_chain::{ChainStoreAccess, Error};
+use near_chain::{near_chain_primitives, ChainStoreAccess, Error};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,20 +13,26 @@ use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter};
-use near_network::types::{AccountOrPeerIdOrHash, NetworkResponses, ReasonForBan};
-use near_network::{FullPeerInfo, NetworkAdapter, NetworkRequests};
+use near_network::types::{
+    AccountOrPeerIdOrHash, NetworkResponses, PeerManagerMessageRequest, ReasonForBan,
+};
+use near_network::{FullPeerInfo, NetworkRequests, PeerManagerAdapter};
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::syncing::get_num_state_parts;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId};
+use near_primitives::types::{
+    AccountId, BlockHeight, BlockHeightDelta, EpochId, ShardId, StateRoot,
+};
 use near_primitives::utils::to_timestamp;
 
 use cached::{Cached, SizedCache};
+use near_chain::chain::{ApplyStatePartsRequest, StateSplitRequest};
 use near_client_primitives::types::{
     DownloadStatus, ShardSyncDownload, ShardSyncStatus, SyncStatus,
 };
+use near_primitives::shard_layout::ShardUId;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -60,7 +66,7 @@ pub fn highest_height_peer(highest_height_peers: &Vec<FullPeerInfo>) -> Option<F
 // TODO #3488
 #[allow(dead_code)]
 pub struct EpochSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     /// Datastructure to keep track of when the last request to each peer was made.
     /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
     /// interval, thus there's no point in requesting more frequently.
@@ -100,7 +106,7 @@ pub struct EpochSync {
 
 impl EpochSync {
     pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         genesis_epoch_id: EpochId,
         genesis_next_epoch_id: EpochId,
         first_epoch_block_producers: Vec<ValidatorStake>,
@@ -131,7 +137,7 @@ impl EpochSync {
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     history_locator: Vec<(BlockHeight, CryptoHash)>,
     prev_header_sync: (DateTime<Utc>, BlockHeight, BlockHeight, BlockHeight),
     syncing_peer: Option<FullPeerInfo>,
@@ -145,7 +151,7 @@ pub struct HeaderSync {
 
 impl HeaderSync {
     pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         initial_timeout: TimeDuration,
         progress_timeout: TimeDuration,
         stall_ban_timeout: TimeDuration,
@@ -266,10 +272,14 @@ impl HeaderSync {
                                 {
                                     warn!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}",
                                         peer.peer_info, peer.chain_info.height);
-                                    self.network_adapter.do_send(NetworkRequests::BanPeer {
-                                        peer_id: peer.peer_info.id.clone(),
-                                        ban_reason: ReasonForBan::HeightFraud,
-                                    });
+                                    self.network_adapter.do_send(
+                                        PeerManagerMessageRequest::NetworkRequests(
+                                            NetworkRequests::BanPeer {
+                                                peer_id: peer.peer_info.id.clone(),
+                                                ban_reason: ReasonForBan::HeightFraud,
+                                            },
+                                        ),
+                                    );
                                     // This peer is fraudulent, let's skip this beat and wait for
                                     // the next one when this peer is not in the list anymore.
                                     self.syncing_peer = None;
@@ -308,10 +318,12 @@ impl HeaderSync {
     fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            self.network_adapter.do_send(NetworkRequests::BlockHeadersRequest {
-                hashes: locator,
-                peer_id: peer.peer_info.id.clone(),
-            });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockHeadersRequest {
+                    hashes: locator,
+                    peer_id: peer.peer_info.id.clone(),
+                },
+            ));
             return Some(peer);
         }
         None
@@ -396,7 +408,7 @@ pub struct BlockSyncRequest {
 
 /// Helper to track block syncing.
 pub struct BlockSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
     last_request: Option<BlockSyncRequest>,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
@@ -406,7 +418,7 @@ pub struct BlockSync {
 
 impl BlockSync {
     pub fn new(
-        network_adapter: Arc<dyn NetworkAdapter>,
+        network_adapter: Arc<dyn PeerManagerAdapter>,
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
     ) -> Self {
@@ -545,10 +557,12 @@ impl BlockSync {
         };
 
         if let Some(peer) = peer {
-            self.network_adapter.do_send(NetworkRequests::BlockRequest {
-                hash: request.hash,
-                peer_id: peer.peer_info.id.clone(),
-            });
+            self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BlockRequest {
+                    hash: request.hash,
+                    peer_id: peer.peer_info.id.clone(),
+                },
+            ));
         }
 
         self.last_request = Some(request);
@@ -593,7 +607,7 @@ impl PendingRequestStatus {
 
 /// Helper to track state sync.
 pub struct StateSync {
-    network_adapter: Arc<dyn NetworkAdapter>,
+    network_adapter: Arc<dyn PeerManagerAdapter>,
 
     state_sync_time: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
@@ -603,10 +617,16 @@ pub struct StateSync {
     requested_target: SizedCache<(u64, CryptoHash), AccountOrPeerIdOrHash>,
 
     timeout: Duration,
+
+    /// Maps shard_id to result of applying downloaded state
+    state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
+
+    /// Maps shard_id to result of splitting state for resharding
+    split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, Error>>,
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, timeout: TimeDuration) -> Self {
+    pub fn new(network_adapter: Arc<dyn PeerManagerAdapter>, timeout: TimeDuration) -> Self {
         StateSync {
             network_adapter,
             state_sync_time: Default::default(),
@@ -614,6 +634,8 @@ impl StateSync {
             last_part_id_requested: Default::default(),
             requested_target: SizedCache::with_size(MAX_PENDING_PART as usize),
             timeout: Duration::from_std(timeout).unwrap(),
+            state_parts_apply_results: HashMap::new(),
+            split_state_roots: HashMap::new(),
         }
     }
 
@@ -655,6 +677,8 @@ impl StateSync {
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(bool, bool), near_chain::Error> {
         let mut all_done = true;
         let mut update_sync_status = false;
@@ -673,6 +697,17 @@ impl StateSync {
             ],
             status: ShardSyncStatus::StateDownloadHeader,
         };
+
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
+        let prev_epoch_id = chain.get_block_header(&prev_hash)?.epoch_id().clone();
+        let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
+        if chain.runtime_adapter.get_shard_layout(&prev_epoch_id)?
+            != chain.runtime_adapter.get_shard_layout(&epoch_id)?
+        {
+            error!("cannot sync to the first epoch after sharding upgrade");
+            panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
+        }
+        let split_states = runtime_adapter.will_shard_layout_change_next_epoch(&prev_hash)?;
 
         for shard_id in tracking_shards {
             let mut download_timeout = false;
@@ -741,20 +776,25 @@ impl StateSync {
                         update_sync_status = true;
                         *shard_sync_download = ShardSyncDownload {
                             downloads: vec![],
-                            status: ShardSyncStatus::StateDownloadFinalize,
+                            status: ShardSyncStatus::StateDownloadScheduling,
                         };
                     }
                 }
-                ShardSyncStatus::StateDownloadFinalize => {
+                ShardSyncStatus::StateDownloadScheduling => {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
-                    match chain.set_state_finalize(shard_id, sync_hash, state_num_parts) {
-                        Ok(_) => {
+                    match chain.schedule_apply_state_parts(
+                        shard_id,
+                        sync_hash,
+                        state_num_parts,
+                        state_parts_task_scheduler,
+                    ) {
+                        Ok(()) => {
                             update_sync_status = true;
                             *shard_sync_download = ShardSyncDownload {
                                 downloads: vec![],
-                                status: ShardSyncStatus::StateDownloadComplete,
+                                status: ShardSyncStatus::StateDownloadApplying,
                             }
                         }
                         Err(e) => {
@@ -767,12 +807,83 @@ impl StateSync {
                         }
                     }
                 }
+                ShardSyncStatus::StateDownloadApplying => {
+                    let result = self.state_parts_apply_results.remove(&shard_id);
+                    if let Some(result) = result {
+                        match chain.set_state_finalize(shard_id, sync_hash, result) {
+                            Ok(()) => {
+                                update_sync_status = true;
+                                *shard_sync_download = ShardSyncDownload {
+                                    downloads: vec![],
+                                    status: ShardSyncStatus::StateDownloadComplete,
+                                }
+                            }
+                            Err(e) => {
+                                // Cannot finalize the downloaded state.
+                                // The reasonable behavior here is to start from the very beginning.
+                                error!(target: "sync", "State sync finalizing error, shard = {}, hash = {}: {:?}", shard_id, sync_hash, e);
+                                update_sync_status = true;
+                                *shard_sync_download = init_sync_download.clone();
+                                let shard_state_header =
+                                    chain.get_state_header(shard_id, sync_hash)?;
+                                let state_num_parts = get_num_state_parts(
+                                    shard_state_header.state_root_node().memory_usage,
+                                );
+                                chain.clear_downloaded_parts(
+                                    shard_id,
+                                    sync_hash,
+                                    state_num_parts,
+                                )?;
+                            }
+                        }
+                    }
+                }
                 ShardSyncStatus::StateDownloadComplete => {
-                    this_done = true;
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts =
                         get_num_state_parts(shard_state_header.state_root_node().memory_usage);
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
+                    if split_states {
+                        *shard_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateSplitScheduling,
+                        }
+                    } else {
+                        *shard_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateSyncDone,
+                        };
+                        this_done = true;
+                    }
+                }
+                ShardSyncStatus::StateSplitScheduling => {
+                    debug_assert!(split_states);
+                    chain.build_state_for_split_shards_preprocessing(
+                        &sync_hash,
+                        shard_id,
+                        state_split_scheduler,
+                    )?;
+                    debug!(target: "sync", "State sync split scheduled: me {:?}, shard = {}, hash = {}", me, shard_id, sync_hash);
+                    *shard_sync_download = ShardSyncDownload {
+                        downloads: vec![],
+                        status: ShardSyncStatus::StateSplitApplying,
+                    };
+                }
+                ShardSyncStatus::StateSplitApplying => {
+                    debug_assert!(split_states);
+                    let result = self.split_state_roots.remove(&shard_id);
+                    if let Some(state_roots) = result {
+                        chain
+                            .build_state_for_split_shards_postprocessing(&sync_hash, state_roots)?;
+                        *shard_sync_download = ShardSyncDownload {
+                            downloads: vec![],
+                            status: ShardSyncStatus::StateSyncDone,
+                        };
+                        this_done = true;
+                    }
+                }
+                ShardSyncStatus::StateSyncDone => {
+                    this_done = true;
                 }
             }
             all_done &= this_done;
@@ -821,6 +932,18 @@ impl StateSync {
         }
 
         Ok((update_sync_status, all_done))
+    }
+
+    pub fn set_apply_result(&mut self, shard_id: ShardId, apply_result: Result<(), Error>) {
+        self.state_parts_apply_results.insert(shard_id, apply_result);
+    }
+
+    pub fn set_split_result(
+        &mut self,
+        shard_id: ShardId,
+        result: Result<HashMap<ShardUId, StateRoot>, Error>,
+    ) {
+        self.split_state_roots.insert(shard_id, result);
     }
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
@@ -972,12 +1095,14 @@ impl StateSync {
                 let run_me = new_shard_sync_download.downloads[0].run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
-                    file!(),
-                    line!(),
                     self.network_adapter
-                        .send(NetworkRequests::StateRequestHeader { shard_id, sync_hash, target })
+                        .send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target },
+                        ))
                         .then(move |result| {
-                            if let Ok(NetworkResponses::RouteNotFound) = result {
+                            if let Ok(NetworkResponses::RouteNotFound) =
+                                result.map(|f| f.as_network_response())
+                            {
                                 // Send a StateRequestHeader on the next iteration
                                 run_me.store(true, Ordering::SeqCst);
                             }
@@ -1008,17 +1133,19 @@ impl StateSync {
 
                     near_performance_metrics::actix::spawn(
                         std::any::type_name::<Self>(),
-                        file!(),
-                        line!(),
                         self.network_adapter
-                            .send(NetworkRequests::StateRequestPart {
-                                shard_id,
-                                sync_hash,
-                                part_id: part_id as u64,
-                                target: target.clone(),
-                            })
+                            .send(PeerManagerMessageRequest::NetworkRequests(
+                                NetworkRequests::StateRequestPart {
+                                    shard_id,
+                                    sync_hash,
+                                    part_id: part_id as u64,
+                                    target: target.clone(),
+                                },
+                            ))
                             .then(move |result| {
-                                if let Ok(NetworkResponses::RouteNotFound) = result {
+                                if let Ok(NetworkResponses::RouteNotFound) =
+                                    result.map(|f| f.as_network_response())
+                                {
                                     // Send a StateRequestPart on the next iteration
                                     run_me.store(true, Ordering::SeqCst);
                                 }
@@ -1042,6 +1169,8 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         highest_height_peers: &Vec<FullPeerInfo>,
         tracking_shards: Vec<ShardId>,
+        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<StateSyncResult, near_chain::Error> {
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash().clone();
         let now = Utc::now();
@@ -1068,6 +1197,8 @@ impl StateSync {
             highest_height_peers,
             tracking_shards,
             now,
+            state_parts_task_scheduler,
+            state_split_scheduler,
         )?;
 
         if have_block && all_done {
@@ -1153,8 +1284,7 @@ mod test {
     use near_chain::test_utils::{setup, setup_with_validators};
     use near_chain::{ChainGenesis, Provenance};
     use near_crypto::{KeyType, PublicKey};
-    use near_network::routing::EdgeInfo;
-    use near_network::test_utils::MockNetworkAdapter;
+    use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerChainInfoV2;
     use near_network::PeerInfo;
     use near_primitives::block::{Approval, Block, GenesisId};
@@ -1162,6 +1292,7 @@ mod test {
 
     use super::*;
     use crate::test_utils::TestEnv;
+    use near_network::routing::routing::EdgeInfo;
     use near_primitives::merkle::PartialMerkleTree;
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::InMemoryValidatorSigner;
@@ -1191,7 +1322,7 @@ mod test {
     /// Starts two chains that fork of genesis and checks that they can sync heaaders to the longest.
     #[test]
     fn test_sync_headers_fork() {
-        let mock_adapter = Arc::new(MockNetworkAdapter::default());
+        let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             mock_adapter.clone(),
             TimeDuration::from_secs(10),
@@ -1235,8 +1366,10 @@ mod test {
             .is_ok());
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
+
+        let item = mock_adapter.pop().unwrap().as_network_requests();
         assert_eq!(
-            mock_adapter.pop().unwrap(),
+            item,
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()
@@ -1255,7 +1388,7 @@ mod test {
     /// adjusted for time passed)
     #[test]
     fn test_slow_header_sync() {
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let highest_height = 1000;
 
         // Setup header_sync with expectation of 25 headers/second
@@ -1393,7 +1526,8 @@ mod test {
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
         let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
-        if let NetworkRequests::BanPeer { .. } = ban_peer {
+
+        if let NetworkRequests::BanPeer { .. } = ban_peer.as_network_requests() {
             /* expected */
         } else {
             assert!(false);
@@ -1402,13 +1536,16 @@ mod test {
 
     /// Helper function for block sync tests
     fn collect_hashes_from_network_adapter(
-        network_adapter: Arc<MockNetworkAdapter>,
+        network_adapter: Arc<MockPeerManagerAdapter>,
     ) -> HashSet<CryptoHash> {
         let mut requested_block_hashes = HashSet::new();
         let mut network_request = network_adapter.requests.write().unwrap();
         while let Some(request) = network_request.pop_back() {
             match request {
-                NetworkRequests::BlockRequest { hash, .. } => {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
+                    hash,
+                    ..
+                }) => {
                     requested_block_hashes.insert(hash);
                 }
                 _ => panic!("unexpected network request {:?}", request),
@@ -1433,12 +1570,12 @@ mod test {
 
     #[test]
     fn test_block_sync() {
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, false);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..21 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -1475,12 +1612,12 @@ mod test {
 
     #[test]
     fn test_block_sync_archival() {
-        let network_adapter = Arc::new(MockNetworkAdapter::default());
+        let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync = BlockSync::new(network_adapter.clone(), block_fetch_horizon, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::new(chain_genesis, 2, 1);
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..31 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

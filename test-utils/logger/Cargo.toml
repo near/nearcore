@@ -2,7 +2,9 @@
 name = "near-logger-utils"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 [dependencies]
+tracing = "0.1"
 tracing-subscriber = "0.2.4"

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::io::Cursor;
 
 use borsh::ser::BorshSerialize;

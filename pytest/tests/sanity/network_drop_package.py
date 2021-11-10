@@ -17,12 +17,13 @@ height = Value('i', 0)
 # Ratio of message that are dropped to simulate bad network performance
 DROP_RATIO = 0.05
 
+
 class Handler(ProxyHandler):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dropped = 0
         self.total = 0
-
 
     async def handle(self, msg, fr, to):
         if msg.enum == 'Block':
@@ -35,7 +36,8 @@ class Handler(ProxyHandler):
 
             with success.get_lock():
                 if h >= 10 and success.value == 0:
-                    logging.info(f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
+                    logging.info(
+                        f'SUCCESS DROP={self.dropped} TOTAL={self.total}')
                     success.value = 1
 
         drop = random.random() < DROP_RATIO and 'Handshake' not in msg.enum

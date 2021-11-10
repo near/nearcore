@@ -6,7 +6,8 @@ use nearcore::get_store_path;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
-#[cfg(feature = "adversarial")]
+use tracing::debug;
+#[cfg(feature = "test_features")]
 use tracing::error;
 use tracing::info;
 use tracing::metadata::LevelFilter;
@@ -29,7 +30,7 @@ impl NeardCmd {
         neard_cmd.opts.init();
         info!(target: "neard", "Version: {}, Build: {}, Latest Protocol: {}", NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION);
 
-        #[cfg(feature = "adversarial")]
+        #[cfg(feature = "test_features")]
         {
             error!("THIS IS A NODE COMPILED WITH ADVERSARIAL BEHAVIORS. DO NOT USE IN PRODUCTION.");
 
@@ -49,7 +50,7 @@ impl NeardCmd {
 
             NeardSubCommand::UnsafeResetData => {
                 let store_path = get_store_path(&home_dir);
-                info!(target: "neard", "Removing all data from {}", store_path);
+                info!(target: "neard", "Removing all data from {}", store_path.display());
                 fs::remove_dir_all(store_path).expect("Removing data failed");
             }
             NeardSubCommand::UnsafeResetAll => {
@@ -62,11 +63,12 @@ impl NeardCmd {
 
 #[derive(Clap, Debug)]
 struct NeardOpts {
-    /// Verbose logging.
-    #[clap(long)]
+    /// Sets verbose logging for the given target, or for all targets
+    /// if "debug" is given.
+    #[clap(long, name = "target")]
     verbose: Option<String>,
-    /// Directory for config and data (default "~/.near").
-    #[clap(long, parse(from_os_str), default_value = &DEFAULT_HOME)]
+    /// Directory for config and data.
+    #[clap(long, parse(from_os_str), default_value_os = DEFAULT_HOME.as_os_str())]
     home: PathBuf,
 }
 
@@ -274,7 +276,8 @@ impl RunCmd {
 
         let sys = actix::System::new();
         sys.block_on(async move {
-            nearcore::start_with_config(home_dir, near_config);
+            let nearcore::NearNode { rpc_servers, .. } =
+                nearcore::start_with_config(home_dir, near_config);
 
             let sig = if cfg!(unix) {
                 use tokio::signal::unix::{signal, SignalKind};
@@ -288,7 +291,12 @@ impl RunCmd {
                 tokio::signal::ctrl_c().await.unwrap();
                 "Ctrl+C"
             };
-            info!(target: "neard", "Got {}, stopping", sig);
+            info!(target: "neard", "Got {}, stopping...", sig);
+            futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
+                server.stop(true).await;
+                debug!(target: "neard", "{} server stopped", name);
+            }))
+            .await;
             actix::System::current().stop();
         });
         sys.run().unwrap();
@@ -304,7 +312,7 @@ pub(super) struct TestnetCmd {
     #[clap(long, default_value = "node")]
     prefix: String,
     /// Number of shards to initialize the testnet with.
-    #[clap(long, default_value = "4")]
+    #[clap(long, default_value = "1")]
     shards: NumShards,
     /// Number of validators to initialize the testnet with.
     #[clap(long = "v", default_value = "4")]
@@ -361,7 +369,10 @@ fn init_logging(verbose: Option<&str>) {
         }
     }
     tracing_subscriber::fmt::Subscriber::builder()
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+        .with_span_events(
+            tracing_subscriber::fmt::format::FmtSpan::ENTER
+                | tracing_subscriber::fmt::format::FmtSpan::CLOSE,
+        )
         .with_env_filter(env_filter)
         .with_writer(io::stderr)
         .init();

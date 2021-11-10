@@ -7,13 +7,13 @@ use std::sync::Arc;
 
 use cached::Cached;
 
-use near_chain::{ChainGenesis, Provenance, RuntimeAdapter};
+use near_chain::{ChainGenesis, RuntimeAdapter};
 use near_chain_configs::Genesis;
 use near_chunks::test_utils::ChunkForwardingTestFixture;
 use near_chunks::ProcessPartialEncodedChunkResult;
 use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
-use near_network::test_utils::MockNetworkAdapter;
+use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PartialEncodedChunkForwardMsg;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::block_header::ApprovalType;
@@ -24,7 +24,6 @@ use near_primitives::sharding::ShardChunkHeaderInner;
 use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
@@ -32,14 +31,10 @@ use nearcore::config::GenesisExt;
 pub fn create_nightshade_runtimes(genesis: &Genesis, n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
     (0..n)
         .map(|_| {
-            Arc::new(nearcore::NightshadeRuntime::new(
+            Arc::new(nearcore::NightshadeRuntime::test(
                 Path::new("."),
                 create_test_store(),
                 &genesis,
-                vec![],
-                vec![],
-                None,
-                None,
             )) as Arc<dyn RuntimeAdapter>
         })
         .collect()
@@ -52,8 +47,8 @@ fn create_runtimes(n: usize) -> Vec<Arc<dyn RuntimeAdapter>> {
 
 #[test]
 fn test_pending_approvals() {
-    let runtimes = create_runtimes(1);
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env =
+        TestEnv::builder(ChainGenesis::test()).runtime_adapters(create_runtimes(1)).build();
     let signer =
         InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let parent_hash = hash(&[1]);
@@ -71,15 +66,11 @@ fn test_pending_approvals() {
 
 #[test]
 fn test_invalid_approvals() {
-    let runtimes = create_runtimes(1);
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let mut env = TestEnv::new_with_runtime_and_network_adapter(
-        ChainGenesis::test(),
-        1,
-        1,
-        runtimes,
-        vec![network_adapter.clone()],
-    );
+    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .runtime_adapters(create_runtimes(1))
+        .network_adapters(vec![network_adapter.clone()])
+        .build();
     let signer =
         InMemoryValidatorSigner::from_seed("random".parse().unwrap(), KeyType::ED25519, "random");
     let parent_hash = hash(&[1]);
@@ -97,8 +88,11 @@ fn test_invalid_approvals() {
     assert_eq!(env.clients[0].pending_approvals.cache_size(), 0);
 }
 
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 #[test]
 fn test_cap_max_gas_price() {
+    use near_chain::Provenance;
+    use near_primitives::version::ProtocolFeature;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.min_gas_price = 1_000;
@@ -106,8 +100,9 @@ fn test_cap_max_gas_price() {
     genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
     genesis.config.epoch_length = epoch_length;
     let chain_genesis = ChainGenesis::from(&genesis);
-    let runtimes = create_nightshade_runtimes(&genesis, 1);
-    let mut env = TestEnv::new_with_runtime(chain_genesis, 1, 1, runtimes);
+    let mut env = TestEnv::builder(chain_genesis)
+        .runtime_adapters(create_nightshade_runtimes(&genesis, 1))
+        .build();
 
     for i in 1..epoch_length {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -126,8 +121,8 @@ fn test_cap_max_gas_price() {
 
 #[test]
 fn test_process_partial_encoded_chunk_with_missing_block() {
-    let runtimes = create_runtimes(1);
-    let mut env = TestEnv::new_with_runtime(ChainGenesis::test(), 1, 1, runtimes);
+    let mut env =
+        TestEnv::builder(ChainGenesis::test()).runtime_adapters(create_runtimes(1)).build();
     let client = &mut env.clients[0];
     let chunk_producer = ChunkForwardingTestFixture::default();
     let mut mock_chunk = chunk_producer.make_partial_encoded_chunk(&[0]);

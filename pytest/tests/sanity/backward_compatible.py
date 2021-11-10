@@ -18,33 +18,28 @@ import cluster
 from utils import load_test_contract, get_near_tempdir
 from transaction import sign_deploy_contract_tx, sign_function_call_tx, sign_payment_tx, sign_create_account_with_full_access_key_and_balance_tx
 
+
 def main():
     node_root = get_near_tempdir('backward', clean=True)
     branch = branches.latest_rc_branch()
-    near_root, (stable_branch,
-                current_branch) = branches.prepare_ab_test(branch)
+    executables = branches.prepare_ab_test(branch)
 
     # Setup local network.
-    subprocess.call([
-        "%snear-%s" % (near_root, stable_branch),
+    subprocess.check_call([
+        executables.stable.neard,
         "--home=%s" % node_root, "testnet", "--v", "2", "--prefix", "test"
     ])
 
     # Run both binaries at the same time.
-    config = {
-        "local": True,
-        'near_root': near_root,
-        'binary_name': "near-%s" % stable_branch
-    }
-    stable_node = cluster.spin_up_node(config, near_root,
-                                       str(node_root / 'test0'), 0,
-                                       None, None)
-    if not os.getenv('NAYDUCK'):
-        config["binary_name"] = "near-%s" % current_branch
-    current_node = cluster.spin_up_node(config, near_root,
-                                        str(node_root / 'test1'), 1,
-                                        stable_node.node_key.pk,
-                                        stable_node.addr())
+    config = executables.stable.node_config()
+    stable_node = cluster.spin_up_node(config, executables.stable.root,
+                                       str(node_root / 'test0'), 0)
+    config = executables.current.node_config()
+    current_node = cluster.spin_up_node(config,
+                                        executables.current.root,
+                                        str(node_root / 'test1'),
+                                        1,
+                                        boot_node=stable_node)
 
     # Check it all works.
     BLOCKS = 100
@@ -54,16 +49,21 @@ def main():
 
     # Create account, transfer tokens, deploy contract, invoke function call
     status = stable_node.get_status()
-    block_hash = base58.b58decode(status['sync_info']['latest_block_hash'].encode('utf-8'))
+    block_hash = base58.b58decode(
+        status['sync_info']['latest_block_hash'].encode('utf-8'))
 
-    new_account_id = 'test_account'
-    new_signer_key = cluster.Key(new_account_id, stable_node.signer_key.pk, stable_node.signer_key.sk)
-    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(stable_node.signer_key, new_account_id, new_signer_key, 10 ** 24, 1, block_hash)
+    new_account_id = 'test_account.test0'
+    new_signer_key = cluster.Key(new_account_id, stable_node.signer_key.pk,
+                                 stable_node.signer_key.sk)
+    create_account_tx = sign_create_account_with_full_access_key_and_balance_tx(
+        stable_node.signer_key, new_account_id, new_signer_key, 10**24, 1,
+        block_hash)
     res = stable_node.send_tx_and_wait(create_account_tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    transfer_tx = sign_payment_tx(stable_node.signer_key, new_account_id, 10 ** 25, 2, block_hash)
+    transfer_tx = sign_payment_tx(stable_node.signer_key, new_account_id,
+                                  10**25, 2, block_hash)
     res = stable_node.send_tx_and_wait(transfer_tx, timeout=20)
     assert 'error' not in res, res
 
@@ -76,36 +76,43 @@ def main():
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
-    tx = sign_deploy_contract_tx(stable_node.signer_key, load_test_contract(), 3,
-                                 block_hash)
+    tx = sign_deploy_contract_tx(stable_node.signer_key, load_test_contract(),
+                                 3, block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
-    tx = sign_function_call_tx(new_signer_key,
-                               new_account_id,
+    tx = sign_function_call_tx(new_signer_key, new_account_id,
                                'write_random_value', [], 10**13, 0, nonce + 1,
                                block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    data = json.dumps([{"create": {
-        "account_id": "test_account",
-        "method_name": "call_promise",
-        "arguments": [],
-        "amount": "0",
-        "gas": 30000000000000,
-    }, "id": 0 },
-        {"then": {
+    data = json.dumps([{
+        "create": {
+            "account_id": "test_account.test0",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": "0",
+            "gas": 30000000000000,
+        },
+        "id": 0
+    }, {
+        "then": {
             "promise_index": 0,
             "account_id": "test0",
             "method_name": "call_promise",
             "arguments": [],
             "amount": "0",
             "gas": 30000000000000,
-        }, "id": 1}])
+        },
+        "id": 1
+    }])
 
-    tx = sign_function_call_tx(stable_node.signer_key, new_account_id, 'call_promise', bytes(data, 'utf-8'), 90000000000000, 0, nonce + 2, block_hash)
+    tx = sign_function_call_tx(stable_node.signer_key,
+                               new_account_id, 'call_promise',
+                               bytes(data, 'utf-8'), 90000000000000, 0,
+                               nonce + 2, block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
 
     assert 'error' not in res, res

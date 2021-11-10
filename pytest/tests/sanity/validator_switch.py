@@ -14,11 +14,13 @@ from transaction import sign_staking_tx
 EPOCH_LENGTH = 20
 tracked_shards = {"tracked_shards": [0, 1, 2, 3]}
 
-nodes = start_cluster(3, 1, 4, None, [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
-    ["chunk_producer_kickout_threshold", 10]], {
-        0: tracked_shards,
-        1: tracked_shards
-    })
+nodes = start_cluster(
+    3, 1, 4, None,
+    [["epoch_length", EPOCH_LENGTH], ["block_producer_kickout_threshold", 10],
+     ["chunk_producer_kickout_threshold", 10]], {
+         0: tracked_shards,
+         1: tracked_shards
+     })
 
 time.sleep(3)
 

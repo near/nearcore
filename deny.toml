@@ -11,21 +11,18 @@ deny = [
     { name = "rand", version = "<0.6" },
 
     # See: https://github.com/near/nearcore/pull/3595
-    { name = "ethabi", version = "<9.0.1" },
-    { name = "ethabi-contract", version = "<9.0.0" },
-    { name = "ethabi-derive", version = "<9.0.1" },
-    { name = "ethereum-types", version = "<0.8.0" },
     { name = "keccak-hash", version = "<0.4.1" },
-    { name = "primitive-types", version = "<0.6.2" },
+    { name = "primitive-types", version = "<0.10.1" },
     { name = "uint", version = "<0.8.2" },
 ]
 
 skip = [
     { name = "clap", version = "=2.33.3" },
     { name = "humantime", version = "=2.1.0" },
-    { name = "socket2", version = "=0.3.19" },
     { name = "textwrap", version = "=0.12.1" },
 
+    # insta uses older version of console
+    { name = "console", version = "=0.14.1" },
     # near-epoch-manager fixed the rand version to ensure protocol stability
     { name = "rand", version = "=0.6.5" },
     # rand 0.6.5 uses two versions of rand_core due to weird dependencies mismatch with rand_chacha
@@ -37,10 +34,19 @@ skip = [
     { name = "wasmparser", version = "=0.51.4" },
     { name = "rand_core", version = "=0.4.2" },
     # wasmer 0.17 and wasmtime 0.17 uses older versions of some crates
-    { name = "generic-array", version = "=0.12.3" },
+    { name = "generic-array", version = "=0.12.4" },
 
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
+
+    # Wasmer 2.0 uses newer object
+    { name = "object", version = "=0.25.3" },
+    # Wasmer 2.0 uses both reion 2.2.0 and 3.0.0 via dependencies
+    { name = "region", version = "=2.2.0" },
+    # Wasmtime 0.17 use rely older wasmparser.
+    { name = "wasmparser", version = "=0.76.0" },
+    # Wasmtime 0.17 use older target-lexicon.
+    { name = "target-lexicon", version = "=0.11.2" },
 
     # param estimator uses newer imports, but it's not part of neard
     { name = "indicatif", version = "=0.15.0" },
@@ -55,9 +61,6 @@ skip = [
 
     # chain and param estimator
     { name = "num-rational", version = "=0.3.2" },
-
-    # crossbeam-epoch and wasmtime-runtime
-    { name = "memoffset", version = "=0.6.1" },
 
     # tracing-subscriber via near-logger-utils and clap via bindgen
     { name = "ansi_term", version = "=0.12.1" },
@@ -84,33 +87,18 @@ skip = [
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
-    # wasmer 1.0 use some older version of crates than wasmtime
-    { name = "cranelift-bforest", version = "=0.68.0" },
-    { name = "cranelift-codegen", version = "=0.68.0" },
-    { name = "cranelift-codegen-meta", version = "=0.68.0" },
-    { name = "cranelift-codegen-shared", version = "=0.68.0" },
-    { name = "cranelift-entity", version = "=0.68.0" },
-    { name = "cranelift-frontend", version = "=0.68.0" },
-    { name = "wasmparser", version = "=0.65.0" },
-    { name = "object", version = "=0.22.0" },
-
-    # cached uses an older version
-    { name = "strsim", version = "=0.9.3" },
-    { name = "darling", version = "=0.10.2" },
-    { name = "darling_core", version = "=0.10.2" },
-    { name = "darling_macro", version = "=0.10.2" },
-
     # hashbrown uses an older version
     { name = "ahash", version = "=0.4.7" },
 
-    # zeropool-bn use borsh 0.8.1
-    { name = "borsh", version = "=0.8.1" },
-    { name = "borsh-derive", version = "=0.8.1" },
-    { name = "borsh-derive-internal", version = "=0.8.1" },
-    { name = "borsh-schema-derive-internal", version = "=0.8.1" },
+    # zeropool-bn optionally uses the older borsh 0.8.2
+    { name = "borsh", version = "=0.8.2" },
+    { name = "borsh-derive", version = "=0.8.2" },
+    { name = "borsh-derive-internal", version = "=0.8.2" },
+    { name = "borsh-schema-derive-internal", version = "=0.8.2" },
 
-    # rocksdb (transitively through clang-sys) uses this as a build
-    # dependency which conflicts with 0.6.7 that wasmer-engine-native
-    # uses.
-    { name = "libloading", version = "=0.7.0" },
+    # wasmer-runtime-core-near and parity-secp256k1 use an older version
+    { name = "arrayvec", version = "=0.5.2" },
+
+    # borsh uses a very old version of proc-macro-crate
+    { name = "proc-macro-crate", version = "=0.1.5" }
 ]

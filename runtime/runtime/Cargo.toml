@@ -1,8 +1,10 @@
 [package]
 name = "node-runtime"
 version = "3.0.0"
+license = "MIT OR Apache-2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 
 [dependencies]
 byteorder = "1.2"
@@ -16,11 +18,10 @@ num-rational = "0.3"
 num-bigint = "0.3"
 num-traits = "0.2.11"
 hex = "0.4.2"
-ethereum-types = "0.11.0"
 rayon = "1.5"
 thiserror = "1.0"
 
-borsh = "0.8.1"
+borsh = "0.9"
 
 near-chain-configs = { path = "../../core/chain-configs" }
 near-crypto = { path = "../../core/crypto" }
@@ -34,14 +35,9 @@ near-vm-errors = { path = "../../runtime/near-vm-errors" }
 [features]
 default = []
 dump_errors_schema = ["near-vm-errors/dump_errors_schema"]
-wasmer1_vm = ["near-vm-runner/wasmer1_vm"]
-wasmer0_vm = ["near-vm-runner/wasmer0_vm"]
-wasmtime_vm = ["near-vm-runner/wasmtime_vm"]
-wasmer1_default = ["wasmer1_vm", "near-vm-runner/wasmer1_default"]
-wasmer0_default = ["wasmer0_vm", "near-vm-runner/wasmer0_default"]
-wasmtime_default = ["wasmtime_vm", "near-vm-runner/wasmtime_default"]
+protocol_feature_chunk_only_producers = ["near-primitives/protocol_feature_chunk_only_producers", "near-store/protocol_feature_chunk_only_producers", "near-chain-configs/protocol_feature_chunk_only_producers"]
 
-no_cpu_compatibility_checks = [ "near-vm-runner/no_cpu_compatibility_checks"]
+no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
 no_cache = ["near-vm-runner/no_cache", "near-store/no_cache"]
 
@@ -57,7 +53,7 @@ sandbox = []
 tempfile = "3"
 serde_json = "^1.0.40"
 base64 = "0.11"
-indicatif = {version = "0.13", features = ["with_rayon"]}
+indicatif = {version = "0.15.0", features = ["with_rayon"]}
 rayon = "^1.1"
 assert_matches = "1.3"
 

@@ -16,6 +16,6 @@ config = json.load(open(os.path.join(home, 'output.json')),
 assert config['protocol_version'] == 23
 
 config['protocol_version'] = 24
-config['max_gas_price'] = str(10 ** 22)
+config['max_gas_price'] = str(10**22)
 
 json.dump(config, open(os.path.join(output_home, 'output.json'), 'w'), indent=2)

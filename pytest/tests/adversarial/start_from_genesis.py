@@ -16,13 +16,20 @@ if "doomslug_off" in sys.argv:
 TIMEOUT = 300
 BLOCKS = 30
 
-
 # Low sync_check_period to sync from a new peer with greater height
-client_config_change = {"consensus":{"sync_check_period": {"secs": 0, "nanos": 100000000}}}
+client_config_change = {
+    "consensus": {
+        "sync_check_period": {
+            "secs": 0,
+            "nanos": 100000000
+        }
+    }
+}
 
 nodes = start_cluster(
     2, 0, 2, None,
-    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]], {0: client_config_change})
+    [["epoch_length", 100], ["block_producer_kickout_threshold", 80]],
+    {0: client_config_change})
 if not doomslug:
     # we expect inconsistency in store in node 0
     # because we're going to turn off doomslug
@@ -55,7 +62,7 @@ nodes[1].kill()
 
 # Switch node1 to an adversarial chain
 nodes[1].reset_data()
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 num_produce_blocks = BLOCKS // 2 - 5
 if overtake:
@@ -68,11 +75,11 @@ nodes[1].kill()
 
 # Restart both nodes.
 # Disabling doomslug must happen before starting node1
-nodes[0].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[0].start(boot_node=nodes[0])
 if not doomslug:
     res = nodes[0].json_rpc('adv_disable_doomslug', [])
     assert 'result' in res, res
-nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
+nodes[1].start(boot_node=nodes[0])
 
 time.sleep(3)
 status = nodes[1].get_status()

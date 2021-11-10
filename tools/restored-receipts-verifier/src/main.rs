@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::io::Result;
-use std::iter::FromIterator;
 use std::path::Path;
 
 use clap::{App, Arg};
@@ -10,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_store::create_store;
 use nearcore::migrations::load_migration_data;
-use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime};
+use nearcore::{get_default_home, get_store_path, load_config, NightshadeRuntime, TrackedConfig};
 
 fn get_receipt_hashes_in_repo() -> Vec<CryptoHash> {
     let receipt_result = load_migration_data(&"mainnet".to_string()).restored_receipts;
@@ -42,7 +41,7 @@ fn main() -> Result<()> {
     let matches = App::new("restored-receipts-verifier")
         .arg(
             Arg::new("home")
-                .default_value(&default_home)
+                .default_value_os(default_home.as_os_str())
                 .about("Directory for config and data (default \"~/.near\")")
                 .takes_value(true),
         )
@@ -57,10 +56,10 @@ fn main() -> Result<()> {
         &home_dir,
         store,
         &near_config.genesis,
-        near_config.client_config.tracked_accounts.clone(),
-        near_config.client_config.tracked_shards.clone(),
+        TrackedConfig::from_config(&near_config.client_config),
         None,
         near_config.client_config.max_gas_burnt_view,
+        None,
     );
 
     let mut receipts_missing = Vec::<Receipt>::new();
@@ -83,9 +82,10 @@ fn main() -> Result<()> {
             eprintln!("{} included, skip", height);
             continue;
         }
+        let shard_uid = runtime.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
 
         let chunk_extra =
-            chain_store.get_chunk_extra(block.header().prev_hash(), shard_id).unwrap().clone();
+            chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap().clone();
         let apply_result = runtime
             .apply_transactions(
                 shard_id,
@@ -107,9 +107,7 @@ fn main() -> Result<()> {
             )
             .unwrap();
 
-        let receipts_missing_after_apply: Vec<Receipt> =
-            apply_result.receipt_result.values().cloned().into_iter().flatten().collect();
-        receipts_missing.extend(receipts_missing_after_apply.into_iter());
+        receipts_missing.extend(apply_result.outgoing_receipts.into_iter());
         eprintln!("{} applied", height);
     }
 

@@ -1,8 +1,9 @@
 [package]
 name = "neard"
-version = "1.21.1"
+version = "0.0.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2018"
+publish = false
+edition = "2021"
 default-run = "neard"
 
 [[bin]]
@@ -20,42 +21,39 @@ tracing = "0.1.13"
 git-version = "0.3.1"
 tracing-subscriber = "0.2.4"
 openssl-probe = "0.1.2"
-near-rust-allocator-proxy = { version = "0.2.8", optional = true }
+near-rust-allocator-proxy = { version = "0.3", optional = true }
 lazy_static = "1.4"
 tokio = "1.1"
 futures = "0.3"
+tikv-jemallocator = { version = "0.4.0", optional = true }
 
 nearcore = { path = "../nearcore" }
 near-primitives = { path = "../core/primitives" }
 near-performance-metrics = { path = "../utils/near-performance-metrics" }
 
 [features]
-default = ["json_rpc"]
+default = ["json_rpc", "jemalloc"]
 
+jemalloc = ["tikv-jemallocator"]
 performance_stats = ["nearcore/performance_stats"]
-memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy"]
+memory_stats = ["nearcore/memory_stats", "near-rust-allocator-proxy", "jemalloc"]
 c_memory_stats = ["nearcore/c_memory_stats"]
-adversarial = ["nearcore/adversarial"]
+test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
-metric_recorder = ["nearcore/metric_recorder"]
 no_cache = ["nearcore/no_cache"]
 delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_alt_bn128 = ["nearcore/protocol_feature_alt_bn128"]
 protocol_feature_block_header_v3 = ["nearcore/protocol_feature_block_header_v3"]
+protocol_feature_chunk_only_producers = ["nearcore/protocol_feature_chunk_only_producers"]
+protocol_feature_routing_exchange_algorithm = ["nearcore/protocol_feature_routing_exchange_algorithm"]
 nightly_protocol_features = ["nearcore/nightly_protocol_features"]
 nightly_protocol = ["nearcore/nightly_protocol"]
 
 sandbox = ["nearcore/sandbox"]
 
-# enable this to build neard with wasmer 1.0 runner
-# now if none of wasmer0_default, wasmer1_default or wasmtime_default is enabled, wasmer0 would be default
-wasmer1_default = ["nearcore/wasmer1_default"]
-wasmer0_default = ["nearcore/wasmer0_default"]
-wasmtime_default = ["nearcore/wasmtime_default"]
-# enable some of these to run runtime tests with wasmer 1.0, 0.x and wasmtime vm enabled
-# but would not change default runner used by neard
-wasmer1_vm = ["nearcore/wasmer1_vm"]
-wasmer0_vm = ["nearcore/wasmer0_vm"]
-wasmtime_vm = ["nearcore/wasmtime_vm"]
+# Force usage of a specific wasm vm irrespective of protocol version.
+force_wasmer2 = ["nearcore/force_wasmer2"]
+force_wasmer0 = ["nearcore/force_wasmer0"]
+force_wasmtime = ["nearcore/force_wasmtime"]

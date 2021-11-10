@@ -44,7 +44,7 @@ while cur_height < target_height:
 genesis_block = nodes[0].json_rpc('block', [0])
 genesis_hash = genesis_block['result']['header']['hash']
 
-nodes[1].start(nodes[1].node_key.pk, nodes[1].addr())
+nodes[1].start(boot_node=nodes[1])
 tracker = LogTracker(nodes[1])
 time.sleep(1)
 
@@ -58,7 +58,8 @@ while node1_height <= cur_height:
         status1 = nodes[1].get_status()
         logger.info(status1)
         node1_height = status1['sync_info']['latest_block_height']
-    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce, base58.b58decode(genesis_hash.encode('utf8')))
+    tx = sign_payment_tx(nodes[0].signer_key, 'test1', 1, nonce,
+                         base58.b58decode(genesis_hash.encode('utf8')))
     nodes[1].send_tx(tx)
     nonce += 1
     time.sleep(0.05)

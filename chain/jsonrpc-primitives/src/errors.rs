@@ -46,7 +46,6 @@ pub enum ServerError {
     TxExecutionError(TxExecutionError),
     Timeout,
     Closed,
-    InternalError,
 }
 
 impl RpcError {
@@ -58,7 +57,7 @@ impl RpcError {
     }
 
     /// Create an Invalid Param error.
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn invalid_params(data: impl Serialize) -> Self {
         let value = match to_value(data) {
             Ok(value) => value,
@@ -73,7 +72,7 @@ impl RpcError {
     }
 
     /// Create a server error.
-    #[cfg(feature = "adversarial")]
+    #[cfg(feature = "test_features")]
     pub fn server_error<E: Serialize>(e: Option<E>) -> Self {
         RpcError::new(
             -32_000,
@@ -146,9 +145,9 @@ impl RpcError {
     }
 }
 
-impl std::string::ToString for RpcError {
-    fn to_string(&self) -> String {
-        format!("{:?}", self)
+impl fmt::Display for RpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
@@ -170,7 +169,6 @@ impl fmt::Display for ServerError {
             ServerError::TxExecutionError(e) => write!(f, "ServerError: {}", e),
             ServerError::Timeout => write!(f, "ServerError: Timeout"),
             ServerError::Closed => write!(f, "ServerError: Closed"),
-            ServerError::InternalError => write!(f, "ServerError: Internal Error"),
         }
     }
 }
@@ -192,7 +190,7 @@ impl From<actix::MailboxError> for ServerError {
 
 impl From<ServerError> for RpcError {
     fn from(e: ServerError) -> RpcError {
-        let error_data = match to_value(e) {
+        let error_data = match to_value(&e) {
             Ok(value) => value,
             Err(_err) => {
                 return RpcError::new_internal_error(
@@ -201,6 +199,11 @@ impl From<ServerError> for RpcError {
                 )
             }
         };
-        RpcError::new_handler_error(Some(error_data.clone()), error_data)
+        match e {
+            ServerError::TxExecutionError(_) => {
+                RpcError::new_handler_error(Some(error_data.clone()), error_data)
+            }
+            _ => RpcError::new_internal_error(Some(error_data.clone()), e.to_string()),
+        }
     }
 }

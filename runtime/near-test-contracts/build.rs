@@ -22,6 +22,12 @@ fn try_main() -> io::Result<()> {
         "nightly_test_contract_rs",
     )?;
     build_contract("./tiny-contract-rs", &[], "tiny_contract_rs")?;
+    build_contract("./contract-for-fuzzing-rs", &[], "contract_for_fuzzing_rs")?;
+    build_contract(
+        "./test-contract-rs",
+        &["--features", "base_protocol"],
+        "test_contract_rs_base_protocol",
+    )?;
     Ok(())
 }
 
@@ -44,6 +50,7 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> io::Result<()> {
 fn cargo_build_cmd() -> Command {
     let mut res = Command::new("cargo");
     res.env("RUSTFLAGS", "-C link-arg=-s");
+    res.env_remove("CARGO_ENCODED_RUSTFLAGS");
     if let Some(target_dir) = shared_target_dir() {
         res.env("CARGO_TARGET_DIR", target_dir);
     }

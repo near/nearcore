@@ -35,19 +35,18 @@ def submit_tx_and_check(nodes, node_index, tx):
 
 
 def test_tx_status():
-    nodes = start_cluster(4, 0, 1, None,
-                          [["epoch_length", 1000],
-                           ["block_producer_kickout_threshold", 80],
-                           ["transaction_validity_period", 10000]],
-                          {})
+    nodes = start_cluster(
+        4, 0, 1, None,
+        [["epoch_length", 1000], ["block_producer_kickout_threshold", 80],
+         ["transaction_validity_period", 10000]], {})
 
     signer_key = nodes[0].signer_key
     status = nodes[0].get_status()
     block_hash = status['sync_info']['latest_block_hash']
     encoded_block_hash = base58.b58decode(block_hash.encode('ascii'))
 
-    payment_tx = transaction.sign_payment_tx(
-        signer_key, 'test1', 100, 1, encoded_block_hash)
+    payment_tx = transaction.sign_payment_tx(signer_key, 'test1', 100, 1,
+                                             encoded_block_hash)
     submit_tx_and_check(nodes, 0, payment_tx)
 
     deploy_contract_tx = transaction.sign_deploy_contract_tx(
@@ -55,9 +54,8 @@ def test_tx_status():
     submit_tx_and_check(nodes, 0, deploy_contract_tx)
 
     function_call_tx = transaction.sign_function_call_tx(
-        signer_key, signer_key.account_id,
-        'write_key_value', struct.pack('<QQ', 42, 24),
-        300000000000000, 0, 3, encoded_block_hash)
+        signer_key, signer_key.account_id, 'write_key_value',
+        struct.pack('<QQ', 42, 24), 300000000000000, 0, 3, encoded_block_hash)
     submit_tx_and_check(nodes, 0, deploy_contract_tx)
 
 

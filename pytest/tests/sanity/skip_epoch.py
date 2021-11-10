@@ -22,25 +22,72 @@ config = load_config()
 near_root, node_dirs = init_cluster(
     4, 1, 4, config,
     [["min_gas_price", 0], ["max_inflation_rate", [0, 1]], ["epoch_length", 12],
-     ["block_producer_kickout_threshold", 20], ["chunk_producer_kickout_threshold", 20]],
-    {0: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-     1: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-     2: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}},
-     3: {"view_client_throttle_period": {"secs": 0, "nanos": 0}, "consensus": {"state_sync_timeout": {"secs": 2, "nanos": 0}}}, 4: {
-        "tracked_shards": [0, 1, 2, 3],
-        "view_client_throttle_period": {"secs": 0, "nanos": 0}
-    }})
+     ["block_producer_kickout_threshold", 20],
+     ["chunk_producer_kickout_threshold", 20]], {
+         0: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         1: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         2: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         3: {
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             },
+             "consensus": {
+                 "state_sync_timeout": {
+                     "secs": 2,
+                     "nanos": 0
+                 }
+             }
+         },
+         4: {
+             "tracked_shards": [0, 1, 2, 3],
+             "view_client_throttle_period": {
+                 "secs": 0,
+                 "nanos": 0
+             }
+         }
+     })
 
 started = time.time()
 
-boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
+boot_node = spin_up_node(config, near_root, node_dirs[0], 0)
 boot_node.stop_checking_store()
-node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk,
-                     boot_node.addr())
-node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node.node_key.pk,
-                     boot_node.addr())
-observer = spin_up_node(config, near_root, node_dirs[4], 4,
-                        boot_node.node_key.pk, boot_node.addr())
+node3 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node=boot_node)
+node4 = spin_up_node(config, near_root, node_dirs[3], 3, boot_node=boot_node)
+observer = spin_up_node(config, near_root, node_dirs[4], 4, boot_node=boot_node)
 observer.stop_checking_store()
 
 ctx = TxContext([4, 4, 4, 4, 4], [boot_node, None, node3, node4, observer])
@@ -48,9 +95,8 @@ initial_balances = ctx.get_balances()
 total_supply = sum(initial_balances)
 
 logger.info("Initial balances: %s\nTotal supply: %s" %
-      (initial_balances, total_supply))
+            (initial_balances, total_supply))
 
-seen_boot_heights = set()
 sent_txs = False
 largest_height = 0
 
@@ -62,7 +108,6 @@ while True:
     status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
@@ -79,13 +124,8 @@ while True:
 logger.info("stage 1 done")
 
 # 2. Spin up the second node and make sure it gets to 35 as well, and doesn't diverge
-node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk,
-                     boot_node.addr())
+node2 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node=boot_node)
 node2.stop_checking_store()
-
-status = boot_node.get_status()
-new_height = status['sync_info']['latest_block_height']
-seen_boot_heights.add(new_height)
 
 while True:
     assert time.time() - started < TIMEOUT
@@ -95,16 +135,11 @@ while True:
     node2_syncing = status['sync_info']['syncing']
 
     status = boot_node.get_status()
-    new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
-
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
 
     if node2_height > TARGET_HEIGHT and not node2_syncing:
-        assert node2_height in seen_boot_heights, "%s not in %s" % (
-            node2_height, seen_boot_heights)
         break
 
     time.sleep(0.1)
@@ -119,7 +154,8 @@ logger.info("stage 2 done")
 #    receipts during the state sync from the observer.
 #    `max_inflation_rate` is set to zero, so the rewards do not mess up with the balances
 balances = ctx.get_balances()
-logger.info("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
+logger.info("New balances: %s\nNew total supply: %s" %
+            (balances, sum(balances)))
 
 assert (balances != initial_balances)
 assert (sum(balances) == total_supply)
@@ -168,7 +204,6 @@ ctx.nodes = [boot_node, node2, node3, node4, observer]
 ctx.act_to_val = [4, 4, 4, 4, 4]
 
 boot_node.kill()
-seen_boot_heights = set()
 sent_txs = False
 
 while True:
@@ -176,7 +211,6 @@ while True:
     status = observer.get_status()
     hash_ = status['sync_info']['latest_block_hash']
     new_height = status['sync_info']['latest_block_height']
-    seen_boot_heights.add(new_height)
     if new_height > largest_height:
         largest_height = new_height
         logger.info(new_height)
@@ -191,11 +225,13 @@ while True:
     time.sleep(0.1)
 
 balances = ctx.get_balances()
-logger.info("New balances: %s\nNew total supply: %s" % (balances, sum(balances)))
+logger.info("New balances: %s\nNew total supply: %s" %
+            (balances, sum(balances)))
 
 ctx.nodes = [observer, node2]
 ctx.act_to_val = [0, 0, 0, 0, 0]
 logger.info("Observer sees: %s" % ctx.get_balances())
 
-assert balances != initial_balances, "current balance %s, initial balance %s" % (balances, initial_balances)
+assert balances != initial_balances, "current balance %s, initial balance %s" % (
+    balances, initial_balances)
 assert sum(balances) == total_supply

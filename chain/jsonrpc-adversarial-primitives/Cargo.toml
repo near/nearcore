@@ -1,0 +1,23 @@
+[package]
+name = "near-jsonrpc-adversarial-primitives"
+version = "0.2.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+near-primitives = { path = "../../core/primitives" }
+
+near-jsonrpc-primitives = { path = "../jsonrpc-primitives", optional = true }
+near-network = { path = "../network" }
+
+
+[features]
+ser_de = [
+  "serde_json",
+  "serde",
+  "near-jsonrpc-primitives",
+  "near-network/test_features"
+]

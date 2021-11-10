@@ -19,6 +19,9 @@ use near_primitives::block::Approval;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Rational;
 use near_primitives::transaction::SignedTransaction;
+#[cfg(feature = "protocol_feature_block_header_v3")]
+use near_primitives::types::validator_stake::ValidatorStake;
+#[cfg(not(feature = "protocol_feature_block_header_v3"))]
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -49,6 +52,21 @@ fn add_blocks(
         let next_epoch_id = EpochId(
             *blocks[(((prev.header().height()) / epoch_length) * epoch_length) as usize].hash(),
         );
+        #[cfg(feature = "protocol_feature_block_header_v3")]
+        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
+            "other".parse().unwrap(),
+            signer.public_key(),
+            TESTING_INIT_STAKE,
+            false,
+        )])
+        .unwrap();
+        #[cfg(not(feature = "protocol_feature_block_header_v3"))]
+        let next_bp_hash = Chain::compute_collection_hash(vec![ValidatorStake::new(
+            "other".parse().unwrap(),
+            signer.public_key(),
+            TESTING_INIT_STAKE,
+        )])
+        .unwrap();
         let block = Block::produce(
             PROTOCOL_VERSION,
             &prev.header(),
@@ -76,12 +94,7 @@ fn add_blocks(
             vec![],
             vec![],
             signer,
-            Chain::compute_collection_hash(vec![ValidatorStake::new(
-                "other".parse().unwrap(),
-                signer.public_key(),
-                TESTING_INIT_STAKE,
-            )])
-            .unwrap(),
+            next_bp_hash,
             block_merkle_tree.root(),
         );
         block_merkle_tree.insert(*block.hash());
@@ -123,7 +136,7 @@ fn sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (client1, _, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -134,7 +147,8 @@ fn sync_nodes() {
                 add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-            let (_, view_client2, _) = start_with_config(dir2.path(), near2);
+            let nearcore::NearNode { view_client: view_client2, .. } =
+                start_with_config(dir2.path(), near2);
 
             WaitOrTimeout::new(
                 Box::new(move |_ctx| {
@@ -165,10 +179,11 @@ fn sync_after_sync_nodes() {
 
         run_actix(async move {
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let (client1, _, _) = start_with_config(dir1.path(), near1);
+            let nearcore::NearNode { client: client1, .. } = start_with_config(dir1.path(), near1);
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
-            let (_, view_client2, _) = start_with_config(dir2.path(), near2);
+            let nearcore::NearNode { view_client: view_client2, .. } =
+                start_with_config(dir2.path(), near2);
 
             let signer = InMemoryValidatorSigner::from_seed(
                 "other".parse().unwrap(),
@@ -244,7 +259,8 @@ fn sync_state_stake_change() {
                 tempfile::Builder::new().prefix("sync_state_stake_change_1").tempdir().unwrap();
             let dir2 =
                 tempfile::Builder::new().prefix("sync_state_stake_change_2").tempdir().unwrap();
-            let (client1, view_client1, _) = start_with_config(dir1.path(), near1.clone());
+            let nearcore::NearNode { client: client1, view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1.clone());
 
             let genesis_hash = *genesis_block(&genesis).hash();
             let signer = Arc::new(InMemorySigner::from_seed(
@@ -285,7 +301,7 @@ fn sync_state_stake_change() {
                             if let Ok(Ok(block)) = res { block.header.height } else { 0 };
                         if !started_copy.load(Ordering::SeqCst) && latest_height > 10 {
                             started_copy.store(true, Ordering::SeqCst);
-                            let (_, view_client2, arbiters) =
+                            let nearcore::NearNode { view_client: view_client2, arbiters, .. } =
                                 start_with_config(&dir2_path_copy, near2_copy);
                             *arbiters_holder2.write().unwrap() = arbiters;
 

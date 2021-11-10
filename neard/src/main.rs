@@ -11,6 +11,7 @@ use near_primitives::version::{Version, DB_VERSION, PROTOCOL_VERSION};
 #[cfg(feature = "memory_stats")]
 use near_rust_allocator_proxy::allocator::MyAllocator;
 use nearcore::get_default_home;
+use std::path::PathBuf;
 
 pub fn get_version() -> String {
     match crate_version!() {
@@ -28,15 +29,17 @@ lazy_static! {
             NEARD_VERSION.version, NEARD_VERSION.build, PROTOCOL_VERSION, DB_VERSION
         )
     };
-    static ref DEFAULT_HOME: String = get_default_home();
+    static ref DEFAULT_HOME: PathBuf = get_default_home();
 }
 
 #[cfg(feature = "memory_stats")]
 #[global_allocator]
-static ALLOC: MyAllocator = MyAllocator;
+static ALLOC: MyAllocator<tikv_jemallocator::Jemalloc> =
+    MyAllocator::new(tikv_jemallocator::Jemalloc);
 
-#[cfg(all(not(feature = "memory_stats"), jemallocator))]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+#[cfg(all(not(feature = "memory_stats"), feature = "jemalloc"))]
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
     // We use it to automatically search the for root certificates to perform HTTPS calls

@@ -97,7 +97,8 @@ def get_up_to(from_, to):
 
     for i in range(from_, to + 1):
         hash_ = height_to_hash[i]
-        logger.info(f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}")
+        logger.info(
+            f"{i} {hash_} {hash_to_epoch[hash_]} {hash_to_next_epoch[hash_]}")
 
         if len(epochs) == 0 or epochs[-1] != hash_to_epoch[hash_]:
             epochs.append(hash_to_epoch[hash_])

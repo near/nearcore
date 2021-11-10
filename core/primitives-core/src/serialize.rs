@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 pub fn to_base<T: AsRef<[u8]>>(input: T) -> String {
     bs58::encode(input).into_string()
 }
@@ -163,8 +161,8 @@ pub mod u128_dec_format_compatible {
     //! This in an extension to `u128_dec_format` that serves a compatibility layer role to
     //! deserialize u128 from a "small" JSON number (u64).
     //!
-    //! It is unfortunate that we cannot enable "arbitrary_precision" feature in serde_json due to
-    //! a bug: https://github.com/serde-rs/json/issues/505
+    //! It is unfortunate that we cannot enable "arbitrary_precision" feature in
+    //! serde_json due to a bug: <https://github.com/serde-rs/json/issues/505>.
     use serde::{de, Deserialize, Deserializer};
 
     pub use super::u128_dec_format::serialize;
