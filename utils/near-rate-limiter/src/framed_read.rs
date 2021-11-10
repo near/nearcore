@@ -36,7 +36,7 @@ pin_project! {
         pub(crate) inner: T,
         pub(crate) state: State,
         pub(crate) codec: U,
-        pub(crate) rate_limiter: ThrottleController,
+        pub(crate) throttle_controller: ThrottleController,
         pub(crate) receiver: UnboundedReceiver<()>,
     }
 }
@@ -52,7 +52,7 @@ pin_project! {
 /// - Any other metadata we need debugging, etc.
 pub struct ActixMessageWrapper<T> {
     msg: T,
-    rate_limiter: ThrottleController,
+    throttle_controller: ThrottleController,
     msg_len: usize,
 }
 
@@ -62,14 +62,14 @@ impl<T> ActixMessageWrapper<T> {
         // TODO(#5155) Add decorator like SizeOf
         let msg_len = 0; // TODO msg.sizeof()
         rate_limiter.add_msg(msg_len);
-        Self { msg, rate_limiter, msg_len }
+        Self { msg, throttle_controller: rate_limiter, msg_len }
     }
 
     #[allow(unused)]
     pub fn take(mut self) -> (T, ThrottleController) {
-        self.rate_limiter.remove_msg(self.msg_len);
+        self.throttle_controller.remove_msg(self.msg_len);
 
-        return (self.msg, self.rate_limiter);
+        return (self.msg, self.throttle_controller);
     }
 }
 
@@ -138,7 +138,7 @@ where
     pub fn new(
         inner: T,
         decoder: D,
-        rate_limiter: ThrottleController,
+        throttle_controller: ThrottleController,
         receiver: UnboundedReceiver<()>,
     ) -> ThrottledFrameRead<T, D> {
         ThrottledFrameRead {
@@ -146,7 +146,7 @@ where
                 inner,
                 codec: decoder,
                 state: Default::default(),
-                rate_limiter,
+                throttle_controller,
                 receiver,
             },
         }
@@ -211,7 +211,7 @@ where
             while let task::Poll::Ready(_) = pinned.receiver.poll_recv(cx) {
                 // pop all elements from queue, to prevent memory leak
             }
-            while !pinned.rate_limiter.is_ready() {
+            while !pinned.throttle_controller.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
                 ready!(pinned.receiver.poll_recv(cx));
@@ -286,38 +286,41 @@ mod tests {
     #[test]
     fn test_rate_limiter_helper_by_count() {
         let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = ThrottleController::new(tx);
+        let mut throttle_controller = ThrottleController::new(tx);
 
         for _ in 0..MAX_MESSAGES_COUNT {
-            assert_eq!(rate_limiter.is_ready(), true);
-            rate_limiter.add_msg(100);
+            assert_eq!(throttle_controller.is_ready(), true);
+            throttle_controller.add_msg(100);
         }
-        assert_eq!(rate_limiter.is_ready(), false);
+        assert_eq!(throttle_controller.is_ready(), false);
 
         for _ in 0..MAX_MESSAGES_COUNT {
-            rate_limiter.add_msg(100);
+            throttle_controller.add_msg(100);
         }
 
-        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 2 * MAX_MESSAGES_COUNT);
         assert_eq!(
-            rate_limiter.total_sizeof_messages_in_progress.load(SeqCst),
+            throttle_controller.num_messages_in_progress.load(SeqCst),
+            2 * MAX_MESSAGES_COUNT
+        );
+        assert_eq!(
+            throttle_controller.total_sizeof_messages_in_progress.load(SeqCst),
             2 * MAX_MESSAGES_COUNT * 100
         );
 
         for _ in 0..MAX_MESSAGES_COUNT {
-            assert_eq!(rate_limiter.is_ready(), false);
-            rate_limiter.remove_msg(100);
+            assert_eq!(throttle_controller.is_ready(), false);
+            throttle_controller.remove_msg(100);
         }
 
-        assert_eq!(rate_limiter.is_ready(), false);
+        assert_eq!(throttle_controller.is_ready(), false);
 
         for _ in 0..MAX_MESSAGES_COUNT {
-            rate_limiter.remove_msg(100);
-            assert_eq!(rate_limiter.is_ready(), true);
+            throttle_controller.remove_msg(100);
+            assert_eq!(throttle_controller.is_ready(), true);
         }
 
-        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 0);
-        assert_eq!(rate_limiter.total_sizeof_messages_in_progress.load(SeqCst), 0);
+        assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
+        assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
         actix::System::new().block_on(async {
             for _ in 0..2 * MAX_MESSAGES_COUNT {
@@ -330,38 +333,38 @@ mod tests {
     #[test]
     fn test_rate_limiter_helper_by_size() {
         let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = ThrottleController::new(tx);
+        let mut throttle_controller = ThrottleController::new(tx);
 
         for _ in 0..8 {
-            assert_eq!(rate_limiter.is_ready(), true);
-            rate_limiter.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            assert_eq!(throttle_controller.is_ready(), true);
+            throttle_controller.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
         }
-        assert_eq!(rate_limiter.is_ready(), false);
+        assert_eq!(throttle_controller.is_ready(), false);
 
         for _ in 0..8 {
-            rate_limiter.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            throttle_controller.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
         }
 
-        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 2 * 8);
+        assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 2 * 8);
         assert_eq!(
-            rate_limiter.total_sizeof_messages_in_progress.load(SeqCst),
+            throttle_controller.total_sizeof_messages_in_progress.load(SeqCst),
             2 * MAX_MESSAGES_TOTAL_SIZE
         );
 
         for _ in 0..8 {
-            assert_eq!(rate_limiter.is_ready(), false);
-            rate_limiter.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            assert_eq!(throttle_controller.is_ready(), false);
+            throttle_controller.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
         }
 
-        assert_eq!(rate_limiter.is_ready(), false);
+        assert_eq!(throttle_controller.is_ready(), false);
 
         for _ in 0..8 {
-            rate_limiter.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
-            assert_eq!(rate_limiter.is_ready(), true);
+            throttle_controller.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            assert_eq!(throttle_controller.is_ready(), true);
         }
 
-        assert_eq!(rate_limiter.num_messages_in_progress.load(SeqCst), 0);
-        assert_eq!(rate_limiter.total_sizeof_messages_in_progress.load(SeqCst), 0);
+        assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
+        assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
         actix::System::new().block_on(async {
             for _ in 0..16 {

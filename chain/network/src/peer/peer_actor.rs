@@ -205,7 +205,7 @@ pub struct PeerActor {
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
     /// A helper data structure for limiting reading
     #[allow(unused)]
-    rate_limiter: ThrottleController,
+    throttle_controller: ThrottleController,
 }
 
 impl Debug for PeerActor {
@@ -229,7 +229,7 @@ impl PeerActor {
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
-        rate_limiter: ThrottleController,
+        throttle_controller: ThrottleController,
     ) -> Self {
         PeerActor {
             node_info,
@@ -254,7 +254,7 @@ impl PeerActor {
             last_time_received_epoch_sync_request: Clock::instant()
                 - Duration::from_millis(EPOCH_SYNC_PEER_TIMEOUT_MS),
             routed_message_cache: SizedCache::with_size(ROUTED_MESSAGE_CACHE_SIZE),
-            rate_limiter,
+            throttle_controller,
         }
     }
 
