@@ -166,10 +166,8 @@ impl RoutingTableTest {
     }
 
     fn update_routing_table(&mut self) {
-        self.routing_table.recalculate_routing_table_and_maybe_prune_edges(
-            Prune::PruneOncePerHour,
-            DELETE_PEERS_AFTER_TIME,
-        );
+        self.routing_table.recalculate_routing_table();
+        self.routing_table.prune_edges(Prune::PruneOncePerHour, DELETE_PEERS_AFTER_TIME);
     }
 }
 
