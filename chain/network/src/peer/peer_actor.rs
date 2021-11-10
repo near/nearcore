@@ -713,7 +713,6 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
         };
         // TODO(#5155) We should change our code to track size of messages received from Peer
         // as long as it travels to PeerManager, etc.
-        self.rate_limiter.remove_msg(msg.len());
 
         near_metrics::inc_counter_by(&metrics::PEER_DATA_RECEIVED_BYTES, msg.len() as u64);
         near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED_TOTAL);
