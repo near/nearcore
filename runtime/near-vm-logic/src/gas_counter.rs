@@ -132,9 +132,6 @@ impl GasCounter {
     fn process_gas_limit(&mut self, new_burnt_gas: Gas, new_used_gas: Gas) -> VMLogicError {
         use std::cmp::min;
 
-        let over_burnt = new_burnt_gas > self.max_gas_burnt;
-        let over_used = new_used_gas > self.prepaid_gas;
-
         // Never burn more gas than what was paid for.
         let hard_burnt_limit = min(self.prepaid_gas, self.max_gas_burnt);
         self.fast_counter.burnt_gas = min(new_burnt_gas, hard_burnt_limit);
@@ -152,7 +149,12 @@ impl GasCounter {
         // Alternative would be to prefer reporting limit that is lower (or
         // perhaps even some other heuristic) but old code preferred
         // GasLimitExceeded and we’re keeping compatibility with that.
-        if over_burnt { HostError::GasLimitExceeded } else { HostError::GasExceeded }.into()
+        if new_burnt_gas > self.max_gas_burnt {
+            HostError::GasLimitExceeded
+        } else {
+            HostError::GasExceeded
+        }
+        .into()
     }
 
     pub fn pay_wasm_gas(&mut self, opcodes: u32) -> Result<()> {
