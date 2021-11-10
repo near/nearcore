@@ -209,12 +209,13 @@ where
         let mut pinned = self.project();
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
-            // Always poll to prevent `pinned.receiver` from growing in size infinitely.
-            ready!(pinned.receiver.poll_recv(cx));
+            if !pinned.rate_limiter.is_ready() {
+                ready!(pinned.receiver.poll_recv(cx));
+            }
 
             // Check condition again
             if !pinned.rate_limiter.is_ready() {
-                return Poll::Pending;
+                continue;
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
