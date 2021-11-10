@@ -513,8 +513,8 @@ impl RoutingTableView {
         }
     }
 
-    pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) {
-        self.route_back.insert(hash, peer_id);
+    pub fn add_route_back(&mut self, hash: CryptoHash, peer_id: PeerId) -> bool {
+        self.route_back.insert(hash, peer_id)
     }
 
     // Find route back with given hash and removes it from cache.

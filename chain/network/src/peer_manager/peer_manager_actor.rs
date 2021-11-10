@@ -855,7 +855,8 @@ impl PeerManagerActor {
             None => return vec![],
         };
         // Find all peers whose height is within `highest_peer_horizon` from max height peer(s).
-        self.active_peers
+        let result = self
+            .active_peers
             .values()
             .filter_map(|active_peer| {
                 if active_peer.full_peer_info.chain_info.height + self.config.highest_peer_horizon
@@ -866,7 +867,23 @@ impl PeerManagerActor {
                     None
                 }
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+
+        for peer in result.iter() {
+            if self
+                .routing_table_view
+                .peer_forwarding
+                .get(&peer.peer_info.id)
+                .unwrap_or(&Vec::new())
+                .is_empty()
+            {
+                // We suspect that there is an active peer to which we don't have a route to
+                // and that's causing a desync. More research is required.That shouldn't have happened!.
+                error!(target: "network", "returning peer to ClientActor to which we have no route: {}", &peer.peer_info.id);
+                break;
+            }
+        }
+        result
     }
 
     /// Returns bytes sent/received across all peers.
@@ -1328,7 +1345,10 @@ impl PeerManagerActor {
                 // Remember if we expect a response for this message.
                 if msg.author == self.my_peer_id && msg.expect_response() {
                     trace!(target: "network", "initiate route back {:?}", msg);
-                    self.routing_table_view.add_route_back(msg.hash(), self.my_peer_id.clone());
+                    if !self.routing_table_view.add_route_back(msg.hash(), self.my_peer_id.clone())
+                    {
+                        warn!(target: "network", "We couldn't add message to add_route_back: {}", PeerMessage::Routed(msg.clone()));
+                    }
                 }
 
                 self.send_message(ctx, peer_id, PeerMessage::Routed(msg))
@@ -2301,7 +2321,9 @@ impl PeerManagerActor {
 
         if msg.expect_response() {
             trace!(target: "network", "Received peer message that requires route back: {}", PeerMessage::Routed(msg.clone()));
-            self.routing_table_view.add_route_back(msg.hash(), from.clone());
+            if !self.routing_table_view.add_route_back(msg.hash(), from.clone()) {
+                warn!(target: "network", "We couldn't add message to add_route_back: {}", PeerMessage::Routed(msg.clone()));
+            }
         }
 
         if self.message_for_me(&msg.target) {
