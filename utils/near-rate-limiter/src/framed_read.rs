@@ -2,8 +2,8 @@ use std::borrow::BorrowMut;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::task;
 use std::task::{Context, Poll};
-use std::{io, task};
 
 use bytes::BytesMut;
 use futures_core::{ready, Stream};
@@ -12,6 +12,7 @@ use log::trace;
 use pin_project_lite::pin_project;
 use tokio::io::AsyncRead;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
 
 // Initial capacity of read buffer.
@@ -251,27 +252,6 @@ where
             }
 
             state.is_readable = true;
-        }
-    }
-}
-
-pub trait Decoder {
-    type Item;
-
-    type Error: From<io::Error>;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>;
-
-    fn decode_eof(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match self.decode(buf)? {
-            Some(frame) => Ok(Some(frame)),
-            None => {
-                if buf.is_empty() {
-                    Ok(None)
-                } else {
-                    Err(io::Error::new(io::ErrorKind::Other, "bytes remaining on stream").into())
-                }
-            }
         }
     }
 }
