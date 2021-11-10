@@ -209,10 +209,8 @@ where
         let mut pinned = self.project();
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
-            if !pinned.rate_limiter.is_ready() {
-                // Poll on receiver
-                ready!(pinned.receiver.poll_recv(cx));
-            }
+            // Always poll to prevent `pinned.receiver` from growing in size infinitely.
+            ready!(pinned.receiver.poll_recv(cx));
 
             // Check condition again
             if !pinned.rate_limiter.is_ready() {
