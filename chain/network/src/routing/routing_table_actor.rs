@@ -37,7 +37,7 @@ pub enum Prune {
     PruneOncePerHour,
     /// Prune right now - for testing purposes.
     PruneNow,
-    /// Don't prune at all.
+    /// Don't prune at all - this happens in case we are in the middle of adding new edges.
     Disable,
 }
 
@@ -81,8 +81,6 @@ pub struct RoutingTableActor {
     pub next_available_component_nonce: u64,
     /// True if edges were changed and we need routing table recalculation.
     pub needs_routing_table_recalculation: bool,
-    /// True if edges weren't pruned yet since last routing table update.
-    pub can_prune_edges: bool,
 }
 
 impl RoutingTableActor {
@@ -101,7 +99,6 @@ impl RoutingTableActor {
             store,
             next_available_component_nonce: component_nonce,
             needs_routing_table_recalculation: false,
-            can_prune_edges: false,
         }
     }
 
@@ -247,7 +244,6 @@ impl RoutingTableActor {
 
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
-        self.can_prune_edges = true;
         let now = Instant::now();
         for peer in self.peer_forwarding.keys() {
             self.peer_last_time_reachable.insert(peer.clone(), now);
@@ -263,10 +259,9 @@ impl RoutingTableActor {
         prune: Prune,
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
-        if prune == Prune::Disable || !self.can_prune_edges {
+        if prune == Prune::Disable {
             return Vec::new();
         }
-        self.can_prune_edges = false;
 
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("pruning edges".into());
