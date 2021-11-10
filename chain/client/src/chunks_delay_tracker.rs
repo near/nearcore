@@ -68,7 +68,7 @@ impl ChunksDelayTracker {
     }
 
     fn update_blocks_missing_chunks_metric(&mut self, head_height: BlockHeight) {
-        let value = if let Some((&latest, _)) = self.heights.iter().rev().next() {
+        let value = if let Some((&latest, _)) = self.heights.iter().next_back() {
             latest.saturating_sub(head_height)
         } else {
             0
