@@ -266,11 +266,12 @@ where
 mod tests {
     use crate::ThrottleController;
     use std::sync::atomic::Ordering::SeqCst;
+    use std::thread;
     use tokio::sync::mpsc;
 
     #[test]
     fn test_rate_limiter_helper_by_count() {
-        let (tx, _) = mpsc::unbounded_channel::<()>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
         let max_messages_count = 20;
         let mut throttle_controller = ThrottleController::new(tx, max_messages_count, 2000000);
         for _ in 0..max_messages_count {
@@ -306,12 +307,19 @@ mod tests {
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
+
+        actix::System::new().block_on(async {
+            for _ in 0..40 {
+                rx.recv().await.unwrap();
+            }
+            assert_eq!(rx.try_recv().is_err(), true);
+        });
     }
 
     #[test]
     fn test_rate_limiter_helper_by_size() {
         let max_messages_total_size = 500_000_000;
-        let (tx, _) = mpsc::unbounded_channel::<()>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
         let mut throttle_controller = ThrottleController::new(tx, 1000, max_messages_total_size);
 
         for _ in 0..8 {
@@ -344,5 +352,12 @@ mod tests {
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
+
+        actix::System::new().block_on(async {
+            for _ in 0..16 {
+                rx.recv().await.unwrap();
+            }
+            assert_eq!(rx.try_recv().is_err(), true);
+        });
     }
 }
