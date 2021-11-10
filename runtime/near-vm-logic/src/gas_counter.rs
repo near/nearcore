@@ -91,6 +91,9 @@ impl GasCounter {
         }
     }
 
+    /// Accounts for burnt and used gas; reports an error if max gas burnt or
+    /// prepaid gas limit is crossed.  Panics when trying to burn more gas than
+    /// being used, i.e. if `burn_gas > use_gas`.
     fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
         assert!(burn_gas <= use_gas);
         let promise_gas = use_gas - burn_gas;
