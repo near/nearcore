@@ -242,11 +242,6 @@ impl RoutingTableActor {
 
         self.peer_forwarding = Arc::new(self.raw_graph.calculate_distance());
 
-        let now = Instant::now();
-        for peer in self.peer_forwarding.keys() {
-            self.peer_last_time_reachable.insert(peer.clone(), now);
-        }
-
         near_metrics::inc_counter_by(&metrics::ROUTING_TABLE_RECALCULATIONS, 1);
         near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
     }
@@ -263,6 +258,11 @@ impl RoutingTableActor {
         if prune == Prune::Disable {
             return Vec::new();
         }
+        let now = Instant::now();
+        for peer in self.peer_forwarding.keys() {
+            self.peer_last_time_reachable.insert(peer.clone(), now);
+        }
+
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("pruning edges".into());
 
