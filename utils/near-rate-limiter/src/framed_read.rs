@@ -209,15 +209,10 @@ where
         let mut pinned = self.project();
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
-            if !pinned.rate_limiter.is_ready() {
+            while !pinned.rate_limiter.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
                 ready!(pinned.receiver.poll_recv(cx));
-            }
-
-            // Check condition again
-            if !pinned.rate_limiter.is_ready() {
-                continue;
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
