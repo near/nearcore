@@ -1,7 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -43,6 +43,7 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::{to_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
 
+use crate::chunks_delay_tracker::ChunksDelayTracker;
 use crate::metrics;
 use crate::sync::{BlockSync, EpochSync, HeaderSync, StateSync, StateSyncResult};
 use crate::SyncStatus;
@@ -837,7 +838,7 @@ impl Client {
 
     pub fn process_partial_encoded_chunk(
         &mut self,
-        partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>
+        partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
         self.record_receive_chunk_timestamp(
             partial_encoded_chunk.height_created(),
@@ -1672,116 +1673,18 @@ impl Client {
 
     fn record_receive_block_timestamp(&mut self, height: BlockHeight) {
         if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_block_timestamp(height, tip.height);
+            self.chunks_delay_tracker.add_block_timestamp(height, tip.height, Instant::now());
         }
     }
+
     fn record_receive_chunk_timestamp(&mut self, height: BlockHeight, shard_id: ShardId) {
         if let Ok(tip) = self.chain.head() {
-            self.chunks_delay_tracker.add_chunk_timestamp(height, shard_id, tip.height);
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct HeightInfo {
-    block_received: Option<Instant>,
-    chunks_received: HashMap<ShardId, Instant>,
-}
-
-#[derive(Debug, Default)]
-struct ChunksDelayTracker {
-    heights: BTreeMap<BlockHeight, HeightInfo>,
-    prev_head_height: BlockHeight,
-}
-
-const CHUNKS_DELAY_TRACKER_HORIZON: u64 = 10;
-
-impl ChunksDelayTracker {
-    fn lowest_height(head_height: BlockHeight) -> BlockHeight {
-        head_height.saturating_sub(CHUNKS_DELAY_TRACKER_HORIZON)
-    }
-    fn remove_old_entries(&mut self, head_height: BlockHeight) {
-        let heights_to_drop: Vec<BlockHeight> = self
-            .heights
-            .iter()
-            .take_while(|(&k, _)| k < ChunksDelayTracker::lowest_height(head_height))
-            .map(|(&k, _)| k)
-            .collect();
-        for h in heights_to_drop {
-            self.heights.remove(&h);
-        }
-    }
-
-    fn update_metrics(&mut self, head_height: BlockHeight) {
-        if head_height == self.prev_head_height {
-            return;
-        }
-        let mut cnt = 0;
-        let mut sum_delays = 0.;
-        for (&k, v) in &self.heights {
-            if k > head_height {
-                break;
-            }
-            if let Some(block_received) = v.block_received {
-                if let Some(latest_chunk) = v.chunks_received.values().max() {
-                    if latest_chunk > &block_received {
-                        cnt += 1;
-                        sum_delays +=
-                            latest_chunk.duration_since(block_received).as_micros() as f64;
-                    }
-                }
-            }
-        }
-        if cnt == 0 {
-            near_metrics::set_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US, 0);
-        } else {
-            near_metrics::set_gauge(
-                &metrics::CHUNKS_RECEIVING_DELAY_US,
-                (sum_delays / (cnt as f64)).round() as i64,
+            self.chunks_delay_tracker.add_chunk_timestamp(
+                height,
+                shard_id,
+                tip.height,
+                Instant::now(),
             );
         }
-        self.prev_head_height = head_height;
-    }
-
-    fn add_block_timestamp(&mut self, height: BlockHeight, head_height: BlockHeight) {
-        self.remove_old_entries(head_height);
-        if height < ChunksDelayTracker::lowest_height(head_height) {
-            return;
-        }
-        self.heights
-            .entry(height)
-            .and_modify(|info| {
-                if info.block_received.is_none() {
-                    info.block_received = Some(Instant::now())
-                }
-            })
-            .or_insert_with(|| HeightInfo {
-                block_received: Some(Instant::now()),
-                chunks_received: Default::default(),
-            });
-        self.update_metrics(head_height);
-    }
-
-    fn add_chunk_timestamp(
-        &mut self,
-        height: BlockHeight,
-        shard_id: ShardId,
-        head_height: BlockHeight,
-    ) {
-        self.remove_old_entries(head_height);
-        if height < ChunksDelayTracker::lowest_height(head_height) {
-            return;
-        }
-        self.heights
-            .entry(height)
-            .and_modify(|info| {
-                info.chunks_received.entry(shard_id).or_insert_with(|| Instant::now());
-            })
-            .or_insert_with(|| {
-                let mut chunks_received = HashMap::new();
-                chunks_received.insert(shard_id, Instant::now());
-                HeightInfo { block_received: None, chunks_received }
-            });
-        self.update_metrics(head_height);
     }
 }
