@@ -108,9 +108,9 @@ impl RateLimiterHelper {
 
     // Check whenever
     pub fn is_ready(&self) -> bool {
-        self.num_messages_in_progress.load(Ordering::SeqCst) <= MAX_MESSAGES_COUNT
+        self.num_messages_in_progress.load(Ordering::SeqCst) < MAX_MESSAGES_COUNT
             && self.total_sizeof_messages_in_progress.load(Ordering::SeqCst)
-                <= MAX_MESSAGES_TOTAL_SIZE
+                < MAX_MESSAGES_TOTAL_SIZE
     }
 
     // Increase limits by size of the message
@@ -325,7 +325,7 @@ mod tests {
             rate_limiter.remove_msg(100);
         }
 
-        assert_eq!(rate_limiter.is_ready(), true);
+        assert_eq!(rate_limiter.is_ready(), false);
 
         for _ in 0..MAX_MESSAGES_COUNT {
             rate_limiter.remove_msg(100);
