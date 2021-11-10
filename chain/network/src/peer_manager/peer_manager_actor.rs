@@ -103,6 +103,11 @@ const WAIT_FOR_SYNC_DELAY: Duration = Duration::from_millis(1_000);
 /// How often should we update the routing table
 const UPDATE_ROUTING_TABLE_INTERVAL: Duration = Duration::from_millis(1_000);
 
+/// Max number of messages we received from peer, and they are in progress, before we start throttling.
+const MAX_MESSAGES_COUNT: usize = 20;
+/// Max total size of all messages that are in progress, before we start throttling.
+const MAX_MESSAGES_TOTAL_SIZE: usize = 500_000_000;
+
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
     Err(err) => {
@@ -767,7 +772,8 @@ impl PeerManagerActor {
 
             // TODO: check if peer is banned or known based on IP address and port.
             let (tx, rx) = mpsc::unbounded_channel::<()>();
-            let rate_limiter = ThrottleController::new(tx);
+            let rate_limiter =
+                ThrottleController::new(tx, MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
             PeerActor::add_stream(
                 ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), rx)
                     .take_while(|x| match x {

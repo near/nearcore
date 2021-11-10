@@ -18,11 +18,6 @@ use tokio_util::io::poll_read_buf;
 // Initial capacity of read buffer.
 const INITIAL_CAPACITY: usize = 8 * 1024;
 
-// Max number of messages we received from peer, and they are in progress, before we start throttling.
-const MAX_MESSAGES_COUNT: usize = 20;
-// Max total size of all messages that are in progress, before we start throttling.
-const MAX_MESSAGES_TOTAL_SIZE: usize = 500_000_000;
-
 pin_project! {
     pub struct ThrottledFrameRead<T, D> {
         #[pin]
@@ -82,35 +77,45 @@ impl<T> ActixMessageWrapper<T> {
 /// TODO (#5155) Add throttling by bandwidth.
 #[derive(Clone, Debug)]
 pub struct ThrottleController {
-    // Total count of all messages that are tracked by `RateLimiterHelper`
+    /// Total count of all messages that are tracked by `RateLimiterHelper`
     num_messages_in_progress: Arc<AtomicUsize>,
-    // Total size of all messages that are tracked by `RateLimiterHelper`
+    /// Total size of all messages that are tracked by `RateLimiterHelper`
     total_sizeof_messages_in_progress: Arc<AtomicUsize>,
-    // We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
-    // This is the sender part, which is used to notify `ThrottledRateLimiter` to try to
-    // read again from queue.
+    /// We have an unbounded queue of messages, that we use to wake `ThrottledRateLimiter`.
+    /// This is the sender part, which is used to notify `ThrottledRateLimiter` to try to
+    /// read again from queue.
+    /// max size of num_messages_in_progress
+    max_num_messages_in_progress: usize,
+    /// max size of max_total_sizeof_messages_in_progress
+    max_total_sizeof_messages_in_progress: usize,
     tx: UnboundedSender<()>,
 }
 
 impl ThrottleController {
-    // Initialize `ThrottleController`.
-    //
-    // Arguments:
-    // - tx - `tx` is used to notify `ThrottleController` to wake up and consider reading again.
-    //        That happens when a message is removed, and limits are increased.
-    pub fn new(tx: UnboundedSender<()>) -> Self {
+    /// Initialize `ThrottleController`.
+    ///
+    /// Arguments:
+    /// - tx - `tx` is used to notify `ThrottleController` to wake up and consider reading again.
+    ///        That happens when a message is removed, and limits are increased.
+    pub fn new(
+        tx: UnboundedSender<()>,
+        max_num_messages_in_progress: usize,
+        max_total_sizeof_messages_in_progress: usize,
+    ) -> Self {
         Self {
             num_messages_in_progress: Arc::new(AtomicUsize::new(0)),
             total_sizeof_messages_in_progress: Arc::new(AtomicUsize::new(0)),
+            max_num_messages_in_progress,
+            max_total_sizeof_messages_in_progress,
             tx,
         }
     }
 
     // Check whenever
     fn is_ready(&self) -> bool {
-        self.num_messages_in_progress.load(Ordering::SeqCst) < MAX_MESSAGES_COUNT
+        self.num_messages_in_progress.load(Ordering::SeqCst) < self.max_num_messages_in_progress
             && self.total_sizeof_messages_in_progress.load(Ordering::SeqCst)
-                < MAX_MESSAGES_TOTAL_SIZE
+                < self.max_total_sizeof_messages_in_progress
     }
 
     // Increase limits by size of the message
@@ -258,43 +263,42 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::framed_read::{MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE};
     use crate::ThrottleController;
     use std::sync::atomic::Ordering::SeqCst;
     use tokio::sync::mpsc;
 
     #[test]
     fn test_rate_limiter_helper_by_count() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut throttle_controller = ThrottleController::new(tx);
-
-        for _ in 0..MAX_MESSAGES_COUNT {
+        let (tx, _) = mpsc::unbounded_channel::<()>();
+        let max_messages_count = 20;
+        let mut throttle_controller = ThrottleController::new(tx, max_messages_count, 2000000);
+        for _ in 0..max_messages_count {
             assert_eq!(throttle_controller.is_ready(), true);
             throttle_controller.add_msg(100);
         }
         assert_eq!(throttle_controller.is_ready(), false);
 
-        for _ in 0..MAX_MESSAGES_COUNT {
+        for _ in 0..max_messages_count {
             throttle_controller.add_msg(100);
         }
 
         assert_eq!(
             throttle_controller.num_messages_in_progress.load(SeqCst),
-            2 * MAX_MESSAGES_COUNT
+            2 * max_messages_count
         );
         assert_eq!(
             throttle_controller.total_sizeof_messages_in_progress.load(SeqCst),
-            2 * MAX_MESSAGES_COUNT * 100
+            2 * max_messages_count * 100
         );
 
-        for _ in 0..MAX_MESSAGES_COUNT {
+        for _ in 0..max_messages_count {
             assert_eq!(throttle_controller.is_ready(), false);
             throttle_controller.remove_msg(100);
         }
 
         assert_eq!(throttle_controller.is_ready(), false);
 
-        for _ in 0..MAX_MESSAGES_COUNT {
+        for _ in 0..max_messages_count {
             throttle_controller.remove_msg(100);
             assert_eq!(throttle_controller.is_ready(), true);
         }
@@ -305,34 +309,35 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_helper_by_size() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut throttle_controller = ThrottleController::new(tx);
+        let max_messages_total_size = 500_000_000;
+        let (tx, _) = mpsc::unbounded_channel::<()>();
+        let mut throttle_controller = ThrottleController::new(tx, 1000, max_messages_total_size);
 
         for _ in 0..8 {
             assert_eq!(throttle_controller.is_ready(), true);
-            throttle_controller.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            throttle_controller.add_msg(max_messages_total_size / 8);
         }
         assert_eq!(throttle_controller.is_ready(), false);
 
         for _ in 0..8 {
-            throttle_controller.add_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            throttle_controller.add_msg(max_messages_total_size / 8);
         }
 
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 2 * 8);
         assert_eq!(
             throttle_controller.total_sizeof_messages_in_progress.load(SeqCst),
-            2 * MAX_MESSAGES_TOTAL_SIZE
+            2 * max_messages_total_size
         );
 
         for _ in 0..8 {
             assert_eq!(throttle_controller.is_ready(), false);
-            throttle_controller.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            throttle_controller.remove_msg(max_messages_total_size / 8);
         }
 
         assert_eq!(throttle_controller.is_ready(), false);
 
         for _ in 0..8 {
-            throttle_controller.remove_msg(MAX_MESSAGES_TOTAL_SIZE / 8);
+            throttle_controller.remove_msg(max_messages_total_size / 8);
             assert_eq!(throttle_controller.is_ready(), true);
         }
 
