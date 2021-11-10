@@ -5,7 +5,6 @@ use near_primitives::types::{BlockHeight, ShardId};
 
 use crate::metrics;
 use std::cmp::max;
-use std::ops::{RangeTo, RangeToInclusive};
 
 /// Provides monitoring information about the delays of receiving blocks and their corresponding chunks.
 /// Keeps timestamps of a limited number of blocks before the current head.
@@ -37,10 +36,11 @@ impl ChunksDelayTracker {
     }
 
     fn remove_old_entries(&mut self, head_height: BlockHeight) {
-        let heights_to_drop =
-            self.heights.range(.. ChunksDelayTracker::lowest_height(head_height))
-                .map(|(&k, _v)| k)
-                .collect();
+        let heights_to_drop: Vec<BlockHeight> = self
+            .heights
+            .range(..ChunksDelayTracker::lowest_height(head_height))
+            .map(|(&k, _v)| k)
+            .collect();
         for h in heights_to_drop {
             self.heights.remove(&h);
         }
@@ -87,17 +87,7 @@ impl ChunksDelayTracker {
     ) {
         self.remove_old_entries(head_height);
         if height >= head_height {
-            self.heights
-                .entry(height)
-                .and_modify(|info| {
-                    if info.block_received.is_none() {
-                        info.block_received = Some(timestamp)
-                    }
-                })
-                .or_insert_with(|| HeightInfo {
-                    block_received: Some(timestamp),
-                    chunks_received: Default::default(),
-                });
+            self.heights.entry(height).or_default().block_received.get_or_insert(timestamp);
         }
         self.update_metrics(head_height);
     }
