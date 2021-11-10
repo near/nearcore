@@ -346,7 +346,6 @@ mod tests {
             for _ in 0..2 * MAX_MESSAGES_COUNT {
                 rx.recv().await.unwrap();
             }
-            assert_eq!(rx.recv().await, None);
         });
     }
 
@@ -390,7 +389,6 @@ mod tests {
             for _ in 0..16 {
                 rx.recv().await.unwrap();
             }
-            assert_eq!(rx.recv().await, None);
         });
     }
 }
