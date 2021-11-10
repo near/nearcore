@@ -37,12 +37,10 @@ impl ChunksDelayTracker {
     }
 
     fn remove_old_entries(&mut self, head_height: BlockHeight) {
-        let mut heights_to_drop = vec![];
-        for (&k, _) in
-            self.heights.range(RangeTo { end: ChunksDelayTracker::lowest_height(head_height) })
-        {
-            heights_to_drop.push(k);
-        }
+        let heights_to_drop =
+            self.heights.range(.. ChunksDelayTracker::lowest_height(head_height))
+                .map(|(&k, _v)| k)
+                .collect();
         for h in heights_to_drop {
             self.heights.remove(&h);
         }
