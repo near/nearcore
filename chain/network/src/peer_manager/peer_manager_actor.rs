@@ -69,7 +69,7 @@ use crate::types::{
 use crate::types::{GetPeerId, GetPeerIdResult};
 #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
 use crate::types::{RoutingSyncV2, RoutingVersion2};
-use near_rate_limiter::{RateLimiterHelper, ThrottledFrameRead};
+use near_rate_limiter::{ThrottleController, ThrottledFrameRead};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_INTERVAL: Duration = Duration::from_millis(60_000);
@@ -767,7 +767,7 @@ impl PeerManagerActor {
 
             // TODO: check if peer is banned or known based on IP address and port.
             let (tx, rx) = mpsc::unbounded_channel::<()>();
-            let rate_limiter = RateLimiterHelper::new(tx);
+            let rate_limiter = ThrottleController::new(tx);
             PeerActor::add_stream(
                 ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), rx)
                     .take_while(|x| match x {

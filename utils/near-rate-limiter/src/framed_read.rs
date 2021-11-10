@@ -36,7 +36,7 @@ pin_project! {
         pub(crate) inner: T,
         pub(crate) state: State,
         pub(crate) codec: U,
-        pub(crate) rate_limiter: RateLimiterHelper,
+        pub(crate) rate_limiter: ThrottleController,
         pub(crate) receiver: UnboundedReceiver<()>,
     }
 }
@@ -52,13 +52,13 @@ pin_project! {
 /// - Any other metadata we need debugging, etc.
 pub struct ActixMessageWrapper<T> {
     msg: T,
-    rate_limiter: RateLimiterHelper,
+    rate_limiter: ThrottleController,
     msg_len: usize,
 }
 
 impl<T> ActixMessageWrapper<T> {
     #[allow(unused)]
-    pub fn new(msg: T, rate_limiter: RateLimiterHelper) -> Self {
+    pub fn new(msg: T, rate_limiter: ThrottleController) -> Self {
         // TODO(#5155) Add decorator like SizeOf
         let msg_len = 0; // TODO msg.sizeof()
         rate_limiter.add_msg(msg_len);
@@ -66,7 +66,7 @@ impl<T> ActixMessageWrapper<T> {
     }
 
     #[allow(unused)]
-    pub fn take(mut self) -> (T, RateLimiterHelper) {
+    pub fn take(mut self) -> (T, ThrottleController) {
         self.rate_limiter.remove_msg(self.msg_len);
 
         return (self.msg, self.rate_limiter);
@@ -80,7 +80,7 @@ impl<T> ActixMessageWrapper<T> {
 ///
 /// TODO (#5155) Add throttling by bandwidth.
 #[derive(Clone, Debug)]
-pub struct RateLimiterHelper {
+pub struct ThrottleController {
     // Total count of all messages that are tracked by `RateLimiterHelper`
     num_messages_in_progress: Arc<AtomicUsize>,
     // Total size of all messages that are tracked by `RateLimiterHelper`
@@ -91,11 +91,11 @@ pub struct RateLimiterHelper {
     tx: UnboundedSender<()>,
 }
 
-impl RateLimiterHelper {
-    // Initialize `RateLimiterHelper`.
+impl ThrottleController {
+    // Initialize `ThrottleController`.
     //
     // Arguments:
-    // - tx - `tx` is used to notify `ThrottleFramedReader` to wake up and consider reading again.
+    // - tx - `tx` is used to notify `ThrottleController` to wake up and consider reading again.
     //        That happens when a message is removed, and limits are increased.
     pub fn new(tx: UnboundedSender<()>) -> Self {
         Self {
@@ -138,7 +138,7 @@ where
     pub fn new(
         inner: T,
         decoder: D,
-        rate_limiter: RateLimiterHelper,
+        rate_limiter: ThrottleController,
         receiver: UnboundedReceiver<()>,
     ) -> ThrottledFrameRead<T, D> {
         ThrottledFrameRead {
@@ -279,14 +279,14 @@ pub trait Decoder {
 #[cfg(test)]
 mod tests {
     use crate::framed_read::{MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE};
-    use crate::RateLimiterHelper;
+    use crate::ThrottleController;
     use std::sync::atomic::Ordering::SeqCst;
     use tokio::sync::mpsc;
 
     #[test]
     fn test_rate_limiter_helper_by_count() {
         let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = RateLimiterHelper::new(tx);
+        let mut rate_limiter = ThrottleController::new(tx);
 
         for _ in 0..MAX_MESSAGES_COUNT {
             assert_eq!(rate_limiter.is_ready(), true);
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn test_rate_limiter_helper_by_size() {
         let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut rate_limiter = RateLimiterHelper::new(tx);
+        let mut rate_limiter = ThrottleController::new(tx);
 
         for _ in 0..8 {
             assert_eq!(rate_limiter.is_ready(), true);

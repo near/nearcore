@@ -34,7 +34,7 @@ use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
     ProtocolVersion, OLDEST_BACKWARD_COMPATIBLE_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use near_rate_limiter::RateLimiterHelper;
+use near_rate_limiter::ThrottleController;
 use near_rust_allocator_proxy::allocator::get_tid;
 
 use crate::routing::codec::{self, bytes_to_peer_message, peer_message_to_bytes, Codec};
@@ -205,7 +205,7 @@ pub struct PeerActor {
     routed_message_cache: SizedCache<(PeerId, PeerIdOrHash, Signature), Instant>,
     /// A helper data structure for limiting reading
     #[allow(unused)]
-    rate_limiter: RateLimiterHelper,
+    rate_limiter: ThrottleController,
 }
 
 impl Debug for PeerActor {
@@ -229,7 +229,7 @@ impl PeerActor {
         network_metrics: NetworkMetrics,
         txns_since_last_block: Arc<AtomicUsize>,
         peer_counter: Arc<AtomicUsize>,
-        rate_limiter: RateLimiterHelper,
+        rate_limiter: ThrottleController,
     ) -> Self {
         PeerActor {
             node_info,
