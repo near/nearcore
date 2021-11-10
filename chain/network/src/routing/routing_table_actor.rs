@@ -271,6 +271,7 @@ impl RoutingTableActor {
             prune_edges_not_reachable_for,
         );
         self.remove_edges(&edges_to_remove);
+        near_metrics::set_gauge(&metrics::PEER_REACHABLE, self.peer_forwarding.len() as i64);
         edges_to_remove
     }
 
