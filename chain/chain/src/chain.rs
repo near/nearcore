@@ -2540,7 +2540,6 @@ impl Chain {
     /// If sharding changes before we can find a block with a new chunk for the shard,
     /// find the first block that contains a new chunk for any of the shards that split from the
     /// original shard
-    #[inline]
     pub fn get_next_block_hash_with_new_chunk(
         &mut self,
         block_hash: &CryptoHash,
