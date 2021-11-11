@@ -275,15 +275,14 @@ impl RoutingTableActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("pruning edges".into());
 
-        let edges_to_remove = self.prune_unreachable_edges_and_save_to_db_edges(
+        let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
             prune == Prune::PruneNow,
             prune_edges_not_reachable_for,
         );
-        self.remove_edges(&edges_to_remove);
         edges_to_remove
     }
 
-    fn prune_unreachable_edges_and_save_to_db_edges(
+    fn prune_unreachable_edges_and_save_to_db(
         &mut self,
         force_pruning: bool,
         prune_edges_not_reachable_for: Duration,
@@ -319,8 +318,10 @@ impl RoutingTableActor {
 
         let edges_to_remove = self.raw_graph.get_edges_to_prune(&peers_to_remove);
 
-        let edges_to_remove =
+        let edges_to_remove: Vec<Edge> =
             edges_to_remove.iter().filter_map(|key| self.edges_info.remove(key)).collect();
+
+        self.remove_active_edges(&edges_to_remove);
 
         let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
