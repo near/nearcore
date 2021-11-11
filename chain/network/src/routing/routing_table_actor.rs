@@ -350,11 +350,6 @@ impl RoutingTableActor {
         self.edges_info.get(&key).map_or(0, |x| x.nonce) < nonce
     }
 
-    pub fn get_edge(&self, peer0: PeerId, peer1: PeerId) -> Option<Edge> {
-        let key = Edge::key(peer0, peer1);
-        self.edges_info.get(&key).cloned()
-    }
-
     #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
     pub fn convert_simple_edges_to_edges(&self, edges: Vec<SimpleEdge>) -> Vec<Edge> {
         edges.iter().filter_map(|k| self.edges_info.get(&k.key()).cloned()).collect()
