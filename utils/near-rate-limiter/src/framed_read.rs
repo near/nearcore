@@ -2,7 +2,6 @@ use std::borrow::BorrowMut;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task;
 use std::task::{Context, Poll};
 
 use bytes::BytesMut;
@@ -214,15 +213,13 @@ where
         let mut pinned = self.project();
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
-            while let task::Poll::Ready(_) =
-                PollSemaphore::poll_next(Pin::new(pinned.semaphore), cx)
-            {
-                // pop all elements from queue, to prevent memory leak
-            }
-            while !pinned.throttle_controller.is_ready() {
+            if !pinned.throttle_controller.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
                 ready!(PollSemaphore::poll_next(Pin::new(pinned.semaphore), cx));
+            }
+            if !pinned.throttle_controller.is_ready() {
+                return Poll::Pending;
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
