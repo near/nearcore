@@ -3,7 +3,8 @@ use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono;
+use chrono::{DateTime, NaiveDateTime};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde;
@@ -313,18 +314,18 @@ macro_rules! unwrap_option_or_return {
 }
 
 /// Converts timestamp in ns into DateTime UTC time.
-pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
+pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
     DateTime::from_utc(
         NaiveDateTime::from_timestamp(
             (timestamp / NS_IN_SECOND) as i64,
             (timestamp % NS_IN_SECOND) as u32,
         ),
-        Utc,
+        chrono::Utc,
     )
 }
 
 /// Converts DateTime UTC time into timestamp in ns.
-pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
+pub fn to_timestamp(time: DateTime<chrono::Utc>) -> u64 {
     time.timestamp_nanos() as u64
 }
 
