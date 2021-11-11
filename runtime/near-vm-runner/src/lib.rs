@@ -39,3 +39,6 @@ pub use cache::MockCompiledContractCache;
 // detail of `near-vm-runner`. Public API like `run` should not expose VMKind.
 pub use runner::run_vm;
 pub use vm_kind::VMKind;
+
+#[macro_use]
+extern crate memoffset;

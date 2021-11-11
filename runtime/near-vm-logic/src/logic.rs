@@ -1,6 +1,6 @@
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
-use crate::gas_counter::GasCounter;
+use crate::gas_counter::{FastGasCounter, GasCounter};
 use crate::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use crate::utils::split_method_names;
 use crate::ValuePtr;
@@ -2513,6 +2513,17 @@ impl<'a> VMLogic<'a> {
     pub fn add_contract_compile_fee(&mut self, code_len: u64) -> Result<()> {
         self.gas_counter.pay_per(contract_compile_bytes, code_len)?;
         self.gas_counter.pay_base(contract_compile_base)
+    }
+
+    /// Gets pointer to the fast gas counter.
+    pub fn gas_counter_pointer(&mut self) -> *mut FastGasCounter {
+        self.gas_counter.gas_counter_raw_ptr()
+    }
+
+    pub fn process_gas_limit(&mut self) -> HostError {
+        let new_burn_gas = self.gas_counter.burnt_gas();
+        let new_used_gas = self.gas_counter.used_gas();
+        self.gas_counter.process_gas_limit(new_burn_gas, new_used_gas)
     }
 }
 
