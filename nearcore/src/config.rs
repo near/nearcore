@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix;
+use hyper::body::HttpBody as _;
 use near_primitives::time::Clock;
 use num_rational::Rational;
 use serde::{Deserialize, Serialize};
@@ -1097,32 +1098,75 @@ pub fn get_config_url(chain_id: &String) -> String {
     )
 }
 
-pub fn download_file(url: &String, path: &Path, limit: usize) {
-    actix::System::new().block_on(async move {
-        let client = awc::Client::new();
-        let mut response = client.get(url).send().await.expect("Unable to download the file");
-        // IMPORTANT: limit specifies the maximum size of the genesis or config file
-        // In case where the genesis or config file is bigger than the specified
-        // limit Overflow Error is thrown
-        let body = response
-            .body()
-            .limit(limit)
-            .await
-            .expect("File is bigger than specified limit. Please make the limit higher.");
+#[derive(thiserror::Error, Debug)]
+pub enum FileDownloadError {
+    #[error("Failed to download the file: {0}")]
+    HttpError(#[from] hyper::Error),
+    #[error("Failed to create/write to file: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("Invalid URI: {0}")]
+    UriError(#[from] hyper::http::uri::InvalidUri),
+    #[error("Failed to remove the temporary file after failure: {0}, {1}")]
+    RemoveTemporaryFileError(std::io::Error, Box<FileDownloadError>),
+    #[error("The remote file's size exceeds the limit")]
+    LimitExceeded(),
+}
 
-        std::fs::write(&path, &body).expect("Failed to create / write a file.");
+pub fn download_file(url: &String, path: &Path, limit: usize) -> Result<(), FileDownloadError> {
+    return actix::System::new().block_on(async move {
+        let https_connector = hyper_tls::HttpsConnector::new();
+        let client = hyper::Client::builder().build::<_, hyper::Body>(https_connector);
+
+        let uri = url.parse()?;
+        let mut resp = client.get(uri).await?;
+
+        // If the lower bound of response's body size exceeds the specified limit, then there is no
+        // point in even trying to download the file
+        if resp.size_hint().lower() > limit as u64 {
+            return Err(FileDownloadError::LimitExceeded());
+        }
+
+        // To avoid partially downloaded files, we first download the file to a temporary *.swp file
+        // and rename it once the download is finished.
+        let tmp_path = path.with_extension("swp");
+        let mut tmp_file = File::create(&tmp_path)?;
+
+        let process_tmp_file = async {
+            let mut downloaded_bytes = 0usize;
+            while let Some(next_chunk_result) = resp.data().await {
+                let next_chunk = next_chunk_result?;
+                tmp_file.write_all(next_chunk.as_ref())?;
+
+                downloaded_bytes += next_chunk.len();
+                if downloaded_bytes > limit {
+                    return Err(FileDownloadError::LimitExceeded());
+                }
+            }
+            std::fs::rename(&tmp_path, path)?;
+            Ok(())
+        };
+
+        // We run everything that interacts with the temporary *.swp file in a separate async block
+        // so that we can clean up and safely delete it if something went wrong.
+        process_tmp_file.await.map_err(|e| match std::fs::remove_file(tmp_path) {
+            Ok(_) => e,
+            Err(remove_file_error) => {
+                FileDownloadError::RemoveTemporaryFileError(remove_file_error, Box::new(e))
+            }
+        })?;
+        Ok(())
     });
 }
 
 pub fn download_genesis(url: &String, path: &Path) {
     info!(target: "near", "Downloading genesis file from: {} ...", url);
-    download_file(&url, &path, 10_000_000_000);
+    download_file(&url, &path, 10_000_000_000).expect("Failed to download the genesis file");
     info!(target: "near", "Saved the genesis file to: {} ...", path.display());
 }
 
 pub fn download_config(url: &String, path: &Path) {
     info!(target: "near", "Downloading config file from: {} ...", url);
-    download_file(&url, &path, 10_000);
+    download_file(&url, &path, 10_000).expect("Failed to download the configuration file");
     info!(target: "near", "Saved the config file to: {} ...", path.display());
 }
 

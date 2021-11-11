@@ -15,6 +15,8 @@ byteorder = "1.2"
 easy-ext = "0.2"
 chrono = { version = "0.4.4", features = ["serde"] }
 futures = "0.3"
+hyper = { version = "0.14", features = ["full"] }
+hyper-tls = "0.5.0"
 rand = "0.7"
 rayon = "1.5"
 serde = { version = "1", features = ["derive"] }
