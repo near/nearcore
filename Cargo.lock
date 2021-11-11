@@ -5409,7 +5409,7 @@ checksum = "0237232789cf037d5480773fe568aac745bfe2afbc11a863e97901780a6b47cc"
 [[package]]
 name = "wasmer-compiler-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "enumset",
  "loupe",
@@ -5427,7 +5427,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-singlepass-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "byteorder",
  "dynasm",
@@ -5446,7 +5446,7 @@ dependencies = [
 [[package]]
 name = "wasmer-derive-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -5457,7 +5457,7 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-dylib"
 version = "2.0.0"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5478,7 +5478,7 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "backtrace",
  "lazy_static",
@@ -5498,7 +5498,7 @@ dependencies = [
 [[package]]
 name = "wasmer-engine-universal-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "cfg-if 1.0.0",
  "leb128",
@@ -5515,7 +5515,7 @@ dependencies = [
 [[package]]
 name = "wasmer-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "cfg-if 1.0.0",
  "indexmap",
@@ -5539,7 +5539,7 @@ dependencies = [
 [[package]]
 name = "wasmer-object"
 version = "2.0.0"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "object 0.26.2",
  "thiserror",
@@ -5614,7 +5614,7 @@ dependencies = [
 [[package]]
 name = "wasmer-types-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "indexmap",
  "loupe",
@@ -5626,7 +5626,7 @@ dependencies = [
 [[package]]
 name = "wasmer-vm-near"
 version = "2.0.2"
-source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#673c828e27c1e46bfcb62047d150d19d05f77877"
+source = "git+https://github.com/near/wasmer?branch=intrinsic-gas#72f36ec0cb21b9fe99c68fcae6d77aa7566e68e5"
 dependencies = [
  "backtrace",
  "cc",

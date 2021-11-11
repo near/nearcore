@@ -13,13 +13,14 @@ use near_vm_logic::{External, MemoryLike, VMConfig, VMContext, VMLogic, VMLogicE
 use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 use wasmer::{
-    Bytes, ImportObject, Instance, InstanceConfig, InstantiationError, Memory, MemoryType, Module,
-    Pages, RuntimeError, Store,
+    Bytes, ImportObject, Instance, InstantiationError, Memory, MemoryType, Module, Pages,
+    RuntimeError, Store,
 };
 
 use near_stable_hasher::StableHasher;
 use near_vm_logic::gas_counter::FastGasCounter;
 use wasmer_compiler_singlepass::Singlepass;
+use wasmer_types::InstanceConfig;
 use wasmer_vm::TrapCode;
 
 pub struct Wasmer2Memory(Memory);
@@ -289,9 +290,11 @@ fn run_method(
         let _span = tracing::debug_span!(target: "vm", "run_method/instantiate").entered();
         Instance::new_with_config(
             &module,
-            InstanceConfig::new_with_counter(
-                logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter
-            ),
+            unsafe {
+                InstanceConfig::new_with_counter(
+                    logic.gas_counter_pointer() as *mut wasmer_types::FastGasCounter
+                )
+            },
             &import,
         )
         .map_err(|err| translate_instantiation_error(err, logic))?
