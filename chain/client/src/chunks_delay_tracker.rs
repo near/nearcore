@@ -145,7 +145,6 @@ mod test {
         tracker.add_block_timestamp(1, 4, start + Duration::from_secs(7));
         tracker.add_chunk_timestamp(1, 0, 4, start + Duration::from_secs(7));
 
-        println!("tracker: {:#?}", tracker);
         assert_eq!(
             near_metrics::get_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US),
             Ok(Duration::from_secs(2).as_micros() as i64)
