@@ -2713,7 +2713,7 @@ fn test_epoch_protocol_version_change() {
         }
         for j in 0..2 {
             let (_, res) = env.clients[j].process_block(block.clone(), Provenance::NONE);
-            assert!(res.is_ok());
+            res.unwrap();
             run_catchup(&mut env.clients[j], &vec![]).unwrap();
         }
     }

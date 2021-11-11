@@ -717,7 +717,7 @@ impl Chain {
                 {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
-            } else {
+            } else if chunk_header.height_created() == block.header().height() {
                 if !runtime_adapter.verify_chunk_header_signature(
                     &chunk_header.clone(),
                     block.header().epoch_id(),
