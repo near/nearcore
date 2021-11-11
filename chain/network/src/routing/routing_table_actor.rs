@@ -287,8 +287,11 @@ impl RoutingTableActor {
         force_pruning: bool,
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
-        let peers_to_remove =
-            self.peers_to_prune(force_pruning, prune_edges_not_reachable_for, SAVE_PEERS_MAX_TIME);
+        let peers_to_remove = self.find_peers_to_prune(
+            force_pruning,
+            prune_edges_not_reachable_for,
+            SAVE_PEERS_MAX_TIME,
+        );
 
         if peers_to_remove.is_empty() {
             return Vec::new();
@@ -335,7 +338,7 @@ impl RoutingTableActor {
     // `peers_to_prune` chooses list of peers for which we should prune all their edges.
     // In order not to do pruning to often. We will prune, nodes not reachable for at least,
     // `min_prune_time, if and only if there was at least one node not reachable for `max_prune_time`.
-    fn peers_to_prune(
+    fn find_peers_to_prune(
         &mut self,
         force_pruning: bool,
         min_prune_time: Duration,
