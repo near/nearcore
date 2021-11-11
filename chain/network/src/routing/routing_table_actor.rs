@@ -287,7 +287,8 @@ impl RoutingTableActor {
         force_pruning: bool,
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
-        let peers_to_remove = self.peers_to_prune(force_pruning, prune_edges_not_reachable_for);
+        let peers_to_remove =
+            self.peers_to_prune(force_pruning, prune_edges_not_reachable_for, SAVE_PEERS_MAX_TIME);
 
         if peers_to_remove.is_empty() {
             return Vec::new();
@@ -331,22 +332,26 @@ impl RoutingTableActor {
         edges_to_remove
     }
 
+    // `peers_to_prune` chooses list of peers for which we should prune all their edges.
+    // In order not to do pruning to often. We will prune, nodes not reachable for at least,
+    // `min_prune_time, if and only if there was at least one node not reachable for `max_prune_time`.
     fn peers_to_prune(
         &mut self,
         force_pruning: bool,
-        prune_edges_not_reachable_for: Duration,
+        min_prune_time: Duration,
+        max_prune_time: Duration,
     ) -> HashSet<PeerId> {
         let now = Instant::now();
         let mut oldest_time = now;
 
         // We compute routing graph every one second; we mark every node that was reachable during that time.
-        // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
+        // Choose a set of nodes, which was not reachable for at min_prune_time.
         let peers_to_remove = self
             .peer_last_time_reachable
             .iter()
             .filter_map(|(peer_id, last_time)| {
                 oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.duration_since(*last_time) >= prune_edges_not_reachable_for {
+                if now.duration_since(*last_time) >= min_prune_time {
                     Some(peer_id.clone())
                 } else {
                     None
@@ -354,9 +359,8 @@ impl RoutingTableActor {
             })
             .collect::<HashSet<_>>();
 
-        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
-        // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
+        // Save nodes to disk if there was at least one node not reachable for at least `max_prune_time`.
+        if !force_pruning && now.duration_since(oldest_time) < max_prune_time {
             return HashSet::new();
         }
         peers_to_remove
