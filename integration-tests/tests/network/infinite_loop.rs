@@ -1,6 +1,6 @@
+use near_primitives::time::Instant;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, System};

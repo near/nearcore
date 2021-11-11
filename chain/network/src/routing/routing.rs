@@ -1,3 +1,4 @@
+use near_primitives::time::Clock;
 use std::collections::{hash_map::Entry, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -538,9 +539,9 @@ impl RoutingTableView {
         let mut res = None;
 
         if let Some(nonces) = self.waiting_pong.cache_get_mut(&pong.source) {
-            res = nonces
-                .cache_remove(&(pong.nonce as usize))
-                .and_then(|sent| Some(Instant::now().duration_since(sent).as_secs_f64() * 1000f64));
+            res = nonces.cache_remove(&(pong.nonce as usize)).and_then(|sent| {
+                Some(Clock::instant().duration_since(sent).as_secs_f64() * 1000f64)
+            });
         }
 
         let cnt = self.pong_info.cache_get(&(pong.nonce as usize)).map(|v| v.1).unwrap_or(0);
@@ -559,7 +560,7 @@ impl RoutingTableView {
             self.waiting_pong.cache_get_mut(&target).unwrap()
         };
 
-        entry.cache_set(nonce, Instant::now());
+        entry.cache_set(nonce, Clock::instant());
     }
 
     pub fn get_ping(&mut self, peer_id: PeerId) -> usize {

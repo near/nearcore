@@ -1,9 +1,9 @@
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
+use near_primitives::time::Clock;
 use std::collections::btree_map;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::{Duration, Instant};
-
-use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 
 type Size = u64;
 
@@ -115,9 +115,8 @@ impl RouteBackCache {
         if self.is_full() {
             self.remove_frequent();
 
-            let now = Instant::now();
+            let now = Clock::instant();
             let remove_until = now - self.evict_timeout;
-
             let mut remove_empty = vec![];
 
             for (key, value) in self.record_per_target.iter_mut() {
@@ -207,7 +206,7 @@ impl RouteBackCache {
 
         self.remove_evicted();
 
-        let now = Instant::now();
+        let now = Clock::instant();
 
         self.main.insert(hash, (now, target.clone()));
 
