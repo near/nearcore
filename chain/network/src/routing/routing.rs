@@ -1,5 +1,6 @@
 use near_primitives::time::Clock;
-use std::collections::{hash_map::Entry, HashMap, VecDeque};
+use std::cmp::{max, min};
+use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -814,6 +815,21 @@ impl Graph {
         }
 
         self.compute_result(&mut routes, &distance)
+    }
+
+    pub fn get_edges_to_prune(&self, peers: &HashSet<PeerId>) -> HashSet<(PeerId, PeerId)> {
+        let mut result = HashSet::new();
+        for peer in peers.iter() {
+            if let Some(id) = self.p2id.get(peer) {
+                for id2 in self.adjacency[*id as usize].iter() {
+                    if let Some(peer2) = self.id2p.get(*id2 as usize) {
+                        let key = (min(peer, peer2).clone(), max(peer, peer2).clone());
+                        result.insert(key);
+                    }
+                }
+            }
+        }
+        result
     }
 
     fn compute_result(&self, routes: &[u128], distance: &[i32]) -> HashMap<PeerId, Vec<PeerId>> {

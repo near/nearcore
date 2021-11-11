@@ -108,6 +108,14 @@ impl RoutingTableActor {
         }
     }
 
+    // We want to remove edges which were in self.raw_graph..
+    pub fn remove_active_edges(&mut self, edges: &[Edge]) {
+        for edge in edges.iter() {
+            self.raw_graph.remove_edge(&edge.peer0, &edge.peer1);
+            self.needs_routing_table_recalculation = true;
+        }
+    }
+
     pub fn remove_edge(&mut self, edge: &Edge) {
         #[cfg(feature = "protocol_feature_routing_exchange_algorithm")]
         self.peer_ibf_set.remove_edge(&edge.to_simple_edge());
@@ -267,7 +275,7 @@ impl RoutingTableActor {
         #[cfg(feature = "delay_detector")]
         let _d = DelayDetector::new("pruning edges".into());
 
-        let edges_to_remove = self.prune_unreachable_edges_and_save_to_db(
+        let edges_to_remove = self.prune_unreachable_edges_and_save_to_db_edges(
             prune == Prune::PruneNow,
             prune_edges_not_reachable_for,
         );
@@ -275,34 +283,17 @@ impl RoutingTableActor {
         edges_to_remove
     }
 
-    fn prune_unreachable_edges_and_save_to_db(
+    fn prune_unreachable_edges_and_save_to_db_edges(
         &mut self,
         force_pruning: bool,
         prune_edges_not_reachable_for: Duration,
     ) -> Vec<Edge> {
-        let now = Instant::now();
-        let mut oldest_time = now;
+        let peers_to_remove = self.peers_to_prune(force_pruning, prune_edges_not_reachable_for);
 
-        // We compute routing graph every one second; we mark every node that was reachable during that time.
-        // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
-        let peers_to_remove = self
-            .peer_last_time_reachable
-            .iter()
-            .filter_map(|(peer_id, last_time)| {
-                oldest_time = std::cmp::min(oldest_time, *last_time);
-                if now.duration_since(*last_time) >= prune_edges_not_reachable_for {
-                    Some(peer_id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<HashSet<_>>();
-
-        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
-        // is greater than `SAVE_PEERS_MAX_TIME`
-        if !force_pruning && now.duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
+        if peers_to_remove.is_empty() {
             return Vec::new();
         }
+
         debug!(target: "network", "try_save_edges: We are going to remove {} peers", peers_to_remove.len());
 
         let current_component_nonce = self.next_available_component_nonce;
@@ -325,17 +316,11 @@ impl RoutingTableActor {
         }
 
         let component_nonce = index_to_bytes(current_component_nonce);
-        let edges_to_remove = self
-            .edges_info
-            .iter()
-            .filter_map(|(key, edge)| {
-                if peers_to_remove.contains(&key.0) || peers_to_remove.contains(&key.1) {
-                    Some(edge.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+
+        let edges_to_remove = self.raw_graph.get_edges_to_prune(&peers_to_remove);
+
+        let edges_to_remove =
+            edges_to_remove.iter().filter_map(|key| self.edges_info.remove(key)).collect();
 
         let _ = update.set_ser(ColComponentEdges, component_nonce.as_ref(), &edges_to_remove);
 
@@ -343,6 +328,37 @@ impl RoutingTableActor {
             warn!(target: "network", "Error storing network component to store. {:?}", e);
         }
         edges_to_remove
+    }
+
+    fn peers_to_prune(
+        &mut self,
+        force_pruning: bool,
+        prune_edges_not_reachable_for: Duration,
+    ) -> HashSet<PeerId> {
+        let now = Instant::now();
+        let mut oldest_time = now;
+
+        // We compute routing graph every one second; we mark every node that was reachable during that time.
+        // All nodes not reachable for at last 1 hour(SAVE_PEERS_AFTER_TIME) will be moved to disk.
+        let peers_to_remove = self
+            .peer_last_time_reachable
+            .iter()
+            .filter_map(|(peer_id, last_time)| {
+                oldest_time = std::cmp::min(oldest_time, *last_time);
+                if now.duration_since(*last_time) >= prune_edges_not_reachable_for {
+                    Some(peer_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<HashSet<_>>();
+
+        // Save nodes on disk and remove from memory only if elapsed time from oldest peer
+        // is greater than `SAVE_PEERS_MAX_TIME`
+        if !force_pruning && now.duration_since(oldest_time) < SAVE_PEERS_MAX_TIME {
+            return HashSet::new();
+        }
+        peers_to_remove
     }
 
     /// Checks whenever given edge is newer than the one we already have.
