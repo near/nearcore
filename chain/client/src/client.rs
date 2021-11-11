@@ -7,8 +7,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use cached::{Cached, SizedCache};
-use chrono::Utc;
 use log::{debug, error, info, warn};
+use near_primitives::time::Clock;
 
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
@@ -161,7 +161,6 @@ impl Client {
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
-
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: false,
@@ -184,7 +183,7 @@ impl Client {
             challenges: Default::default(),
             rs: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: SizedCache::with_size(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: Instant::now(),
+            last_time_head_progress_made: Clock::instant(),
             chunks_delay_tracker: Default::default(),
         })
     }
@@ -192,14 +191,14 @@ impl Client {
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if Instant::now() > self.last_time_head_progress_made + stall_timeout
+        if Clock::instant() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.do_send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block.clone() },
             ));
-            self.last_time_head_progress_made = Instant::now();
+            self.last_time_head_progress_made = Clock::instant();
         }
         Ok(())
     }
@@ -509,7 +508,7 @@ impl Client {
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
-            seen: to_timestamp(Utc::now()),
+            seen: to_timestamp(Clock::utc()),
         })?;
 
         near_metrics::inc_counter(&metrics::BLOCK_PRODUCED_TOTAL);
@@ -764,7 +763,7 @@ impl Client {
         }
 
         if let Ok(Some(_)) = result {
-            self.last_time_head_progress_made = Instant::now();
+            self.last_time_head_progress_made = Clock::instant();
         }
 
         let protocol_version = self
@@ -884,8 +883,8 @@ impl Client {
                     ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
                     ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
                         self.record_receive_chunk_timestamp(
-                            partial_encoded_chunk.height_created(),
-                            partial_encoded_chunk.shard_id(),
+                            pec_v2.header.height_created(),
+                            pec_v2.header.shard_id(),
                         );
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
@@ -935,9 +934,8 @@ impl Client {
             } else {
                 self.chain.get_block_header(&last_final_hash)?.height()
             };
-
             self.doomslug.set_tip(
-                Instant::now(),
+                Clock::instant(),
                 tip.last_block_hash,
                 tip.height,
                 last_final_height,
@@ -1383,8 +1381,7 @@ impl Client {
                     return;
                 }
             };
-
-        self.doomslug.on_approval_message(Instant::now(), &approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(Clock::instant(), &approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.

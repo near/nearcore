@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use borsh::BorshSerialize;
-use chrono::Utc;
+use near_primitives::time::Utc;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use tracing::{debug, error};

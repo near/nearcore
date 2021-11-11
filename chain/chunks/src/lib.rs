@@ -5,8 +5,9 @@ use std::time::{Duration, Instant};
 
 use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use log::{debug, error, warn};
+use near_primitives::time::Utc;
 use rand::seq::SliceRandom;
 
 use near_chain::validate::validate_chunk_proofs;
@@ -29,6 +30,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkV1, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
     ShardChunkHeader, ShardProof,
 };
+use near_primitives::time::Clock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -134,7 +136,7 @@ impl RequestPool {
                 continue;
             }
             if chunk_request.last_requested.elapsed() > self.retry_duration {
-                chunk_request.last_requested = Instant::now();
+                chunk_request.last_requested = Clock::instant();
                 requests.push((chunk_hash.clone(), chunk_request.clone()));
             }
         }
@@ -621,8 +623,8 @@ impl ShardsManager {
                 height,
                 parent_hash,
                 shard_id,
-                last_requested: Instant::now(),
-                added: Instant::now(),
+                last_requested: Clock::instant(),
+                added: Clock::instant(),
             },
         );
 
@@ -1722,7 +1724,7 @@ mod test {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use near_network::NetworkRequests;
     use near_primitives::block::Tip;
@@ -1745,14 +1747,15 @@ mod test {
             runtime_adapter,
             network_adapter.clone(),
         );
+        let added = Clock::instant();
         shards_manager.requested_partial_encoded_chunks.insert(
             ChunkHash(hash(&[1])),
             ChunkRequestInfo {
                 height: 0,
                 parent_hash: Default::default(),
                 shard_id: 0,
-                added: Instant::now(),
-                last_requested: Instant::now(),
+                added: added,
+                last_requested: added,
             },
         );
         std::thread::sleep(Duration::from_millis(2 * CHUNK_REQUEST_RETRY_MS));
@@ -1830,8 +1833,8 @@ mod test {
                 height: header.height_created(),
                 parent_hash: header.prev_block_hash(),
                 shard_id: header.shard_id(),
-                last_requested: Instant::now(),
-                added: Instant::now(),
+                last_requested: Clock::instant(),
+                added: Clock::instant(),
             },
         );
         shards_manager
