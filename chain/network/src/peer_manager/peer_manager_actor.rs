@@ -13,9 +13,9 @@ use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Recipient, Running, StreamHandler, SyncArbiter, WrapFuture,
 };
-use chrono::Utc;
 use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
+use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::FramedRead;
 use tracing::{debug, error, info, trace, warn};
@@ -372,7 +372,7 @@ impl PeerManagerActor {
     /// Receives list of edges that were verified, in a trigger every 20ms, and adds them to
     /// the routing table.
     fn broadcast_edges_trigger(&mut self, ctx: &mut Context<PeerManagerActor>) {
-        let start = Instant::now();
+        let start = Clock::instant();
         let mut new_edges = Vec::new();
         while let Some(edge) = self.routing_table_exchange_helper.edges_to_add_receiver.pop() {
             new_edges.push(edge);
@@ -535,9 +535,9 @@ impl PeerManagerActor {
                 full_peer_info,
                 sent_bytes_per_sec: 0,
                 received_bytes_per_sec: 0,
-                last_time_peer_requested: Instant::now(),
-                last_time_received_message: Instant::now(),
-                connection_established_time: Instant::now(),
+                last_time_peer_requested: Clock::instant(),
+                last_time_received_message: Clock::instant(),
+                connection_established_time: Clock::instant(),
                 peer_type,
             },
         );
@@ -602,7 +602,7 @@ impl PeerManagerActor {
             // Ask for peers list on connection.
             let _ = addr.do_send(SendMessage { message: PeerMessage::PeersRequest });
             if let Some(active_peer) = act.active_peers.get_mut(&target_peer_id) {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = Clock::instant();
             }
 
             if peer_type == PeerType::Outbound {
@@ -874,7 +874,7 @@ impl PeerManagerActor {
         let msg = SendMessage { message: PeerMessage::PeersRequest };
         for (_, active_peer) in self.active_peers.iter_mut() {
             if active_peer.last_time_peer_requested.elapsed() > REQUEST_PEERS_INTERVAL {
-                active_peer.last_time_peer_requested = Instant::now();
+                active_peer.last_time_peer_requested = Clock::instant();
                 requests.push(active_peer.addr.send(msg.clone()));
             }
         }
@@ -1115,7 +1115,7 @@ impl PeerManagerActor {
         for (peer_id, peer_state) in self.peer_store.iter() {
             if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
                 let interval = unwrap_or_error!(
-                    (Utc::now() - from_timestamp(last_banned)).to_std(),
+                    (Clock::utc() - from_timestamp(last_banned)).to_std(),
                     "Failed to convert time"
                 );
                 if interval > self.config.ban_window {

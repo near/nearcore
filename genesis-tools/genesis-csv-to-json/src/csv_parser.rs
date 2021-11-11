@@ -3,8 +3,9 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use csv::ReaderBuilder;
+use near_primitives::time::Utc;
 use serde::{Deserialize, Serialize};
 
 use near_crypto::{KeyType, PublicKey};
