@@ -266,7 +266,6 @@ where
 mod tests {
     use crate::ThrottleController;
     use std::sync::atomic::Ordering::SeqCst;
-    use std::thread;
     use tokio::sync::mpsc;
 
     #[test]
