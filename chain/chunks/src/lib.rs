@@ -383,7 +383,8 @@ pub struct ShardsManager {
 
     encoded_chunks: EncodedChunksCache,
     requested_partial_encoded_chunks: RequestPool,
-    stored_partial_encoded_chunks: HashMap<BlockHeight, HashMap<ShardId, PartialEncodedChunkV2>>,
+    stored_partial_encoded_chunks:
+        HashMap<BlockHeight, HashMap<ShardId, Vec<PartialEncodedChunkV2>>>,
     chunk_forwards_cache: SizedCache<ChunkHash, HashMap<u64, PartialEncodedChunkPart>>,
 
     seals_mgr: SealsManager,
@@ -742,20 +743,20 @@ impl ShardsManager {
                     {
                         // We prove that this one is valid for `epoch_id`.
                         // We won't store it by design if epoch is changed.
-                        *stored_chunk = partial_encoded_chunk.clone();
+                        stored_chunk.push(partial_encoded_chunk.clone());
                     }
                 })
                 // This is the first partial encoded chunk received for current height / shard_id.
                 // Store it because there are no other candidates.
-                .or_insert_with(|| partial_encoded_chunk.clone());
+                .or_insert_with(|| vec![partial_encoded_chunk.clone()]);
         }
     }
 
-    pub fn get_stored_partial_encoded_chunks(
-        &self,
+    pub fn pop_stored_partial_encoded_chunks(
+        &mut self,
         height: BlockHeight,
-    ) -> HashMap<ShardId, PartialEncodedChunkV2> {
-        self.stored_partial_encoded_chunks.get(&height).unwrap_or(&HashMap::new()).clone()
+    ) -> HashMap<ShardId, Vec<PartialEncodedChunkV2>> {
+        self.stored_partial_encoded_chunks.remove(&height).unwrap_or(HashMap::new())
     }
 
     pub fn num_chunks_for_block(&mut self, prev_block_hash: &CryptoHash) -> ShardId {
