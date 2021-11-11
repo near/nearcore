@@ -86,8 +86,8 @@ pub struct VMLimitConfig {
     pub max_functions_number_per_contract: Option<u64>,
 }
 
-impl Default for VMConfig {
-    fn default() -> VMConfig {
+impl VMConfig {
+    pub fn test() -> VMConfig {
         VMConfig {
             ext_costs: ExtCostsConfig::default(),
             grow_mem_cost: 1,
@@ -95,9 +95,7 @@ impl Default for VMConfig {
             limit_config: VMLimitConfig::default(),
         }
     }
-}
 
-impl VMConfig {
     /// Computes non-cryptographically-proof hash. The computation is fast but not cryptographically
     /// secure.
     pub fn non_crypto_hash(&self) -> u64 {
