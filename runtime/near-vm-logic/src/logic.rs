@@ -2520,6 +2520,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.gas_counter_raw_ptr()
     }
 
+    /// Properly handles gas limit exceeded error.
     pub fn process_gas_limit(&mut self) -> HostError {
         let new_burn_gas = self.gas_counter.burnt_gas();
         let new_used_gas = self.gas_counter.used_gas();
