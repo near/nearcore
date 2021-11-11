@@ -17,7 +17,7 @@ use futures::task::Poll;
 use futures::{future, Stream, StreamExt};
 use near_primitives::time::Clock;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::stats::metrics;
@@ -33,6 +33,7 @@ use near_primitives::types::{AccountId, ProtocolVersion};
 use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use rand::thread_rng;
+use tokio_util::sync::PollSemaphore;
 
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::peer_store::{PeerStore, TrustLevel};
@@ -770,11 +771,14 @@ impl PeerManagerActor {
             let (read, write) = tokio::io::split(stream);
 
             // TODO: check if peer is banned or known based on IP address and port.
-            let (tx, rx) = mpsc::unbounded_channel::<()>();
-            let rate_limiter =
-                ThrottleController::new(tx, MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
+            let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+            let rate_limiter = ThrottleController::new(
+                semaphore.clone(),
+                MAX_MESSAGES_COUNT,
+                MAX_MESSAGES_TOTAL_SIZE,
+            );
             PeerActor::add_stream(
-                ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), rx)
+                ThrottledFrameRead::new(read, Codec::new(), rate_limiter.clone(), semaphore)
                     .take_while(|x| match x {
                         Ok(_) => future::ready(true),
                         Err(e) => {

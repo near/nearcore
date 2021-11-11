@@ -11,9 +11,9 @@ use log::trace;
 
 use pin_project_lite::pin_project;
 use tokio::io::AsyncRead;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::codec::Decoder;
 use tokio_util::io::poll_read_buf;
+use tokio_util::sync::PollSemaphore;
 
 // Initial capacity of read buffer.
 const INITIAL_CAPACITY: usize = 8 * 1024;
@@ -33,8 +33,7 @@ pin_project! {
         pub(crate) state: State,
         pub(crate) codec: U,
         pub(crate) throttle_controller: ThrottleController,
-        // TODO(#5155) Figure out how to replace with `Notify` or `Semaphore`.
-        pub(crate) receiver: UnboundedReceiver<()>,
+        pub(crate) semaphore: PollSemaphore,
     }
 }
 
@@ -89,7 +88,7 @@ pub struct ThrottleController {
     max_num_messages_in_progress: usize,
     /// max size of max_total_sizeof_messages_in_progress
     max_total_sizeof_messages_in_progress: usize,
-    tx: UnboundedSender<()>,
+    semaphore: PollSemaphore,
 }
 
 impl ThrottleController {
@@ -99,7 +98,7 @@ impl ThrottleController {
     /// - tx - `tx` is used to notify `ThrottleController` to wake up and consider reading again.
     ///        That happens when a message is removed, and limits are increased.
     pub fn new(
-        tx: UnboundedSender<()>,
+        semaphore: PollSemaphore,
         max_num_messages_in_progress: usize,
         max_total_sizeof_messages_in_progress: usize,
     ) -> Self {
@@ -108,7 +107,7 @@ impl ThrottleController {
             total_sizeof_messages_in_progress: Arc::new(AtomicUsize::new(0)),
             max_num_messages_in_progress,
             max_total_sizeof_messages_in_progress,
-            tx,
+            semaphore,
         }
     }
 
@@ -132,7 +131,7 @@ impl ThrottleController {
         self.total_sizeof_messages_in_progress.fetch_sub(msg_size, Ordering::SeqCst);
 
         // Notify throttled framed reader
-        self.tx.send(()).expect("sending msg to tx failed");
+        self.semaphore.add_permits(1);
     }
 }
 
@@ -146,7 +145,7 @@ where
         inner: T,
         decoder: D,
         throttle_controller: ThrottleController,
-        receiver: UnboundedReceiver<()>,
+        semaphore: PollSemaphore,
     ) -> ThrottledFrameRead<T, D> {
         ThrottledFrameRead {
             inner: FramedImpl {
@@ -154,7 +153,7 @@ where
                 codec: decoder,
                 state: Default::default(),
                 throttle_controller,
-                receiver,
+                semaphore,
             },
         }
     }
@@ -215,13 +214,15 @@ where
         let mut pinned = self.project();
         let state: &mut ReadFrame = pinned.state.borrow_mut();
         loop {
-            while let task::Poll::Ready(_) = pinned.receiver.poll_recv(cx) {
+            while let task::Poll::Ready(_) =
+                PollSemaphore::poll_next(Pin::new(pinned.semaphore), cx)
+            {
                 // pop all elements from queue, to prevent memory leak
             }
             while !pinned.throttle_controller.is_ready() {
                 // This will cause us to subscribe to notifier when something gets pushed to
                 // `pinned.receiver`. If there is an element in the queue, we will check again.
-                ready!(pinned.receiver.poll_recv(cx));
+                ready!(PollSemaphore::poll_next(Pin::new(pinned.semaphore), cx));
             }
 
             // Repeatedly call `decode` or `decode_eof` as long as it is
@@ -266,13 +267,16 @@ where
 mod tests {
     use crate::ThrottleController;
     use std::sync::atomic::Ordering::SeqCst;
-    use tokio::sync::mpsc;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+    use tokio_util::sync::PollSemaphore;
 
     #[tokio::test]
     async fn test_rate_limiter_helper_by_count() {
-        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
         let max_messages_count = 20;
-        let mut throttle_controller = ThrottleController::new(tx, max_messages_count, 2000000);
+        let mut throttle_controller =
+            ThrottleController::new(semaphore.clone(), max_messages_count, 2000000);
         for _ in 0..max_messages_count {
             assert_eq!(throttle_controller.is_ready(), true);
             throttle_controller.add_msg(100);
@@ -307,17 +311,15 @@ mod tests {
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
-        for _ in 0..40 {
-            rx.recv().await.unwrap();
-        }
-        assert_eq!(rx.try_recv().is_err(), true);
+        assert_eq!(semaphore.available_permits(), 40);
     }
 
     #[tokio::test]
     async fn test_rate_limiter_helper_by_size() {
         let max_messages_total_size = 500_000_000;
-        let (tx, mut rx) = mpsc::unbounded_channel::<()>();
-        let mut throttle_controller = ThrottleController::new(tx, 1000, max_messages_total_size);
+        let semaphore = PollSemaphore::new(Arc::new(Semaphore::new(0)));
+        let mut throttle_controller =
+            ThrottleController::new(semaphore.clone(), 1000, max_messages_total_size);
 
         for _ in 0..8 {
             assert_eq!(throttle_controller.is_ready(), true);
@@ -350,9 +352,6 @@ mod tests {
         assert_eq!(throttle_controller.num_messages_in_progress.load(SeqCst), 0);
         assert_eq!(throttle_controller.total_sizeof_messages_in_progress.load(SeqCst), 0);
 
-        for _ in 0..16 {
-            rx.recv().await.unwrap();
-        }
-        assert_eq!(rx.try_recv().is_err(), true);
+        assert_eq!(semaphore.available_permits(), 16);
     }
 }
