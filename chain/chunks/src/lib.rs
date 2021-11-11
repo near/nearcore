@@ -55,6 +55,7 @@ const CHUNK_REQUEST_RETRY_MAX_MS: u64 = 1_000_000;
 const CHUNK_FORWARD_CACHE_SIZE: usize = 1000;
 const ACCEPTING_SEAL_PERIOD_MS: i64 = 30_000;
 const NUM_PARTS_REQUESTED_IN_SEAL: usize = 3;
+pub const MAX_STORED_PARTIAL_CHUNK_SIZE: usize = 100;
 // TODO(#3180): seals are disabled in single shard setting
 // const NUM_PARTS_LEFT_IN_SEAL: usize = 1;
 const PAST_SEAL_HEIGHT_HORIZON: BlockHeightDelta = 1024;
@@ -743,7 +744,12 @@ impl ShardsManager {
                     {
                         // We prove that this one is valid for `epoch_id`.
                         // We won't store it by design if epoch is changed.
-                        stored_chunk.push(partial_encoded_chunk.clone());
+                        if stored_chunk.len() < MAX_STORED_PARTIAL_CHUNK_SIZE {
+                            stored_chunk.push(partial_encoded_chunk.clone());
+                        } else {
+                            warn!(target:"shards_manager", "Drop partial encoded chunk because stored partial encoded chunks already exceed limit, height: {} shard: {}", 
+                                  height, shard_id);
+                        }
                     }
                 })
                 // This is the first partial encoded chunk received for current height / shard_id.
