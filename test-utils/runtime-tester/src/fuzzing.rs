@@ -90,23 +90,25 @@ impl TransactionConfig {
             let signer_account = scope.random_account(u)?;
             let receiver_account = {
                 if u.arbitrary::<bool>()? {
-                    scope.new_account()
+                    scope.new_account(u)?
                 } else {
                     scope.random_account(u)?
                 }
             };
             let amount = u.int_in_range::<u128>(0..=signer_account.balance)?;
 
-            scope.accounts[signer_account.usize_id()].balance =
-                scope.accounts[signer_account.usize_id()].balance.saturating_sub(amount);
-            scope.accounts[receiver_account.usize_id()].balance =
-                scope.accounts[receiver_account.usize_id()].balance.saturating_add(amount);
+            let signer_idx = scope.usize_id(&signer_account);
+            let receiver_idx = scope.usize_id(&receiver_account);
+            scope.accounts[signer_idx].balance =
+                scope.accounts[signer_idx].balance.saturating_sub(amount);
+            scope.accounts[receiver_idx].balance =
+                scope.accounts[receiver_idx].balance.saturating_add(amount);
 
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
                 signer_id: signer_account.id.clone(),
                 receiver_id: receiver_account.id.clone(),
-                signer: scope.full_access_signer(u, signer_account.usize_id())?,
+                signer: scope.full_access_signer(u, &signer_account)?,
                 actions: vec![Action::Transfer(TransferAction { deposit: amount })],
             })
         });
@@ -136,9 +138,9 @@ impl TransactionConfig {
         // Create Account
         options.push(|u, scope| {
             let signer_account = scope.random_account(u)?;
-            let new_account = scope.new_account();
+            let new_account = scope.new_account(u)?;
 
-            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
+            let signer = scope.full_access_signer(u, &signer_account)?;
             let new_public_key = InMemorySigner::from_seed(
                 new_account.id.clone(),
                 KeyType::ED25519,
@@ -171,15 +173,15 @@ impl TransactionConfig {
                 let receiver_account = signer_account.clone();
                 let beneficiary_id = {
                     if u.arbitrary::<bool>()? {
-                        scope.new_account().usize_id()
+                        scope.new_account(u)?
                     } else {
-                        scope.random_alive_account_usize_id(u)?
+                        scope.accounts[scope.random_alive_account_usize_id(u)?].clone()
                     }
                 };
 
-                let signer = scope.full_access_signer(u, signer_account.usize_id())?;
+                let signer = scope.full_access_signer(u, &signer_account)?;
 
-                scope.delete_account(receiver_account.usize_id());
+                scope.delete_account(scope.usize_id(&receiver_account));
 
                 Ok(TransactionConfig {
                     nonce: scope.nonce(),
@@ -187,10 +189,7 @@ impl TransactionConfig {
                     receiver_id: receiver_account.id.clone(),
                     signer,
                     actions: vec![Action::DeleteAccount(DeleteAccountAction {
-                        beneficiary_id: AccountId::from_str(
-                            format!("test{}", beneficiary_id).as_str(),
-                        )
-                        .expect("Invalid account_id"),
+                        beneficiary_id: beneficiary_id.id.clone(),
                     })],
                 })
             });
@@ -205,7 +204,7 @@ impl TransactionConfig {
             let max_contract_id = scope.available_contracts.len() - 1;
             let contract_id = u.int_in_range::<usize>(0..=max_contract_id)?;
 
-            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
+            let signer = scope.full_access_signer(u, &signer_account)?;
 
             scope.deploy_contract(&signer_account, contract_id);
 
@@ -241,7 +240,7 @@ impl TransactionConfig {
 
             let signer = scope.function_call_signer(
                 u,
-                signer_account.usize_id(),
+                &signer_account,
                 &receiver_account.id.clone().into(),
             )?;
 
@@ -288,7 +287,7 @@ impl TransactionConfig {
 
             let signer_account = scope.random_account(u)?;
 
-            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
+            let signer = scope.full_access_signer(u, &signer_account)?;
 
             Ok(TransactionConfig {
                 nonce,
@@ -297,7 +296,7 @@ impl TransactionConfig {
                 signer,
                 actions: vec![Action::AddKey(scope.add_new_key(
                     u,
-                    signer_account.usize_id(),
+                    scope.usize_id(&signer_account),
                     nonce,
                 )?)],
             })
@@ -308,7 +307,7 @@ impl TransactionConfig {
             let nonce = scope.nonce();
 
             let signer_account = scope.random_account(u)?;
-            let signer = scope.full_access_signer(u, signer_account.usize_id())?;
+            let signer = scope.full_access_signer(u, &signer_account)?;
 
             if signer_account.keys.is_empty() {
                 return Ok(TransactionConfig {
@@ -320,7 +319,7 @@ impl TransactionConfig {
                 });
             }
 
-            let public_key = scope.delete_random_key(u, signer_account.usize_id())?;
+            let public_key = scope.delete_random_key(u, &signer_account)?;
 
             Ok(TransactionConfig {
                 nonce,
@@ -348,6 +347,7 @@ pub struct Scope {
     height: BlockHeight,
     available_contracts: Vec<Contract>,
     last_tx_num: usize,
+    account_id_to_idx: HashMap<AccountId, usize>,
 }
 
 #[derive(Clone)]
@@ -400,7 +400,14 @@ pub enum Function {
 
 impl Scope {
     fn from_seeds(seeds: &[String]) -> Self {
-        let accounts = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
+        let accounts: Vec<Account> = seeds.iter().map(|id| Account::from_id(id.clone())).collect();
+        let account_id_to_idx = {
+            let mut result = HashMap::new();
+            for i in 0..accounts.len() {
+                result.insert(accounts[i].id.clone(), i);
+            }
+            result
+        };
         Scope {
             accounts,
             alive_accounts: HashSet::from_iter(0..seeds.len()),
@@ -408,6 +415,7 @@ impl Scope {
             height: 0,
             available_contracts: Scope::construct_available_contracts(),
             last_tx_num: MAX_TXS,
+            account_id_to_idx,
         }
     }
 
@@ -479,11 +487,44 @@ impl Scope {
         Ok(self.accounts[self.random_non_zero_alive_account_usize_id(u)?].clone())
     }
 
-    pub fn new_account(&mut self) -> Account {
+    pub fn usize_id(&self, account: &Account) -> usize {
+        self.account_id_to_idx[&account.id]
+    }
+
+    fn new_test_account(&mut self) -> Account {
         let new_id = format!("test{}", self.accounts.len());
         self.alive_accounts.insert(self.accounts.len());
         self.accounts.push(Account::from_id(new_id));
         self.accounts[self.accounts.len() - 1].clone()
+    }
+
+    fn new_64_account(&mut self, u: &mut Unstructured) -> Result<Account> {
+        let mut new_id_vec = vec![];
+        let mut chars = vec![];
+        for x in b'a'..=b'f' {
+            chars.push(x);
+        }
+        for x in b'0'..=b'9' {
+            chars.push(x);
+        }
+        for _ in 0..64 {
+            new_id_vec.push(*u.choose(&chars)?);
+        }
+        let new_id = String::from_utf8(new_id_vec).unwrap();
+        assert!(
+            new_id.len() == 64
+                && new_id.as_bytes().iter().all(|b| matches!(b, b'a'..=b'f' | b'0'..=b'9'))
+        );
+        self.alive_accounts.insert(self.accounts.len());
+        self.accounts.push(Account::from_id(new_id));
+        Ok(self.accounts[self.accounts.len() - 1].clone())
+    }
+
+    pub fn new_account(&mut self, u: &mut Unstructured) -> Result<Account> {
+        let account =
+            if u.arbitrary::<bool>()? { self.new_64_account(u)? } else { self.new_test_account() };
+        self.account_id_to_idx.insert(account.id.clone(), self.accounts.len() - 1);
+        Ok(account)
     }
 
     pub fn delete_account(&mut self, account_usize_id: usize) {
@@ -491,7 +532,7 @@ impl Scope {
     }
 
     pub fn deploy_contract(&mut self, receiver_account: &Account, contract_id: usize) {
-        let acc_id = receiver_account.usize_id();
+        let acc_id = self.usize_id(&receiver_account);
         self.accounts[acc_id].deployed_contract = Some(contract_id);
     }
 
@@ -533,8 +574,9 @@ impl Scope {
     pub fn full_access_signer(
         &self,
         u: &mut Unstructured,
-        account_idx: usize,
+        account: &Account,
     ) -> Result<InMemorySigner> {
+        let account_idx = self.usize_id(&account);
         let possible_signers = self.accounts[account_idx].full_access_keys();
         if possible_signers.is_empty() {
             // this transaction will be invalid
@@ -551,9 +593,10 @@ impl Scope {
     pub fn function_call_signer(
         &self,
         u: &mut Unstructured,
-        account_idx: usize,
+        account: &Account,
         receiver_id: &String,
     ) -> Result<InMemorySigner> {
+        let account_idx = self.usize_id(&account);
         let possible_signers = self.accounts[account_idx].function_call_keys(receiver_id);
         if possible_signers.is_empty() {
             // this transaction will be invalid
@@ -570,8 +613,9 @@ impl Scope {
     pub fn delete_random_key(
         &mut self,
         u: &mut Unstructured,
-        account_idx: usize,
+        account: &Account,
     ) -> Result<PublicKey> {
+        let account_idx = self.usize_id(&account);
         let (nonce, key) = self.accounts[account_idx].random_key(u)?;
         let public_key = key.signer.public_key.clone();
         self.accounts[account_idx].keys.remove(&nonce);
@@ -599,10 +643,6 @@ impl Account {
             deployed_contract: None,
             keys,
         }
-    }
-
-    pub fn usize_id(&self) -> usize {
-        self.id.as_ref()[4..].parse::<usize>().unwrap()
     }
 
     pub fn full_access_keys(&self) -> Vec<InMemorySigner> {
