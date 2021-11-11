@@ -903,16 +903,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         chunk_hash: &ChunkHash,
         signature: &Signature,
-        prev_block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_hash: &CryptoHash,
         height_created: BlockHeight,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
         let mut epoch_manager = self.epoch_manager.as_ref().write().expect(POISONED_LOCK_ERR);
         if let Ok(chunk_producer) =
-            epoch_manager.get_chunk_producer_info(&epoch_id, height_created, shard_id)
+            epoch_manager.get_chunk_producer_info(epoch_id, height_created, shard_id)
         {
-            let slashed = epoch_manager.get_slashed_validators(prev_block_hash)?;
+            let slashed = epoch_manager.get_slashed_validators(last_known_hash)?;
             if slashed.contains_key(chunk_producer.account_id()) {
                 return Ok(false);
             }

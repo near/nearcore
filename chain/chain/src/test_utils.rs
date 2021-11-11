@@ -362,7 +362,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _chunk_hash: &ChunkHash,
         _signature: &Signature,
-        _prev_block_hash: &CryptoHash,
+        _epoch_id: &EpochId,
+        _last_kown_hash: &CryptoHash,
         _height_created: BlockHeight,
         _shard_id: ShardId,
     ) -> Result<bool, Error> {

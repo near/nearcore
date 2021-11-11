@@ -718,7 +718,11 @@ impl Chain {
                     return Err(ErrorKind::InvalidChunk.into());
                 }
             } else {
-                if !runtime_adapter.verify_chunk_header_signature(&chunk_header.clone())? {
+                if !runtime_adapter.verify_chunk_header_signature(
+                    &chunk_header.clone(),
+                    block.header().epoch_id(),
+                    block.header().prev_hash(),
+                )? {
                     byzantine_assert!(false);
                     return Err(ErrorKind::InvalidChunk.into());
                 }

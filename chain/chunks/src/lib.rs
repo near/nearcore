@@ -730,18 +730,7 @@ impl ShardsManager {
                     let epoch_id = unwrap_or_return!(
                         runtime_adapter.get_epoch_id_from_prev_block(known_header.prev_hash())
                     );
-                    let block_producer =
-                        unwrap_or_return!(runtime_adapter.get_block_producer(&epoch_id, height));
-                    if runtime_adapter
-                        .verify_validator_signature(
-                            &epoch_id,
-                            &known_header.prev_hash(),
-                            &block_producer,
-                            header.chunk_hash().as_ref(),
-                            header.signature(),
-                        )
-                        .unwrap_or(false)
-                    {
+                    if runtime_adapter.verify_chunk_header_signature(&header, &epoch_id, known_header.prev_hash()).unwrap_or(false) {
                         // We prove that this one is valid for `epoch_id`.
                         // We won't store it by design if epoch is changed.
                         if stored_chunk.len() < MAX_STORED_PARTIAL_CHUNK_SIZE {
@@ -1017,9 +1006,12 @@ impl ShardsManager {
         }
 
         // check signature
+        let epoch_id =
+            self.runtime_adapter.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
         let valid_signature = self.runtime_adapter.verify_chunk_signature_with_header_parts(
             &forward.chunk_hash,
             &forward.signature,
+            &epoch_id,
             &forward.prev_block_hash,
             forward.height_created,
             forward.shard_id,
@@ -1097,8 +1089,15 @@ impl ShardsManager {
         // Check validity first
 
         // 1. Checking signature validity (if needed)
-        let signature_check = partial_encoded_chunk
-            .validate_with(|pec| self.runtime_adapter.verify_chunk_header_signature(&pec.header));
+        let signature_check = partial_encoded_chunk.validate_with(|pec| {
+            let epoch_id =
+                self.runtime_adapter.get_epoch_id_from_prev_block(&pec.header.prev_block_hash())?;
+            self.runtime_adapter.verify_chunk_header_signature(
+                &pec.header,
+                &epoch_id,
+                &pec.header.prev_block_hash(),
+            )
+        });
         match signature_check {
             Ok(false) => {
                 byzantine_assert!(false);
