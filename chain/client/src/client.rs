@@ -11,8 +11,8 @@ use log::{debug, error, info, warn};
 use near_primitives::time::Clock;
 
 use near_chain::chain::{
-    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, StateSplitRequest,
-    TX_ROUTING_HEIGHT_HORIZON,
+    ApplyStatePartsRequest, BlockCatchUpRequest, BlocksCatchUpState, OrphanMissingChunksInfo,
+    StateSplitRequest, TX_ROUTING_HEIGHT_HORIZON,
 };
 use near_chain::test_utils::format_hash;
 use near_chain::types::{AcceptedBlock, LatestKnown};
@@ -689,6 +689,36 @@ impl Client {
         }
     }
 
+    pub fn post_process_block_request_chunks(
+        &mut self,
+        blocks_missing_chunks: Arc<RwLock<Vec<Vec<ShardChunkHeader>>>>,
+        orphans_missing_chunks: Arc<RwLock<Vec<OrphanMissingChunksInfo>>>,
+        protocol_version: ProtocolVersion,
+    ) {
+        let header_head = &self
+            .chain
+            .header_head()
+            .expect("header_head must be available when processing a block");
+        // Request any missing chunks
+        self.shards_mgr.request_chunks(
+            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
+            header_head,
+            protocol_version,
+        );
+
+        for OrphanMissingChunksInfo { missing_chunks, epoch_id, ancestor_hash } in
+            orphans_missing_chunks.write().unwrap().drain(..)
+        {
+            self.shards_mgr.request_chunks_for_orphan(
+                missing_chunks,
+                &epoch_id,
+                ancestor_hash,
+                header_head,
+                protocol_version,
+            );
+        }
+    }
+
     pub fn process_block(
         &mut self,
         block: Block,
@@ -716,6 +746,7 @@ impl Client {
         // TODO: replace to channels or cross beams here? we don't have multi-threading here so it's mostly to get around borrow checker.
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
         let block_prev_hash = *block.header().prev_hash();
         let block_protocol_version = block.header().latest_protocol_version();
@@ -733,6 +764,9 @@ impl Client {
                     accepted_blocks.write().unwrap().push(accepted_block);
                 },
                 |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
+                |orphan_missing_chunks| {
+                    orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks);
+                },
                 |challenge| challenges.write().unwrap().push(challenge),
             )
         };
@@ -775,13 +809,9 @@ impl Client {
             .get_epoch_id_from_prev_block(&block_prev_hash)
             .and_then(|epoch| self.runtime_adapter.get_epoch_protocol_version(&epoch))
             .unwrap_or(block_protocol_version);
-        // Request any missing chunks
-        self.shards_mgr.request_chunks(
-            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
-            &self
-                .chain
-                .header_head()
-                .expect("header_head must be available when processing a block"),
+        self.post_process_block_request_chunks(
+            blocks_missing_chunks,
+            orphans_missing_chunks,
             protocol_version,
         );
 
@@ -1201,21 +1231,24 @@ impl Client {
     ) -> Vec<AcceptedBlock> {
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
         let challenges = Arc::new(RwLock::new(vec![]));
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
-        self.chain.check_blocks_with_missing_chunks(&me.map(|x| x.clone()), |accepted_block| {
-            debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
-            accepted_blocks.write().unwrap().push(accepted_block);
-        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks), |challenge| challenges.write().unwrap().push(challenge));
+        self.chain.check_blocks_with_missing_chunks(
+            &me.map(|x| x.clone()),
+            |accepted_block| {
+                debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", accepted_block.hash);
+                accepted_blocks.write().unwrap().push(accepted_block);
+            },
+            |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
+            |orphan_missing_chunks| orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks),
+            |challenge| challenges.write().unwrap().push(challenge));
         self.send_challenges(challenges);
 
-        self.shards_mgr.request_chunks(
-            blocks_missing_chunks.write().unwrap().drain(..).flatten(),
-            &self
-                .chain
-                .header_head()
-                .expect("header_head must be avaiable when processing blocks with missing chunks"),
+        self.post_process_block_request_chunks(
+            blocks_missing_chunks,
+            orphans_missing_chunks,
             protocol_version,
         );
 
@@ -1706,6 +1739,7 @@ impl Client {
                     if blocks_catch_up_state.is_finished() {
                         let accepted_blocks = Arc::new(RwLock::new(vec![]));
                         let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+                        let orphans_missing_chunks = Arc::new(RwLock::new(vec![]));
                         let challenges = Arc::new(RwLock::new(vec![]));
 
                         self.chain.finish_catchup_blocks(
@@ -1717,23 +1751,22 @@ impl Client {
                             |missing_chunks| {
                                 blocks_missing_chunks.write().unwrap().push(missing_chunks)
                             },
+                            |orphan_missing_chunks| {
+                                orphans_missing_chunks.write().unwrap().push(orphan_missing_chunks)
+                            },
                             |challenge| challenges.write().unwrap().push(challenge),
                             &blocks_catch_up_state.done_blocks,
                         )?;
 
                         self.send_challenges(challenges);
 
-                        self.shards_mgr.request_chunks(
-                            blocks_missing_chunks
-                                .write()
-                                .unwrap()
-                                .drain(..)
-                                .flat_map(|missing_chunks| missing_chunks.into_iter()),
-                            &self.chain.header_head()?,
-                            // It is ok to pass the latest protocol version here since we are likely
-                            // syncing old blocks, which means the protocol version will not change
-                            // the logic. Even in the worst case where we are syncing a recent block,
-                            // the only impact is the request will be sent after some delay.
+                        // It is ok to pass the latest protocol version here since we are likely
+                        // syncing old blocks, which means the protocol version will not change
+                        // the logic. Even in the worst case where we are syncing a recent block,
+                        // the only impact is the request will be sent after some delay.
+                        self.post_process_block_request_chunks(
+                            blocks_missing_chunks,
+                            orphans_missing_chunks,
                             PROTOCOL_VERSION,
                         );
 
