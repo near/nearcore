@@ -12,13 +12,11 @@ use std::cmp::max;
 /// Doesn't make any assumptions about shard layout or the number of shards. If the head was moved forward, we assume that all requirements were satisfied.
 /// This object provides two metrics:
 /// 1) max delay between discovering a block and receiving the last chunk from that block.
-/// 2) number of blocks with missing chunks.
+/// 2) the difference between the latest known block and the current head.
 /// If a chunk or a block is received multiple times, only the first time is recorded.
 #[derive(Debug, Default)]
 pub(crate) struct ChunksDelayTracker {
     heights: BTreeMap<BlockHeight, HeightInfo>,
-    // Used as an optimization to delete old blocks only when the head is updated.
-    prev_head_height: BlockHeight,
 }
 
 const CHUNKS_DELAY_TRACKER_HORIZON: u64 = 10;
@@ -46,10 +44,9 @@ impl ChunksDelayTracker {
         }
     }
 
+    // Computes the delay between receiving a block and receiving the latest of its chunks.
+    // Updates the metric to the max delay across the most recently processed blocks.
     fn update_chunks_metric(&mut self, head_height: BlockHeight) {
-        if head_height == self.prev_head_height {
-            return;
-        }
         let mut max_delay = 0;
         for (_, v) in self.heights.range(..=head_height) {
             if let Some(block_received) = v.block_received {
@@ -62,10 +59,10 @@ impl ChunksDelayTracker {
             }
         }
         near_metrics::set_gauge(&metrics::CHUNKS_RECEIVING_DELAY_US, max_delay as i64);
-        self.prev_head_height = head_height;
     }
 
-    fn update_blocks_missing_chunks_metric(&mut self, head_height: BlockHeight) {
+    // Computes the difference between the latest block we are aware of and the current head.
+    fn update_blocks_ahead_metric(&mut self, head_height: BlockHeight) {
         let value = if let Some((&latest, _)) = self.heights.iter().next_back() {
             latest.saturating_sub(head_height)
         } else {
@@ -76,7 +73,7 @@ impl ChunksDelayTracker {
 
     fn update_metrics(&mut self, head_height: BlockHeight) {
         self.update_chunks_metric(head_height);
-        self.update_blocks_missing_chunks_metric(head_height);
+        self.update_blocks_ahead_metric(head_height);
     }
 
     pub fn add_block_timestamp(

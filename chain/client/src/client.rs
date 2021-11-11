@@ -853,10 +853,6 @@ impl Client {
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        self.record_receive_chunk_timestamp(
-            partial_encoded_chunk.height_created(),
-            partial_encoded_chunk.shard_id(),
-        );
         fn missing_block_handler(
             client: &mut Client,
             pec: PartialEncodedChunkV2,
@@ -887,6 +883,10 @@ impl Client {
                 match process_result {
                     ProcessPartialEncodedChunkResult::Known => Ok(vec![]),
                     ProcessPartialEncodedChunkResult::HaveAllPartsAndReceipts(_) => {
+                        self.record_receive_chunk_timestamp(
+                            partial_encoded_chunk.height_created(),
+                            partial_encoded_chunk.shard_id(),
+                        );
                         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_hash);
                         Ok(self.process_blocks_with_missing_chunks(protocol_version))
                     }
