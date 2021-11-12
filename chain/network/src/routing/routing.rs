@@ -70,7 +70,7 @@ pub enum EdgeType {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "test_features", derive(Serialize, Deserialize))]
 pub struct Edge {
-    /// Since edges are not directed `peer0 < peer1` should hold.
+    /// Since edges are not directed `key.0 < peer1` should hold.
     pub key: (PeerId, PeerId),
     /// Nonce to keep tracking of the last update on this edge.
     /// It must be even
