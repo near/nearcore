@@ -1,6 +1,6 @@
 [package]
 name = "neard"
-version = "1.22.0-rc.4"
+version = "1.22.0-rc.5"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 publish = false
 edition = "2018"
